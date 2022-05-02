@@ -21,7 +21,7 @@ class message(commands.Cog, name="spawnBoss"):
         while True:
             global bossAlive
             if bossAlive == False:
-                await asyncio.sleep(random.randint(1,5))  # *60 time is expected in minutes
+                await asyncio.sleep(random.randint(0.1,7)*60*24)  # *60 time is expected in minutes
                 bossAlive = True
                 print("Boss spawned.")
                 imageName = "mobs/" + str(random.randint(1,4)) + ".gif"
@@ -78,7 +78,7 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(pass_context=True, name="atak", brief="Attacking the boss")
     async def attackMessage(self, ctx):
         global bossAlive
-        if True:
+        if bossAlive = True:
             author = discord.User.id
             await ctx.message.add_reaction("⚔️")
             await ctx.channel.send('Zaatakowałeś bossa <@' + format(ctx.message.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe!')
@@ -92,7 +92,7 @@ class message(commands.Cog, name="spawnBoss"):
             
 
             #Random BossHP and go with for loop
-            bossHP = random.randint(1,1) #random the number of turns
+            bossHP = random.randint(4,8) #random the number of turns
             print("Wylosowane HP bossa: " + str(bossHP))
             iterator = 0
 
