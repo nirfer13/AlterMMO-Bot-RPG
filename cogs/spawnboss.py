@@ -21,7 +21,7 @@ class message(commands.Cog, name="spawnBoss"):
         while True:
             global bossAlive
             if bossAlive == False:
-                await asyncio.sleep(random.randint(0.1,7)*60*24)  # *60 time is expected in minutes
+                await asyncio.sleep(random.randint(0.1,7))  # *60 time is expected in minutes
                 bossAlive = True
                 print("Boss spawned.")
                 imageName = "mobs/" + str(random.randint(1,4)) + ".gif"
