@@ -78,7 +78,7 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(pass_context=True, name="atak", brief="Attacking the boss")
     async def attackMessage(self, ctx):
         global bossAlive
-        if bossAlive = True:
+        if bossAlive == True:
             author = discord.User.id
             await ctx.message.add_reaction("⚔️")
             await ctx.channel.send('Zaatakowałeś bossa <@' + format(ctx.message.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe!')
