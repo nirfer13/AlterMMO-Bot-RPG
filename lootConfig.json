@@ -1,0 +1,25 @@
+{   
+
+	"loot_details": [
+	{
+		"id": 0,
+		"descr": "500 doświadczenia na Discordzie",
+		"weight": 80
+	},
+	{
+		"id": 1,
+		"descr": "2500 doświadczenia na Discordzie",
+		"weight": 15
+	},
+	{
+		"id": 2,
+		"descr": "5000 doświadczenia na Discordzie",
+		"weight": 4
+	},
+	{
+		"id": 3,
+		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
+		"weight": 1
+	}
+	]	
+}
