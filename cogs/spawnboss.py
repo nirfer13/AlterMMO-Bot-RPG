@@ -21,7 +21,7 @@ class message(commands.Cog, name="spawnBoss"):
         while True:
             global bossAlive
             if bossAlive == False:
-                await asyncio.sleep(random.randint(1,7))  # *60 time is expected in minutes
+                await asyncio.sleep(random.randint(1,2)*60)  # *60 time is expected in minutes
                 bossAlive = True
                 print("Boss spawned.")
                 imageName = "mobs/" + str(random.randint(1,4)) + ".gif"
@@ -149,6 +149,7 @@ class message(commands.Cog, name="spawnBoss"):
                     if response.lower() == requestedAction[0][choosenAction]:
                         #Boss killed?
                         if iterator >= bossHP:
+                            bossAlive = False
                             await ctx.channel.send('Brawo <@' + format(ctx.message.author.id) + '>! Pokonałeś bossa! <:POGGIES:790963160491753502><:POGGIES:790963160491753502><:POGGIES:790963160491753502>')
                             
                             #Time record
