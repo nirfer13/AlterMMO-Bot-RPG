@@ -21,7 +21,7 @@ class message(commands.Cog, name="spawnBoss"):
         while True:
             global bossAlive
             if bossAlive == False:
-                await asyncio.sleep(random.randint(1,60)*60)  # *60 time is expected in minutes
+                await asyncio.sleep(random.randint(1,24)*60)  # *60 time is expected in minutes
                 bossAlive = True
                 print("Boss spawned.")
                 imageName = "mobs/" + str(random.randint(1,4)) + ".gif"
@@ -161,6 +161,9 @@ class message(commands.Cog, name="spawnBoss"):
                                 
                             if datetime.datetime.strptime(previousRecord[0].rstrip('\n'), "%H:%M:%S.%f") > datetime.datetime.strptime(str(recordTime), "%H:%M:%S.%f"):
                                 await ctx.channel.send('Pobiłeś rekord i zgarniasz dodatkowe 3000 doświadczenia na discordzie!')
+                                chann = self.bot.get_channel(881090112576962560)
+                                #print(str(chann.name))
+                                await chann.send("<@291836779495948288>!   " + ctx.message.author.name + " otrzymał: 3000 expa za rekord")
                                 with open('recordTime.txt', 'w') as f:
                                   f.write(str(recordTime) + "\n")
                                   f.write(str(format(ctx.message.author.name)))                          
@@ -184,7 +187,7 @@ class message(commands.Cog, name="spawnBoss"):
                     break
         else:
             print("Boss is not alive!")
-            await ctx.channel.send('Boss nie żyje, poczekaj na jego spawn <@' + format(ctx.message.author.id) + '>!')
+            await ctx.channel.send('Boss nie żyje, poczekaj na jego respawn <@' + format(ctx.message.author.id) + '>!')
 
     # command to check boss kill record
     @commands.command(pass_context=True, name="rekord", brief="Check previous boss kill record")

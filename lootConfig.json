@@ -3,22 +3,37 @@
 	"loot_details": [
 	{
 		"id": 0,
-		"descr": "100 doświadczenia na Discordzie",
+		"descr": "500 doświadczenia na Discordzie",
 		"weight": 80
 	},
 	{
 		"id": 1,
-		"descr": "200 doświadczenia na Discordzie",
+		"descr": "2500 doświadczenia na Discordzie",
 		"weight": 15
 	},
 	{
 		"id": 2,
-		"descr": "300 doświadczenia na Discordzie",
+		"descr": "5000 doświadczenia na Discordzie",
 		"weight": 4
 	},
 	{
 		"id": 3,
-		"descr": "1000 doświadczenia na Discordzie",
+		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
+		"weight": 0.5
+	},
+	{
+		"id": 4,
+		"descr": "Gra na steam do 150 złotych",
+		"weight": 0.1
+	},
+	{
+		"id": 5,
+		"descr": "2h testowania na Twitchu wybranej przez Ciebie gry",
+		"weight": 0.5
+	},
+	{
+		"id": 6,
+		"descr": "Info na następnym filmie na YouTube o tym, jak heroicznie pokonałeś bossa",
 		"weight": 1
 	}
 	]	
