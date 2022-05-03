@@ -1,6 +1,7 @@
 from discord.errors import ClientException
 from discord.ext import commands
 from datetime import datetime
+
 import discord
 import asyncio
 import random
@@ -11,20 +12,40 @@ import json
 from discord.user import ClientUser
 from discord import Client
 
+import sys
+sys.path.insert(1, './functions/')
+import functions_general
+
 class message(commands.Cog, name="spawnBoss"):
     def __init__(self, bot):
         self.bot = bot
-        global bossAlive
-        bossAlive = False        
     
     #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
         while True:
             global bossAlive
-            if bossAlive == False:
-                await asyncio.sleep(random.randint(1,3600)*24)  # time in second
-                bossAlive = True
-                print("Boss spawned.")
+            if bossAlive == 0:
+               print("Preparing to channel clear. bossAlive = 0")
+               bossAlive = 1
+               await asyncio.sleep(60)
+            if bossAlive == 1:
+               bossAlive = 2
+               await functions_general.fClear(self, ctx)
+               print("Channel cleared. bossAlive = 1")
+               await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
+               #await asyncio.sleep(random.randint(30,31))  # time in second
+               await asyncio.sleep(random.randint(150,3600)*24)  # time in second
+            if bossAlive == 2:
+               bossAlive = 3
+               await functions_general.fClear(self, ctx)
+               print("Channel cleared. bossAlive = 2")
+               await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy...')
+               await asyncio.sleep(random.randint(3,10)*60)  # time in second
+            if bossAlive == 3:
+                bossAlive = 4
+                await functions_general.fClear(self, ctx)
+                print("Channel cleared.")
+                print("Boss spawned. bossAlive = 3")
                 imageName = "mobs/" + str(random.randint(1,4)) + ".gif"
                 embed = discord.Embed(
                     title="💀 Boss! 💀",
@@ -33,64 +54,47 @@ class message(commands.Cog, name="spawnBoss"):
                 await ctx.channel.send(file=discord.File(imageName))
                 await ctx.send(embed=embed)
             else:
-                await asyncio.sleep(5) #sleep for a while
-                
-                
-            
+                await asyncio.sleep(30) #sleep for a while
+    
     #create Spawn Boss task command
     @commands.command(name="startSpawnBoss", brief="Starts spawning boss")
     @commands.has_permissions(administrator=True)
     async def startMessage(self, ctx):
         print("Spawning started!")
         global bossAlive
-        bossAlive = False
+        bossAlive = 0
         self.task = self.bot.loop.create_task(self.spawn_task(ctx))
         
 
-    # command to stop periodic message
+    # command to stop Spawn Boss task
     @commands.command(pass_context=True, name="stopSpawnBoss", brief="Stops spawning boss")
     @commands.has_permissions(administrator=True)
     async def stopMessage(self, ctx):
         print("Spawning stopped!")
         global bossAlive
-        bossAlive = False
+        bossAlive = 0
         self.task.cancel()
-
-    # command to kill the boss
-    """@commands.command(pass_context=True, name="killBoss", brief="Kill the boss")
-    @commands.has_permissions(administrator=True)
-    async def killMessage(self, ctx):
-        global bossAlive
-        if bossAlive == True:
-            print("Boss killed!")
-            bossAlive = False
-        else:
-            print("Boss is not alive!")"""
-
-    #define Private Info about Event
-
-    @commands.command(pass_context=True, name="infoCheck", brief="Checking info command")
-    @commands.has_permissions(administrator=True)
-    async def infoMessage(self, ctx):
-        funcInfo("Test123")
-
 
     # command to attack the boss
     @commands.command(pass_context=True, name="atak", brief="Attacking the boss")
     async def attackMessage(self, ctx):
-        print (str(ctx.message.author.id))
         global bossAlive
-        if bossAlive == True or str(ctx.message.author.id) == '291836779495948288':
+        if bossAlive == 4 or str(ctx.message.author.id) == '291836779495948288':
             author = discord.User.id
             await ctx.message.add_reaction("⚔️")
             await ctx.channel.send('Zaatakowałeś bossa <@' + format(ctx.message.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe!')
 
             #Start time counting
-            startTime = datetime.datetime.utcnow()
+            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+            #Save resp time and nickname
+            chann = self.bot.get_channel(881090112576962560)
+            with open('lastKillInfo.txt', 'w') as f:
+                f.write(str(startTime) + "\n")
+                f.write(str(format(ctx.message.author.name)))
 
             #Random the message and requested action
-            requestedAction = [("unik", "atak", "paruj", "skok", "biegnij"), ("Boss szarżuje na Ciebie! Wpisz **UNIK**!!!", "Boss zawahał się! Teraz! Wpisz **ATAK**!!!", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**!!!", 
-            "Boss próbuje ataku w nogi, wpisz **SKOK**!!!", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **BIEGNIJ**!!!")]
+            requestedAction = [("unik", "atak", "paruj", "skok", "biegnij", "turlaj"), ("Boss szarżuje na Ciebie! Wpisz **UNIK**!!!", "Boss zawahał się! Teraz! Wpisz **ATAK**!!!", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**!!!", 
+            "Boss próbuje ataku w nogi, wpisz **SKOK**!!!", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **BIEGNIJ**!!!", "Boss atakuje w powietrzu, wpisz **TURLAJ**!!!")]
             
 
             #Random BossHP and go with for loop
@@ -151,11 +155,11 @@ class message(commands.Cog, name="spawnBoss"):
                     if response.lower() == requestedAction[0][choosenAction]:
                         #Boss killed?
                         if iterator >= bossHP:
-                            bossAlive = False
+                            bossAlive = 0
                             await ctx.channel.send('Brawo <@' + format(ctx.message.author.id) + '>! Pokonałeś bossa! <:POGGIES:790963160491753502><:POGGIES:790963160491753502><:POGGIES:790963160491753502>')
                             
                             #Time record
-                            endTime = datetime.datetime.utcnow()
+                            endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
                             recordTime = endTime - startTime
                             await ctx.channel.send('Zabicie bossa zajęło Ci: ' + str(recordTime).lstrip('0:00:') + ' sekundy!')
                             with open('recordTime.txt', 'r') as r:
@@ -181,15 +185,18 @@ class message(commands.Cog, name="spawnBoss"):
                             await ctx.channel.send('Brawo! <:pepeOK:783992337406623754>')
                     else:
                         await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
-                        bossAlive = False
+                        bossAlive = 0
                         break
                 except asyncio.TimeoutError:
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
-                    bossAlive = False
+                    bossAlive = 0
                     break
         else:
             print("Boss is not alive!")
             await ctx.channel.send('Boss nie żyje, poczekaj na jego respawn <@' + format(ctx.message.author.id) + '>!')
+
+
+    # ==================================== COMMANDS FOR USERS =======================================================================
 
     # command to check boss kill record
     @commands.command(pass_context=True, name="rekord", brief="Check previous boss kill record")
@@ -197,6 +204,15 @@ class message(commands.Cog, name="spawnBoss"):
         with open('recordTime.txt', 'r') as f:
             recordLines = f.readlines()
         await ctx.channel.send('Poprzedni rekord należy do **' + recordLines[1] + '** i wynosi **' + recordLines[0].rstrip('\n').lstrip('0:00:') + ' sekundy**.')
+
+    # command to check last boss kill
+    @commands.command(pass_context=True, name="kiedy", brief="Check previous boss kill time")
+    async def lastKillInfoMessage(self, ctx):
+        with open('lastKillInfo.txt', 'r') as f:
+            lastKillLines = f.readlines()
+        await ctx.channel.send('Poprzednio boss walczył z **' + lastKillLines[1] + '** i było to **' + lastKillLines[0].rstrip('\n') + '**.')
+
+
                      
 
 def setup(bot):

@@ -24,3 +24,7 @@ chyba że chcesz to mogę ci przekazać już tego stworzonego "AlterBot"
 8. Jeśli chcesz mieć inny prefix do kommend to linijka 17 w init.pys
 
 
+Komendy do CMD:
+
+git commit -am ""
+git push heroku master

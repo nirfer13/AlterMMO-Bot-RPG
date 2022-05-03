@@ -2,11 +2,17 @@ from discord.ext import commands
 import discord
 from datetime import datetime
 
+import sys
+sys.path.insert(1, './functions/')
+import functions_general
+
+
 # general bag for commands that does not fit anywhere else
 
 class general(commands.Cog, name="general"):
     def __init__(self, bot):
         self.bot = bot
+        print()
 
     # Check if the bot is alive.
     @commands.command(name="ping", brief="Check if bot is alive")
@@ -44,7 +50,14 @@ class general(commands.Cog, name="general"):
                     f"{first + second} \n\n",
                     file=f)
         print("last: ", limit, " were saved to file with name: " + file_name)
+    
 
+    # command to clear channel
+    @commands.command(pass_context = True, brief="Clear channel messages")
+    @commands.has_any_role("⚡Game Master", "🍕Creative Game Grandmaster")
+    async def clear(self, ctx):
+        await functions_general.fClear(self, ctx)
+    
     # Just debug action, printing to console when ready and logged in.
     @commands.Cog.listener()
     async def on_ready(self):
