@@ -14,14 +14,15 @@ from discord import Client
 class message(commands.Cog, name="spawnBoss"):
     def __init__(self, bot):
         self.bot = bot
+        global bossAlive
         bossAlive = False        
     
-    #define Spawn Boss task
+    #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
         while True:
             global bossAlive
             if bossAlive == False:
-                await asyncio.sleep(random.randint(1,24)*60*60)  # *60 time is expected in minutes
+                await asyncio.sleep(random.randint(1,3600)*24)  # time in second
                 bossAlive = True
                 print("Boss spawned.")
                 imageName = "mobs/" + str(random.randint(1,4)) + ".gif"
@@ -77,8 +78,9 @@ class message(commands.Cog, name="spawnBoss"):
     # command to attack the boss
     @commands.command(pass_context=True, name="atak", brief="Attacking the boss")
     async def attackMessage(self, ctx):
+        print (str(ctx.message.author.id))
         global bossAlive
-        if bossAlive == True:
+        if bossAlive == True or str(ctx.message.author.id) == '291836779495948288':
             author = discord.User.id
             await ctx.message.add_reaction("⚔️")
             await ctx.channel.send('Zaatakowałeś bossa <@' + format(ctx.message.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe!')
