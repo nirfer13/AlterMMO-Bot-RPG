@@ -1,0 +1,13 @@
+Patch 0.1:
+- Czyszczenie kanału po każdym zabiciu bossa,
+- Budowanie klimatu przed respem bossa, dzięki czemu można przygotować się na walkę,
+- Dodanie komendy #kiedy, która sprawdza kto i kiedy ostatnio walczył z bossem.
+
+Patch 0.2
+- W zależnośi od czasu respawna zmienia się rzadkość bossa. Im dłuższy respawn, tym potężniejszy boss i lepszy loot (nawet do x6!).
+- Dodanie kolejnych wizerunków bossa w zależności od rzadkości,
+- Delikatna zmiana komunikatu z pojawiającym się bossem,
+- Narzędzia do debugowania dla administratora (czas respawnu, informacje o niepowodzeniach),
+- Zmiana komendy inicjującej walkę na #zaatakuj,
+
+Hp do sprawdzenia i wrzucenia do funkcji

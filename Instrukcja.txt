@@ -26,5 +26,9 @@ chyba że chcesz to mogę ci przekazać już tego stworzonego "AlterBot"
 
 Komendy do CMD:
 
+git add --all
 git commit -am ""
 git push heroku master
+git update-index --assume-unchanged lastKillInfo.txt
+git ls-files -v
+heroku logs

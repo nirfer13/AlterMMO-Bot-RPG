@@ -1,3 +1,5 @@
+from logging import DEBUG
+from discord import channel
 from discord.errors import ClientException
 from discord.ext import commands
 from datetime import datetime
@@ -13,46 +15,79 @@ from discord.user import ClientUser
 from discord import Client
 
 import sys
+from functions.functions_boss import fRandomBossHp
 sys.path.insert(1, './functions/')
 import functions_general
+import functions_boss
+
+#Debug Mode?
+global DebugMode
+DebugMode = False
+
+#Respawn time
+global respTime
+respTime = 0
+
 
 class message(commands.Cog, name="spawnBoss"):
     def __init__(self, bot):
         self.bot = bot
+        #Channel to log info for administrator
+        
     
     #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
         while True:
             global bossAlive
+            #=== Episode 0
             if bossAlive == 0:
                print("Preparing to channel clear. bossAlive = 0")
                bossAlive = 1
-               await asyncio.sleep(60)
+               if DebugMode == False:
+                    await asyncio.sleep(600)
+               else:
+                    await asyncio.sleep(10)
+            #=== Episode 1 - Waiting
             if bossAlive == 1:
                bossAlive = 2
                await functions_general.fClear(self, ctx)
                print("Channel cleared. bossAlive = 1")
                await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
                #await asyncio.sleep(random.randint(30,31))  # time in second
-               await asyncio.sleep(random.randint(150,3600)*24)  # time in second
+               global respTime
+               if DebugMode == False:
+                    respTime = random.randint(150,3600)*24
+                    await asyncio.sleep(respTime)  # time in second
+               else:
+                    respTime = random.randint(1,24)
+                    await asyncio.sleep(respTime)  # time in second
+               
+            #=== Episode 2 - Before fight
             if bossAlive == 2:
                bossAlive = 3
+
+               #Channel Clear
                await functions_general.fClear(self, ctx)
                print("Channel cleared. bossAlive = 2")
-               await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy...')
-               await asyncio.sleep(random.randint(3,10)*60)  # time in second
+
+               #Boss rarity
+               global bossRarity
+               bossRarity = functions_boss.fBossRarity(respTime)
+               print("Resp time: " + str(respTime))
+               print("Boss Rarity: " + str(bossRarity))
+               
+               await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>')
+               if DebugMode == False:
+                    await asyncio.sleep(random.randint(3,10)*60)  # time in second
+               else:
+                    await asyncio.sleep(random.randint(3,10))  # time in second
+            #=== Episode 3 - Boss respawn
             if bossAlive == 3:
                 bossAlive = 4
                 await functions_general.fClear(self, ctx)
                 print("Channel cleared.")
-                print("Boss spawned. bossAlive = 3")
-                imageName = "mobs/" + str(random.randint(1,4)) + ".gif"
-                embed = discord.Embed(
-                    title="💀 Boss! 💀",
-                    description=f"Pojawił się potężny potwór! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **#atak**, żeby rozpocząć walkę! ⚔️",
-                    color=0xFFA500)
-                await ctx.channel.send(file=discord.File(imageName))
-                await ctx.send(embed=embed)
+                #Send boss image based on rarity
+                await functions_boss.fBossImage(self, ctx, bossRarity)
             else:
                 await asyncio.sleep(30) #sleep for a while
     
@@ -75,8 +110,14 @@ class message(commands.Cog, name="spawnBoss"):
         bossAlive = 0
         self.task.cancel()
 
+    # command to check Spawn Boss
+    @commands.command(pass_context=True, name="checkSpawnBoss", brief="Checking boss spawn time")
+    @commands.has_permissions(administrator=True)
+    async def checkSpawnMessage(self, ctx):
+        await ctx.channel.send("Resp time is " + str(respTime/60/60) + " hours.")
+
     # command to attack the boss
-    @commands.command(pass_context=True, name="atak", brief="Attacking the boss")
+    @commands.command(pass_context=True, name="zaatakuj", brief="Attacking the boss")
     async def attackMessage(self, ctx):
         global bossAlive
         if bossAlive == 4 or str(ctx.message.author.id) == '291836779495948288':
@@ -96,9 +137,7 @@ class message(commands.Cog, name="spawnBoss"):
             requestedAction = [("unik", "atak", "paruj", "skok", "biegnij", "turlaj"), ("Boss szarżuje na Ciebie! Wpisz **UNIK**!!!", "Boss zawahał się! Teraz! Wpisz **ATAK**!!!", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**!!!", 
             "Boss próbuje ataku w nogi, wpisz **SKOK**!!!", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **BIEGNIJ**!!!", "Boss atakuje w powietrzu, wpisz **TURLAJ**!!!")]
             
-
-            #Random BossHP and go with for loop
-            bossHP = random.randint(4,8) #random the number of turns
+            bossHP = fRandomBossHp(bossRarity)
             print("Wylosowane HP bossa: " + str(bossHP))
             iterator = 0
 
@@ -106,30 +145,6 @@ class message(commands.Cog, name="spawnBoss"):
             channel = ctx.channel
             def check(m):
                 return m.channel == channel
-
-
-            #define Loot
-            def randLoot():
-                with open("lootConfig.json", encoding='utf-8') as jsonFile:
-                    jsonObject = json.loads(jsonFile.read())
-                
-                lootDescrList = []
-                lootWeightList = []
-                for loot in jsonObject['loot_details']:
-                    lootDescrList.append(loot['descr'])
-                    lootWeightList.append(loot['weight'])
-
-                #print(lootDescrList)
-                #print(lootWeightList)
-
-                global dropLoot
-                dropLoot = random.choices(lootDescrList, lootWeightList)
-                
-                #Embed create   
-                embed=discord.Embed(title='Boss Drop', url='https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png', description='Boss wydropił:\n👉 ' + str(dropLoot[0]), color=0xfcdb03)
-                embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png')
-                embed.set_footer(text='Gratulacje!')
-                return embed
 
 
             #Start whole fight
@@ -148,7 +163,8 @@ class message(commands.Cog, name="spawnBoss"):
                     if iterator == 1:
                         cmdTimeout = 7
                     else:
-                        cmdTimeout = 3
+                        #Timeout depends on boss rarity
+                        cmdTimeout = 5 - bossRarity
                     msg = await self.bot.wait_for('message', check=check, timeout=cmdTimeout)
                     response = str(msg.content)
 
@@ -167,28 +183,32 @@ class message(commands.Cog, name="spawnBoss"):
                                 
                             if datetime.datetime.strptime(previousRecord[0].rstrip('\n'), "%H:%M:%S.%f") > datetime.datetime.strptime(str(recordTime), "%H:%M:%S.%f"):
                                 await ctx.channel.send('Pobiłeś rekord i zgarniasz dodatkowe 3000 doświadczenia na discordzie!')
-                                chann = self.bot.get_channel(881090112576962560)
                                 #print(str(chann.name))
-                                await chann.send("<@291836779495948288>!   " + ctx.message.author.name + " otrzymał: 3000 expa za rekord")
+                                logChannel = self.bot.get_channel(881090112576962560)
+                                await logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " otrzymał: 3000 expa za rekord")
                                 with open('recordTime.txt', 'w') as f:
                                   f.write(str(recordTime) + "\n")
                                   f.write(str(format(ctx.message.author.name)))                          
                             
                             #Randomize Loot
-                            await ctx.send(embed=randLoot())
+                            emb, dropLoot = functions_boss.randLoot(bossRarity)
+                            await ctx.send(embed=emb) 
                             #Send info about loot
-                            chann = self.bot.get_channel(881090112576962560)
-                            #print(str(chann.name))
-                            await chann.send("<@291836779495948288>!   " + ctx.message.author.name + " otrzymał: " + str(dropLoot[0]))
+                            logChannel = self.bot.get_channel(881090112576962560)
+                            await logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " otrzymał: " + str(dropLoot[0]))
                             
                         else:
                             await ctx.channel.send('Brawo! <:pepeOK:783992337406623754>')
                     else:
                         await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
+                        logChannel = self.bot.get_channel(881090112576962560)
+                        await  logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " pomylił się i nie zabił bossa.")
                         bossAlive = 0
                         break
                 except asyncio.TimeoutError:
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
+                    logChannel = self.bot.get_channel(881090112576962560)
+                    await  logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " nie zdążył wpisać komend i boss uciekł.")
                     bossAlive = 0
                     break
         else:
@@ -212,6 +232,22 @@ class message(commands.Cog, name="spawnBoss"):
             lastKillLines = f.readlines()
         await ctx.channel.send('Poprzednio boss walczył z **' + lastKillLines[1] + '** i było to **' + lastKillLines[0].rstrip('\n') + '**.')
 
+    # ==================================== COMMANDS FOR DEBUG =======================================================================
+
+    # command to debug
+    @commands.command(pass_context=True, name="rarity")
+    async def bossRarity(self, ctx, time):
+        await ctx.channel.send(str(functions_boss.fBossRarity(time)))
+
+    # command to debug
+    @commands.command(pass_context=True, name="image")
+    async def bossImage(self, ctx, rarity):
+        await functions_boss.fBossImage(self, ctx, rarity)
+
+    # command to debug
+    @commands.command(pass_context=True, name="hp")
+    async def bossHp(self, ctx, rarity):
+        await ctx.channel.send(str(fRandomBossHp(rarity)))
 
                      
 
