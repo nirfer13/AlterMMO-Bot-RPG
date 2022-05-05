@@ -4,10 +4,8 @@ Patch 0.1:
 - Dodanie komendy #kiedy, która sprawdza kto i kiedy ostatnio walczył z bossem.
 
 Patch 0.2
-- W zależnośi od czasu respawna zmienia się rzadkość bossa. Im dłuższy respawn, tym potężniejszy boss i lepszy loot (nawet do x6!).
+- W zależnośi od czasu respawna zmienia się rzadkość bossa. Im dłuższy respawn, tym potężniejszy boss i lepszy loot (nawet do x6!),
+- Zmiana komendy inicjującej walkę na #zaatakuj,
 - Dodanie kolejnych wizerunków bossa w zależności od rzadkości,
 - Delikatna zmiana komunikatu z pojawiającym się bossem,
-- Narzędzia do debugowania dla administratora (czas respawnu, informacje o niepowodzeniach),
-- Zmiana komendy inicjującej walkę na #zaatakuj,
-
-Hp do sprawdzenia i wrzucenia do funkcji
+- Narzędzia do debugowania dla administratora (czas respawnu, informacje o niepowodzeniach).
