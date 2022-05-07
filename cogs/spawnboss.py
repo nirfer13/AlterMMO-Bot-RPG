@@ -22,7 +22,7 @@ import functions_boss
 
 #Debug Mode?
 global DebugMode
-DebugMode = False
+DebugMode = True
 
 #Respawn time
 global respTime
@@ -59,7 +59,7 @@ class message(commands.Cog, name="spawnBoss"):
                     respTime = random.randint(150,3600)*24
                     await asyncio.sleep(respTime)  # time in second
                else:
-                    respTime = random.randint(1,24)
+                    respTime = random.randint(15,24)
                     await asyncio.sleep(respTime)  # time in second
                
             #=== Episode 2 - Before fight
@@ -80,7 +80,7 @@ class message(commands.Cog, name="spawnBoss"):
                if DebugMode == False:
                     await asyncio.sleep(random.randint(3,10)*60)  # time in second
                else:
-                    await asyncio.sleep(random.randint(3,10))  # time in second
+                    await asyncio.sleep(random.randint(3,10)*60)  # time in second
             #=== Episode 3 - Boss respawn
             if bossAlive == 3:
                 bossAlive = 4
@@ -171,7 +171,8 @@ class message(commands.Cog, name="spawnBoss"):
                     if response.lower() == requestedAction[0][choosenAction]:
                         #Boss killed?
                         if iterator >= bossHP:
-                            bossAlive = 0
+                            bossAlive = 5
+                            self.task.cancel()
                             await ctx.channel.send('Brawo <@' + format(ctx.message.author.id) + '>! Pokonałeś bossa! <:POGGIES:790963160491753502><:POGGIES:790963160491753502><:POGGIES:790963160491753502>')
                             
                             #Time record
@@ -203,13 +204,15 @@ class message(commands.Cog, name="spawnBoss"):
                         await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
                         logChannel = self.bot.get_channel(881090112576962560)
                         await  logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " pomylił się i nie zabił bossa.")
-                        bossAlive = 0
+                        bossAlive = 5
+                        self.task.cancel()
                         break
                 except asyncio.TimeoutError:
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
                     logChannel = self.bot.get_channel(881090112576962560)
                     await  logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " nie zdążył wpisać komend i boss uciekł.")
-                    bossAlive = 0
+                    bossAlive = 5
+                    self.task.cancel()
                     break
         else:
             print("Boss is not alive!")
