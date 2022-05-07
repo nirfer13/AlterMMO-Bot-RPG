@@ -86,6 +86,7 @@ class message(commands.Cog, name="spawnBoss"):
                 bossAlive = 4
                 await functions_general.fClear(self, ctx)
                 print("Channel cleared.")
+                print("Boss appeared.")
                 #Send boss image based on rarity
                 await functions_boss.fBossImage(self, ctx, bossRarity)
             else:
@@ -114,13 +115,14 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(pass_context=True, name="checkSpawnBoss", brief="Checking boss spawn time")
     @commands.has_permissions(administrator=True)
     async def checkSpawnMessage(self, ctx):
-        await ctx.channel.send("Resp time is " + str(respTime/60/60) + " hours.")
+        await ctx.channel.send("Resp time is " + str(respTime) + " hours.") #TORE resp to /60/60
 
     # command to attack the boss
     @commands.command(pass_context=True, name="zaatakuj", brief="Attacking the boss")
     async def attackMessage(self, ctx):
         global bossAlive
         if bossAlive == 4 or str(ctx.message.author.id) == '291836779495948288':
+            bossAlive = 5
             author = discord.User.id
             await ctx.message.add_reaction("⚔️")
             await ctx.channel.send('Zaatakowałeś bossa <@' + format(ctx.message.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe!')
@@ -172,7 +174,7 @@ class message(commands.Cog, name="spawnBoss"):
                         #Boss killed?
                         if iterator >= bossHP:
                             bossAlive = 5
-                            self.task.cancel()
+                            self.task.cancel() #TORE
                             await ctx.channel.send('Brawo <@' + format(ctx.message.author.id) + '>! Pokonałeś bossa! <:POGGIES:790963160491753502><:POGGIES:790963160491753502><:POGGIES:790963160491753502>')
                             
                             #Time record
@@ -205,14 +207,14 @@ class message(commands.Cog, name="spawnBoss"):
                         logChannel = self.bot.get_channel(881090112576962560)
                         await  logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " pomylił się i nie zabił bossa.")
                         bossAlive = 5
-                        self.task.cancel()
+                        self.task.cancel() #TORE
                         break
                 except asyncio.TimeoutError:
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
                     logChannel = self.bot.get_channel(881090112576962560)
                     await  logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " nie zdążył wpisać komend i boss uciekł.")
                     bossAlive = 5
-                    self.task.cancel()
+                    self.task.cancel() #TORE
                     break
         else:
             print("Boss is not alive!")
