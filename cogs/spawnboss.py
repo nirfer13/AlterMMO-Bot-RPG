@@ -87,17 +87,23 @@ class message(commands.Cog, name="spawnBoss"):
                    await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
                    if DebugMode == False:
                         respTime = random.randint(150,3600)*24
+                        #Save Resp to file
+                        bossRarity = functions_boss.fBossRarity(respTime)
+                        functions_boss.fSaveRespawnToFile(respTime, bossRarity, True)
+
+                        print("Resp time: " + str(respTime))
+                        print("Boss Rarity: " + str(bossRarity))
                         await asyncio.sleep(respTime)  # time in second
                    else:
                         respTime = random.randint(15,24)
-                        await asyncio.sleep(respTime)  # time in second
-                   #Save Resp to file
-                   bossRarity = functions_boss.fBossRarity(respTime)
-                   functions_boss.fSaveRespawnToFile(respTime, bossRarity, True)
+                        #Save Resp to file
+                        bossRarity = functions_boss.fBossRarity(respTime)
+                        functions_boss.fSaveRespawnToFile(respTime, bossRarity, True)
 
-                   
-                   print("Resp time: " + str(respTime))
-                   print("Boss Rarity: " + str(bossRarity))
+                        print("Resp time: " + str(respTime))
+                        print("Boss Rarity: " + str(bossRarity))
+                        await asyncio.sleep(respTime)  # time in second
+
             #Resume Spawn
             else:
                 if bossAlive == 1:
@@ -122,7 +128,7 @@ class message(commands.Cog, name="spawnBoss"):
                
                await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>')
                if DebugMode == False:
-                    await asyncio.sleep(random.randint(3,10)*60)  # time in second
+                    await asyncio.sleep(random.randint(5,10)*60)  # time in second
                else:
                     await asyncio.sleep(random.randint(3,10))  # time in second
             #=== Episode 3 - Boss respawn
