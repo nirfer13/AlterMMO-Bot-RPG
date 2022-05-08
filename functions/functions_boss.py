@@ -3,7 +3,11 @@ import discord
 import asyncio
 import random
 import json
+
 from datetime import datetime, timedelta
+
+import time
+import datetime
 
 # general bag for functions
 global DebugMode
@@ -157,6 +161,41 @@ class functions_boss(commands.Cog, name="functions_boss"):
             maxHp = 4
         bossHP = random.randint(minHp,maxHp)
         return bossHP
+
+    #function to save respawn time to file
+    global fSaveRespawnToFile
+    def fSaveRespawnToFile (respawnTime, bossRarity, respStarted):
+        intRespawnTime = int(respawnTime)
+        Time = datetime.datetime.utcnow() + datetime.timedelta(hours=2) + datetime.timedelta(seconds=intRespawnTime)
+        with open('respawnTimeInfo.txt', 'w') as f:
+            f.write(str(Time) + '\n')
+            f.write(str(bossRarity) + '\n')
+            f.write(str(respStarted))
+
+    #function to read respawn time from file
+    global fReadRespawnFromFile
+    def fReadRespawnFromFile ():
+        with open('respawnTimeInfo.txt', 'r') as r:
+            readLines = r.readlines()
+        #line 0
+        spawnTimestamp = datetime.datetime.strptime(readLines[0].rstrip('\n'), "%Y-%m-%d %H:%M:%S.%f")
+        print(str(spawnTimestamp))
+        secondsToSpawn = spawnTimestamp - (datetime.datetime.utcnow() + datetime.timedelta(hours=2))
+        #line 1
+        bossRarity = readLines[1].rstrip('\n')
+        #line 2
+        respStarted = readLines[2]
+
+        return secondsToSpawn.total_seconds(), bossRarity, respStarted
+
+    #function to get context
+    global getContext
+    async def getContext(self, channelID, messageID):
+        channel = self.bot.get_channel(channelID)
+        msg = await channel.fetch_message(messageID)
+        ctx = await self.bot.get_context(msg)
+        return ctx
+
 
 
 
