@@ -46,7 +46,10 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.Cog.listener()
     async def on_ready(self):
         global ctx
-        ctx = await functions_boss.getContext(self, 970571647226642442, 972797895340339272)
+        if DebugMode == True:
+            ctx = await functions_boss.getContext(self, 970571647226642442, 972797895340339272)
+        else:
+            ctx = await functions_boss.getContext(self, 970684202880204831, 970685713026801685)
         global bossAlive, bossRarity, respTime, respawnResume
         respawnTime, bossRar, strRespawnResume = functions_boss.fReadRespawnFromFile()
         respawnResume = (strRespawnResume == "True")
