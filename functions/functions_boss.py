@@ -167,6 +167,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
     def fSaveRespawnToFile (respawnTime, bossRarity, respStarted):
         intRespawnTime = int(respawnTime)
         Time = datetime.datetime.utcnow() + datetime.timedelta(hours=2) + datetime.timedelta(seconds=intRespawnTime)
+        print("Respawn timestamp saved to file: " + str(Time))
         with open('respawnTimeInfo.txt', 'w') as f:
             f.write(str(Time) + '\n')
             f.write(str(bossRarity) + '\n')
