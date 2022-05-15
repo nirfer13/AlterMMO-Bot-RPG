@@ -243,15 +243,15 @@ class message(commands.Cog, name="spawnBoss"):
                             with open('recordTime.txt', 'r') as r:
                                 previousRecord = r.readlines()
                                 
-                            if datetime.datetime.strptime(previousRecord[0].rstrip('\n'), "%H:%M:%S.%f") > datetime.datetime.strptime(str(recordTime), "%H:%M:%S.%f"):
-                                await ctx.channel.send('Pobiłeś rekord i zgarniasz dodatkowe 3000 doświadczenia na discordzie!')
-                                #print(str(chann.name))
-                                logChannel = self.bot.get_channel(881090112576962560)
-                                await logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " otrzymał: 3000 expa za rekord")
-                                functions_boss.fSaveRespawnToFile(0, 0, False)
-                                with open('recordTime.txt', 'w') as f:
-                                    f.write(str(recordTime) + "\n")
-                                    f.write(str(format(ctx.message.author.name)))                          
+                            #if datetime.datetime.strptime(previousRecord[0].rstrip('\n'), "%H:%M:%S.%f") > datetime.datetime.strptime(str(recordTime), "%H:%M:%S.%f"):
+                            #    await ctx.channel.send('Pobiłeś rekord i zgarniasz dodatkowe 3000 doświadczenia na discordzie!')
+                            #    #print(str(chann.name))
+                            #    logChannel = self.bot.get_channel(881090112576962560)
+                            #    await logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " otrzymał: 3000 expa za rekord")
+                            #    functions_boss.fSaveRespawnToFile(0, 0, False)
+                            #    with open('recordTime.txt', 'w') as f:
+                            #        f.write(str(recordTime) + "\n")
+                            #        f.write(str(format(ctx.message.author.name)))                          
                             
                             #Randomize Loot
                             emb, dropLoot = functions_boss.randLoot(bossRarity)
