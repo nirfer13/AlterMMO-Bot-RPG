@@ -1,10 +1,14 @@
 from discord.ext import commands
 import discord
-from datetime import datetime
+from datetime import datetime, timezone
 
+import datetime
 import sys
 sys.path.insert(1, './functions/')
 import functions_general
+
+import functions_database
+
 
 
 # general bag for commands that does not fit anywhere else
@@ -34,7 +38,7 @@ class general(commands.Cog, name="general"):
         guild = ctx.guild
         messages = await ctx.channel.history(limit=limit).flatten()
         reverseMessages = messages.reverse()
-        now = datetime.now() # current date and time
+        now = datetime.datetime.utcnow() # current date and time
         file_name = now.strftime("%m_%d_%Y_%H_%M_%S")
         with open(file_name + ".txt", "a+", encoding="utf-8") as f:
             for message in messages:
@@ -64,7 +68,6 @@ class general(commands.Cog, name="general"):
         print('ready')
         print('Logged in as:  ', self.bot.user)
         print('ID:  ', self.bot.user.id)
-
 
 def setup(bot):
     bot.add_cog(general(bot))

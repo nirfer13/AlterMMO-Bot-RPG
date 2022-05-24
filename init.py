@@ -14,7 +14,7 @@ intents.members = True
 
 #commands prefix == #
 bot = commands.Bot(
-    command_prefix='#',
+    command_prefix='^',
     description=description,
     intents=intents)
 

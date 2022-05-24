@@ -20,10 +20,11 @@ from functions.functions_boss import fRandomBossHp
 sys.path.insert(1, './functions/')
 import functions_general
 import functions_boss
+import functions_database
 
 #Debug Mode?
 global DebugMode
-DebugMode = False
+DebugMode = True
 
 #Respawn time
 global respTime
@@ -45,22 +46,31 @@ class message(commands.Cog, name="spawnBoss"):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        
+        #Database Initialization
+        global dbConnection
+        global dbCursor
+        dbConnection, dbCursor = functions_database.connectToDB()
+
+        #Choose channel to spawn boss
         global ctx
         if DebugMode == True:
             ctx = await functions_boss.getContext(self, 970571647226642442, 972797895340339272)
         else:
             ctx = await functions_boss.getContext(self, 970684202880204831, 970685713026801685)
         global bossAlive, bossRarity, respTime, respawnResume
-        respawnTime, bossRar, strRespawnResume = functions_boss.fReadRespawnFromFile()
-        respawnResume = (strRespawnResume == "True")
-        print("Resume?: " + str(respawnResume))
-        if respawnResume == True:
-            bossAlive = 1
-            bossRarity = int(bossRar)
-            respTime = int(respawnTime)
-            print("Task resuming...")
-            self.task = self.bot.loop.create_task(self.spawn_task(ctx))
-            print("Task resumed.")
+        #respawnTime, bossRar, strRespawnResume = functions_boss.fReadRespawnFromFile() File to remove?
+
+        #bossRar, respawnTime, respawnResume = functions_database.readBossTable(dbCursor)
+
+        #print("Resume?: " + str(respawnResume))
+        #if respawnResume == True:
+        #    bossAlive = 1
+        #    bossRarity = int(bossRar)
+        #    respTime = respawnTime
+        #    print("Task resuming...")
+        #    self.task = self.bot.loop.create_task(self.spawn_task(ctx))
+        #    print("Task resumed.")
     
     #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
@@ -76,7 +86,7 @@ class message(commands.Cog, name="spawnBoss"):
                if DebugMode == False:
                     await asyncio.sleep(300)
                else:
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(3)
             #=== Episode 1 - Waiting
             #New Spawn
             if respawnResume == False:
@@ -89,7 +99,8 @@ class message(commands.Cog, name="spawnBoss"):
                         respTime = random.randint(150,3600)*24
                         #Save Resp to file
                         bossRarity = functions_boss.fBossRarity(respTime)
-                        functions_boss.fSaveRespawnToFile(respTime, bossRarity, True)
+                        #functions_boss.fSaveRespawnToFile(respTime, bossRarity, True)
+                        functions_database.updateBossTable(dbCursor, bossRarity, respTime, True)
 
                         print("Resp time: " + str(respTime))
                         print("Boss Rarity: " + str(bossRarity))
@@ -98,7 +109,8 @@ class message(commands.Cog, name="spawnBoss"):
                         respTime = random.randint(15,24)
                         #Save Resp to file
                         bossRarity = functions_boss.fBossRarity(respTime)
-                        functions_boss.fSaveRespawnToFile(respTime, bossRarity, True)
+                        #functions_boss.fSaveRespawnToFile(respTime, bossRarity, True)
+                        functions_database.updateBossTable(dbCursor, bossRarity, respTime, True)
 
                         print("Resp time: " + str(respTime))
                         print("Boss Rarity: " + str(bossRarity))
@@ -160,7 +172,8 @@ class message(commands.Cog, name="spawnBoss"):
         global bossAlive, respawnResume
         respawnResume = False
         bossAlive = 0
-        functions_boss.fSaveRespawnToFile(0, 0, False)
+        #functions_boss.fSaveRespawnToFile(0, 0, False)
+        functions_database.updateBossTable(dbCursor, 0, 0, False)
         self.task.cancel()
 
     # command to check Spawn Boss
@@ -192,8 +205,8 @@ class message(commands.Cog, name="spawnBoss"):
                 f.write(str(format(ctx.message.author.name)))
 
             #Random the message and requested action
-            requestedAction = [("unik", "atak", "paruj", "skok", "biegnij", "turlaj"), ("Boss szarżuje na Ciebie! Wpisz **UNIK**!!!", "Boss zawahał się! Teraz! Wpisz **ATAK**!!!", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**!!!", 
-            "Boss próbuje ataku w nogi, wpisz **SKOK**!!!", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **BIEGNIJ**!!!", "Boss atakuje w powietrzu, wpisz **TURLAJ**!!!")]
+            requestedAction = [("unik", "atak", "paruj", "skok", "biegnij", "turlaj"), ("Boss szarżuje na Ciebie! Wpisz **UNIK**", "Boss zawahał się! Teraz! Wpisz **ATAK**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**", 
+            "Boss próbuje ataku w nogi, wpisz **SKOK**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **BIEGNIJ**", "Boss atakuje w powietrzu, wpisz **TURLAJ**")]
             
             bossHP = fRandomBossHp(bossRarity)
             print("Wylosowane HP bossa: " + str(bossHP))
@@ -266,7 +279,8 @@ class message(commands.Cog, name="spawnBoss"):
                         await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
                         logChannel = self.bot.get_channel(881090112576962560)
                         await  logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " pomylił się i nie zabił bossa.")
-                        functions_boss.fSaveRespawnToFile(0, 0, False)
+                        #functions_boss.fSaveRespawnToFile(0, 0, False)
+                        functions_database.updateBossTable(dbCursor, 0, 0, False)
                         bossAlive = 0
                         break
                         
@@ -274,7 +288,8 @@ class message(commands.Cog, name="spawnBoss"):
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
                     logChannel = self.bot.get_channel(881090112576962560)
                     await  logChannel.send("<@291836779495948288>!   " + ctx.message.author.name + " nie zdążył wpisać komend i boss uciekł.")
-                    functions_boss.fSaveRespawnToFile(0, 0, False)
+                    #functions_boss.fSaveRespawnToFile(0, 0, False)
+                    functions_database.updateBossTable(dbCursor, 0, 0, False)
                     bossAlive = 0
                     break
         else:
@@ -344,6 +359,43 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def context(self, ctx):
         await functions_boss.getContext(self)
+
+    # ====== Database Commands to Debug
+
+    @commands.command(name="updateDatabase")
+    @commands.has_permissions(administrator=True)
+    async def updateDatabase(self, ctx, bossRarity, respTime, respBool):
+        functions_database.updateBossTable(dbCursor, bossRarity, respTime, respBool)
+        await ctx.channel.send("Database updated.")
+
+    @commands.command(name="readDatabase")
+    @commands.has_permissions(administrator=True)
+    async def readDatabase(self, ctx):
+        bossRar, respawnTime, respawnResume = functions_database.readBossTable(dbCursor)
+        print ("Boss rarity from database: " + str(bossRar))
+        print ("Boss respawn time from database: " + str(respawnTime))
+        print ("Boss respawn resume from database: " + str(respawnResume))
+        await ctx.channel.send("Czy boss będzie wskrzeszony?: " + str(respawnResume))
+
+    @commands.command(name="openDatabase")
+    @commands.has_permissions(administrator=True)
+    async def openDatabase(self, ctx):
+        global dbConnection, dbCursor
+        dbConnection, dbCursor = functions_database.connectToDB()
+        await ctx.channel.send("Połączenie z bazą otwarte.")
+
+    @commands.command(name="closeDatabase")
+    @commands.has_permissions(administrator=True)
+    async def closeDatabase(self, ctx):
+        functions_database.closeTable(dbConnection)
+        await ctx.channel.send("Połączenie z bazą zamknięte.")
+
+    @commands.command(name="createDatabase")
+    @commands.has_permissions(administrator=True)
+    async def createDatabase(self, ctx):
+        functions_database.createBossTable(dbCursor)
+        await ctx.channel.send("Baza danych utworzona.")
+        
 
                      
 

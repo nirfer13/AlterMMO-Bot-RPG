@@ -197,10 +197,5 @@ class functions_boss(commands.Cog, name="functions_boss"):
         ctx = await self.bot.get_context(msg)
         return ctx
 
-
-
-
-
-
 def setup(bot):
     bot.add_cog(functions_boss(bot))
