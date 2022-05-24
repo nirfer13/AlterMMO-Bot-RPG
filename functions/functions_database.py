@@ -17,9 +17,9 @@ class functions_database(commands.Cog, name="functions_database"):
     def connectToDB():
         try:
             #Establishing the connection
-            #dbConnection = psycopg2.connect("user='mmdwhvtnjwblac' password='782de07844793afd8ae1997e523fbcd1349b08818149959e223441dcc8381f65' host='ec2-3-248-121-12.eu-west-1.compute.amazonaws.com' dbname='df4a2fdv7t85he' sslmode='require'")
-            DATABASE_URL = os.environ['DATABASE_URL']
-            dbConnection = psycopg2.connect(DATABASE_URL, sslmode='require')
+            dbConnection = psycopg2.connect("dbname='d2am99h8cekkeo' user='hkheidzoebbhxe' password='d545d32cdd85d3018184ff7f82a9129180f577ed9e03e71f9fe05e93d9cd19ee' host='ec2-63-35-156-160.eu-west-1.compute.amazonaws.com' sslmode='require'")
+            #DATABASE_URL = os.environ['DATABASE_URL']
+            #dbConnection = psycopg2.connect(DATABASE_URL, sslmode='require')
             print ("Connected to the database.")
             #Creating a cursor object using the cursor() method
         except:
