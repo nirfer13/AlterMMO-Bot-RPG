@@ -24,7 +24,7 @@ import functions_database
 
 #Debug Mode?
 global DebugMode
-DebugMode = True
+DebugMode = False
 
 #Respawn time
 global respTime
@@ -50,7 +50,7 @@ class message(commands.Cog, name="spawnBoss"):
         #Database Initialization
         global dbConnection
         global dbCursor
-        dbConnection, dbCursor = functions_database.connectToDB()
+        #dbConnection, dbCursor = functions_database.connectToDB()
 
         #Choose channel to spawn boss
         global ctx
@@ -365,13 +365,13 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(name="updateDatabase")
     @commands.has_permissions(administrator=True)
     async def updateDatabase(self, ctx, bossRarity, respTime, respBool):
-        functions_database.updateBossTable(dbCursor, bossRarity, respTime, respBool)
+        await functions_database.updateBossTable(self, ctx, bossRarity, respTime, respBool)
         await ctx.channel.send("Database updated.")
 
     @commands.command(name="readDatabase")
     @commands.has_permissions(administrator=True)
     async def readDatabase(self, ctx):
-        bossRar, respawnTime, respawnResume = functions_database.readBossTable(dbCursor)
+        bossRar, respawnTime, respawnResume = await functions_database.readBossTable(self, ctx)
         print ("Boss rarity from database: " + str(bossRar))
         print ("Boss respawn time from database: " + str(respawnTime))
         print ("Boss respawn resume from database: " + str(respawnResume))

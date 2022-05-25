@@ -16,7 +16,6 @@ import functions_database
 class general(commands.Cog, name="general"):
     def __init__(self, bot):
         self.bot = bot
-        print()
 
     # Check if the bot is alive.
     @commands.command(name="ping", brief="Check if bot is alive")

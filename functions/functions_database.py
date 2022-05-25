@@ -6,6 +6,8 @@ import datetime
 import os
 import urllib.parse as urlparse
 import psycopg2
+import asyncpg
+
 
 # database bag for functions
 
@@ -14,7 +16,7 @@ class functions_database(commands.Cog, name="functions_database"):
         self.bot = bot
 
     global connectToDB
-    def connectToDB():
+    async def connectToDB():
         try:
             #Establishing the connection
             #dbConnection = psycopg2.connect("dbname='d2am99h8cekkeo' user='hkheidzoebbhxe' password='d545d32cdd85d3018184ff7f82a9129180f577ed9e03e71f9fe05e93d9cd19ee' host='ec2-63-35-156-160.eu-west-1.compute.amazonaws.com' sslmode='require'")
@@ -36,12 +38,6 @@ class functions_database(commands.Cog, name="functions_database"):
         #Doping EMPLOYEE table if already exists.
         dbCursor.execute("DROP TABLE IF EXISTS BOSS")
         #Creating table as per requirement
-        #sql ='''CREATE TABLE BOSS(
-        #   ID INT,
-        #   RARITY INT,
-        #   RESPAWN_TIME TIMESTAMP,
-        #   RESPAWN_STARTED BOOLEAN
-        #)'''
         sql ='''CREATE TABLE BOSS(
            ID NUMERIC,
            RARITY NUMERIC,
@@ -55,25 +51,29 @@ class functions_database(commands.Cog, name="functions_database"):
         print("Data inserted into Database.")
 
     global updateBossTable
-    def updateBossTable(dbCursor, BossRarity, respawnTime, ResumeSpawn):
+    async def updateBossTable(self, ctx, BossRarity, respawnTime, ResumeSpawn):
         #Database Update
         print("Conversion...")
         intRespawnTime = int(respawnTime)
         print("To datetime...")
         Time = datetime.datetime.utcnow() + datetime.timedelta(hours=2) + datetime.timedelta(seconds=intRespawnTime)
-        print("Time before database write: " + str(type(Time)))
+        d = Time.replace(microsecond=0)
+        print("Time before database write: " + str(type(d)))
         print("Save resume before database write: " + str(type(ResumeSpawn)))
         print("Boss rarity before database write: " + str(type(BossRarity)))
         print("Trying to update Database...")
-        dbCursor.execute('UPDATE BOSS SET ID = (%s), RARITY = (%s), RESPAWN_TIME = (%s), RESPAWN_STARTED= (%s) WHERE ID = 0', (0, BossRarity , Time, ResumeSpawn))
+        #dbCursor.execute('UPDATE BOSS SET ID = (%s), RARITY = (%s), RESPAWN_TIME = (%s), RESPAWN_STARTED= (%s) WHERE ID = 0', (0, BossRarity , Time, ResumeSpawn))
+        print('UPDATE BOSS SET ID = {}, RARITY = {}, RESPAWN_TIME = {}, RESPAWN_STARTED = {} WHERE ID = 0'.format(str(0), str(BossRarity) , str(Time), str(ResumeSpawn)))
+        #await self.bot.pg_con.execute('UPDATE BOSS SET ID = {}, RARITY = {}, RESPAWN_TIME = {}, RESPAWN_STARTED= {} WHERE ID = 0'.format(str(0), str(BossRarity) , str(Time), str(ResumeSpawn)))
         print("Data updated in Database.")
 
 
     global readBossTable
-    def readBossTable(dbCursor):
+    async def readBossTable(self, ctx):
         #Database Reading
-        dbCursor.execute('SELECT RARITY, RESPAWN_TIME, RESPAWN_STARTED FROM BOSS LIMIT 1')
-        dbBossRead = dbCursor.fetchall()
+        #dbCursor.execute('SELECT RARITY, RESPAWN_TIME, RESPAWN_STARTED FROM BOSS LIMIT 1')
+        #dbBossRead = dbCursor.fetchall()
+        dbBossRead = await self.bot.pg_con.fetch('SELECT RARITY, RESPAWN_TIME, RESPAWN_STARTED FROM BOSS LIMIT 1')
         #spawnTimestamp = datetime.datetime.strptime(str(dbBossRead[0][2]).rstrip(), "%Y-%m-%d %H:%M:%S.%f")
         print("Resume read from database: " + str(dbBossRead[0][2]))
         return dbBossRead[0][0], dbBossRead[0][1], dbBossRead[0][2]

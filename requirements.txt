@@ -13,3 +13,4 @@ typing-extensions==3.10.0.0
 yarl==1.6.3
 psycopg==3.0.14
 psycopg2-binary==2.9.3
+asyncpg
