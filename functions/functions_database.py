@@ -36,9 +36,15 @@ class functions_database(commands.Cog, name="functions_database"):
         #Doping EMPLOYEE table if already exists.
         dbCursor.execute("DROP TABLE IF EXISTS BOSS")
         #Creating table as per requirement
+        #sql ='''CREATE TABLE BOSS(
+        #   ID INT,
+        #   RARITY INT,
+        #   RESPAWN_TIME TIMESTAMP,
+        #   RESPAWN_STARTED BOOLEAN
+        #)'''
         sql ='''CREATE TABLE BOSS(
-           ID INT,
-           RARITY INT,
+           ID NUMERIC,
+           RARITY NUMERIC,
            RESPAWN_TIME TIMESTAMP,
            RESPAWN_STARTED BOOLEAN
         )'''
