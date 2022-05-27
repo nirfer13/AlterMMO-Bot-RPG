@@ -5,9 +5,6 @@ from datetime import datetime, timezone
 import datetime
 import sys
 sys.path.insert(1, './functions/')
-import functions_general
-
-import functions_database
 
 
 

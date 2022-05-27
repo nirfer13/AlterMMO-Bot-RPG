@@ -8,6 +8,7 @@ import asyncio
 import asyncpg
 from asyncpg.pool import create_pool
 
+
 # token and other needed variables will be hidden in .env file
 load_dotenv()
 description = 'AlterMMO Discord Bot, Development in progres'
@@ -16,7 +17,7 @@ intents.members = True
 
 #commands prefix == #
 bot = commands.Bot(
-    command_prefix='^',
+    command_prefix='#',
     description=description,
     intents=intents)
 
@@ -36,7 +37,10 @@ if __name__ == '__main__':
             except Exception as e:
                 exception = f"{type(e).__name__}: {e}"
                 print(f"Failed to load extension {extension}\n{exception}")
-    #bot.loop.run_until_complete(create_db_pool())
+    try:
+        bot.loop.run_until_complete(create_db_pool())
+    except:
+       print("Database unreachable.")
     bot.run(os.environ.get("TOKEN"))
 
 
