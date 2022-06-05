@@ -4,37 +4,47 @@
 	{
 		"id": 0,
 		"descr": "500 doświadczenia na Discordzie",
-		"weight": 80
+		"weight": 50
 	},
 	{
 		"id": 1,
+		"descr": "1000 doświadczenia na Discordzie",
+		"weight": 30
+	},
+	{
+		"id": 2,
 		"descr": "2500 doświadczenia na Discordzie",
 		"weight": 15
 	},
 	{
-		"id": 2,
+		"id": 3,
 		"descr": "5000 doświadczenia na Discordzie",
 		"weight": 4
 	},
 	{
-		"id": 3,
+		"id": 4,
 		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
 		"weight": 0.5
 	},
 	{
-		"id": 4,
+		"id": 5,
 		"descr": "Gra na steam do 150 złotych",
 		"weight": 0.1
 	},
 	{
-		"id": 5,
+		"id": 6,
 		"descr": "2h testowania na Twitchu wybranej przez Ciebie gry",
 		"weight": 0.5
 	},
 	{
-		"id": 6,
+		"id": 7,
 		"descr": "Info na następnym filmie na YouTube o tym, jak heroicznie pokonałeś bossa",
 		"weight": 1
+	},
+	{
+		"id": 8,
+		"descr": "Figa z makiem",
+		"weight": 10
 	}
 	]	
 }

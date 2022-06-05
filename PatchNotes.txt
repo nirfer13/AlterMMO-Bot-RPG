@@ -9,3 +9,8 @@ Patch 0.2
 - Dodanie kolejnych wizerunków bossa w zależności od rzadkości,
 - Delikatna zmiana komunikatu z pojawiającym się bossem,
 - Narzędzia do debugowania dla administratora (czas respawnu, informacje o niepowodzeniach).
+
+Patch 0.3.0
+- Przeniesienie wszystkich historycznych danych do bazy danych,
+- Dodanie nowych komend podczas walki z bossem,
+- Poprawienie wznawianie respawnu po odłączeniu od hostingu
