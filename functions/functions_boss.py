@@ -27,19 +27,21 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 
         lootDescrList = []
         lootWeightList = []
-        for loot in jsonObject['loot_details']:
-            lootDescrList.append(loot['descr'])
-            #Increase only rare rewards
-            if loot['weight'] < 5:
-                if rarity == 0:
-                    lootWeightList.append(loot['weight'])
-                elif rarity == 1:
-                    lootWeightList.append(loot['weight']*3)
-                elif rarity == 2:
-                    lootWeightList.append(loot['weight']*6)
-                else:
-                    lootWeightList.append(loot['weight'])
-            else:
+        if rarity == 0:
+            for loot in jsonObject['loot_details_Normal']:
+                lootDescrList.append(loot['descr'])
+                lootWeightList.append(loot['weight'])
+        elif rarity == 1:
+            for loot in jsonObject['loot_details_Rare']:
+                lootDescrList.append(loot['descr'])
+                lootWeightList.append(loot['weight'])
+        elif rarity == 2:
+            for loot in jsonObject['loot_details_Epic']:
+                lootDescrList.append(loot['descr'])
+                lootWeightList.append(loot['weight'])
+        else:
+            for loot in jsonObject['loot_details_Normal']:
+                lootDescrList.append(loot['descr'])
                 lootWeightList.append(loot['weight'])
 
         print(lootDescrList)

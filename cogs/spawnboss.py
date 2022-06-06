@@ -50,7 +50,7 @@ class message(commands.Cog, name="spawnBoss"):
         #Choose channel to spawn boss
         global ctx
         if DebugMode == True:
-            ctx = await functions_boss.getContext(self, 970571647226642442, 979738392042557471)
+            ctx = await functions_boss.getContext(self, 970571647226642442, 983094138641711154)
         else:
             ctx = await functions_boss.getContext(self, 970684202880204831, 970685713026801685)
 
@@ -367,6 +367,8 @@ class message(commands.Cog, name="spawnBoss"):
         bossRar, respawnTime, respawnResume = await functions_database.readBossTable(self, ctx)
         print ("Database read.")
         await ctx.channel.send("Czy boss będzie wskrzeszony?: " + str(respawnResume))
+        await ctx.channel.send("Boss rarity: " + str(bossRar))
+        await ctx.channel.send("Czas wskrzeszenia: " + str(respawnTime))
 
     @commands.command(name="openDatabase")
     @commands.has_permissions(administrator=True)
