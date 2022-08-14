@@ -26,6 +26,7 @@ chyba że chcesz to mogę ci przekazać już tego stworzonego "AlterBot"
 
 Komendy do CMD:
 
+heroku git :remote -a nazwa_bota
 git add --all
 git commit -am ""
 git push heroku master
