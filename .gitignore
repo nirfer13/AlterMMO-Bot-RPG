@@ -1,2 +1,1 @@
-BotTokens/
-.env
+*.env
