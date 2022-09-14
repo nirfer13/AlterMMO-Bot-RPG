@@ -2,11 +2,6 @@ import discord
 from discord.errors import ClientException
 from discord.ext import commands, tasks
 
-import sys
-sys.path.insert(1, './functions/')
-import functions_general
-import functions_boss
-import functions_database
 import functions_rpg_general
 
 #Import Globals
@@ -44,6 +39,12 @@ class message(commands.Cog, name="rpg_general"):
         await ctx.channel.send("Baza danych RPG tworzona...")
         await functions_rpg_general.createRpgGeneralTable(self, ctx)
         await ctx.channel.send("Baza danych RPG utworzona.")
+
+    @commands.command(name="calcStats")
+    @commands.has_permissions(administrator=True)
+    async def calcStats(self, ctx, ID):
+        await functions_rpg_general.calcStats(self,ctx,ID)
+
         
         
 def setup(bot):

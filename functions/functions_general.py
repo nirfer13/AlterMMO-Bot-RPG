@@ -1,6 +1,4 @@
 from discord.ext import commands
-import discord
-import asyncio
 from datetime import datetime
 
 # general bag for functions

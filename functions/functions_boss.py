@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from PIL import Image
 from io import BytesIO
 
-import time
 import datetime
 
 #Import Globals

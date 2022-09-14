@@ -145,7 +145,6 @@ class message(commands.Cog, name="spawnBoss"):
                    else:
                         await asyncio.sleep(respTime)  # time in second
                    
-               
             #=== Episode 2 - Before fight
             if bossAlive == 2:
                bossAlive = 3
@@ -159,6 +158,7 @@ class message(commands.Cog, name="spawnBoss"):
                     await asyncio.sleep(random.randint(60,120)*5)  # time in second
                else:
                     await asyncio.sleep(random.randint(3,10))  # time in second
+
             #=== Episode 3 - Boss respawn
             if bossAlive == 3:
                 print("Channel cleared.")
@@ -318,8 +318,6 @@ class message(commands.Cog, name="spawnBoss"):
                         iterator += 1
 
                         choosenAction = random.randint(0,len(requestedAction[0])-1)
-                        #print("Wylosowany numer akcji: " + str(choosenAction))
-                        #print("Trzeba wpisac: " + requestedAction[0][choosenAction])
 
                         try:
                             #Send proper action request on chat
@@ -404,9 +402,6 @@ class message(commands.Cog, name="spawnBoss"):
             else:
                 print("Boss is not alive or attacked!")
                 await ctx.channel.send('Nie możesz zaatakować bossa, poczekaj na pojawienie się kolejnego <@' + format(ctx.message.author.id) + '>!')
-
-
-
 
     # ==================================== COMMANDS FOR USERS =======================================================================
 

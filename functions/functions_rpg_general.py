@@ -1,11 +1,6 @@
 ﻿from discord.ext import commands
 import discord
-import asyncio
-import random
-import pycord
-
-import time
-import datetime
+import json
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -24,7 +19,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         check = await self.bot.pg_con.fetch(sql)
         #User Exists
         if check:
-            embed=discord.Embed(title='Bohater istnieje!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Stworzyłeś już bohatera wcześniej. Możesz podglądnąć swój profil wpisując *#profil*. Być może w przyszłości pojawi się możliwość zmiany klasy.", color=0x00C1C7)
+            embed=discord.Embed(title='Bohater istnieje!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Stworzyłeś już bohatera wcześniej. Możesz podglądnąć swój profil wpisując **#profil**. Być może w przyszłości pojawi się możliwość zmiany klasy.", color=0x00C1C7)
             embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
             botMessage = await ctx.channel.send(embed=embed)
         else:
@@ -82,7 +77,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             await botMessage.delete()
             await newtoRpgGeneral(self, ctx, ctx.author.id, playerClass)
 
-
+    #CHECK PROFILE OF THE CHARACTER
     global checkGeneralProfile
     async def checkGeneralProfile(self, ctx):
         print("Checking profile...")
@@ -141,6 +136,101 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
             botMessage = await ctx.channel.send(embed=embed)
 
+    #CALCULATE ADDITIONAL STATS
+    global calcStats
+    async def calcStats(self, ctx, ID):
+        sql=("SELECT ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL FROM RPG_GENERAL WHERE ID = \'{}\';".format(str(ID)))
+        check = await self.bot.pg_con.fetch(sql)
+        if check:
+            print("User exists!")
+            check = check[0]
+            print(check[2])
+            #Parse to variables
+            CLASS = str(check[2])
+            EXP = check[3]
+            LVL = check[4]
+            print("Class: " + str(check[2]) + ", EXP: " + str(check[3]) + ", LVL: " + str(check[4]))
+            print("Reading calc constants from the file...")
+            #Stat point/lvl, HP/Lvl, MP/Lvl | ATK/1STR, HP/1STR | ATK/1INT, CRIT/1INT, MP/1INT | ATK/1AGI, DODGE/1AGI, CRIT/1AGI
+            with open("HeroStatConfig.json", encoding='utf-8') as jsonFile:
+                jsonObject = json.loads(jsonFile.read())
+            #TODO From file to variables and calculate
+
+            #General
+            Scale_StatPoint_Lvl = jsonObject['General'][0]['weight']
+            print("Stat point/lvl = " + str(Scale_StatPoint_Lvl))
+            Scale_HP_Lvl = jsonObject['General'][1]['weight']
+            print("HP/lvl = " + str(Scale_HP_Lvl))
+            Scale_MP_Lvl = jsonObject['General'][2]['weight']
+            print("MP/lvl = " + str(Scale_MP_Lvl))
+
+            #Strength
+            Scale_ATK_STR = jsonObject['Strength'][0]['weight']
+            print("ATK/STR = " + str(Scale_ATK_STR))
+            Scale_HP_STR = jsonObject['Strength'][1]['weight']
+            print("HP/STR = " + str(Scale_HP_STR))
+
+            #Intelligence
+            Scale_ATK_INT = jsonObject['Intelligence'][0]['weight']
+            print("ATK/INT = " + str(Scale_ATK_INT))
+            Scale_CRIT_INT = jsonObject['Intelligence'][1]['weight']
+            print("CRIT/INT = " + str(Scale_CRIT_INT))
+            Scale_MP_INT = jsonObject['Intelligence'][2]['weight']
+            print("MP/INT = " + str(Scale_MP_INT))
+
+            #Agility
+            Scale_ATK_AGI = jsonObject['Agility'][0]['weight']
+            print("ATK/AGI = " + str(Scale_ATK_AGI))
+            Scale_DODGE_AGI = jsonObject['Agility'][1]['weight']
+            print("DODGE/AGI = " + str(Scale_DODGE_AGI))
+            Scale_CRIT_AGI = jsonObject['Agility'][2]['weight']
+            print("CRIT/AGI = " + str(Scale_CRIT_AGI))
+
+            #Strength_Alt
+            Scale_ATK_STR_Alt = jsonObject['Strength_Alt'][0]['weight']
+            print("ATK/STR_Alt = " + str(Scale_ATK_STR_Alt))
+            Scale_HP_STR_Alt = jsonObject['Strength_Alt'][1]['weight']
+            print("HP/STR_Alt = " + str(Scale_HP_STR_Alt))
+
+            #Intelligence_Alt
+            Scale_ATK_INT_Alt = jsonObject['Intelligence_Alt'][0]['weight']
+            print("ATK/INT_Alt = " + str(Scale_ATK_INT_Alt))
+            Scale_CRIT_INT_Alt = jsonObject['Intelligence_Alt'][1]['weight']
+            print("CRIT/INT_Alt = " + str(Scale_CRIT_INT_Alt))
+            Scale_MP_INT_Alt = jsonObject['Intelligence_Alt'][2]['weight']
+            print("MP/INT_Alt = " + str(Scale_MP_INT_Alt))
+
+            #Agility_Alt
+            Scale_ATK_AGI_Alt = jsonObject['Agility_Alt'][0]['weight']
+            print("ATK/AGI_Alt = " + str(Scale_ATK_AGI_Alt))
+            Scale_DODGE_AGI_Alt = jsonObject['Agility_Alt'][1]['weight']
+            print("DODGE/AGI_Alt = " + str(Scale_DODGE_AGI_Alt))
+            Scale_CRIT_AGI_Alt = jsonObject['Agility_Alt'][2]['weight']
+            print("CRIT/AG_AltI = " + str(Scale_CRIT_AGI_Alt))
+
+
+            #Read database with additional stts
+            #Check EQ with stats
+
+            #RPG_HERO_STATS (ID, STR, AGI, INTEL, STAM, HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
+            if str(CLASS) == "Wojownik":
+                HP = Scale_HP_Lvl*LVL + Scale_HP_STR*STR + 0
+                MP = Scale_MP_Lvl*LVL + Scale_MP_INT_Alt*INT + 0
+                PATK = Scale_ATK_STR*STR + Scale_ATK_AGI_Alt + 0
+                MATK = Scale_ATK_INT_Alt
+                PDEF = 0 #TODO From EQ
+                MDEF = 0 #TODO From EQ
+                DODGE = Scale_DODGE_AGI_Alt*AGI + 0
+                CRIT = Scale_CRIT_AGI_Alt*AGI + 0
+                RFLCT = 0 #TODO From EQ
+                RFLX = 0 #TODO From EQ
+                ADDROP = 0 #TODO From EQ
+            else:
+                print("Error! Unknown class.")
+
+        else:
+            print("Hero does not exists. Error!")
+
     #============================ RPG GENERAL DATABASE ==============================
 
     #generate RPG Database
@@ -156,7 +246,14 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
            NICK VARCHAR(255),
            CURRENT_CLASS VARCHAR(255),
            EXPERIENCE INT,
-           LEVEL INT
+           LEVEL INT,
+           STR INT,
+           AGI INT,
+           INTEL INT,
+           STAM INT,
+           REMPOINTS INT,
+           EQONIDS INT[],
+           EQOFFIDS INT[]
         )'''
         await self.bot.pg_con.execute(sql)
         print("Table RPG_GENERAL created successfully.")
@@ -171,6 +268,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         print("Trying to update Database...")
         print('INSERT INTO RPG_GENERAL (ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL) VALUES ({},\'{}\',\'{}\',{},{});'.format(str(playerID), user.name, str(playerClass), 0, 1))
         await self.bot.pg_con.execute('INSERT INTO RPG_GENERAL (ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL) VALUES (\'{}\',\'{}\',\'{}\',{},{});'.format(str(playerID), user.name, str(playerClass), 0, 1))
+        #TODO Default Additional Stats Based on Class
         print("Data inserted in General RPG Database.")
 
     global readRpgGeneral
@@ -195,6 +293,38 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         emb=discord.Embed(title='Ranking bohaterów!', url='https://www.altermmo.pl/wp-content/uploads/Icon24.png', description=rankingString, color=0x00C1C7)
         emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon24.png')
         await ctx.send(embed=emb)
+
+    #============================ HERO STATS DATABASE ==============================
+    #generate Hero Stats Database
+    global createHeroStatsTable
+    async def createHeroStatsTable(self, ctx):
+        #Droping General RPG table if already exists.
+        print("Trying to create Hero Stats Database.")
+        await self.bot.pg_con.execute("DROP TABLE IF EXISTS RPG_HERO_STATS")
+        print("RPG Hero Stats dropped.")
+        #Creating table as per requirement
+        sql ='''CREATE TABLE RPG_HER_STATS (
+           ID VARCHAR(255) PRIMARY KEY,
+           CURRENT_CLASS VARCHAR(255),
+           HP INT,
+           MP INT,
+           PATK INT,
+           MATK INT,
+           PDEF INT,
+           MDEF INT,
+           DODGE INT,
+           CRIT INT,
+           RFLCT INT,
+           RFLX INT,
+           ADDROP INT
+        )'''
+        await self.bot.pg_con.execute(sql)
+        print("Table RPG_HERO_STATS created successfully.")
+        #print('INSERT INTO RPG_HERO_STATS (ID, STR, AGI, INTEL, STAM, HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP) VALUES ({},/'{}/',{},{},{},{},{},{},{},{},{},{},{},{},{},{});'.format("291836779495948288", "Wojownik","5", "5", "5", "5"))
+        #await self.bot.pg_con.execute('INSERT INTO RPG_GENERAL (ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL) VALUES ({},\'{}\',\'{}\',{},{});'.format("291836779495948288","Andrzej", "Wojownik", "50", "2"))
+        #print("Data inserted into RPG_HERO_STATS Database.")
+
+
 
 
 def setup(bot):

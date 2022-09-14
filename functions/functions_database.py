@@ -3,9 +3,7 @@ import discord
 import asyncio
 
 import datetime
-import os
 import urllib.parse as urlparse
-import psycopg2
 import asyncpg
 
 from asyncpg.pool import create_pool
@@ -263,11 +261,6 @@ class functions_database(commands.Cog, name="functions_database"):
             print ("I am unable to select Boss Slayer. Alter is Default boss slayer")
             winnerID = 291836779495948288
         return winnerID
-
-
-
-
-
 
 def setup(bot):
     bot.add_cog(functions_database(bot))

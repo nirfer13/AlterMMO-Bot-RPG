@@ -2,14 +2,10 @@ import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 import os
-import random
-import time
-import asyncio
 import asyncpg
 from asyncpg.pool import create_pool
 
 from globals.globalvariables import DebugMode
-
 
 # token and other needed variables will be hidden in .env file
 load_dotenv()
@@ -19,7 +15,7 @@ intents.members = True
 
 #commands prefix == #
 bot = commands.Bot(
-    command_prefix='#',
+    command_prefix='^',
     description=description,
     intents=intents)
 

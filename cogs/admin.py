@@ -1,6 +1,4 @@
 from discord.ext import commands
-import discord
-import asyncio
 from datetime import datetime
 
 # Class that holds commands related to administration of server
