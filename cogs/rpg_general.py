@@ -40,10 +40,22 @@ class message(commands.Cog, name="rpg_general"):
         await functions_rpg_general.createRpgGeneralTable(self, ctx)
         await ctx.channel.send("Baza danych RPG utworzona.")
 
+    @commands.command(name="createHeroStatsDatabase")
+    @commands.has_permissions(administrator=True)
+    async def createHeroStatsTable(self, ctx):
+        await ctx.channel.send("Baza danych statystyk bohaterow tworzona...")
+        await functions_rpg_general.createHeroStatsTable(self, ctx)
+        await ctx.channel.send("Baza danych statystyk bohaterow utworzona.")
+
     @commands.command(name="calcStats")
     @commands.has_permissions(administrator=True)
     async def calcStats(self, ctx, ID):
         await functions_rpg_general.calcStats(self,ctx,ID)
+
+    @commands.command(name="readStats")
+    @commands.has_permissions(administrator=True)
+    async def calcStats(self, ctx, ID):
+        await functions_rpg_general.readHeroStatsTable(self, ctx, ID)
 
         
         

@@ -16,6 +16,11 @@
 		"descr": "MP/lvl",
 		"weight": 3
 	},
+	{
+		"id": 3,
+		"descr": "HP/STAM",
+		"weight": 15
+	}
 	],"Strength": [
 	{
 		"id": 0,
