@@ -105,32 +105,44 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
 
             user = self.bot.get_user(ctx.author.id)
 
+            print("Before hero stats reading...")
+            MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP = await readHeroStatsTable(self, ctx, ctx.author.id)
+            print("Hero stats read.")
 
+            EXP = check[3]
+            LVL = check[4]
+            STR = check[5]
+            AGI = check[6]
+            INTEL =  check[7]
+            STAM = check[8]
+            REMPOINTS = check[9]
 
             print("Preparing Description...")
-            desc1 = "**POZIOM:** " + str(check[4])
-            desc2 = "\n**DOŚWIADCZENIE:** " + str(check[3]) + "/5000"
+            desc1 = "**POZIOM:** " + str(LVL)
+            desc2 = "\n**DOŚWIADCZENIE:** " + str(EXP) + "/5000"
 
-            #TODO
-            desc3 = "\n\n<:RPGHP:995641654616805396> **HP:** " + "10/10"
-            desc4 = "\n<:RPGMana:995641689899286568> **MANA:** " + "10/15"
+            desc3 = "\n\n<:RPGHP:995641654616805396> **HP:** " + str(ActHP) + "/" + str(MaxHP)
+            desc4 = "\n<:RPGMana:995641689899286568> **MANA:** " + str(ActMP) + "/" + str(MaxMP)
 
-            desc45 = "\n\n<:RPGStats:995642897787523072> **STATYSTYKI**"
-            desc5 = "\nSIŁA: " + str(check[5])
-            desc6 = "\nZRĘCZNOŚĆ: " + str(check[6])
-            desc7 = "\nINTELIGENCJA: " + str(check[7])
-            desc8 = "\nWYTRZYMAŁOŚĆ: " + str(check[8])
-            desc88 = "\nPKT DO PRZYDZIELENIA: " + str(check[9])
+            desc5 = "\n\n<:RPGStats:995642897787523072> **STATYSTYKI**"
+            desc6 = "\nSIŁA: " + str(STR)
+            desc7 = "\nZRĘCZNOŚĆ: " + str(AGI)
+            desc8 = "\nINTELIGENCJA: " + str(INTEL)
+            desc9 = "\nWYTRZYMAŁOŚĆ: " + str(STAM)
+            desc10 = "\nPKT DO PRZYDZIELENIA: " + str(REMPOINTS)
 
-            desc89 = "\n\n<:RPGAddStat:995642835531472956> **DODATKOWE STATYSTYKI**"
-            desc9 = "\nATAK: " + "10"
-            desc10 = "\nUNIK: " + "10 %"
-            desc11 = "\nSZANSA NA KRYT.: " + "36 %"
-            desc12 = "\nODBIJANIE OBR.: " + "5 %"
-            desc13 = "\nREFLEKS: " + "0.5 sekundy"
-            desc14 = "\nSZANSA NA DODATKOWY DROP: " + "15 %"
+            desc11 = "\n\n<:RPGAddStat:995642835531472956> **DODATKOWE STATYSTYKI**"
+            desc12 = "\nFIZ. ATAK: " + str(PATK)
+            desc13 = "\nMAG. ATAK: " + str(MATK)
+            desc14 = "\nFIZ. OBRONA: " + str(PDEF)
+            desc15 = "\nMAG. OBRONA: " + str(MDEF)
+            desc16 = "\nUNIK: " + str(DODGE * 100) + "%"
+            desc17 = "\nSZANSA NA KRYT.: "+ str(CRIT * 100) + "%"
+            desc18 = "\nODBIJANIE OBR.: " + str(RFLCT*100) + "%"
+            desc19 = "\nREFLEKS: " + str(RFLX) + " sekundy"
+            desc20 = "\nSZANSA NA DODATKOWY DROP: " + str(ADDROP*100) + "%"
 
-            descript = desc1 + desc2 + desc3 + desc4 + desc45 + desc5 + desc6 + desc7 + desc8 + desc88 + desc89 + desc9 + desc10 + desc11 + desc12 + desc13 +desc14
+            descript = desc1 + desc2 + desc3 + desc4 + desc5 + desc6 + desc7 + desc8 + desc9 + desc10 + desc11 + desc12 + desc13 + desc14 + desc15 + desc16 + desc17 + desc18 + desc19 + desc20
 
             embed=discord.Embed(title='Bohater ' + str(user.name), url=url1, description=descript, color=0x00C1C7)
             embed.set_thumbnail(url=url1)
@@ -227,7 +239,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             #Read database with additional stts
             #Check EQ with stats
 
-            #RPG_HERO_STATS (ID, STR, AGI, INTEL, STAM, HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
+            #RPG_HERO_STATS (ID, STR, AGI, INTEL, STAM, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
             if str(CLASS) == "Wojownik":
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT_Alt*INT + 0
@@ -282,7 +294,12 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         else:
             print("Hero does not exists. Error!")
 
-        await updateHeroStats(self, ctx, playerID, CLASS, HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
+        MaxHP = HP
+        ActHP = MaxHP
+        MaxMP = MP
+        ActMP = MaxMP
+
+        await insertHeroStats(self, ctx, playerID, CLASS, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
 
 
 
@@ -384,8 +401,10 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         sql ='''CREATE TABLE RPG_HERO_STATS (
            ID VARCHAR(255) PRIMARY KEY,
            CURRENT_CLASS VARCHAR(255),
-           HP INT,
-           MP INT,
+           MaxHP INT,
+           ActHP INT,
+           MaxMP INT,
+           ActMP INT,
            PATK INT,
            MATK INT,
            PDEF INT,
@@ -398,39 +417,71 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         )'''
         await self.bot.pg_con.execute(sql)
         print("Table RPG_HERO_STATS created successfully.")
-        #print('INSERT INTO RPG_HERO_STATS (ID, STR, AGI, INTEL, STAM, HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP) VALUES ({},/'{}/',{},{},{},{},{},{},{},{},{},{},{},{},{},{});'.format("291836779495948288", "Wojownik","5", "5", "5", "5"))
-        #await self.bot.pg_con.execute('INSERT INTO RPG_GENERAL (ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL) VALUES ({},\'{}\',\'{}\',{},{});'.format("291836779495948288","Andrzej", "Wojownik", "50", "2"))
-        #print("Data inserted into RPG_HERO_STATS Database.")
+
+    global insertHeroStats
+    async def insertHeroStats(self, ctx, playerID, playerClass, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP):
+        #Database Update
+        print("Trying to insert Hero Stats...")
+        print('INSERT INTO RPG_HERO_STATS (ID, CURRENT_CLASS, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP) VALUES ({},\'{}\',{},{},{},{},{},{},{},{},{},{},{},{},{});'.format(str(playerID), str(playerClass), MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP))
+        await self.bot.pg_con.execute('INSERT INTO RPG_HERO_STATS (ID, CURRENT_CLASS, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP) VALUES ({},\'{}\',{},{},{},{},{},{},{},{},{},{},{},{},{});'.format(str(playerID), str(playerClass), MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP))
+        print("Data inserted in Hero Stats Database.")
 
     global updateHeroStats
-    async def updateHeroStats(self, ctx, playerID, playerClass, HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP):
+    async def updateHeroStats(self, ctx, playerID, playerClass, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP):
         #Database Update
         print("Trying to update Hero Stats...")
-        print('INSERT INTO RPG_HERO_STATS (ID, CURRENT_CLASS, HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP) VALUES ({},\'{}\',{},{},{},{},{},{},{},{},{},{},{});'.format(str(playerID), str(playerClass), HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP))
-        await self.bot.pg_con.execute('INSERT INTO RPG_HERO_STATS (ID, CURRENT_CLASS, HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP) VALUES ({},\'{}\',{},{},{},{},{},{},{},{},{},{},{});'.format(str(playerID), str(playerClass), HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP))
-        print("Data inserted in Hero Stats Database.")
+        print('UPDATE RPG_HERO_STATS SET CURRENT_CLASS = \'{}\', MaxHP = {}, ActHP = {}, MaxMP = {}, ActMP = {}, PATK = {}, MATK = {}, PDEF = {}, MDEF = {}, DODGE = {}, CRIT = {}, RFLCT = {}, RFLX = {}, ADDROP = {} WHERE ID = \'{}\''.format(str(playerID), str(playerClass), MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP, str(playerID)))
+        await self.bot.pg_con.execute('UPDATE RPG_HERO_STATS SET CURRENT_CLASS = \'{}\', MaxHP = {}, ActHP = {}, MaxMP = {}, ActMP = {}, PATK = {}, MATK = {}, PDEF = {}, MDEF = {}, DODGE = {}, CRIT = {}, RFLCT = {}, RFLX = {}, ADDROP = {} WHERE ID = \'{}\''.format(str(playerClass), MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP, str(playerID)))
+        print("Data updated in Hero Stats Database.")
+
+    global updateHPMPHeroStats
+    async def updateHPMPHeroStats(self, ctx, playerID, ActHP, ActMP):
+        print("Trying to update HP/MP Hero Stats...")
+        print('UPDATE RPG_HERO_STATS SET ActHP = {}, ActMP = {} WHERE ID = \'{}\''.format(ActHP, ActMP, str(playerID)))
+        await self.bot.pg_con.execute('UPDATE RPG_HERO_STATS SET ActHP = {}, ActMP = {} WHERE ID = \'{}\''.format(ActHP, ActMP, str(playerID)))
+        print("Data updated in HP/MP Hero Stats Database.")
 
     global readHeroStatsTable
     async def readHeroStatsTable(self, ctx, playerID):
         #Database Reading
         print("Trying to read Hero Stats Database...")
-        dbRpgStatsRead = await self.bot.pg_con.fetch("SELECT ID, CURRENT_CLASS, HP, MP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP FROM RPG_HERO_STATS WHERE ID = \'{}\';".format(str(playerID)))
+        dbRpgStatsRead = await self.bot.pg_con.fetch("SELECT ID, CURRENT_CLASS, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP FROM RPG_HERO_STATS WHERE ID = \'{}\';".format(str(playerID)))
         
         print("ID: " + dbRpgStatsRead[0][0])
+        ID = dbRpgStatsRead[0][0]
         print("Class: " + str(dbRpgStatsRead[0][1]))
-        print("HP: " + str(dbRpgStatsRead[0][2]))
-        print("MP: " + str(dbRpgStatsRead[0][3]))
-        print("PATK: " + str(dbRpgStatsRead[0][4]))
-        print("MATK: " + str(dbRpgStatsRead[0][5]))
-        print("PDEF: " + str(dbRpgStatsRead[0][6]))
-        print("MDEF: " + str(dbRpgStatsRead[0][7]))
-        print("DODGE: " + str(dbRpgStatsRead[0][8]))
-        print("CRIT: " + str(dbRpgStatsRead[0][9]))
-        print("RFLCT: " + str(dbRpgStatsRead[0][10]))
-        print("RFLX: " + str(dbRpgStatsRead[0][11]))
-        print("ADDROP: " + str(dbRpgStatsRead[0][12]))
+        Class = dbRpgStatsRead[0][1]
+        print("MaxHP: " + str(dbRpgStatsRead[0][2]))
+        MaxHP = dbRpgStatsRead[0][2]
+        print("ActHP: " + str(dbRpgStatsRead[0][3]))
+        ActHP = dbRpgStatsRead[0][3]
+        print("MaxMP: " + str(dbRpgStatsRead[0][4]))
+        MaxMP = dbRpgStatsRead[0][4]
+        print("ActMP: " + str(dbRpgStatsRead[0][5]))
+        ActMP = dbRpgStatsRead[0][5]
+        print("PATK: " + str(dbRpgStatsRead[0][6]))
+        PATK = dbRpgStatsRead[0][6]
+        print("MATK: " + str(dbRpgStatsRead[0][7]))
+        MATK = dbRpgStatsRead[0][7]
+        print("PDEF: " + str(dbRpgStatsRead[0][8]))
+        PDEF = dbRpgStatsRead[0][8]
+        print("MDEF: " + str(dbRpgStatsRead[0][9]))
+        MDEF = dbRpgStatsRead[0][9]
+        print("DODGE: " + str(dbRpgStatsRead[0][10]))
+        DODGE = dbRpgStatsRead[0][10]
+        print("CRIT: " + str(dbRpgStatsRead[0][11]))
+        CRIT = dbRpgStatsRead[0][11]
+        print("RFLCT: " + str(dbRpgStatsRead[0][12]))
+        RFLCT = dbRpgStatsRead[0][12]
+        print("RFLX: " + str(dbRpgStatsRead[0][13]))
+        RFLX = dbRpgStatsRead[0][13]
+        print("ADDROP: " + str(dbRpgStatsRead[0][14]))
+        ADDROP = dbRpgStatsRead[0][14]
 
-        
+        return MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP
+
+
+
 
 
 def setup(bot):

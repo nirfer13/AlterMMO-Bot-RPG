@@ -52,12 +52,16 @@ class message(commands.Cog, name="rpg_general"):
     async def calcStats(self, ctx, ID):
         await functions_rpg_general.calcStats(self,ctx,ID)
 
+    @commands.command(name="setHPMP")
+    @commands.has_permissions(administrator=True)
+    async def setHPMP(self, ctx, ID, HP, MP):
+        await functions_rpg_general.updateHPMPHeroStats(self,ctx, ID, HP, MP)
+
     @commands.command(name="readStats")
     @commands.has_permissions(administrator=True)
-    async def calcStats(self, ctx, ID):
+    async def readStats(self, ctx, ID):
         await functions_rpg_general.readHeroStatsTable(self, ctx, ID)
 
-        
         
 def setup(bot):
     bot.add_cog(message(bot))
