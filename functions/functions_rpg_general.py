@@ -117,9 +117,20 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             STAM = check[8]
             REMPOINTS = check[9]
 
+            #Load experience table from file
+            print("Reading exp constants from the file...")
+            with open("expConfig.json", encoding='utf-8') as jsonFile:
+                jsonObject = json.loads(jsonFile.read())
+            print("Constants from file loaded.")
+
+            #Get required exp based on lvl
+            requiredExp = jsonObject['exp_required'][LVL+1]['exp']
+            print("Exp required to next lvl: " + str(requiredExp))
+
+
             print("Preparing Description...")
             desc1 = "**POZIOM:** " + str(LVL)
-            desc2 = "\n**DOŚWIADCZENIE:** " + str(EXP) + "/5000"
+            desc2 = "\n**DOŚWIADCZENIE:** " + str(EXP) + "/" + str(requiredExp)
 
             desc3 = "\n\n<:RPGHP:995641654616805396> **HP:** " + str(ActHP) + "/" + str(MaxHP)
             desc4 = "\n<:RPGMana:995641689899286568> **MANA:** " + str(ActMP) + "/" + str(MaxMP)
@@ -177,7 +188,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             
             print("Reading calc constants from the file...")
             #Stat point/lvl, HP/Lvl, MP/Lvl | ATK/1STR, HP/1STR | ATK/1INT, CRIT/1INT, MP/1INT | ATK/1AGI, DODGE/1AGI, CRIT/1AGI
-            with open("HeroStatConfig.json", encoding='utf-8') as jsonFile:
+            with open("heroStatConfig.json", encoding='utf-8') as jsonFile:
                 jsonObject = json.loads(jsonFile.read())
             print("Constants from file loaded.")
 
@@ -236,10 +247,8 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             print("CRIT/AG_AltI = " + str(Scale_CRIT_AGI_Alt))
 
 
-            #Read database with additional stts
+            #Read database with additional stats
             #Check EQ with stats
-
-            #RPG_HERO_STATS (ID, STR, AGI, INTEL, STAM, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
             if str(CLASS) == "Wojownik":
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT_Alt*INT + 0
@@ -440,6 +449,47 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         print('UPDATE RPG_HERO_STATS SET ActHP = {}, ActMP = {} WHERE ID = \'{}\''.format(ActHP, ActMP, str(playerID)))
         await self.bot.pg_con.execute('UPDATE RPG_HERO_STATS SET ActHP = {}, ActMP = {} WHERE ID = \'{}\''.format(ActHP, ActMP, str(playerID)))
         print("Data updated in HP/MP Hero Stats Database.")
+
+    global updateExpHeroStats
+    async def updateExpHeroStats(self, ctx, playerID, acqEXP):
+        print("Trying to update Exp Hero Stats...")
+        dbRpgRead = await self.bot.pg_con.fetch("SELECT NICK, EXPERIENCE, LEVEL, REMPOINTS FROM RPG_GENERAL WHERE ID = \'{}\';".format(str(playerID)))
+        EXP = dbRpgRead[0][1]
+        LVL = dbRpgRead[0][2]
+        REMPOINTS = dbRpgRead[0][3]
+        acqEXP = int(acqEXP)
+
+        #Load experience table from file
+        print("Reading exp constants from the file...")
+        with open("expConfig.json", encoding='utf-8') as jsonFile:
+            jsonObject = json.loads(jsonFile.read())
+        print("Constants from file loaded.")
+
+        #Get required exp based on lvl
+        requiredExp = jsonObject['exp_required'][LVL+1]['exp']
+        print("Exp required to next lvl: " + str(requiredExp))
+
+        
+        if EXP + acqEXP >= requiredExp:
+            print("Lvl up.")
+            LVL = LVL+1
+            EXP = EXP+acqEXP - requiredExp
+            REMPOINTS = REMPOINTS + 5
+            print('UPDATE RPG_GENERAL SET LEVEL = {}, EXPERIENCE = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(LVL, EXP, REMPOINTS, str(playerID)))
+            await self.bot.pg_con.execute('UPDATE RPG_GENERAL SET LEVEL = {}, EXPERIENCE = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(LVL, EXP, REMPOINTS, str(playerID)))
+            
+            embed=discord.Embed(title='Awans!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Gratulacje! Awansowales na kolejny poziom!", color=0x00C1C7)
+            embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
+            botMessage = await ctx.channel.send(embed=embed)
+
+        else:
+            print("Not lvl up.")
+            EXP = EXP + acqEXP
+            print('UPDATE RPG_GENERAL SET EXPERIENCE = {} WHERE ID = \'{}\''.format(EXP, str(playerID)))
+            await self.bot.pg_con.execute('UPDATE RPG_GENERAL SET EXPERIENCE = {} WHERE ID = \'{}\''.format(EXP, str(playerID)))
+
+
+        print("Data updated in Exp Hero Stats Database.")
 
     global readHeroStatsTable
     async def readHeroStatsTable(self, ctx, playerID):

@@ -57,6 +57,11 @@ class message(commands.Cog, name="rpg_general"):
     async def setHPMP(self, ctx, ID, HP, MP):
         await functions_rpg_general.updateHPMPHeroStats(self,ctx, ID, HP, MP)
 
+    @commands.command(name="addExp")
+    @commands.has_permissions(administrator=True)
+    async def addExp(self, ctx, ID, EXP):
+        await functions_rpg_general.updateExpHeroStats(self,ctx, ID, EXP)
+
     @commands.command(name="readStats")
     @commands.has_permissions(administrator=True)
     async def readStats(self, ctx, ID):
