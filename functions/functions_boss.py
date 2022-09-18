@@ -263,5 +263,5 @@ class functions_boss(commands.Cog, name="functions_boss"):
         await bossslayer_role.edit(display_icon=byteImg, reason="Zmiana przez użytkownika.")
           
 
-def setup(bot):
-    bot.add_cog(functions_boss(bot))
+async def setup(bot):
+    await bot.add_cog(functions_boss(bot))

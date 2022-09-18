@@ -478,8 +478,9 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             print('UPDATE RPG_GENERAL SET LEVEL = {}, EXPERIENCE = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(LVL, EXP, REMPOINTS, str(playerID)))
             await self.bot.pg_con.execute('UPDATE RPG_GENERAL SET LEVEL = {}, EXPERIENCE = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(LVL, EXP, REMPOINTS, str(playerID)))
             
-            embed=discord.Embed(title='Awans!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Gratulacje! Awansowales na kolejny poziom!", color=0x00C1C7)
-            embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
+            embed=discord.Embed(title='Awans!', url='https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png', description="Gratulacje! Awansowales na kolejny poziom!", color=0x00C1C7)
+            embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png')
+            embed.set_footer(text='Poziom ' + str(LVL) + '!')
             botMessage = await ctx.channel.send(embed=embed)
 
         else:
@@ -534,5 +535,5 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
 
 
 
-def setup(bot):
-    bot.add_cog(functions_rpg_general(bot))
+async def setup(bot):
+    await bot.add_cog(functions_rpg_general(bot))

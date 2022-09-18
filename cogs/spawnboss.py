@@ -598,5 +598,5 @@ class message(commands.Cog, name="spawnBoss"):
         print("Starting command...")
         await functions_database.updateRankingTable(self, ctx, ID, points)
         
-def setup(bot):
-    bot.add_cog(message(bot))
+async def setup(bot):
+    await bot.add_cog(message(bot))

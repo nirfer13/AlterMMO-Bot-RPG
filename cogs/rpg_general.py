@@ -68,5 +68,5 @@ class message(commands.Cog, name="rpg_general"):
         await functions_rpg_general.readHeroStatsTable(self, ctx, ID)
 
         
-def setup(bot):
-    bot.add_cog(message(bot))
+async def setup(bot):
+    await bot.add_cog(message(bot))

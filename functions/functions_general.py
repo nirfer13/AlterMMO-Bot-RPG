@@ -17,5 +17,5 @@ class functions_general(commands.Cog, name="functions_general"):
         await channel.purge(limit=count-1)
 
 
-def setup(bot):
-    bot.add_cog(functions_general(bot))
+async def setup(bot):
+    await bot.add_cog(functions_general(bot))

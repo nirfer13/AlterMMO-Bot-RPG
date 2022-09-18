@@ -262,5 +262,5 @@ class functions_database(commands.Cog, name="functions_database"):
             winnerID = 291836779495948288
         return winnerID
 
-def setup(bot):
-    bot.add_cog(functions_database(bot))
+async def setup(bot):
+    await bot.add_cog(functions_database(bot))

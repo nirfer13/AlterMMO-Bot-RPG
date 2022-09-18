@@ -24,5 +24,5 @@ class message(commands.Cog, name="message"):
         self.bot.loop.stop()
 
 
-def setup(bot):
-    bot.add_cog(message(bot))
+async def setup(bot):
+    await bot.add_cog(message(bot))
