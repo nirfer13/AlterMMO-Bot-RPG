@@ -3,15 +3,18 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 import os
 import asyncpg
-import asyncio
 from asyncpg.pool import create_pool
+import asyncio
+
 
 from globals.globalvariables import DebugMode
+
+
 
 # token and other needed variables will be hidden in .env file
 load_dotenv()
 description = 'AlterMMO Discord Bot, Development in progres'
-intents = discord.Intents.default()
+intents = discord.Intents.all()
 intents.members = True
 
 #commands prefix == #
@@ -35,7 +38,7 @@ async def create_db_pool():
 
     print("Connected to database. Pool created.")
 
-async def main():
+async def load_extensions():
     for file in os.listdir("./cogs"):
         if file.endswith(".py"):
             extension = file[:-3]
@@ -45,14 +48,20 @@ async def main():
             except Exception as e:
                 exception = f"{type(e).__name__}: {e}"
                 print(f"Failed to load extension {extension}\n{exception}")
-    try:
-       await create_db_pool()
-    except:
-       print("Database unreachable.")
+
+
+async def main():
+    await load_extensions()
     await bot.start(os.environ.get("TOKEN"))
 
-#loads cogs as extentions to bot
 if __name__ == '__main__':
+    try:
+        asyncio.get_event_loop().run_until_complete(create_db_pool())
+    except:
+        print("Database unreachable.")
     asyncio.get_event_loop().run_until_complete(main())
+
+
+#loads cogs as extentions to bot
 
 

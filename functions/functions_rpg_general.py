@@ -1,5 +1,7 @@
 ﻿from discord.ext import commands
 import discord
+from discord.ui import Button
+from discord.ext import commands
 import json
 
 #Import Globals
@@ -158,6 +160,13 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             embed=discord.Embed(title='Bohater ' + str(user.name), url=url1, description=descript, color=0x00C1C7)
             embed.set_thumbnail(url=url1)
             await ctx.channel.send(embed=embed)
+
+            #button = Button(label = "Awansuj", style = discord.ButtonStyle.green, emoji = "<:AlterUp:846344753124999169>")
+            #view = View()
+            #view.add_item(button)
+
+            
+
         else:
             embed=discord.Embed(title='Bohater nie istnieje!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Nie stworzyłeś jeszcze swojego bohatera. Możesz to zrobić wpisując komendę **#start**!", color=0x00C1C7)
             embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
