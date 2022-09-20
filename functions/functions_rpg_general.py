@@ -1,11 +1,16 @@
-﻿from discord.ext import commands
+﻿
 import discord
-from discord.ui import Button
 from discord.ext import commands
+
+from discord.ui import Button, View
 import json
+
+from discord.utils import sane_wait_for
 
 #Import Globals
 from globals.globalvariables import DebugMode
+
+global bot
 
 class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
     def __init__(self, bot):
@@ -16,13 +21,19 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
     global createCharacter
     async def createCharacter(self, ctx, playerID):
         print("Creating character.")
+        global cmdMessage
+        cmdMessage = ctx.message
+        
+        global self_var, ctx_var
+        ctx_var = ctx
+        self_var = self
         #CHECK IF USER EXISTS IN DATABASE
         print("Checking if user exists...")
         sql=("SELECT ID, NICK FROM RPG_GENERAL WHERE ID = \'{}\';".format(str(playerID)))
         check = await self.bot.pg_con.fetch(sql)
         #User Exists
         if check:
-            embed=discord.Embed(title='Bohater istnieje!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Stworzyłeś już bohatera wcześniej. Możesz podglądnąć swój profil wpisując **#profil**. Być może w przyszłości pojawi się możliwość zmiany klasy.", color=0x00C1C7)
+            embed=discord.Embed(title='Bohater istnieje!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Stworzyłeś już bohatera wcześniej <@" + str(ctx.author.id) + ">! Możesz podglądnąć swój profil wpisując **#profil**. Być może w przyszłości pojawi się możliwość zmiany klasy.", color=0x00C1C7)
             embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
             botMessage = await ctx.channel.send(embed=embed)
         else:
@@ -41,54 +52,86 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             embed=discord.Embed(title='Tworzenie postaci', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description=desc1 + desc2 + desc3 + desc4 + desc5 + desc6, color=0x00C1C7)
             embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
             embed.set_footer(text='Powodzenia!')
-            botMessage = await ctx.channel.send(embed=embed)
 
-            await botMessage.add_reaction(warriorEmoji)
-            await botMessage.add_reaction(mageEmoji)
-            await botMessage.add_reaction(rogueEmoji)
-            await botMessage.add_reaction(clericEmoji)
-            await botMessage.add_reaction("🔴")
+            #Select class buttons
+            global playerClass
+            playerClass = ""
+            class MyView_SelectClass(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout = 120)
+                @discord.ui.button(label="Wojownik", style = discord.ButtonStyle.green, emoji = warriorEmoji)
+                async def verify1(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global self_var, ctx_var
+                    playerClass = "Wojownik"
+                    await botMessage.delete()
+                    print("Message deleted")
+                    await newtoRpgGeneral(self_var, ctx_var, ctx_var.author.id, playerClass)
+                    await interaction.response.edit_message(view=None)
+                @discord.ui.button(label="Mag", style = discord.ButtonStyle.green, emoji = mageEmoji)
+                async def verify2(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global self_var, ctx_var
+                    playerClass = "Mag"
+                    await botMessage.delete()
+                    print("Message deleted")
+                    await newtoRpgGeneral(self_var, ctx_var, ctx_var.author.id, playerClass)
+                    await interaction.response.edit_message(view=None)
+                @discord.ui.button(label="Łotrzyk", style = discord.ButtonStyle.green, emoji = rogueEmoji)
+                async def verify3(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global self_var, ctx_var
+                    playerClass = "Łotrzyk"
+                    await botMessage.delete()
+                    print("Message deleted")
+                    await newtoRpgGeneral(self_var, ctx_var, ctx_var.author.id, playerClass)
+                    await interaction.response.edit_message(view=None)
+                @discord.ui.button(label="Kleryk", style = discord.ButtonStyle.green, emoji = clericEmoji)
+                async def verify4(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global self_var, ctx_var
+                    playerClass = "Kleryk"
+                    global cmdMessage
+                    await cmdMessage.delete()
+                    await botMessage.delete()
+                    print("Message deleted")
+                    await newtoRpgGeneral(self_var, ctx_var, ctx_var.author.id, playerClass)
+                    await interaction.response.edit_message(view=None)
+                @discord.ui.button(label="Anuluj", style = discord.ButtonStyle.danger)
+                async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global self_var, ctx_var
+                    await botMessage.delete()
+                    await interaction.response.edit_message(view=None)
 
-            def check(reaction, user):
-                print(str(reaction.emoji))
-                return user == ctx.author and str(reaction.emoji) in [warriorEmoji, mageEmoji, rogueEmoji, clericEmoji, "🔴"]
+                #Timeout
+                async def on_timeout(self) -> None:
+                    await botMessage.delete()
+                    embed=discord.Embed(title='Spróbuj później!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Daj znać, gdy się zastanowisz <@" + str(playerID) + "> i po prostu spróbuj później.", color=0x00C1C7)
+                    embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
+                    await ctx.channel.send(embed=embed)
+                    
+                #Check function
+                async def interaction_check (self, interaction: discord.Interaction) -> bool:
+                    if interaction.user == ctx_var.author:
+                        print("The same user pressed button.")
+                        return True
+                    else:
+                        print("Other user pressed button.")
+                        return False
 
-            print("Waiting for reaction")
-            try:
-                reaction, user = await self.bot.wait_for('reaction_add', timeout=90, check=check)
-                print(str(type(reaction)))
-            except:
-                await botMessage.delete()
-                embed=discord.Embed(title='Spróbuj później!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Daj znać, gdy się zastanowisz i po prostu spróbuj później.", color=0x00C1C7)
-                embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
-                botMessage = await ctx.channel.send(embed=embed)
-        
-            x = str(reaction.emoji)
-            if str(reaction.emoji) == warriorEmoji:
-                playerClass = "Wojownik"
-            elif str(reaction.emoji) == mageEmoji:
-                playerClass = "Mag"
-            elif str(reaction.emoji) == rogueEmoji:
-                playerClass = "Łotrzyk"
-            elif str(reaction.emoji) == clericEmoji:
-                playerClass = "Kleryk"
-            else:
-                embed=discord.Embed(title='Spróbuj później!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Daj znać, gdy się zastanowisz i po prostu spróbuj później.", color=0x00C1C7)
-                embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
-                botResponseMsg = await ctx.channel.send(embed=embed)
+            view = MyView_SelectClass()
+            botMessage = await ctx.channel.send(embed=embed, view=view)
 
-            await botMessage.delete()
-            await newtoRpgGeneral(self, ctx, ctx.author.id, playerClass)
-
-    #CHECK PROFILE OF THE CHARACTER
+    #CHECK PROFILE OF THE CHARACTER BY CTX
     global checkGeneralProfile
     async def checkGeneralProfile(self, ctx):
         print("Checking profile...")
         #CHECK IF USER EXISTS IN DATABASE
         print("Checking if user exists...")
         print(ctx.author.id)
+        global playerID
+        playerID = ctx.author.id
         sql=("SELECT ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL, STR, AGI, INTEL, STAM, REMPOINTS FROM RPG_GENERAL WHERE ID = \'{}\';".format(str(ctx.author.id)))
         check = await self.bot.pg_con.fetch(sql)
+        global self_var, ctx_var
+        ctx_var = ctx
+        self_var = self
         print(check)
         if check:
             print("User exists!")
@@ -108,7 +151,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             user = self.bot.get_user(ctx.author.id)
 
             print("Before hero stats reading...")
-            MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP = await readHeroStatsTable(self, ctx, ctx.author.id)
+            MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP = await readHeroStatsTable(self, ctx, playerID)
             print("Hero stats read.")
 
             EXP = check[3]
@@ -149,24 +192,180 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             desc13 = "\nMAG. ATAK: " + str(MATK)
             desc14 = "\nFIZ. OBRONA: " + str(PDEF)
             desc15 = "\nMAG. OBRONA: " + str(MDEF)
-            desc16 = "\nUNIK: " + str(DODGE * 100) + "%"
-            desc17 = "\nSZANSA NA KRYT.: "+ str(CRIT * 100) + "%"
-            desc18 = "\nODBIJANIE OBR.: " + str(RFLCT*100) + "%"
-            desc19 = "\nREFLEKS: " + str(RFLX) + " sekundy"
-            desc20 = "\nSZANSA NA DODATKOWY DROP: " + str(ADDROP*100) + "%"
+            desc16 = "\nUNIK: " + str(round(DODGE * 100, 2)) + "%"
+            desc17 = "\nSZANSA NA KRYT.: "+ str(round(CRIT * 100,2)) + "%"
+            desc18 = "\nODBIJANIE OBR.: " + str(round(RFLCT * 100,2)) + "%"
+            desc19 = "\nREFLEKS: " + str(round(RFLX,2)) + " sekundy"
+            desc20 = "\nSZANSA NA DODATKOWY DROP: " + str(round(ADDROP * 100,2)) + "%"
 
             descript = desc1 + desc2 + desc3 + desc4 + desc5 + desc6 + desc7 + desc8 + desc9 + desc10 + desc11 + desc12 + desc13 + desc14 + desc15 + desc16 + desc17 + desc18 + desc19 + desc20
 
             embed=discord.Embed(title='Bohater ' + str(user.name), url=url1, description=descript, color=0x00C1C7)
             embed.set_thumbnail(url=url1)
-            await ctx.channel.send(embed=embed)
 
-            #button = Button(label = "Awansuj", style = discord.ButtonStyle.green, emoji = "<:AlterUp:846344753124999169>")
-            #view = View()
-            #view.add_item(button)
 
+            #Check if lvl up possible then show buttons
+            class MyView_StartLvlUp(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout = 30)
+                @discord.ui.button(label="Awansuj", style = discord.ButtonStyle.green, emoji = "<:Up:912798893304086558>")
+                async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    await interaction.response.edit_message(view=MyView_ProgresLvlUp())
+                async def interaction_check (self, interaction: discord.Interaction) -> bool:
+                    if interaction.user == ctx_var.author:
+                        print("The same user pressed button.")
+                        return True
+                    else:
+                        print("Other user pressed button.")
+                        return False
+
+            #Global stats to increase after level up
+            global addStr, addAgi, addInt, addStm, addRest
+            addRest = REMPOINTS
+            addStr = 0
+            addAgi = 0
+            addInt = 0
+            addStm = 0
+
+            #Stats to lvl up handling
+            class MyView_ProgresLvlUp(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout = 60)
+                @discord.ui.button(label="SIŁA", style = discord.ButtonStyle.green, emoji = "➕")
+                async def verify1(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global addRest
+                    if addRest > 0:
+                        global addStr
+                        addRest -= 1
+                        addStr += 1
+                        button.label = str(addStr) + " SIŁA"
+                        print("Rem. points, str: " + str(addRest) + " " + str(addStr))
+                        if addRest == 0:
+                            print("Rest points 0")
+                            await interaction.response.edit_message(view=MyView_FinishLvlUp())
+                        else:
+                            await interaction.response.edit_message(view=self)
+                    else:
+                        pass
+                @discord.ui.button(label="ZRECZNOŚĆ", style = discord.ButtonStyle.green, emoji = "➕")
+                async def verify2(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global addRest
+                    if addRest > 0:
+                        global addAgi
+                        addRest -= 1
+                        addAgi += 1
+                        button.label = str(addAgi) + " ZRĘCZNOŚĆ"
+                        print("Rem. points, agi: " + str(addRest) + " " + str(addAgi))
+                        if addRest == 0:
+                            print("Rest points 0")
+                            await interaction.response.edit_message(view=MyView_FinishLvlUp())
+                        else:
+                            await interaction.response.edit_message(view=self)
+                    else:
+                        pass
+                @discord.ui.button(label="INTELIGENCJA", style = discord.ButtonStyle.green, emoji = "➕")
+                async def verify3(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global addRest
+                    if addRest > 0:
+                        global addInt
+                        addRest -= 1
+                        addInt += 1
+                        button.label = str(addInt) + " INTELIGENCJA"
+                        print("Rem. points, int: " + str(addRest) + " " + str(addInt))
+                        if addRest == 0:
+                            print("Rest points 0")
+                            await interaction.response.edit_message(view=MyView_FinishLvlUp())
+                        else:
+                            await interaction.response.edit_message(view=self)
+                    else:
+                        pass
+                @discord.ui.button(label="WYTRZYMAŁOŚĆ", style = discord.ButtonStyle.green, emoji = "➕")
+                async def verify4(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global addRest
+                    if addRest > 0:
+                        global addStm
+                        addRest -= 1
+                        addStm += 1
+                        button.label = str(addStm) + " WYTRZYMAŁOŚĆ"
+                        print("Rem. points, stm: " + str(addRest) + " " + str(addStm))
+                        if addRest == 0:
+                            print("Rest points 0")
+                            await interaction.response.edit_message(view=MyView_FinishLvlUp())
+                        else:
+                            await interaction.response.edit_message(view=self)
+                    else:
+                        pass
+                @discord.ui.button(label="Anuluj", style = discord.ButtonStyle.danger)
+                async def verify5(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global addStr, addAgi, addInt, addStm, addRest
+                    addRest = REMPOINTS
+                    addStr = 0
+                    addAgi = 0
+                    addInt = 0
+                    addStm = 0
+                    await interaction.response.edit_message(view=MyView_StartLvlUp())
+                async def interaction_check (self, interaction: discord.Interaction) -> bool:
+                    if interaction.user == ctx_var.author:
+                        print("The same user pressed button.")
+                        return True
+                    else:
+                        print("Other user pressed button.")
+                        return False
             
+            #Confirmation stats
+            class MyView_FinishLvlUp(discord.ui.View):
+                def __init__(self):
+                    super().__init__(timeout = 60)
+                @discord.ui.button(label="Akceptuj", style = discord.ButtonStyle.green, emoji = "🟢")
+                async def verify4(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    STR = check[5] + addStr
+                    AGI = check[6] + addAgi
+                    INTEL =  check[7] + addInt
+                    STAM = check[8] + addStm
+                    REMPOINTS = addRest
+                    print(STR)
+                    print(AGI)
+                    print(INTEL)
+                    print(STAM)
+                    print(REMPOINTS)
+                    global self_var, ctx_var
+                    ctx = await self_var.bot.get_context(botMessage) 
+                    global playerID
+                    print(playerID)
+                    await interaction.response.edit_message(view=None)
+                    
+                    print('UPDATE RPG_GENERAL SET STR = {}, AGI = {}, INTEL = {}, STAM = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(STR, AGI, INTEL, STAM, REMPOINTS, str(playerID)))
+                    await self_var.bot.pg_con.execute('UPDATE RPG_GENERAL SET STR = {}, AGI = {}, INTEL = {}, STAM = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(STR, AGI, INTEL, STAM, REMPOINTS, str(playerID)))
+                    print("Database updated.")
+                    print(ctx)
+                    await calcStats(self_var, ctx, playerID, False)
+                    await botMessage.delete()
+                    await checkGeneralProfile(self_var, ctx_var)
+                @discord.ui.button(label="Anuluj", style = discord.ButtonStyle.danger)
+                async def verify5(self, interaction: discord.Interaction, button: discord.ui.Button):
+                    global addStr, addAgi, addInt, addStm, addRest
+                    addRest = REMPOINTS
+                    addStr = 0
+                    addAgi = 0
+                    addInt = 0
+                    addStm = 0
+                    await interaction.response.edit_message(view=MyView_StartLvlUp())
+                async def interaction_check (self, interaction: discord.Interaction) -> bool:
+                    if interaction.user == ctx_var.author:
+                        print("The same user pressed button.")
+                        return True
+                    else:
+                        print("Other user pressed button.")
+                        return False
 
+                    
+            if REMPOINTS > 0:        
+                view = MyView_StartLvlUp()
+            else:
+                view = None
+
+            botMessage = await ctx.channel.send(embed=embed, view=view)
+            
         else:
             embed=discord.Embed(title='Bohater nie istnieje!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Nie stworzyłeś jeszcze swojego bohatera. Możesz to zrobić wpisując komendę **#start**!", color=0x00C1C7)
             embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
@@ -176,7 +375,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
 
     #CALCULATE ADDITIONAL STATS
     global calcStats
-    async def calcStats(self, ctx, ID):
+    async def calcStats(self, ctx, ID, new: bool):
         sql=("SELECT ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL, STR, AGI, INTEL, STAM, REMPOINTS FROM RPG_GENERAL WHERE ID = \'{}\';".format(str(ID)))
         check = await self.bot.pg_con.fetch(sql)
         if check:
@@ -259,6 +458,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             #Read database with additional stats
             #Check EQ with stats
             if str(CLASS) == "Wojownik":
+                print("Stats calculated for Warrior")
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT_Alt*INT + 0
                 PATK = Scale_ATK_STR*STR + Scale_ATK_AGI_Alt*AGI + 0
@@ -266,11 +466,12 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 PDEF = 0 #TODO From EQ
                 MDEF = 0 #TODO From EQ
                 DODGE = Scale_DODGE_AGI_Alt*AGI + 0
-                CRIT = Scale_CRIT_AGI_Alt*AGI + 0
+                CRIT = Scale_CRIT_AGI_Alt*AGI + Scale_CRIT_INT_Alt*INT + 0
                 RFLCT = 0 #TODO From EQ
                 RFLX = 0 #TODO From EQ
                 ADDROP = 0 #TODO From EQ
             elif str(CLASS) == "Łotrzyk":
+                print("Stats calculated for Rogue")
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR_Alt*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT_Alt*INT + 0
                 PATK = Scale_ATK_STR_Alt*STR + Scale_ATK_AGI*AGI + 0
@@ -278,11 +479,12 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 PDEF = 0 #TODO From EQ
                 MDEF = 0 #TODO From EQ
                 DODGE = Scale_DODGE_AGI*AGI + 0
-                CRIT = Scale_CRIT_AGI*AGI + 0
+                CRIT = Scale_CRIT_AGI*AGI + Scale_CRIT_INT_Alt*INT + 0
                 RFLCT = 0 #TODO From EQ
                 RFLX = 0 #TODO From EQ
                 ADDROP = 0 #TODO From EQ
             elif str(CLASS) == "Mag":
+                print("Stats calculated for Mage")
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR_Alt*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT*INT + 0
                 PATK = Scale_ATK_STR_Alt*STR + Scale_ATK_AGI_Alt*AGI + 0
@@ -290,11 +492,12 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 PDEF = 0 #TODO From EQ
                 MDEF = 0 #TODO From EQ
                 DODGE = Scale_DODGE_AGI_Alt*AGI + 0
-                CRIT = Scale_CRIT_AGI_Alt*AGI + 0
+                CRIT = Scale_CRIT_AGI_Alt*AGI + Scale_CRIT_INT*INT + 0
                 RFLCT = 0 #TODO From EQ
                 RFLX = 0 #TODO From EQ
                 ADDROP = 0 #TODO From EQ
-            elif str(CLASS) == "Kapłan":
+            elif str(CLASS) == "Kleryk":
+                print("Stats calculated for Cleric")
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR_Alt*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT*INT + 0
                 PATK = Scale_ATK_STR_Alt*STR + Scale_ATK_AGI_Alt*AGI + 0
@@ -302,7 +505,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 PDEF = 0 #TODO From EQ
                 MDEF = 0 #TODO From EQ
                 DODGE = Scale_DODGE_AGI_Alt*AGI + 0
-                CRIT = Scale_CRIT_AGI_Alt*AGI + 0
+                CRIT = Scale_CRIT_AGI_Alt*AGI + Scale_CRIT_INT*INT + 0
                 RFLCT = 0 #TODO From EQ
                 RFLX = 0 #TODO From EQ
                 ADDROP = 0 #TODO From EQ
@@ -317,7 +520,10 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         MaxMP = MP
         ActMP = MaxMP
 
-        await insertHeroStats(self, ctx, playerID, CLASS, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
+        if new:
+            await insertHeroStats(self, ctx, playerID, CLASS, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
+        else:
+            await updateHeroStats(self, ctx, playerID, CLASS, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
 
 
 
@@ -326,6 +532,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
     #generate RPG Database
     global createRpgGeneralTable
     async def createRpgGeneralTable(self, ctx):
+        
         #Droping General RPG table if already exists.
         print("Trying to create RPG Database.")
         await self.bot.pg_con.execute("DROP TABLE IF EXISTS RPG_GENERAL")
@@ -361,7 +568,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         print("Database updated with general stats.")
         print("Data inserted in General RPG Database.")
         if playerClass == "Wojownik":
-                url1="https://www.altermmo.pl/wp-content/uploads/Icon17.png"
+            url1="https://www.altermmo.pl/wp-content/uploads/Icon17.png"
         elif playerClass == "Mag":
             url1="https://www.altermmo.pl/wp-content/uploads/Icon21.png"
         elif playerClass == "Łotrzyk":
@@ -370,11 +577,12 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             url1="https://www.altermmo.pl/wp-content/uploads/Icon20.png"
         else:
             url1="https://www.altermmo.pl/wp-content/uploads/Icon17.png"
-        embed=discord.Embed(title='Powodzenia!', url=url1, description="Świetnie! Stworzyłeś swojego bohatera, którym możesz zatopić się w świat fantasy AlterMMO. Przyjemnych przygód!", color=0x00C1C7)
+        embed=discord.Embed(title='Powodzenia!', url=url1, description="Świetnie! Stworzyłeś swojego  <@" + str(playerID) + ">, którym możesz zatopić się w świat fantasy AlterMMO. Przyjemnych przygód!", color=0x00C1C7)
         embed.set_thumbnail(url=url1)
+
         botResponseMsg = await ctx.channel.send(embed=embed)
 
-        await calcStats(self, ctx, playerID)
+        await calcStats(self, ctx, playerID, True)
 
     global readRpgGeneral
     async def readRpgGeneral(self, ctx):
@@ -427,11 +635,11 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
            MATK INT,
            PDEF INT,
            MDEF INT,
-           DODGE INT,
-           CRIT INT,
-           RFLCT INT,
-           RFLX INT,
-           ADDROP INT
+           DODGE REAL,
+           CRIT REAL,
+           RFLCT REAL,
+           RFLX REAL,
+           ADDROP REAL
         )'''
         await self.bot.pg_con.execute(sql)
         print("Table RPG_HERO_STATS created successfully.")
@@ -458,6 +666,13 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         print('UPDATE RPG_HERO_STATS SET ActHP = {}, ActMP = {} WHERE ID = \'{}\''.format(ActHP, ActMP, str(playerID)))
         await self.bot.pg_con.execute('UPDATE RPG_HERO_STATS SET ActHP = {}, ActMP = {} WHERE ID = \'{}\''.format(ActHP, ActMP, str(playerID)))
         print("Data updated in HP/MP Hero Stats Database.")
+
+    global updateStatsRPGGeneral
+    async def updateStatsRPGGeneral(self, ctx, playerID, STR, AGI, INT, STAM, REMPOINTS):
+        print("Trying to update Main Hero Stats in RPG General...")
+        print('UPDATE RPG_GENERAL SET STR = {}, AGI = {}, INTEL = {}, STAM = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(STR, AGI, INT, STAM, REMPOINTS, str(playerID)))
+        await self.bot.pg_con.execute('UPDATE RPG_GENERAL SET STR = {}, AGI = {}, INTEL = {}, STAM = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(STR, AGI, INT, STAM, REMPOINTS, str(playerID)))
+        print("Data updated in Main Hero Stats in RPG General Database.")
 
     global updateExpHeroStats
     async def updateExpHeroStats(self, ctx, playerID, acqEXP):

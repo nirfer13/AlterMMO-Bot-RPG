@@ -49,8 +49,8 @@ class message(commands.Cog, name="rpg_general"):
 
     @commands.command(name="calcStats")
     @commands.has_permissions(administrator=True)
-    async def calcStats(self, ctx, ID):
-        await functions_rpg_general.calcStats(self,ctx,ID)
+    async def calcStats(self, ctx, ID, new: bool):
+        await functions_rpg_general.calcStats(self,ctx,ID, new)
 
     @commands.command(name="setHPMP")
     @commands.has_permissions(administrator=True)
@@ -66,6 +66,11 @@ class message(commands.Cog, name="rpg_general"):
     @commands.has_permissions(administrator=True)
     async def readStats(self, ctx, ID):
         await functions_rpg_general.readHeroStatsTable(self, ctx, ID)
+
+    @commands.command(name="setStats")
+    @commands.has_permissions(administrator=True)
+    async def readStats(self, ctx, ID, Str, Agi, Int, Stm, Rempoints):
+        await functions_rpg_general.updateStatsRPGGeneral(self, ctx, ID, Str, Agi, Int, Stm, Rempoints)
 
         
 async def setup(bot):

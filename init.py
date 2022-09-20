@@ -15,7 +15,7 @@ from globals.globalvariables import DebugMode
 load_dotenv()
 description = 'AlterMMO Discord Bot, Development in progres'
 intents = discord.Intents.all()
-intents.members = True
+#intents.members = True
 
 #commands prefix == #
 bot = commands.Bot(
