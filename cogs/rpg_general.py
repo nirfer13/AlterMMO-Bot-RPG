@@ -30,6 +30,11 @@ class message(commands.Cog, name="rpg_general"):
     async def checkGeneralProfile(self, ctx):
         await functions_rpg_general.checkGeneralProfile(self, ctx)
 
+    @commands.command(name="odpoczynek")
+    @commands.has_permissions(administrator=True) #TOREMOVE
+    async def regenHPMP(self, ctx):
+        await functions_rpg_general.regenHPMP(self, ctx)
+
 
     #========================== COMMANDS TO DEBUG =======================================
 
@@ -69,9 +74,13 @@ class message(commands.Cog, name="rpg_general"):
 
     @commands.command(name="setStats")
     @commands.has_permissions(administrator=True)
-    async def readStats(self, ctx, ID, Str, Agi, Int, Stm, Rempoints):
+    async def setStats(self, ctx, ID, Str, Agi, Int, Stm, Rempoints):
         await functions_rpg_general.updateStatsRPGGeneral(self, ctx, ID, Str, Agi, Int, Stm, Rempoints)
 
+    @commands.command(name="spawnMob")
+    @commands.has_permissions(administrator=True)
+    async def spawnMob(self, ctx, mobLvl: int):
+        await functions_rpg_general.spawnMob(self, ctx, mobLvl)
         
 async def setup(bot):
     await bot.add_cog(message(bot))

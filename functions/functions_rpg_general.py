@@ -11,6 +11,7 @@ from discord.utils import sane_wait_for
 #Import Globals
 from globals.globalvariables import DebugMode
 
+#Character Classes
 global Class
 class Class(Enum):
     Warrior = 0
@@ -23,6 +24,8 @@ global bot
 class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
     def __init__(self, bot):
         self.bot = bot
+
+    #============================ USERS FUNCTIONS ==============================
 
     #CREATE NEW CHARACTER
     #newtogeneral(Update general character info) -> calcStats (calculate additional stats) -> Update Stats (Update stats in database)
@@ -367,8 +370,8 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                     else:
                         print("Other user pressed button.")
                         return False
-
-                    
+  
+            #Lvl up available only when REMPOINTS > 0
             if REMPOINTS > 0:        
                 view = MyView_StartLvlUp()
             else:
@@ -382,6 +385,19 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             botMessage = await ctx.channel.send(embed=embed)
 
         print("Profile presented.")
+
+    #REGEN HERO HP/MP
+    global regenHPMP
+    async def regenHPMP(self, ctx):
+        playerID = ctx.author.id
+        print("Before hero stats reading...")
+        MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP = await readHeroStatsTable(self, ctx, playerID)
+        print("Hero stats read.")
+        print("Before hero healing...")
+        await updateHPMPHeroStats(self, ctx, playerID, MaxHP, MaxMP)
+        print("Hero healed.")
+
+    #============================ AUXILIARY FUNCTIONS ==============================
 
     #CALCULATE ADDITIONAL STATS
     global calcStats
@@ -540,6 +556,77 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         else:
             await updateHeroStats(self, ctx, playerID, CLASS, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
 
+    #SPAWN MOB
+    global spawnMob
+    async def spawnMob(self, ctx, mobLvl: int):
+        print("Trying to spawn mob...")
+        if mobLvl > 10 and mobLvl > 0:
+            await ctx.channel.send("Wybrałeś zły poziom potwora! Wybierz poziom od 1 do 10!")
+        else:
+            
+            class Mob:
+                #Constructor
+                def __init__(self, mobLvl):
+                    self.mobLvl = mobLvl
+
+                    print("Reading calc constants from the file...")
+                    #HP/Lvl, MP/Lvl, PATK/LVL, MATK/LVL, PDEF/LVL, MDEF/LVL, DODGE/LVLDIFF, CRIT/LVLDIFF, RFLCT/1
+                    with open("mobStatConfig.json", encoding='utf-8') as jsonFile:
+                        jsonObject = json.loads(jsonFile.read())
+                    print("Constants from file loaded.")
+
+                    #General
+                    Scale_HP_Lvl = jsonObject['General'][0]['weight']
+                    print("HP/lvl = " + str(Scale_HP_Lvl))
+                    Scale_MP_Lvl = jsonObject['General'][1]['weight']
+                    print("MP/lvl = " + str(Scale_MP_Lvl))
+                    Scale_PATK_Lvl = jsonObject['General'][2]['weight']
+                    print("PATK/lvl = " + str(Scale_PATK_Lvl))
+                    Scale_MATK_Lvl = jsonObject['General'][3]['weight']
+                    print("MATK/lvl = " + str(Scale_MATK_Lvl))
+                    Scale_PDEF_Lvl = jsonObject['General'][4]['weight']
+                    print("PDEF/lvl = " + str(Scale_PDEF_Lvl))
+                    Scale_MDEF_Lvl = jsonObject['General'][5]['weight']
+                    print("MDEF/lvl = " + str(Scale_MDEF_Lvl))
+                    Scale_DODGE_Lvldiff = jsonObject['General'][6]['weight']
+                    print("DODGE/lvldiff = " + str(Scale_DODGE_Lvldiff))
+                    Scale_CRIT_Lvldiff = jsonObject['General'][7]['weight']
+                    print("CRIT/lvldiff = " + str(Scale_CRIT_Lvldiff))
+                    Scale_RFLCT = jsonObject['General'][8]['weight']
+                    print("RFLCT/lvldiff = " + str(Scale_RFLCT))
+                    Scale_MAXPDEF = jsonObject['General'][9]['weight']
+                    print("MAXPDEF = " + str(Scale_MAXPDEF))
+
+                    self.HP = Scale_HP_Lvl * mobLvl
+                    self.MP = Scale_MP_Lvl * mobLvl
+                    self.PATK = Scale_PATK_Lvl * mobLvl
+                    self.MATK = Scale_MATK_Lvl * mobLvl
+                    self.PDEF = Scale_PDEF_Lvl * mobLvl
+                    self.MDEF = Scale_MDEF_Lvl * mobLvl
+                    self.DODGE = 0
+                    self.CRIT = 0
+                    self.RFLCT = 0
+                    self.REDUC = self.PDEF / Scale_MAXPDEF #Value in %/100
+
+                    self.ActHP = self.HP
+                    self.ActMP = self.MP
+                    print("Mob constructor end.")
+
+                def getDamage(self, PATK: int, MATK: int):
+                    print("Mob is getting dmg...")
+                    self.ActHP -= PATK * (1 - self.REDUC)
+                    print("HP left: " + str(self.ActHP))
+
+                    #check if mob killed
+                    if self.ActHP <= 0:
+                        print("Mob is dead!")
+                        return True
+                    else:
+                        print("Mob still alive!")
+                        return False
+
+            Monster = Mob(mobLvl)
+            return Monster
 
 
     #============================ RPG GENERAL DATABASE ==============================
@@ -736,42 +823,44 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         #Database Reading
         print("Trying to read Hero Stats Database...")
         dbRpgStatsRead = await self.bot.pg_con.fetch("SELECT ID, CURRENT_CLASS, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP FROM RPG_HERO_STATS WHERE ID = \'{}\';".format(str(playerID)))
-        
-        print("ID: " + dbRpgStatsRead[0][0])
-        ID = dbRpgStatsRead[0][0]
-        print("Class: " + str(dbRpgStatsRead[0][1]))
-        Class = dbRpgStatsRead[0][1]
-        print("MaxHP: " + str(dbRpgStatsRead[0][2]))
-        MaxHP = dbRpgStatsRead[0][2]
-        print("ActHP: " + str(dbRpgStatsRead[0][3]))
-        ActHP = dbRpgStatsRead[0][3]
-        print("MaxMP: " + str(dbRpgStatsRead[0][4]))
-        MaxMP = dbRpgStatsRead[0][4]
-        print("ActMP: " + str(dbRpgStatsRead[0][5]))
-        ActMP = dbRpgStatsRead[0][5]
-        print("PATK: " + str(dbRpgStatsRead[0][6]))
-        PATK = dbRpgStatsRead[0][6]
-        print("MATK: " + str(dbRpgStatsRead[0][7]))
-        MATK = dbRpgStatsRead[0][7]
-        print("PDEF: " + str(dbRpgStatsRead[0][8]))
-        PDEF = dbRpgStatsRead[0][8]
-        print("MDEF: " + str(dbRpgStatsRead[0][9]))
-        MDEF = dbRpgStatsRead[0][9]
-        print("DODGE: " + str(dbRpgStatsRead[0][10]))
-        DODGE = dbRpgStatsRead[0][10]
-        print("CRIT: " + str(dbRpgStatsRead[0][11]))
-        CRIT = dbRpgStatsRead[0][11]
-        print("RFLCT: " + str(dbRpgStatsRead[0][12]))
-        RFLCT = dbRpgStatsRead[0][12]
-        print("RFLX: " + str(dbRpgStatsRead[0][13]))
-        RFLX = dbRpgStatsRead[0][13]
-        print("ADDROP: " + str(dbRpgStatsRead[0][14]))
-        ADDROP = dbRpgStatsRead[0][14]
 
-        return MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP
+        if dbRpgStatsRead:
+            print("ID: " + dbRpgStatsRead[0][0])
+            ID = dbRpgStatsRead[0][0]
+            print("Class: " + str(dbRpgStatsRead[0][1]))
+            Class = dbRpgStatsRead[0][1]
+            print("MaxHP: " + str(dbRpgStatsRead[0][2]))
+            MaxHP = dbRpgStatsRead[0][2]
+            print("ActHP: " + str(dbRpgStatsRead[0][3]))
+            ActHP = dbRpgStatsRead[0][3]
+            print("MaxMP: " + str(dbRpgStatsRead[0][4]))
+            MaxMP = dbRpgStatsRead[0][4]
+            print("ActMP: " + str(dbRpgStatsRead[0][5]))
+            ActMP = dbRpgStatsRead[0][5]
+            print("PATK: " + str(dbRpgStatsRead[0][6]))
+            PATK = dbRpgStatsRead[0][6]
+            print("MATK: " + str(dbRpgStatsRead[0][7]))
+            MATK = dbRpgStatsRead[0][7]
+            print("PDEF: " + str(dbRpgStatsRead[0][8]))
+            PDEF = dbRpgStatsRead[0][8]
+            print("MDEF: " + str(dbRpgStatsRead[0][9]))
+            MDEF = dbRpgStatsRead[0][9]
+            print("DODGE: " + str(dbRpgStatsRead[0][10]))
+            DODGE = dbRpgStatsRead[0][10]
+            print("CRIT: " + str(dbRpgStatsRead[0][11]))
+            CRIT = dbRpgStatsRead[0][11]
+            print("RFLCT: " + str(dbRpgStatsRead[0][12]))
+            RFLCT = dbRpgStatsRead[0][12]
+            print("RFLX: " + str(dbRpgStatsRead[0][13]))
+            RFLX = dbRpgStatsRead[0][13]
+            print("ADDROP: " + str(dbRpgStatsRead[0][14]))
+            ADDROP = dbRpgStatsRead[0][14]
 
-
-
+            return MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP
+        else:
+            embed=discord.Embed(title='Bohater nie istnieje!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Nie stworzyłeś jeszcze swojego bohatera. Możesz to zrobić wpisując komendę **#start**!", color=0x00C1C7)
+            embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
+            botMessage = await ctx.channel.send(embed=embed)
 
 
 async def setup(bot):
