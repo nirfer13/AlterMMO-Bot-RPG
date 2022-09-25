@@ -1,6 +1,7 @@
 ﻿
 import discord
 from discord.ext import commands
+from enum import Enum
 
 from discord.ui import Button, View
 import json
@@ -9,6 +10,13 @@ from discord.utils import sane_wait_for
 
 #Import Globals
 from globals.globalvariables import DebugMode
+
+global Class
+class Class(Enum):
+    Warrior = 0
+    Mage = 1
+    Rogue = 2
+    Cleric = 3
 
 global bot
 
@@ -54,15 +62,15 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             embed.set_footer(text='Powodzenia!')
 
             #Select class buttons
-            global playerClass
-            playerClass = ""
+            global Class
+            Class = Class.Cleric
             class MyView_SelectClass(discord.ui.View):
                 def __init__(self):
                     super().__init__(timeout = 120)
                 @discord.ui.button(label="Wojownik", style = discord.ButtonStyle.green, emoji = warriorEmoji)
                 async def verify1(self, interaction: discord.Interaction, button: discord.ui.Button):
                     global self_var, ctx_var
-                    playerClass = "Wojownik"
+                    playerClass = Class.Warrior
                     await botMessage.delete()
                     print("Message deleted")
                     await newtoRpgGeneral(self_var, ctx_var, ctx_var.author.id, playerClass)
@@ -70,7 +78,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 @discord.ui.button(label="Mag", style = discord.ButtonStyle.green, emoji = mageEmoji)
                 async def verify2(self, interaction: discord.Interaction, button: discord.ui.Button):
                     global self_var, ctx_var
-                    playerClass = "Mag"
+                    playerClass = Class.Mage
                     await botMessage.delete()
                     print("Message deleted")
                     await newtoRpgGeneral(self_var, ctx_var, ctx_var.author.id, playerClass)
@@ -78,7 +86,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 @discord.ui.button(label="Łotrzyk", style = discord.ButtonStyle.green, emoji = rogueEmoji)
                 async def verify3(self, interaction: discord.Interaction, button: discord.ui.Button):
                     global self_var, ctx_var
-                    playerClass = "Łotrzyk"
+                    playerClass = Class.Rogue
                     await botMessage.delete()
                     print("Message deleted")
                     await newtoRpgGeneral(self_var, ctx_var, ctx_var.author.id, playerClass)
@@ -86,9 +94,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 @discord.ui.button(label="Kleryk", style = discord.ButtonStyle.green, emoji = clericEmoji)
                 async def verify4(self, interaction: discord.Interaction, button: discord.ui.Button):
                     global self_var, ctx_var
-                    playerClass = "Kleryk"
-                    global cmdMessage
-                    await cmdMessage.delete()
+                    playerClass = Class.Cleric
                     await botMessage.delete()
                     print("Message deleted")
                     await newtoRpgGeneral(self_var, ctx_var, ctx_var.author.id, playerClass)
@@ -96,15 +102,19 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 @discord.ui.button(label="Anuluj", style = discord.ButtonStyle.danger)
                 async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
                     global self_var, ctx_var
+                    await cmdMessage.delete()
                     await botMessage.delete()
                     await interaction.response.edit_message(view=None)
 
                 #Timeout
                 async def on_timeout(self) -> None:
-                    await botMessage.delete()
-                    embed=discord.Embed(title='Spróbuj później!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Daj znać, gdy się zastanowisz <@" + str(playerID) + "> i po prostu spróbuj później.", color=0x00C1C7)
-                    embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
-                    await ctx.channel.send(embed=embed)
+                    try:
+                        await botMessage.delete()
+                        embed=discord.Embed(title='Spróbuj później!', url='https://www.altermmo.pl/wp-content/uploads/Icon47.png', description="Daj znać, gdy się zastanowisz <@" + str(playerID) + "> i po prostu spróbuj później.", color=0x00C1C7)
+                        embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Icon47.png')
+                        await ctx.channel.send(embed=embed)
+                    except:
+                        pass
                     
                 #Check function
                 async def interaction_check (self, interaction: discord.Interaction) -> bool:
@@ -137,13 +147,13 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             print("User exists!")
             check = check[0]
             print(check[2])
-            if check[2] == "Wojownik":
+            if check[2] == Class.Warrior.name:
                 url1="https://www.altermmo.pl/wp-content/uploads/Icon17.png"
-            elif check[2] == "Mag":
+            elif check[2] == Class.Mage.name:
                 url1="https://www.altermmo.pl/wp-content/uploads/Icon21.png"
-            elif check[2] == "Łotrzyk":
+            elif check[2] == Class.Rogue.name:
                 url1="https://www.altermmo.pl/wp-content/uploads/Icon39.png"
-            elif check[2] == "Kleryk":
+            elif check[2] == Class.Cleric.name:
                 url1="https://www.altermmo.pl/wp-content/uploads/Icon20.png"
             else:
                 url1="https://www.altermmo.pl/wp-content/uploads/Icon17.png"
@@ -385,6 +395,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             #Parse to variables
             playerID = check[0]
             CLASS = str(check[2])
+            print("Class read from database: " + CLASS)
             EXP = check[3]
             LVL = check[4]
             print("Class: " + str(check[2]) + ", EXP: " + str(check[3]) + ", LVL: " + str(check[4]) + ", STR: " + str(check[5])+ ",AGI: " + str(check[6])+ ", INT: " + str(check[7])+ ", STAM: " + str(check[8]))
@@ -456,8 +467,12 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
 
 
             #Read database with additional stats
+            print("ENUM CLASS CHECK================")
+            print(CLASS)
+            print(Class.Rogue)
+            print(Class.Rogue.name)
             #Check EQ with stats
-            if str(CLASS) == "Wojownik":
+            if CLASS == Class.Warrior.name:
                 print("Stats calculated for Warrior")
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT_Alt*INT + 0
@@ -470,7 +485,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 RFLCT = 0 #TODO From EQ
                 RFLX = 0 #TODO From EQ
                 ADDROP = 0 #TODO From EQ
-            elif str(CLASS) == "Łotrzyk":
+            elif CLASS == Class.Rogue.name:
                 print("Stats calculated for Rogue")
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR_Alt*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT_Alt*INT + 0
@@ -483,7 +498,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 RFLCT = 0 #TODO From EQ
                 RFLX = 0 #TODO From EQ
                 ADDROP = 0 #TODO From EQ
-            elif str(CLASS) == "Mag":
+            elif CLASS == Class.Mage.name:
                 print("Stats calculated for Mage")
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR_Alt*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT*INT + 0
@@ -496,7 +511,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                 RFLCT = 0 #TODO From EQ
                 RFLX = 0 #TODO From EQ
                 ADDROP = 0 #TODO From EQ
-            elif str(CLASS) == "Kleryk":
+            elif CLASS == Class.Cleric.name:
                 print("Stats calculated for Cleric")
                 HP = Scale_HP_Lvl*LVL + Scale_HP_STR_Alt*STR + Scale_HP_STAM*STAM + 0
                 MP = Scale_MP_Lvl*LVL + Scale_MP_INT*INT + 0
@@ -563,21 +578,21 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
         #Database Update
         user = self.bot.get_user(playerID)
         print("Trying to update Database...")
-        print('INSERT INTO RPG_GENERAL (ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL, STR, AGI, INTEL, STAM, REMPOINTS) VALUES (\'{}\',\'{}\',\'{}\',{},{},{},{},{},{},{});'.format(str(playerID), user.name, str(playerClass), 0, 1, 5, 5, 5, 5, 0))
-        await self.bot.pg_con.execute('INSERT INTO RPG_GENERAL (ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL, STR, AGI, INTEL, STAM, REMPOINTS) VALUES (\'{}\',\'{}\',\'{}\',{},{},{},{},{},{},{});'.format(str(playerID), user.name, str(playerClass), 0, 1, 5, 5, 5, 5, 0))
+        print('INSERT INTO RPG_GENERAL (ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL, STR, AGI, INTEL, STAM, REMPOINTS) VALUES (\'{}\',\'{}\',\'{}\',{},{},{},{},{},{},{});'.format(str(playerID), user.name, str(playerClass.name), 0, 1, 5, 5, 5, 5, 0))
+        await self.bot.pg_con.execute('INSERT INTO RPG_GENERAL (ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL, STR, AGI, INTEL, STAM, REMPOINTS) VALUES (\'{}\',\'{}\',\'{}\',{},{},{},{},{},{},{});'.format(str(playerID), user.name, str(playerClass.name), 0, 1, 5, 5, 5, 5, 0))
         print("Database updated with general stats.")
         print("Data inserted in General RPG Database.")
-        if playerClass == "Wojownik":
+        if playerClass == Class.Warrior:
             url1="https://www.altermmo.pl/wp-content/uploads/Icon17.png"
-        elif playerClass == "Mag":
+        elif playerClass == Class.Mage:
             url1="https://www.altermmo.pl/wp-content/uploads/Icon21.png"
-        elif playerClass == "Łotrzyk":
+        elif playerClass == Class.Rogue:
             url1="https://www.altermmo.pl/wp-content/uploads/Icon39.png"
-        elif playerClass == "Kleryk":
+        elif playerClass == Class.Cleric:
             url1="https://www.altermmo.pl/wp-content/uploads/Icon20.png"
         else:
             url1="https://www.altermmo.pl/wp-content/uploads/Icon17.png"
-        embed=discord.Embed(title='Powodzenia!', url=url1, description="Świetnie! Stworzyłeś swojego  <@" + str(playerID) + ">, którym możesz zatopić się w świat fantasy AlterMMO. Przyjemnych przygód!", color=0x00C1C7)
+        embed=discord.Embed(title='Powodzenia!', url=url1, description="Świetnie! Stworzyłeś swojego  <@" + str(playerID) + ">, którym możesz zatopić się w świat fantasy AlterMMO. Przyjemnych przygód!\n\nMożesz sprawdzić profil swojej postaci wpisując **#profil**", color=0x00C1C7)
         embed.set_thumbnail(url=url1)
 
         botResponseMsg = await ctx.channel.send(embed=embed)
@@ -702,7 +717,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             print('UPDATE RPG_GENERAL SET LEVEL = {}, EXPERIENCE = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(LVL, EXP, REMPOINTS, str(playerID)))
             await self.bot.pg_con.execute('UPDATE RPG_GENERAL SET LEVEL = {}, EXPERIENCE = {}, REMPOINTS = {} WHERE ID = \'{}\''.format(LVL, EXP, REMPOINTS, str(playerID)))
             
-            embed=discord.Embed(title='Awans!', url='https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png', description="Gratulacje! Awansowales na kolejny poziom!", color=0x00C1C7)
+            embed=discord.Embed(title='Awans!', url='https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png', description="Gratulacje! Awansowałeś na kolejny poziom <@" + str(playerID) +">!", color=0x00C1C7)
             embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png')
             embed.set_footer(text='Poziom ' + str(LVL) + '!')
             botMessage = await ctx.channel.send(embed=embed)

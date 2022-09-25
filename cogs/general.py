@@ -29,12 +29,18 @@ class general(commands.Cog, name="general"):
     @commands.command(brief="Saves messages from current channel to txt, default amount of messages == 100")
     @commands.has_permissions(administrator=True)
     async def saveToTxt(self, ctx, limit: int = 100):
+        print("1")
         text_channel_list = []
+        print("2")
         guild = ctx.guild
-        messages = await ctx.channel.history(limit=limit).flatten()
-        reverseMessages = messages.reverse()
+        limit = int(limit)
+        print("3")
+        messages = [message async for message in ctx.channel.history(limit=limit)]
+        messages.reverse()
         now = datetime.datetime.utcnow() # current date and time
+        print("6")
         file_name = now.strftime("%m_%d_%Y_%H_%M_%S")
+        print("7")
         with open(file_name + ".txt", "a+", encoding="utf-8") as f:
             for message in messages:
                 splittedString = message.content.split("\n", 1)
@@ -48,6 +54,7 @@ class general(commands.Cog, name="general"):
                 print(
                     f"{first + second} \n\n",
                     file=f)
+        print("8")
         print("last: ", limit, " were saved to file with name: " + file_name)
     
 
