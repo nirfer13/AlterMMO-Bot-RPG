@@ -81,6 +81,11 @@ class message(commands.Cog, name="rpg_general"):
     @commands.has_permissions(administrator=True)
     async def spawnMob(self, ctx, mobLvl: int):
         await functions_rpg_general.spawnMob(self, ctx, mobLvl)
+
+    @commands.command(name="spawnPlayer")
+    @commands.has_permissions(administrator=True)
+    async def spawnPlayer(self, ctx, playerID):
+        await functions_rpg_general.spawnPlayer(self, ctx, playerID)
         
 async def setup(bot):
     await bot.add_cog(message(bot))

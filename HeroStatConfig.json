@@ -20,6 +20,11 @@
 		"id": 3,
 		"descr": "HP/STAM",
 		"weight": 15
+	},
+	{
+		"id": 4,
+		"descr": "MAXPDEF",
+		"weight": 750
 	}
 	],"Strength": [
 	{

@@ -628,6 +628,72 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
             Monster = Mob(mobLvl)
             return Monster
 
+    #SPAWN PLAYER
+    global spawnPlayer
+    async def spawnPlayer(self, ctx, playerID):
+        print("Trying to spawn player...")
+        #CHECK IF USER EXISTS IN DATABASE
+        print("Checking if user exists...")
+        sql=("SELECT ID, NICK, CURRENT_CLASS, EXPERIENCE, LEVEL, STR, AGI, INTEL, STAM, REMPOINTS FROM RPG_GENERAL WHERE ID = \'{}\';".format(str(playerID)))
+        check = await self.bot.pg_con.fetch(sql)
+        if check:
+            print("User exists!")
+            check = check[0]
+            print("Before hero stats reading...")
+            MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP = await readHeroStatsTable(self, ctx, playerID)
+            print("Hero stats read.")
+            
+            class Player:
+                #Constructor
+                def __init__(self, MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP):
+
+                    print("Reading calc constants from the file...")
+                    with open("heroStatConfig.json", encoding='utf-8') as jsonFile:
+                        jsonObject = json.loads(jsonFile.read())
+                    print("Constants from file loaded.")
+                    #General
+                    Scale_MAXPDEF = jsonObject['General'][4]['weight']
+
+                    self.HP = MaxHP
+                    self.MP = MaxMP
+                    self.PATK = PATK
+                    self.MATK = MATK
+                    self.PDEF = PDEF
+                    self.MDEF = MDEF
+                    self.DODGE = DODGE
+                    self.CRIT = CRIT
+                    self.RFLCT = RFLCT
+                    self.REDUCP = self.PDEF / Scale_MAXPDEF #Value in %/100
+                    self.REDUCM = self.MDEF / Scale_MAXPDEF #Value in %/100
+
+                    self.ActHP = ActHP
+                    self.ActMP = ActMP
+                    print("Player constructor end.")
+
+                def getDamage(self, PATK: int, MATK: int):
+                    print("Player is getting dmg...")
+                    self.ActHP -= PATK * (1 - self.REDUCP)
+                    self.ActHP -= MATK * (1 - self.REDUCM)
+                    print("HP left: " + str(self.ActHP))
+
+                    #check if player killed
+                    if self.ActHP <= 0:
+                        print("Player is dead!")
+                        return True
+                    else:
+                        print("Player still alive!")
+                        return False
+
+            Player = Player(MaxHP, ActHP, MaxMP, ActMP, PATK, MATK, PDEF, MDEF, DODGE, CRIT, RFLCT, RFLX, ADDROP)
+            Player.getDamage(10, 10)
+            return Player
+
+        else:
+            print("Player does not exists!")
+
+
+            
+
 
     #============================ RPG GENERAL DATABASE ==============================
 

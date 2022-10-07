@@ -61,7 +61,6 @@ if __name__ == '__main__':
         print("Database unreachable.")
     asyncio.get_event_loop().run_until_complete(main())
 
-
 #loads cogs as extentions to bot
 
 
