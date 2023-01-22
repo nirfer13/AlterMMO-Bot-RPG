@@ -22,27 +22,7 @@
 		"weight": 4
 	},
 	{
-		"id": 4,
-		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
-		"weight": 0.25
-	},
-	{
-		"id": 5,
-		"descr": "Gra na steam do 150 złotych",
-		"weight": 0.05
-	},
-	{
-		"id": 6,
-		"descr": "2h testowania na Twitchu wybranej przez Ciebie gry",
-		"weight": 0.5
-	},
-	{
 		"id": 7,
-		"descr": "Info na następnym filmie na YouTube o tym, jak heroicznie pokonałeś bossa",
-		"weight": 0.5
-	},
-	{
-		"id": 8,
 		"descr": "Figa z makiem",
 		"weight": 5
 	}
@@ -69,28 +49,18 @@
 	},
 	{
 		"id": 4,
-		"descr": "Gra na steam do 150 złotych",
-		"weight": 0.15
-	},
-	{
-		"id": 5,
-		"descr": "2h testowania na Twitchu wybranej przez Ciebie gry",
+		"descr": "Kod na steam na 25 złotych",
 		"weight": 0.75
 	},
 	{
-		"id": 6,
+		"id": 5,
 		"descr": "Info na następnym filmie na YouTube o tym, jak heroicznie pokonałeś bossa",
 		"weight": 1.5
 	},
 	{
-		"id": 7,
+		"id": 6,
 		"descr": "Ukradnij wybranemu użytkownikowi 2500 doświadczenia na Discordzie",
 		"weight": 5
-	},
-	{
-		"id": 8,
-		"descr": "Wybierz playlistę na następnego streama, na którym muzyka z gry nie będzie potrzebna",
-		"weight": 1.5
 	}
 	],"loot_details_Epic": [
 	{
@@ -115,27 +85,17 @@
 	},
 	{
 		"id": 4,
-		"descr": "Gra na steam do 150 złotych",
-		"weight": 0.3
-	},
-	{
-		"id": 5,
-		"descr": "2h testowania na Twitchu wybranej przez Ciebie gry",
+		"descr": "Kod na steam na 25 złotych",
 		"weight": 1.5
 	},
 	{
-		"id": 6,
+		"id": 5,
 		"descr": "Info na następnym filmie na YouTube o tym, jak heroicznie pokonałeś bossa",
 		"weight": 3
 	},
 	{
-		"id": 7,
+		"id": 6,
 		"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
-		"weight": 1.5
-	},
-	{
-		"id": 8,
-		"descr": "Wybierz playlistę na następnego streama, na którym muzyka z gry nie będzie potrzebna",
 		"weight": 1.5
 	}
 	]	

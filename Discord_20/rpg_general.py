@@ -87,5 +87,5 @@ class message(commands.Cog, name="rpg_general"):
     async def spawnPlayer(self, ctx, playerID):
         await functions_rpg_general.spawnPlayer(self, ctx, playerID)
         
-async def setup(bot):
-    await bot.add_cog(message(bot))
+def setup(bot):
+    bot.add_cog(message(bot))

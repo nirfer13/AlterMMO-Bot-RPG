@@ -86,13 +86,13 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
         #description
         if rarity == 0:
-            eDescr = "Pojawił się zwykły boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **#zaatakuj**, żeby rozpocząć walkę! ⚔️"
+            eDescr = "Pojawił się zwykły boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
         elif rarity == 1:
-            eDescr = "Pojawił się rzadki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **#zaatakuj**, żeby rozpocząć walkę! ⚔️"
+            eDescr = "Pojawił się rzadki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
         elif rarity == 2:
-            eDescr = "Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **#zaatakuj**, żeby rozpocząć walkę! ⚔️"
+            eDescr = "Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
         else:
-            eDescr = "Pojawił się boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **#zaatakuj**, żeby rozpocząć walkę! ⚔️"
+            eDescr = "Pojawił się boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
 
         #color
         if rarity == 0:
@@ -244,24 +244,17 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
     #function to change icon of Boss Slayer Role
     global changeIcon
-    async def changeIcon(self, ctx, iconNum):
+    async def changeIcon(self, ctx):
         print("Changing icon.")
         bossslayer_role = discord.utils.get(ctx.guild.roles, id=687585577901883413)
         print("Role taken.")
         print(bossslayer_role)
         print("1.")
-        byteImgIO = BytesIO()
-        print("2.")
-        byteImg = Image.open("BossSlayerIcons/1.png")
-        print("Image opened.")
-        byteImg.save(byteImgIO, "PNG")
-        print("3.")
-        byteImgIO.seek(0)
-        print("4.")
-        byteImg = byteImgIO.read()
-        print("Image to byteImageIO.")
-        await bossslayer_role.edit(display_icon=byteImg, reason="Zmiana przez użytkownika.")
+        if ctx.message.attachments[0].content_type == "image/png":
+            image = await ctx.message.attachments[0].read()
+            print("Image opened.")
+            await bossslayer_role.edit(display_icon=image, reason="Zmiana przez użytkownika.")
           
 
-async def setup(bot):
-    await bot.add_cog(functions_boss(bot))
+def setup(bot):
+    bot.add_cog(functions_boss(bot))

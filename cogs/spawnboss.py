@@ -51,7 +51,7 @@ class message(commands.Cog, name="spawnBoss"):
         if DebugMode == True:
             ctx = await functions_boss.getContext(self, 970571647226642442, 984860815842771024)
         else:
-            ctx = await functions_boss.getContext(self, 970684202880204831, 988043434470281238)
+            ctx = await functions_boss.getContext(self, 970684202880204831, 1028328642436136961)
 
         global bossAlive, bossRarity, respTime, respawnResume
         bossRar, respawnTime, respawnResume = await functions_database.readBossTable(self, ctx)
@@ -218,9 +218,12 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(pass_context=True, name="zaatakuj", brief="Attacking the boss")
     async def attackMessage(self, ctx):
         if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
+            
             global bossAlive, bossRarity, respawnResume
             if bossAlive == 4: #or str(ctx.message.author.id) == '291836779495948288':
-
+                await ctx.message.add_reaction("🪓")
+                async with ctx.typing():
+                    await ctx.channel.send('Jesteś sam?')
                 bossAlive = 5
                 respawnResume = False
                 preFight = False
@@ -232,7 +235,7 @@ class message(commands.Cog, name="spawnBoss"):
                             print("Group init error: same author!")
                             return False
                         else:
-                            if message.content.lower() == "#zaatakuj": 
+                            if message.content.lower() == "$zaatakuj": 
                                 return True 
                             else:
                                 print("Group init error: wrong message!")
@@ -240,15 +243,13 @@ class message(commands.Cog, name="spawnBoss"):
                     return inner_check
 
                 try:
-                    anotherAtkCmd = await self.bot.wait_for('message', timeout=15, check=check(ctx.author))
-                    #response = str(anotherAtkCmd.content)
-                    #if response == "#zaatakuj" and anotherAtkCmd.author != ctx.message.author:
+                    anotherAtkCmd = await self.bot.wait_for('message', timeout=30, check=check(ctx.author))
                     preFight = True
                     print("Prefight: " + str(preFight))
                     async with ctx.typing():
                         await asyncio.sleep(2)
                         await ctx.channel.send('"**SPOKÓJ!!!**" - *słyszyscie głos w swojej głowie.* "Zachowajcie resztki honoru i wystawcie do walki najsilniejszego z Was."')
-                    initCmd = random.choice(["konstantynopolitańczykówna", "degrengolada", "Antropomorfizacja", "Zjawiskowy", "Opsomaniak", "Egzegeza", "Chasydyzm", "Eksplikacja", "Apoteoza", "Buńczuczny","Konstantynopolitańczykówna", "Degrengolada", "Prokrastynacja", "Wszeteczeństwo", "Melepeta", "Imponderabilia", "Inwariant", "Tromtadracja", "Transcendencja", "Lumpenproletariat"])
+                    initCmd = random.choice(["Konstantynopolitańczykówna", "degrengolada", "Antropomorfizacja", "Zjawiskowy", "Opsomaniak", "Egzegeza", "Chasydyzm", "Eksplikacja", "Apoteoza", "Buńczuczny","Konstantynopolitańczykówna", "Degrengolada", "Prokrastynacja", "Wszeteczeństwo", "Melepeta", "Imponderabilia", "Inwariant", "Tromtadracja", "Transcendencja", "Lumpenproletariat", "Dezynwoltura", "Eudajmonizm", "Interlokutor", "Indyferentny", "Promiskuityzm"])
                     await asyncio.sleep(6)
                     async with ctx.typing():
                         await ctx.channel.send('"Pierwszy, który PŁYNNIE wypowie zaklęcie, które zaraz zdradzę, będzie godzien walki ze mną!"')
@@ -290,10 +291,10 @@ class message(commands.Cog, name="spawnBoss"):
                 if bossAlive == 6:
                     async with ctx.typing():
                         await ctx.channel.send('Zaatakowałeś bossa <@' + format(bossHunterID.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe! Przygotuj się!')
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(10)
 
                     #Start time counting
-                    startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+                    startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
                     #Save resp time and nickname
                     await functions_database.updateHistoryTable(self, ctx, bossHunterID.name, startTime)
 
@@ -347,9 +348,9 @@ class message(commands.Cog, name="spawnBoss"):
                                     previousRecord, Nick = await functions_database.readRecordTable(self, ctx)
                                 
                                     if datetime.datetime.strptime(previousRecord, "%H:%M:%S.%f") > datetime.datetime.strptime(str(recordTurnTime), "%H:%M:%S.%f"):
-                                        await ctx.channel.send('Pobiłeś rekord i zgarniasz dodatkowe 3000 doświadczenia na discordzie!')
+                                        await ctx.channel.send('Pobiłeś rekord i zgarniasz dodatkowe 1500 doświadczenia na discordzie!')
                                         logChannel = self.bot.get_channel(881090112576962560)
-                                        await logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " otrzymał: 3000 expa za rekord")
+                                        await logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " otrzymał: 1500 expa za rekord")
                                         await functions_database.updateRecordTable(self, ctx, bossHunterID.name, recordTurnTime)
 
                                     #Ranking - add points
@@ -419,7 +420,7 @@ class message(commands.Cog, name="spawnBoss"):
         if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
             fightTime, Nick = await functions_database.readHistoryTable(self, ctx)
             print ("History database read.")
-            await ctx.channel.send('Poprzednio boss walczył z **' + Nick + '** i było to **' + fightTime + ' UTC+2**.')
+            await ctx.channel.send('Poprzednio boss walczył z **' + Nick + '** i było to **' + fightTime + ' UTC+1**.')
 
     @commands.command(name="ranking")
     async def readRankingDatabase(self, ctx):
@@ -439,6 +440,12 @@ class message(commands.Cog, name="spawnBoss"):
         else:
             await ctx.channel.send('<:KEKW:936907435921252363> **Miernota** <:2Head:882184634572627978>')
 
+    @flex.error
+    async def flexcommand_cooldown(self, ctx, error):
+        if isinstance(error, commands.CommandOnCooldown):
+            print("Command on cooldown.")
+            await ctx.send('Poczekaj na odnowienie komendy! Zostało ' + str(round(error.retry_after/60/60, 2)) + ' godzin/y <:Bedge:970576892874854400>.')
+
     # command to change color
     @commands.command(pass_context=True, name="kolor", brief="Boss slayer color change")
     @commands.cooldown(1, 1800, commands.BucketType.user)
@@ -457,9 +464,9 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(pass_context=True, name="ikona", brief="Boss slayer icon change")
     @commands.has_permissions(administrator=True)
     #@commands.cooldown(1, 1800, commands.BucketType.user)
-    async def changeIcon(self, ctx, hexColor):
+    async def changeIcon(self, ctx):
         print("Before function to change color.")
-        await functions_boss.changeIcon(self, ctx, hexColor)
+        await functions_boss.changeIcon(self, ctx)
 
     # command to debug
     @commands.command(pass_context=True, name="bossslayer")
@@ -472,7 +479,7 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def remind(self, ctx):
         Channel = self.bot.get_channel(970684202880204831)
-        await Channel.send("Potwór oczekuje na zabicie! Wpisz **#zaatakuj**, aby rozpocząć walkę! @here")
+        await Channel.send("Potwór oczekuje na zabicie! Wpisz **$zaatakuj**, aby rozpocząć walkę! @here")
 
     # command to debug
     @commands.command(pass_context=True, name="rarity")
@@ -598,5 +605,5 @@ class message(commands.Cog, name="spawnBoss"):
         print("Starting command...")
         await functions_database.updateRankingTable(self, ctx, ID, points)
         
-async def setup(bot):
-    await bot.add_cog(message(bot))
+def setup(bot):
+    bot.add_cog(message(bot))
