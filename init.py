@@ -16,7 +16,7 @@ intents.members = True
 
 #commands prefix == $
 bot = commands.Bot(
-    command_prefix='$',
+    command_prefix='^',
     description=description,
     intents=intents)
 
@@ -31,7 +31,10 @@ async def create_db_pool():
     if DebugMode == False:
         bot.pg_con = await asyncpg.create_pool(os.environ.get("DATABASE_URL"))
     else:
+        print(os.environ.get("HEROKU_POSTGRESQL_BRONZE_URL"))
+
         bot.pg_con = await asyncpg.create_pool(os.environ.get("HEROKU_POSTGRESQL_BRONZE_URL"))    
+        
 
     print("Connected to database. Pool created.")
 
