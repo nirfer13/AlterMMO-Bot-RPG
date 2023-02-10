@@ -164,6 +164,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 bossRarity = 3
             else:
                 bossRarity = 0 
+            bossRarity = 3
         return bossRarity
 
 
@@ -417,7 +418,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         global respawnResume
         await ctx.message.add_reaction("⚔️")
         async with ctx.typing():
-            await ctx.channel.send('**Znajdź więcej chętnych do walki. Chyba nie myślisz, że sam dasz radę?...** - *słyszysz głos w swojej głowie*... 45...')
+            await ctx.channel.send('**Znajdź więcej chętnych do walki. Chyba nie myślisz, że sam dasz radę?...** - *słyszysz głos w swojej głowie*... 30...')
 
         playersNum = 1
         playersList = [ctx.author]
@@ -425,7 +426,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         preFight = False
         mainUser = ctx.author
 
-        #Check Function
+        #Initialization Check Function
         def check(author, playersList):
             def inner_check(message): 
                 if message.author in playersList:
@@ -439,37 +440,82 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         return False
             return inner_check
 
-        maxWait = 9
+        #Fight Check Function
+        def checkFight(author, playersList, confirmPlayerList):
+            def inner_check(message): 
+                if message.author in playersList and message.author not in confirmPlayerList:
+                    if message.content.lower() == "$tak": 
+                        print("Group fight: player exists!")
+                        return True
+                else:
+                    print("Wrong person or wrong message!")
+                    return False
+            return inner_check
+
+        maxWait = 6
         timeout = 300
         y=0
-        i = range(maxWait)
-        for x in i:
+        while(bossAlive == 5):
             try:
+                #Wait for attack command
                 anotherAtkCmd = await self.bot.wait_for('message', timeout=timeout, check=check(ctx.author, playersList))
-                playersNum += 1
                 playersList.append(anotherAtkCmd.author)
-                print(playersList)
-                if playersNum >= 4:
-                    print("Group fight begins!")
-                    bossAlive = 6
-                    break
-                else:
 
-                    playerListString = " "
-                    for player in playersList:
-                        playerListString = playerListString + ("<@" + str(player.id) + "> ")
-                    await ctx.channel.send("**Nieźle, jest już Was " + str(playersNum) + ". Zbierzcie więcej łowców!" + playerListString + "...**  - *słyszycie głos w swojej głowie*... " + str(math.trunc((timeout*maxWait)/60 - (((x+1)*timeout)/60))) + "...")
+                print(playersList)
+                playerListString = " "
+                for player in playersList:
+                    playerListString = playerListString + ("<@" + str(player.id) + "> ")
+
+                #Found all player
+                if len(playersList) >= 4:
+                    print("Group fight begins!")
+                    
+                    async with ctx.typing():
+                        await ctx.channel.send('Jesteście gotowi do ataku? Wpiszcie **$tak**.' + playerListString + "... 60...")
+                    confirmPlayerList = []
+
+                    while(bossAlive == 5):
+                        try:
+                            #Wait for confirm command
+                            print("Waiting for confirm command...")
+                            confirmCmd = await self.bot.wait_for('message', timeout=60, check=checkFight(ctx.author, playersList, confirmPlayerList))
+                            await confirmCmd.add_reaction("⚔️")
+                            confirmPlayerList.append(confirmCmd.author)
+
+                            #4 players confirmed
+                            if len(confirmPlayerList) == 4:
+                                bossAlive = 6
+
+                        except asyncio.TimeoutError:
+                            #someone did not confirm, return to waiting for players
+                            playersList = confirmPlayerList
+                            playerListString = " "
+                            if len(playersList) > 0:
+                                for player in playersList:
+                                    playerListString = playerListString + ("<@" + str(player.id) + "> ")
+                                print(playersList)
+                            y=0
+                            await ctx.channel.send('Zbierzcie drużynę przed atakiem...' + playerListString + "Jeśli ktoś chce dołączyć do drużyny, to powinien wpisać **$zaatakuj**.")
+                            break
+                else:
+                    if len(playersList) == 1:
+                        await ctx.channel.send("**Jesteś sam! Zbierz więcej łowców!**" + playerListString + "...**  - *słyszycie głos w swojej głowie*... " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
+                    else:
+                        await ctx.channel.send("**Nieźle, jest już Was " + str(len(playersList)) + ". Zbierzcie więcej łowców!" + playerListString + "...**  - *słyszycie głos w swojej głowie*... " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
 
             except asyncio.TimeoutError:
-                    if x == 0:
-                        await ctx.channel.send("**Tchórzycie, co? Pff...** " + str(math.trunc((timeout*maxWait)/60 - (((x+1)*timeout)/60))) + "...")
-                    elif x == maxWait - 2:
-                        await ctx.channel.send("**A myślałem, że czas na rozrywkę...** " + str(math.trunc((timeout*maxWait)/60 - (((x+1)*timeout)/60))) + "...")
-                    elif x == maxWait - 1:
-                        bossAlive = 0
-                        pass
-                    else:
-                        await ctx.channel.send("... " + str(math.trunc((timeout*maxWait)/60 - (((x+1)*timeout)/60))) + "...")
+                y += 1
+                if y == 1:
+                    await ctx.channel.send("**Tchórzycie, co? Pff...** " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
+                elif y == maxWait - 2:
+                    await ctx.channel.send("**A myślałem, że czas na rozrywkę...** " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
+                elif y == maxWait - 1:
+                    bossAlive = 0
+                    pass
+                else:
+                    await ctx.channel.send("... " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
+                
+                
                     
 
         if bossAlive == 0:

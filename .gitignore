@@ -1,3 +1,4 @@
 *.env
 .env
 init.py
+globals/globalvariables.py
