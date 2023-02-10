@@ -139,7 +139,7 @@ class functions_database(commands.Cog, name="functions_database"):
         print("Trying to update Database...")
         print("UPDATE BOSS SET ID = {}, RARITY = {}, RESPAWN_TIME = \'{}\', RESPAWN_STARTED = {} WHERE ID = 0".format(str(0), str(BossRarity), str(d), str(ResumeSpawn)))
         await self.bot.pg_con.execute('UPDATE BOSS SET ID = {}, RARITY = {}, RESPAWN_TIME = \'{}\', RESPAWN_STARTED = {} WHERE ID = 0'.format(str(0), str(BossRarity) , str(d), str(ResumeSpawn)))
-        await ctx.send("Czas respa to: " + str(d))
+        
         print("Data updated in Database.")
 
     global updateRecordTable

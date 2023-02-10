@@ -417,7 +417,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         global respawnResume
         await ctx.message.add_reaction("⚔️")
         async with ctx.typing():
-            await ctx.channel.send('**Znajdź więcej chętnych do walki. Chyba nie myślisz, że sam dasz radę?...** - *słyszysz głos w swojej głowie*... 30...')
+            await ctx.channel.send('**Znajdź więcej chętnych do walki. Chyba nie myślisz, że sam dasz radę?...** - *słyszysz głos w swojej głowie*... 45...')
 
         playersNum = 1
         playersList = [ctx.author]
@@ -432,15 +432,16 @@ class functions_boss(commands.Cog, name="functions_boss"):
                     print("Group fight init error: player already exists!")
                     return False
                 else:
-                    if message.content.lower() == "&zaatakuj": 
+                    if message.content.lower() == "$zaatakuj": 
                         return True 
                     else:
                         print("Group init error: wrong message!")
                         return False
             return inner_check
 
-        maxWait = 6
+        maxWait = 9
         timeout = 300
+        y=0
         i = range(maxWait)
         for x in i:
             try:
@@ -453,6 +454,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                     bossAlive = 6
                     break
                 else:
+
                     playerListString = " "
                     for player in playersList:
                         playerListString = playerListString + ("<@" + str(player.id) + "> ")
@@ -464,10 +466,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
                     elif x == maxWait - 2:
                         await ctx.channel.send("**A myślałem, że czas na rozrywkę...** " + str(math.trunc((timeout*maxWait)/60 - (((x+1)*timeout)/60))) + "...")
                     elif x == maxWait - 1:
+                        bossAlive = 0
                         pass
                     else:
                         await ctx.channel.send("... " + str(math.trunc((timeout*maxWait)/60 - (((x+1)*timeout)/60))) + "...")
-                    bossAlive = 0
+                    
 
         if bossAlive == 0:
             #Spawn resume off
@@ -493,6 +496,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
             async with ctx.typing():
                 await ctx.channel.send('Zaatakowaliście bossa' + playerListString + '! <:REEeee:790963160495947856> Wpiszcie **komendy przypisane do Was** tak szybko, jak to możliwe! Przygotujcie się!')
             await asyncio.sleep(17)
+            #Start time counting
+            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+            #Save resp time and nickname
+            await functions_database.updateHistoryTable(self, ctx, "Party " + str(playersList[0].name), startTime)
+
             await ctx.channel.send('Uwaga!!! 3...')
             await asyncio.sleep(1)
             await ctx.channel.send('... 2...')
@@ -500,11 +508,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
             await ctx.channel.send('... 1...')
             await asyncio.sleep(1)
 
-            #Start time counting
-            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-            #Save resp time and nickname
-            await functions_database.updateHistoryTable(self, ctx, "Party " + str(playersList[0].name), startTime)
-
+            
             #Random the message and requested action
             requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **UNIK**", "Boss zawahał się! Teraz! Wpisz **ATAK**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**", 
             "Boss próbuje ataku w nogi, wpisz **SKOK**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **BIEG**", "Boss atakuje w powietrzu, wpisz **TURLAJ**", "Boss rzuca klątwę, wpisz **CZARUJ**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **BLOK**","Boss próbuje ataku w nogi, wpisz **SKACZ**","Boss szarżuje na Ciebie, zrób coś, wpisz **AKCJA**", "Nie masz pojęcia co robić, wpisz **KRZYK**", "Musisz zrobić cokolwiek, wpisz **RUCH**", "Boss rzuca głazem w Twoją stronę, wpisz **POSUW**", "Dostrzegasz szansę na uderzenie, wpisz **IMPET**", "Pojawiła się chwila zawachania potwora, wpisz **ZRYW**")]
@@ -586,8 +590,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             print("Good command.")
                     else:
                         if chances > 0:
-                            chances -= 1
-                            await ctx.channel.send('Pomyliłeś się!')                     
+                            chances -= 1                    
                         else:
                             await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
                             logChannel = self.bot.get_channel(881090112576962560)
@@ -599,7 +602,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 except asyncio.TimeoutError:
                     if chances > 0:
                         chances -= 1
-                        await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400>')                    
+                
                     else:
                         await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
                         logChannel = self.bot.get_channel(881090112576962560)
