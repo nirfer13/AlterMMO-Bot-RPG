@@ -77,7 +77,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         imageNumber = pow(10,rarity)
         if imageNumber == 1:
             imageNumber = 0
-        imageName = "mobs/" + str(random.randint(0,4)+imageNumber) + ".gif"
+        imageName = "mobs/" + str(random.randint(0,7)+imageNumber) + ".gif"
 
         #title
         if rarity == 0:
