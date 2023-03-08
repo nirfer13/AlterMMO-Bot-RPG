@@ -96,9 +96,9 @@ class message(commands.Cog, name="spawnBoss"):
             global respawnResume
             #=== Episode 0
             if bossAlive == 0:
-               print("Preparing to channel clear. bossAlive = 0")
-               bossAlive = 1
-               if DebugMode == False:
+                print("Preparing to channel clear. bossAlive = 0")
+                bossAlive = 1
+                if DebugMode == False:
                     respTime = random.randint(150,3600)*12
                     #Save Resp to file
                     bossRarity = functions_boss.fBossRarity(respTime)
@@ -107,7 +107,7 @@ class message(commands.Cog, name="spawnBoss"):
                     print("Resp time: " + str(respTime))
                     print("Boss Rarity: " + str(bossRarity))
                     await asyncio.sleep(3600)
-               else:
+                else:
                     respTime = random.randint(15,24)
                     #Save Resp to database
                     bossRarity = functions_boss.fBossRarity(respTime)
@@ -121,43 +121,43 @@ class message(commands.Cog, name="spawnBoss"):
             #New Spawn
             if respawnResume == False:
                 if bossAlive == 1:
-                   bossAlive = 2
-                   await functions_general.fClear(self, ctx)
-                   print("Channel cleared. bossAlive = 1")
-                   async with ctx.typing():
-                    await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
-                   if DebugMode == False:
+                    bossAlive = 2
+                    await functions_general.fClear(self, ctx)
+                    print("Channel cleared. bossAlive = 1")
+                    async with ctx.typing():
+                        await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
+                    if DebugMode == False:
                         await asyncio.sleep(respTime)  # time in second
-                   else:
+                    else:
                         await asyncio.sleep(respTime)  # time in second
 
             #Resume Spawn
             else:
                 if bossAlive == 1:
-                   bossAlive = 2
-                   await functions_general.fClear(self, ctx)
-                   print("Channel cleared. bossAlive = 1. Resuming.")
-                   print("Resume resp time: " + str(respTime))
-                   print("Resume boss Rarity: " + str(bossRarity))
-                   async with ctx.typing():
-                    await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
-                   if DebugMode == False:
+                    bossAlive = 2
+                    await functions_general.fClear(self, ctx)
+                    print("Channel cleared. bossAlive = 1. Resuming.")
+                    print("Resume resp time: " + str(respTime))
+                    print("Resume boss Rarity: " + str(bossRarity))
+                    async with ctx.typing():
+                        await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
+                    if DebugMode == False:
                         await asyncio.sleep(respTime)  # time in second
-                   else:
+                    else:
                         await asyncio.sleep(respTime)  # time in second
                    
             #=== Episode 2 - Before fight
             if bossAlive == 2:
-               bossAlive = 3
+                bossAlive = 3
 
-               #Channel Clear
-               #await functions_general.fClear(self, ctx)
-               print("Channel cleared. bossAlive = 2")
-               async with ctx.typing():
-                await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>')
-               if DebugMode == False:
+                #Channel Clear
+                #await functions_general.fClear(self, ctx)
+                print("Channel cleared. bossAlive = 2")
+                async with ctx.typing():
+                    await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>')
+                if DebugMode == False:
                     await asyncio.sleep(random.randint(60,120)*5)  # time in second
-               else:
+                else:
                     await asyncio.sleep(random.randint(3,10))  # time in second
 
             #=== Episode 3 - Boss respawn
@@ -166,13 +166,12 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_general.fClear(self, ctx)
                 print("Boss appeared.")
                 #Send info about boss spawn
-                
+              
                 try:
                     await generalSpawnMessage.delete()
                     print("Message deleted.")
                 except:
                     print("No general message to delete.")
-                    pass
                 if DebugMode == False:
                     chatChannel = self.bot.get_channel(696932659833733131)
                     generalSpawnMessage = await chatChannel.send("Na kanale <#970684202880204831> pojawił się właśnie potwór! Zabijcie go, żeby zgarnąć nagrody!")
@@ -180,9 +179,9 @@ class message(commands.Cog, name="spawnBoss"):
                     chatChannel = self.bot.get_channel(881090112576962560)
                     generalSpawnMessage = await chatChannel.send("Na kanale <#970684202880204831> pojawił się właśnie potwór! Zabijcie go, żeby zgarnąć nagrody!")
                 #Send boss image based on rarity
-                global initCommand
+                global initCommand, is_player_boss, player_boss
                 initCommand = "zaatakuj"
-                initCommand = await functions_boss.fBossImage(self, ctx, bossRarity)
+                is_player_boss, player_boss = await functions_boss.fBossImage(self, ctx, bossRarity)
                 bossAlive = 4
             else:
                 await asyncio.sleep(5) #sleep for a while
@@ -227,11 +226,11 @@ class message(commands.Cog, name="spawnBoss"):
 
                 if bossRarity in [0,1,2]:
                     bossAlive, bossHunterID = await functions_boss.singleInit(self, ctx, bossAlive, bossRarity)
-                    bossAlive = await functions_boss.singleFight(self, ctx, bossAlive, bossHunterID, bossRarity) 
+                    bossAlive = await functions_boss.singleFight(self, ctx, bossAlive, bossHunterID, bossRarity, is_player_boss, player_boss) 
                 elif bossRarity == 3:
                     bossAlive, playersList = await functions_boss.groupInit(self, ctx, bossAlive, bossRarity)
                     print(bossAlive)
-                    bossAlive, playersList = await functions_boss.groupFight(self, ctx, bossAlive, playersList)
+                    bossAlive, playersList = await functions_boss.groupFight(self, ctx, bossAlive, playersList, is_player_boss, player_boss)
 
             elif bossAlive == 5:
                 pass

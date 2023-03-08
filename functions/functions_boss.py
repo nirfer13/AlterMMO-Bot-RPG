@@ -58,9 +58,9 @@ class functions_boss(commands.Cog, name="functions_boss"):
         dropLoot = random.choices(lootDescrList, lootWeightList)
         weight= lootWeightList[lootDescrList.index(str(dropLoot[0]))]
         print("Chosen weight: " + str(weight))
-                
+
         title = 'Boss Drop - ' + str(BossHunter)
-        #Embed create   
+        #Embed create
         embed=discord.Embed(title=title, url='https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png', description='Boss wydropił:\n👉 ' + str(dropLoot[0]), color=0xfcdb03)
         embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png')
         embed.set_footer(text='Gratulacje!')
@@ -73,35 +73,53 @@ class functions_boss(commands.Cog, name="functions_boss"):
     async def fBossImage(self, ctx, srarity):
         print("Boss spawned. bossAlive = 3")
         rarity = int(srarity)
+
         #image name
-        imageNumber = pow(10,rarity)
-        if imageNumber == 1:
-            imageNumber = 0
-        imageName = "mobs/" + str(random.randint(0,7)+imageNumber) + ".gif"
+        percentage = random.randint(0,100)
+        is_player_boss = percentage >= 50
+        print("Boss player? " + str(is_player_boss))
+
+        if is_player_boss:
+            my_role = discord.utils.get(ctx.guild.roles, id=985071758103167027)
+            members = my_role.members
+            boss_player = random.choice(members)
+            print(boss_player)
+            file = boss_player.avatar_url
+            add_desc = "\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, to ten gracz zgarnia " + str((rarity+1)*500) + " doświadczenia!*"
+        else:
+            imageNumber = pow(10,rarity)
+            if imageNumber == 1:
+                imageNumber = 0
+            imageName = "mobs/" + str(random.randint(0,7)+imageNumber) + ".gif"
+            file=discord.File(imageName)
+            boss_player = "boss"
+            add_desc = ""
+
+        print("File with boss picture generated.")
 
         #title
         if rarity == 0:
-            eTitle = "💀 Zwykły boss! 💀"
+            eTitle = f"💀 Zwykły {boss_player}! 💀"
         elif rarity == 1:
-            eTitle = "💀 Rzadki boss! 💀"
+            eTitle = f"💀 Rzadki {boss_player}! 💀"
         elif rarity == 2:
-            eTitle = "💀 Epicki boss! 💀"
+            eTitle = f"💀 Epicki {boss_player}! 💀"
         elif rarity == 3:
-            eTitle = "💀 Legendarny boss! 💀"
+            eTitle = f"💀 Legendarny {boss_player}! 💀"
         else:
-            eTitle = "💀 Boss! 💀"
+            eTitle = f"💀 {boss_player}! 💀"
 
         #description
         if rarity == 0:
-            eDescr = "Pojawił się zwykły boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
+            eDescr = "Pojawił się zwykły boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         elif rarity == 1:
-            eDescr = "Pojawił się rzadki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
+            eDescr = "Pojawił się rzadki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         elif rarity == 2:
-            eDescr = "Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
+            eDescr = "Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         elif rarity == 3:
-            eDescr = "Pojawił się LEGENDARNY boss! Nie dasz rady sam, będziesz potrzebował kompanów! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
+            eDescr = "Pojawił się LEGENDARNY boss! Nie dasz rady sam, będziesz potrzebował kompanów! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         else:
-            eDescr = "Pojawił się boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
+            eDescr = "Pojawił się boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
 
         #color
         if rarity == 0:
@@ -133,8 +151,13 @@ class functions_boss(commands.Cog, name="functions_boss"):
             description=eDescr,
             color=eColor)
         embed.set_thumbnail(url=eThumb)
-        await ctx.channel.send(file=discord.File(imageName))
+        if type(file) == discord.file.File:
+            await ctx.channel.send(file=file)
+        else:
+            await ctx.channel.send(file)
         await ctx.send(embed=embed)
+
+        return is_player_boss, boss_player
 
 
     #function to set boss rarity
@@ -147,12 +170,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 bossRarity = 0
             elif iTime >= 14400 and iTime < 28800: #4-8h
                 bossRarity = 1
-            elif iTime >= 28800 and iTime < 36000: #8-10h
+            elif iTime >= 28800 and iTime < 39600: #8-11h
                 bossRarity = 2
-            elif iTime >= 36000 and iTime <= 45000: #12h
+            elif iTime >= 39600 and iTime <= 45000: #12h
                 bossRarity = 3
             else:
-                bossRarity = 0 
+                bossRarity = 0
         else:
             if iTime >= 0 and iTime < 12:
                 bossRarity = 0
@@ -163,8 +186,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
             elif iTime >= 20 and iTime <= 25:
                 bossRarity = 3
             else:
-                bossRarity = 0 
-            bossRarity = 3
+                bossRarity = 0
+
         return bossRarity
 
 
@@ -239,13 +262,13 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
         #Check Function
         def check(author):
-            def inner_check(message): 
+            def inner_check(message):
                 if message.author == author:
                     print("Single init error: same author!")
                     return False
                 else:
-                    if message.content.lower() == "$zaatakuj": 
-                        return True 
+                    if message.content.lower() == "$zaatakuj":
+                        return True
                     else:
                         print("Single init error: wrong message!")
                         return False
@@ -307,7 +330,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
     #function to carry fight by single player
     global singleFight
-    async def singleFight(self, ctx, bossAlive ,bossHunterID, bossRarity):
+    async def singleFight(self, ctx, bossAlive ,bossHunterID, bossRarity, is_player_boss, player_boss):
         if bossAlive == 6:
             async with ctx.typing():
                 await ctx.channel.send('Zaatakowałeś bossa <@' + format(bossHunterID.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe! Przygotuj się!')
@@ -396,7 +419,10 @@ class functions_boss(commands.Cog, name="functions_boss"):
                     else:
                         await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
                         logChannel = self.bot.get_channel(881090112576962560)
-                        await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " pomylił się i nie zabił bossa.")
+                        if is_player_boss == False:
+                            await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " pomylił się i nie zabił bossa.")
+                        else:
+                            await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " pomylił się i nie zabił bossa. Bossem był " + player_boss.name + " i należy mu się " + str((bossRarity+1)*500) + " expa.")
                         await functions_database.updateBossTable(self, ctx, 0, 0, False)
                         bossAlive = 0
                         return bossAlive
@@ -404,7 +430,10 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 except asyncio.TimeoutError:
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
                     logChannel = self.bot.get_channel(881090112576962560)
-                    await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " nie zdążył wpisać komend i boss uciekł.")
+                    if is_player_boss == False:
+                        await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " nie zdążył wpisać komend i boss uciekł.")
+                    else:
+                        await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " nie zdążył wpisać komend i boss uciekł. Bossem był " + player_boss.name + " i należy mu się " + str((bossRarity+1)*500) + " expa.")
                     await functions_database.updateBossTable(self, ctx, 0, 0, False)
                     bossAlive = 0
                     return bossAlive
