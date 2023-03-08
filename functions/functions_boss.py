@@ -76,11 +76,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
         #image name
         percentage = random.randint(0,100)
-        is_player_boss = percentage >= 50
+        is_player_boss = percentage >= 75
         print("Boss player? " + str(is_player_boss))
 
         if is_player_boss:
-            my_role = discord.utils.get(ctx.guild.roles, id=985071758103167027)
+            my_role = discord.utils.get(ctx.guild.roles, id=687185998550925312)
             members = my_role.members
             boss_player = random.choice(members)
             print(boss_player)
