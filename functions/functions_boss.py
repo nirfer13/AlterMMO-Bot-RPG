@@ -27,7 +27,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
         with open("lootConfig.json", encoding='utf-8') as jsonFile:
             jsonObject = json.loads(jsonFile.read())
-                
+
         lootDescrList = []
         lootWeightList = []
         if rarity == 0:
