@@ -560,7 +560,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
     #function to carry fight by single player
     global groupFight
-    async def groupFight(self, ctx, bossAlive , playersList):
+    async def groupFight(self, ctx, bossAlive , playersList, is_player_boss, player_boss):
         if bossAlive == 6:
             bossRarity = 3
 
@@ -669,7 +669,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         else:
                             await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
                             logChannel = self.bot.get_channel(881090112576962560)
-                            await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa.")
+
+                            if is_player_boss == False:
+                                await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa.")
+                            else:
+                                await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa. Bossem był " + player_boss.name + " i należy mu się " + str((bossRarity+1)*500) + " expa.")
                             await functions_database.updateBossTable(self, ctx, 0, 0, False)
                             bossAlive = 0
                             return bossAlive, playersList
@@ -681,7 +685,10 @@ class functions_boss(commands.Cog, name="functions_boss"):
                     else:
                         await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
                         logChannel = self.bot.get_channel(881090112576962560)
-                        await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " nie zdążyli wpisać komend i boss uciekł.")
+                        if is_player_boss == False:
+                            await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa.")
+                        else:
+                            await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa. Bossem był " + player_boss.name + " i należy mu się " + str((bossRarity+1)*500) + " expa.")
                         await functions_database.updateBossTable(self, ctx, 0, 0, False)
                         bossAlive = 0
                         return bossAlive, playersList
