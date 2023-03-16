@@ -166,7 +166,7 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_general.fClear(self, ctx)
                 print("Boss appeared.")
                 #Send info about boss spawn
-              
+
                 try:
                     await generalSpawnMessage.delete()
                     print("Message deleted.")
@@ -185,7 +185,7 @@ class message(commands.Cog, name="spawnBoss"):
                 bossAlive = 4
             else:
                 await asyncio.sleep(5) #sleep for a while
-    
+  
     #create Spawn Boss task command
     @commands.command(name="startSpawnBoss", brief="Starts spawning boss")
     @commands.has_permissions(administrator=True)
@@ -194,7 +194,6 @@ class message(commands.Cog, name="spawnBoss"):
         global bossAlive
         bossAlive = 0
         self.task = self.bot.loop.create_task(self.spawn_task(ctx))
-        
 
     # command to stop Spawn Boss task
     @commands.command(pass_context=True, name="stopSpawnBoss", brief="Stops spawning boss")
@@ -212,7 +211,6 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def checkSpawnMessage(self, ctx):
         await ctx.channel.send("Resp time is " + str(respTime/60/60) + " hours.")
-
 
     # command to attack the boss - rarity 0, 1, 2
     @commands.command(pass_context=True, name="zaatakuj", brief="Attacking the boss")
@@ -315,7 +313,7 @@ class message(commands.Cog, name="spawnBoss"):
             print("Command on cooldown.")
             await ctx.send('Poczekaj na odnowienie komendy! Zostało ' + str(round(error.retry_after/60/60, 2)) + ' godzin/y <:Bedge:970576892874854400>.')
 
-    # ==================================== COMMANDS FOR DEBUG =======================================================================
+    # ==================================== COMMANDS FOR DEBUG ======================================
 
     # command to debug
     @commands.command(pass_context=True, name="time")
@@ -323,6 +321,12 @@ class message(commands.Cog, name="spawnBoss"):
     async def checkTime(self, ctx):
         timestamp = (datetime.utcnow() + timedelta(hours=1))
         await ctx.send(str(timestamp))
+
+    # command to debug
+    @commands.command(pass_context=True, name="loot")
+    @commands.has_permissions(administrator=True)
+    async def randLoot(self, ctx, srarity, BossHunter, boost_percent):
+        await functions_boss.randLoot(self, ctx, srarity, BossHunter, boost_percent)
 
     # command to debug
     @commands.command(pass_context=True, name="bossslayer")
@@ -368,7 +372,7 @@ class message(commands.Cog, name="spawnBoss"):
     async def respFromFile(self, ctx):
         respawnTime, bossRarity, respawnStarted = functions_boss.fReadRespawnFromFile()
         await ctx.channel.send("Read from file - seconds to spawn: " + str(respawnTime) + ". Boss rarity: " + str(bossRarity) + ". Respawn started?: " + str(respawnStarted))
-        
+
     # command to debug
     @commands.command(pass_context=True, name="spawn")
     @commands.has_permissions(administrator=True)
@@ -382,7 +386,7 @@ class message(commands.Cog, name="spawnBoss"):
     async def context(self, ctx):
         await functions_boss.getContext(self)
 
-    # ==================================== COMMANDS FOR DATABASE =======================================================================
+    # ==================================== COMMANDS FOR DATABASE ===================================
 
     @commands.command(name="updateDatabase")
     @commands.has_permissions(administrator=True)

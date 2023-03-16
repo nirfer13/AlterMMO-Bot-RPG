@@ -22,51 +22,47 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
     #define Loot
     global randLoot
-    async def randLoot(self, ctx, srarity, BossHunter):
+    async def randLoot(self, ctx, srarity, BossHunter, boost_percent):
         rarity = int(srarity)
+        boost_percent = int(boost_percent)
 
         with open("lootConfig.json", encoding='utf-8') as jsonFile:
             jsonObject = json.loads(jsonFile.read())
 
-        lootDescrList = []
-        lootWeightList = []
         if rarity == 0:
-            for loot in jsonObject['loot_details_Normal']:
-                lootDescrList.append(loot['descr'])
-                lootWeightList.append(loot['weight'])
+            jsonObject = jsonObject['loot_details_Normal']
         elif rarity == 1:
-            for loot in jsonObject['loot_details_Rare']:
-                lootDescrList.append(loot['descr'])
-                lootWeightList.append(loot['weight'])
+            jsonObject = jsonObject['loot_details_Rare']
         elif rarity == 2:
-            for loot in jsonObject['loot_details_Epic']:
-                lootDescrList.append(loot['descr'])
-                lootWeightList.append(loot['weight'])
+            jsonObject = jsonObject['loot_details_Epic']
         elif rarity == 3:
-            for loot in jsonObject['loot_details_Legend']:
-                lootDescrList.append(loot['descr'])
-                lootWeightList.append(loot['weight'])       
+            jsonObject = jsonObject['loot_details_Legend']
         else:
-            for loot in jsonObject['loot_details_Normal']:
-                lootDescrList.append(loot['descr'])
-                lootWeightList.append(loot['weight'])
+            jsonObject = jsonObject['loot_details_Normal']
 
-        print(lootDescrList)
-        print(lootWeightList)
-
-        global dropLoot
-        dropLoot = random.choices(lootDescrList, lootWeightList)
-        weight= lootWeightList[lootDescrList.index(str(dropLoot[0]))]
-        print("Chosen weight: " + str(weight))
+        dropMessage = ""
+        for loot in jsonObject:
+            loot['weight'] = (boost_percent/100 + 1) * loot['weight']
+            print(loot['descr'])
+            print(loot['weight'])
+            if loot['weight'] > 100:
+                dropMessage += "👉 " + loot['descr'] + "\n"
+                loot['weight'] -= 100
+                if random.random()*100 <= loot['weight']:
+                    dropMessage += "👉 " + loot['descr'] + " (Bonus)\n"
+            elif random.random()*100 <= loot['weight']:
+                dropMessage += "👉 " + loot['descr'] + "\n"
 
         title = 'Boss Drop - ' + str(BossHunter)
         #Embed create
-        embed=discord.Embed(title=title, url='https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png', description='Boss wydropił:\n👉 ' + str(dropLoot[0]), color=0xfcdb03)
+        embed=discord.Embed(title=title,
+                            url='https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png',
+                            description='Boss wydropił:\n' + dropMessage, color=0xfcdb03)
         embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png')
         embed.set_footer(text='Gratulacje!')
         await ctx.channel.send(embed=embed)
 
-        return dropLoot
+        return dropMessage
 
     #function to send boss image
     global fBossImage
@@ -77,7 +73,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         #image name
         percentage = random.randint(0,100)
         is_player_boss = percentage >= 75
-        print("Boss player? " + str(is_player_boss))
+        print("Boss player? " + str(is_player_boss) + " " + str(percentage))
 
         if is_player_boss:
             my_role = discord.utils.get(ctx.guild.roles, id=687185998550925312)
@@ -85,7 +81,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
             boss_player = random.choice(members)
             print(boss_player)
             file = boss_player.avatar_url
-            add_desc = "\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, to ten gracz zgarnia " + str((rarity+1)*500) + " doświadczenia!*"
+            add_desc = "\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
+            + "to ten gracz zgarnia " + str((rarity+1)*500) + " doświadczenia!*"
         else:
             imageNumber = pow(10,rarity)
             if imageNumber == 1:
@@ -187,7 +184,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 bossRarity = 3
             else:
                 bossRarity = 0
-
+            bossRarity = 3
         return bossRarity
 
 
@@ -405,11 +402,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             await functions_database.updateBossTable(self, ctx, 0, 0, False)                         
                     
                             #Randomize Loot
-                            dropLoot = await randLoot(self, ctx, bossRarity, bossHunterID)                                
+                            dropLoot = await randLoot(self, ctx, bossRarity, bossHunterID, 0)                                
 
                             #Send info about loot
                             logChannel = self.bot.get_channel(881090112576962560)
-                            await logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " otrzymał: " + str(dropLoot[0]))
+                            await logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " otrzymał: \n" + dropLoot)
 
                             bossAlive = 0
                             return bossAlive
@@ -458,7 +455,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         #Initialization Check Function
         def check(author, playersList):
             def inner_check(message): 
-                if message.author in playersList:
+                if message.author in playersList and False:
                     print("Group fight init error: player already exists!")
                     return False
                 else:
@@ -472,7 +469,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         #Fight Check Function
         def checkFight(author, playersList, confirmPlayerList):
             def inner_check(message): 
-                if message.author in playersList and message.author not in confirmPlayerList:
+                if message.author in playersList: #and message.author not in confirmPlayerList:
                     if message.content.lower() == "$tak": 
                         print("Group fight: player exists!")
                         return True
@@ -642,30 +639,32 @@ class functions_boss(commands.Cog, name="functions_boss"):
                                 logChannel = self.bot.get_channel(881090112576962560)
                                 await logChannel.send("<@291836779495948288>!   " + playerListString + " otrzymali: 1500 expa za rekord")
                                 await functions_database.updateRecordTable(self, ctx, "Party " + str(playersList[0].name), recordTurnTime)
-                    
+
                             #Spawn resume off
                             await functions_database.updateBossTable(self, ctx, 0, 0, False)                         
-                    
+
                             for hunter in playersList:
 
                                 #Ranking - add points
-                                await functions_database.updateRankingTable(self, ctx, hunter.id, bossRarity)
+                                await functions_database.updateRankingTable(self, ctx,
+                                                                            hunter.id, bossRarity)
 
                                 #Randomize Loot
-                                dropLoot = await randLoot(self, ctx, bossRarity, hunter)                                
+                                dropLoot = await randLoot(self, ctx, bossRarity, hunter, 0)
 
                                 #Send info about loot
                                 logChannel = self.bot.get_channel(881090112576962560)
-                                await logChannel.send("<@291836779495948288>!   " + str(hunter) + " otrzymał: " + str(dropLoot[0]))
+                                await logChannel.send("<@291836779495948288>!   " + str(hunter) +
+                                                     " otrzymał: " + dropLoot)
 
                             bossAlive = 0
                             return bossAlive, playersList
-                    
+                  
                         else:
                             print("Good command.")
                     else:
                         if chances > 0:
-                            chances -= 1                    
+                            chances -= 1           
                         else:
                             await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
                             logChannel = self.bot.get_channel(881090112576962560)

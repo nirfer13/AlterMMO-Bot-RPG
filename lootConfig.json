@@ -3,121 +3,86 @@
 	"loot_details_Normal": [
 	{
 		"id": 0,
-		"descr": "125 doświadczenia na Discordzie",
-		"weight": 80
+		"descr": "250 doświadczenia na Discordzie",
+		"weight": 100
 	},
 	{
 		"id": 1,
-		"descr": "250 doświadczenia na Discordzie",
-		"weight": 30
-	},
-	{
-		"id": 2,
-		"descr": "500 doświadczenia na Discordzie",
-		"weight": 15
-	},
-	{
-		"id": 3,
-		"descr": "2500 doświadczenia na Discordzie",
-		"weight": 4
-	},
-	{
-		"id": 7,
 		"descr": "Figa z makiem",
 		"weight": 15
 	}
 	],"loot_details_Rare": [
 	{
 		"id": 0,
-		"descr": "250 doświadczenia na Discordzie",
-		"weight": 15
+		"descr": "1000 doświadczenia na Discordzie",
+		"weight": 100
 	},
 	{
 		"id": 1,
-		"descr": "500 doświadczenia na Discordzie",
-		"weight": 60
+		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
+		"weight": 0.3
 	},
 	{
 		"id": 2,
-		"descr": "2500 doświadczenia na Discordzie",
-		"weight": 12
+		"descr": "Kod na steam na 25 złotych",
+		"weight": 0.3
 	},
 	{
 		"id": 3,
-		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
-		"weight": 0.75
-	},
-	{
-		"id": 4,
-		"descr": "Kod na steam na 25 złotych",
-		"weight": 0.75
-	},
-	{
-		"id": 5,
 		"descr": "Ukradnij wybranemu użytkownikowi 2500 doświadczenia na Discordzie",
-		"weight": 5
+		"weight": 2.5
 	}
 	],"loot_details_Epic": [
 	{
 		"id": 0,
-		"descr": "1250 doświadczenia na Discordzie",
-		"weight": 45
+		"descr": "2500 doświadczenia na Discordzie",
+		"weight": 100
 	},
 	{
 		"id": 1,
-		"descr": "2500 doświadczenia na Discordzie",
-		"weight": 50
+		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
+		"weight": 0.75
 	},
 	{
 		"id": 2,
-		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
-		"weight": 1.5
+		"descr": "Kod na steam na 25 złotych",
+		"weight": 1
 	},
 	{
 		"id": 3,
-		"descr": "Kod na steam na 25 złotych",
-		"weight": 2
+		"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
+		"weight": 0.75
 	},
 	{
 		"id": 4,
-		"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
-		"weight": 1.5
-	},
-	{
-		"id": 5,
 		"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
-		"weight": 2
+		"weight": 1
 	}
 	],"loot_details_Legend": [
 	{
 		"id": 0,
-		"descr": "1500 doświadczenia na Discordzie",
-		"weight": 30
+		"descr": "2500 doświadczenia na Discordzie",
+		"weight": 100
 	},
 	{
 		"id": 1,
-		"descr": "3000 doświadczenia na Discordzie",
-		"weight": 40
+		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
+		"weight": 1
 	},
 	{
 		"id": 2,
-		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
-		"weight": 2.5
+		"descr": "Kod na steam na 25 złotych",
+		"weight": 0.25
 	},
 	{
 		"id": 3,
-		"descr": "Kod na steam na 25 złotych",
-		"weight": 2
+		"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
+		"weight": 1.25
 	},
 	{
 		"id": 4,
-		"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
-		"weight": 2.5
-	},
-	{
-		"id": 5,
 		"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
-		"weight": 3
+		"weight": 1
 	}
 	]
 }
