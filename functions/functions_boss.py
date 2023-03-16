@@ -214,7 +214,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
     global fSaveRespawnToFile
     def fSaveRespawnToFile (respawnTime, bossRarity, respStarted):
         intRespawnTime = int(respawnTime)
-        Time = datetime.datetime.utcnow() + datetime.timedelta(hours=2) + datetime.timedelta(seconds=intRespawnTime)
+        Time = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+        + datetime.timedelta(seconds=intRespawnTime)
         print("Respawn timestamp saved to file: " + str(Time))
         with open('respawnTimeInfo.txt', 'w') as f:
             f.write(str(Time) + '\n')
@@ -532,9 +533,9 @@ class functions_boss(commands.Cog, name="functions_boss"):
             except asyncio.TimeoutError:
                 y += 1
                 if y == 1:
-                    await ctx.channel.send("**Tchórzycie, co? Pff...** " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
+                    await ctx.channel.send("**Tchórzycie, co? Pff...** - *Wpisz $zaatakuj, jeśli chcesz dołączyć do walki!* " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
                 elif y == maxWait - 2:
-                    await ctx.channel.send("**A myślałem, że czas na rozrywkę...** " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
+                    await ctx.channel.send("**A myślałem, że czas na rozrywkę...** - *Wpisz $zaatakuj, jeśli chcesz dołączyć do walki!* " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
                 elif y == maxWait - 1:
                     bossAlive = 0
                     pass
@@ -749,7 +750,6 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 await ctx.send("<@" + str(ctx.author.id) + ">, zły format ikony. Poprawny format to .png. <:madge:882184635474386974>")
         else:
             await ctx.send("Dodaj ikonę w wiadomości z komendą - format .png <:madge:882184635474386974>")
-          
 
 def setup(bot):
     bot.add_cog(functions_boss(bot))

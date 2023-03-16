@@ -19,6 +19,7 @@ sys.path.insert(1, './functions/')
 import functions_boss
 import functions_database
 import functions_general
+import functions_modifiers
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -38,7 +39,6 @@ bossRarity = 0
 class message(commands.Cog, name="spawnBoss"):
     def __init__(self, bot):
         self.bot = bot
-   
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -151,7 +151,6 @@ class message(commands.Cog, name="spawnBoss"):
                 bossAlive = 3
 
                 #Channel Clear
-                #await functions_general.fClear(self, ctx)
                 print("Channel cleared. bossAlive = 2")
                 async with ctx.typing():
                     await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>')
@@ -365,6 +364,27 @@ class message(commands.Cog, name="spawnBoss"):
     async def respToFile(self, ctx, respawnTime, bossRarity, respawnStarted):
         functions_boss.fSaveRespawnToFile(respawnTime, bossRarity, respawnStarted)
         await ctx.channel.send("File Saved")
+
+    # command to debug
+    @commands.command(pass_context=True, name="initModifiers")
+    @commands.has_permissions(administrator=True)
+    async def initModifiers(self, ctx):
+        await functions_modifiers.init_modifiers(self, ctx)
+        await ctx.channel.send("Modifiers file initialized.")
+
+    # command to debug
+    @commands.command(pass_context=True, name="$m")
+    @commands.has_permissions(administrator=True)
+    async def initModifiers(self, ctx):
+        await functions_modifiers.load_modifiers(self, ctx)
+        await ctx.channel.send("Modifiers file loaded.")
+
+    # command to debug
+    @commands.command(pass_context=True, name="modifyModifiers")
+    @commands.has_permissions(administrator=True)
+    async def modifyModifiers(self, ctx, modifier_name, value):
+        await functions_modifiers.modify_modifiers(self, ctx, modifier_name, value)
+        await ctx.channel.send("Modifiers file modified.")
 
     # command to debug
     @commands.command(pass_context=True, name="respFromFile")

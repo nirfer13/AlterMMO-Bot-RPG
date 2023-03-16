@@ -37,7 +37,7 @@ async def create_db_pool():
 
 #loads cogs as extentions to bot
 if __name__ == '__main__':
-    for file in os.listdir("/usr/local/bin/AlterMMO-Bot-RPG/cogs"):
+    for file in os.listdir("cogs"):
         if file.endswith(".py"):
             extension = file[:-3]
             try:
