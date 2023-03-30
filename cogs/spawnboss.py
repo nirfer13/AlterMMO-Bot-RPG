@@ -29,12 +29,16 @@ global respTime
 respTime = 0
 
 #Boss alive
-global bossAlive
-bossAlive = 0
+global BOSSALIVE
+BOSSALIVE = 0
+
+#Shrine alive
+global SHRINEALIVE
+SHRINEALIVE = 0
 
 #Boss rarity
-global bossRarity
-bossRarity = 0
+global BOSSRARITY
+BOSSRARITY = 0
 
 class message(commands.Cog, name="spawnBoss"):
     def __init__(self, bot):
@@ -42,28 +46,31 @@ class message(commands.Cog, name="spawnBoss"):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        #Every week ranking check
+        """Every week ranking check and select the boss slayer."""
 
         #Choose channel to spawn boss
         global ctx
-        if DebugMode == True:
+        if DebugMode is True:
             ctx = await functions_boss.getContext(self, 970571647226642442, 984860815842771024)
         else:
             ctx = await functions_boss.getContext(self, 970684202880204831, 1028328642436136961)
 
-        global bossAlive, bossRarity, respTime, respawnResume
+        global BOSSALIVE, BOSSRARITY, respTime, respawnResume
         bossRar, respawnTime, respawnResume = await functions_database.readBossTable(self, ctx)
 
         #Weekly ranking task create
-        self.task2 = self.bot.loop.create_task(self.msg1(ctx))
+        self.task2 = self.bot.loop.create_task(self.weekly_ranking(ctx))
+
+        #Chest spawn task create
+        self.task3 = self.bot.loop.create_task(self.spawn_modifiers_shrine(ctx))
 
         #Check if it is necessary to resume boss spawn
         print("Resume?: " + str(respawnResume))
-        if respawnResume == True:
-            bossAlive = 1
-            bossRarity = int(bossRar)
+        if respawnResume is True:
+            BOSSALIVE = 1
+            BOSSRARITY = int(bossRar)
             try:
-                respTime = (respawnTime - (datetime.utcnow() + timedelta(hours=1))).total_seconds()
+                respTime = (respawnTime - (datetime.utcnow() + timedelta(hours=2))).total_seconds()
             except:
                 respTime = 0
             print("Resp time: " + str(respTime))
@@ -73,9 +80,9 @@ class message(commands.Cog, name="spawnBoss"):
 
     #define every week task
     # 7 days => 24 hour * 7 days = 168
-    async def msg1(self, ctx):
+    async def weekly_ranking(self, ctx):
         while True:
-            timestamp = (datetime.utcnow() + timedelta(hours=1))
+            timestamp = (datetime.utcnow() + timedelta(hours=2))
             if timestamp.strftime("%H:%M UTC %a") == "15:00 UTC Mon":
                 print('Weekly ranking summary!')
                 winnerID = await functions_database.readSummaryRankingTable(self, ctx)
@@ -86,92 +93,122 @@ class message(commands.Cog, name="spawnBoss"):
                 return
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(30)
-    
+
+    async def spawn_modifiers_shrine(self, ctx):
+        """Spawns a shrine when boss is not alive. Shrine drops different modifiers."""
+
+        print("Spawning shrine task starting...")
+        global SHRINEALIVE, BOSSALIVE
+        SHRINEALIVE = 0
+
+        while True:
+            if DebugMode is False:
+                resp_time = random.randint(900, 7200)
+            elif DebugMode is True:
+                resp_time = random.randint(30, 55)
+
+            await asyncio.sleep(resp_time)
+
+            if SHRINEALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
+                await functions_modifiers.spawn_modifier_shrine(self, ctx)
+                SHRINEALIVE = 1
+            elif BOSSALIVE > 2:
+                print("Boss spawned. Skip.")
+            else:
+                print("Shrine already spawned. Skip.")
+
     #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
         while True:
             global respTime
-            global bossAlive
-            global bossRarity
+            global BOSSALIVE
+            global BOSSRARITY
+            global SHRINEALIVE
             global respawnResume
             #=== Episode 0
-            if bossAlive == 0:
-                print("Preparing to channel clear. bossAlive = 0")
-                bossAlive = 1
-                if DebugMode == False:
+            if BOSSALIVE == 0:
+                print("Preparing to channel clear. BOSSALIVE = 0")
+                BOSSALIVE = 1
+                if DebugMode is False:
                     respTime = random.randint(150,3600)*12
                     #Save Resp to file
-                    bossRarity = functions_boss.fBossRarity(respTime)
-                    await functions_database.updateBossTable(self, ctx, bossRarity, respTime, True)
+                    BOSSRARITY = functions_boss.fBOSSRARITY(respTime)
+                    await functions_database.updateBossTable(self, ctx, BOSSRARITY, respTime, True)
 
                     print("Resp time: " + str(respTime))
-                    print("Boss Rarity: " + str(bossRarity))
+                    print("Boss Rarity: " + str(BOSSRARITY))
                     await asyncio.sleep(3600)
                 else:
                     respTime = random.randint(15,24)
                     #Save Resp to database
-                    bossRarity = functions_boss.fBossRarity(respTime)
+                    BOSSRARITY = functions_boss.fBOSSRARITY(respTime)
                     print("Updating database...")
-                    await functions_database.updateBossTable(self, ctx, bossRarity, respTime, True)
+                    await functions_database.updateBossTable(self, ctx, BOSSRARITY, respTime, True)
 
                     print("Resp time: " + str(respTime))
-                    print("Boss Rarity: " + str(bossRarity))
+                    print("Boss Rarity: " + str(BOSSRARITY))
                     await asyncio.sleep(3)
             #=== Episode 1 - Waiting
             #New Spawn
-            if respawnResume == False:
-                if bossAlive == 1:
-                    bossAlive = 2
+            if respawnResume is False:
+                if BOSSALIVE == 1:
+                    BOSSALIVE = 2
                     await functions_general.fClear(self, ctx)
-                    print("Channel cleared. bossAlive = 1")
+                    print("Channel cleared. BOSSALIVE = 1")
                     async with ctx.typing():
                         await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
-                    if DebugMode == False:
+                    if DebugMode is False:
                         await asyncio.sleep(respTime)  # time in second
                     else:
                         await asyncio.sleep(respTime)  # time in second
 
             #Resume Spawn
             else:
-                if bossAlive == 1:
-                    bossAlive = 2
+                if BOSSALIVE == 1:
+                    BOSSALIVE = 2
                     await functions_general.fClear(self, ctx)
-                    print("Channel cleared. bossAlive = 1. Resuming.")
+                    print("Channel cleared. BOSSALIVE = 1. Resuming.")
                     print("Resume resp time: " + str(respTime))
-                    print("Resume boss Rarity: " + str(bossRarity))
+                    print("Resume boss Rarity: " + str(BOSSRARITY))
                     async with ctx.typing():
                         await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
-                    if DebugMode == False:
+                    if DebugMode is False:
                         await asyncio.sleep(respTime)  # time in second
                     else:
                         await asyncio.sleep(respTime)  # time in second
-                   
+
             #=== Episode 2 - Before fight
-            if bossAlive == 2:
-                bossAlive = 3
+            if BOSSALIVE == 2:
+                BOSSALIVE = 3
 
                 #Channel Clear
-                print("Channel cleared. bossAlive = 2")
+                print("Channel cleared. BOSSALIVE = 2")
                 async with ctx.typing():
                     await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>')
-                if DebugMode == False:
+                if DebugMode is False:
                     await asyncio.sleep(random.randint(60,120)*5)  # time in second
                 else:
                     await asyncio.sleep(random.randint(3,10))  # time in second
 
             #=== Episode 3 - Boss respawn
-            if bossAlive == 3:
+            if BOSSALIVE == 3:
                 print("Channel cleared.")
+                SHRINEALIVE = 0
                 await functions_general.fClear(self, ctx)
                 print("Boss appeared.")
                 #Send info about boss spawn
+
+                modifiers = await functions_modifiers.load_modifiers(self, ctx)
+                BOSSRARITY += modifiers["rarity_boost"]
+                if BOSSRARITY > 3:
+                    BOSSRARITY = 3
 
                 try:
                     await generalSpawnMessage.delete()
                     print("Message deleted.")
                 except:
                     print("No general message to delete.")
-                if DebugMode == False:
+                if DebugMode is False:
                     chatChannel = self.bot.get_channel(696932659833733131)
                     generalSpawnMessage = await chatChannel.send("Na kanale <#970684202880204831> pojawił się właśnie potwór! Zabijcie go, żeby zgarnąć nagrody!")
                 else:
@@ -180,18 +217,27 @@ class message(commands.Cog, name="spawnBoss"):
                 #Send boss image based on rarity
                 global initCommand, is_player_boss, player_boss
                 initCommand = "zaatakuj"
-                is_player_boss, player_boss = await functions_boss.fBossImage(self, ctx, bossRarity)
-                bossAlive = 4
+                is_player_boss, player_boss = await functions_boss.fBossImage(self, ctx, BOSSRARITY)
+                BOSSALIVE = 4
             else:
                 await asyncio.sleep(5) #sleep for a while
-  
+
+    #pray to the shrine command
+    @commands.command(name="modlitwa", brief="Patron or Creator can pray to the shrine.")
+    async def ShrinePray(self, ctx):
+        print("Praying...")
+        global SHRINEALIVE
+        prayed = await functions_modifiers.pray_shrine(self, ctx, SHRINEALIVE)
+        if prayed == 0:
+            SHRINEALIVE = 0
+
     #create Spawn Boss task command
     @commands.command(name="startSpawnBoss", brief="Starts spawning boss")
     @commands.has_permissions(administrator=True)
     async def startMessage(self, ctx):
         print("Spawning started!")
-        global bossAlive
-        bossAlive = 0
+        global BOSSALIVE
+        BOSSALIVE = 0
         self.task = self.bot.loop.create_task(self.spawn_task(ctx))
 
     # command to stop Spawn Boss task
@@ -199,9 +245,9 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def stopMessage(self, ctx):
         print("Spawning stopped!")
-        global bossAlive, respawnResume
+        global BOSSALIVE, respawnResume
         respawnResume = False
-        bossAlive = 0
+        BOSSALIVE = 0
         await functions_database.updateBossTable(self, ctx, 0, 0, False)
         self.task.cancel()
 
@@ -214,22 +260,29 @@ class message(commands.Cog, name="spawnBoss"):
     # command to attack the boss - rarity 0, 1, 2
     @commands.command(pass_context=True, name="zaatakuj", brief="Attacking the boss")
     async def attackMessage(self, ctx):
-        global bossAlive, bossRarity, respawnResume
+        global BOSSALIVE, BOSSRARITY, respawnResume
 
         if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
 
-            if bossAlive == 4: #or str(ctx.message.author.id) == '291836779495948288':
-                bossAlive = 5
+            if BOSSALIVE == 4: #or str(ctx.message.author.id) == '291836779495948288':
+                BOSSALIVE = 5
 
-                if bossRarity in [0,1,2]:
-                    bossAlive, bossHunterID = await functions_boss.singleInit(self, ctx, bossAlive, bossRarity)
-                    bossAlive = await functions_boss.singleFight(self, ctx, bossAlive, bossHunterID, bossRarity, is_player_boss, player_boss) 
-                elif bossRarity == 3:
-                    bossAlive, playersList = await functions_boss.groupInit(self, ctx, bossAlive, bossRarity)
-                    print(bossAlive)
-                    bossAlive, playersList = await functions_boss.groupFight(self, ctx, bossAlive, playersList, is_player_boss, player_boss)
+                if BOSSRARITY in [0,1,2]:
+                    BOSSALIVE, bossHunterID = await functions_boss.singleInit(self, ctx,
+                                                                              BOSSALIVE, BOSSRARITY)
+                    BOSSALIVE = await functions_boss.singleFight(self, ctx, BOSSALIVE,
+                                                                 bossHunterID, BOSSRARITY,
+                                                                 is_player_boss, player_boss)
+                elif BOSSRARITY == 3:
+                    BOSSALIVE, playersList = await functions_boss.groupInit(self, ctx,
+                                                                            BOSSALIVE, BOSSRARITY)
+                    print(BOSSALIVE)
+                    BOSSALIVE, playersList = await functions_boss.groupFight(self, ctx,
+                                                                             BOSSALIVE, playersList,
+                                                                             is_player_boss,
+                                                                             player_boss)
 
-            elif bossAlive == 5:
+            elif BOSSALIVE == 5:
                 pass
             else:
                 #Boss not Alive
@@ -237,7 +290,7 @@ class message(commands.Cog, name="spawnBoss"):
                 await ctx.channel.send('Nie możesz zaatakować bossa, poczekaj na pojawienie się kolejnego <@' + format(ctx.message.author.id) + '>!')
         else:
             pass #wrong channel
-        
+
 
     # ==================================== COMMANDS FOR USERS =======================================================================
 
@@ -318,7 +371,7 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(pass_context=True, name="time")
     @commands.has_permissions(administrator=True)
     async def checkTime(self, ctx):
-        timestamp = (datetime.utcnow() + timedelta(hours=1))
+        timestamp = (datetime.utcnow() + timedelta(hours=2))
         await ctx.send(str(timestamp))
 
     # command to debug
@@ -343,8 +396,8 @@ class message(commands.Cog, name="spawnBoss"):
     # command to debug
     @commands.command(pass_context=True, name="rarity")
     @commands.has_permissions(administrator=True)
-    async def bossRarity(self, ctx, time):
-        await ctx.channel.send(str(functions_boss.fBossRarity(time)))
+    async def BOSSRARITY(self, ctx, time):
+        await ctx.channel.send(str(functions_boss.fBOSSRARITY(time)))
 
     # command to debug
     @commands.command(pass_context=True, name="image")
@@ -361,37 +414,48 @@ class message(commands.Cog, name="spawnBoss"):
     # command to debug
     @commands.command(pass_context=True, name="respToFile")
     @commands.has_permissions(administrator=True)
-    async def respToFile(self, ctx, respawnTime, bossRarity, respawnStarted):
-        functions_boss.fSaveRespawnToFile(respawnTime, bossRarity, respawnStarted)
+    async def respToFile(self, ctx, respawnTime, BOSSRARITY, respawnStarted):
+        functions_boss.fSaveRespawnToFile(respawnTime, BOSSRARITY, respawnStarted)
         await ctx.channel.send("File Saved")
 
     # command to debug
-    @commands.command(pass_context=True, name="initModifiers")
+    @commands.command(pass_context=True, name="ModifiersInit",
+                      brief="Creates new file with 0 value of modifiers.")
     @commands.has_permissions(administrator=True)
     async def initModifiers(self, ctx):
         await functions_modifiers.init_modifiers(self, ctx)
         await ctx.channel.send("Modifiers file initialized.")
 
     # command to debug
-    @commands.command(pass_context=True, name="$m")
+    @commands.command(pass_context=True, name="ModifiersLoad",
+                      brief="Load modifiers and prints values.")
     @commands.has_permissions(administrator=True)
-    async def initModifiers(self, ctx):
+    async def loadModifiers(self, ctx):
         await functions_modifiers.load_modifiers(self, ctx)
         await ctx.channel.send("Modifiers file loaded.")
 
     # command to debug
-    @commands.command(pass_context=True, name="modifyModifiers")
+    @commands.command(pass_context=True, name="ModifiersLoadDesc",
+                      brief="Load modifiers and prepare string for them.")
+    @commands.has_permissions(administrator=True)
+    async def loadModifiersDesc(self, ctx):
+        await functions_modifiers.load_desc_modifiers(self, ctx)
+        await ctx.channel.send("Modifiers string loaded.")
+
+    # command to debug
+    @commands.command(pass_context=True, name="ModifiersModify",
+                      brief="modifier_name value - set value of the modifier.")
     @commands.has_permissions(administrator=True)
     async def modifyModifiers(self, ctx, modifier_name, value):
         await functions_modifiers.modify_modifiers(self, ctx, modifier_name, value)
         await ctx.channel.send("Modifiers file modified.")
 
     # command to debug
-    @commands.command(pass_context=True, name="respFromFile")
+    @commands.command(pass_context=True, name="ModifiersRandom",
+                      brief="Select random modifier.")
     @commands.has_permissions(administrator=True)
-    async def respFromFile(self, ctx):
-        respawnTime, bossRarity, respawnStarted = functions_boss.fReadRespawnFromFile()
-        await ctx.channel.send("Read from file - seconds to spawn: " + str(respawnTime) + ". Boss rarity: " + str(bossRarity) + ". Respawn started?: " + str(respawnStarted))
+    async def randomModifiers(self, ctx):
+        await functions_modifiers.random_modifiers(self,)
 
     # command to debug
     @commands.command(pass_context=True, name="spawn")
@@ -410,8 +474,8 @@ class message(commands.Cog, name="spawnBoss"):
 
     @commands.command(name="updateDatabase")
     @commands.has_permissions(administrator=True)
-    async def updateDatabase(self, ctx, bossRarity, respTime, respBool):
-        await functions_database.updateBossTable(self, ctx, bossRarity, respTime, respBool)
+    async def updateDatabase(self, ctx, BOSSRARITY, respTime, respBool):
+        await functions_database.updateBossTable(self, ctx, BOSSRARITY, respTime, respBool)
         await ctx.channel.send("Database updated.")
 
     @commands.command(name="readDatabase")
@@ -484,6 +548,6 @@ class message(commands.Cog, name="spawnBoss"):
     async def updateRankingDatabase(self, ctx, ID, points):
         print("Starting command...")
         await functions_database.updateRankingTable(self, ctx, ID, points)
-        
+
 def setup(bot):
     bot.add_cog(message(bot))

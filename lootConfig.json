@@ -24,11 +24,6 @@
 	},
 	{
 		"id": 2,
-		"descr": "Kod na steam na 25 złotych",
-		"weight": 0.3
-	},
-	{
-		"id": 3,
 		"descr": "Ukradnij wybranemu użytkownikowi 2500 doświadczenia na Discordzie",
 		"weight": 2.5
 	}
@@ -45,16 +40,11 @@
 	},
 	{
 		"id": 2,
-		"descr": "Kod na steam na 25 złotych",
-		"weight": 1
-	},
-	{
-		"id": 3,
 		"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
 		"weight": 0.75
 	},
 	{
-		"id": 4,
+		"id": 3,
 		"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
 		"weight": 1
 	}
@@ -71,16 +61,11 @@
 	},
 	{
 		"id": 2,
-		"descr": "Kod na steam na 25 złotych",
-		"weight": 0.25
-	},
-	{
-		"id": 3,
 		"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
 		"weight": 1.25
 	},
 	{
-		"id": 4,
+		"id": 3,
 		"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
 		"weight": 1
 	}

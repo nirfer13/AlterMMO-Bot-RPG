@@ -131,7 +131,7 @@ class functions_database(commands.Cog, name="functions_database"):
         print("Conversion...")
         intRespawnTime = int(respawnTime)
         print("To datetime...")
-        Time = datetime.datetime.utcnow() + datetime.timedelta(hours=1) + datetime.timedelta(seconds=intRespawnTime)
+        Time = datetime.datetime.utcnow() + datetime.timedelta(hours=2) + datetime.timedelta(seconds=intRespawnTime)
         d = Time.replace(microsecond=0)
         print("Time before database write: " + str(type(d)))
         print("Save resume before database write: " + str(type(ResumeSpawn)))
@@ -165,8 +165,8 @@ class functions_database(commands.Cog, name="functions_database"):
         #print("Data updated in Record Database.")
 
     global updateRankingTable
-    async def updateRankingTable(self, ctx, ID, bossRarity):
-        
+    async def updateRankingTable(self, ctx, ID, bossRarity, modifier):
+
         print("Boss rarity before adding to ranking: " + str(bossRarity))
         if bossRarity == 0:
             points = 1
@@ -177,7 +177,9 @@ class functions_database(commands.Cog, name="functions_database"):
         elif bossRarity == 3:
             points = 4
         else:
-            points = 3
+            points = 4
+
+        points += modifier
 
         #Database Update
         print("Checking if user exists...")

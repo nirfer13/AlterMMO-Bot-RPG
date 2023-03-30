@@ -16,6 +16,5 @@ class functions_general(commands.Cog, name="functions_general"):
             count += 1
         await channel.purge(limit=count-1)
 
-
 def setup(bot):
     bot.add_cog(functions_general(bot))

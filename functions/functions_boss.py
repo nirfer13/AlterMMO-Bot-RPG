@@ -15,6 +15,7 @@ import datetime
 #Import Globals
 from globals.globalvariables import DebugMode
 import functions_database
+import functions_modifiers
 
 class functions_boss(commands.Cog, name="functions_boss"):
     def __init__(self, bot):
@@ -23,6 +24,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
     #define Loot
     global randLoot
     async def randLoot(self, ctx, srarity, BossHunter, boost_percent):
+        """Randomize loot from boss."""
+
         rarity = int(srarity)
         boost_percent = int(boost_percent)
 
@@ -38,7 +41,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         elif rarity == 3:
             jsonObject = jsonObject['loot_details_Legend']
         else:
-            jsonObject = jsonObject['loot_details_Normal']
+            jsonObject = jsonObject['loot_details_Legend']
 
         dropMessage = ""
         for loot in jsonObject:
@@ -67,12 +70,14 @@ class functions_boss(commands.Cog, name="functions_boss"):
     #function to send boss image
     global fBossImage
     async def fBossImage(self, ctx, srarity):
-        print("Boss spawned. bossAlive = 3")
+        """Create a boss image based on modifiers and random crafter."""
+
+        print("Boss spawned. BOSSALIVE = 3")
         rarity = int(srarity)
 
         #image name
         percentage = random.randint(0,100)
-        is_player_boss = percentage >= 75
+        is_player_boss = percentage >= 50
         print("Boss player? " + str(is_player_boss) + " " + str(percentage))
 
         if is_player_boss:
@@ -81,7 +86,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
             boss_player = random.choice(members)
             print(boss_player)
             file = boss_player.avatar_url
-            add_desc = "\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
+            add_desc = "\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "\
             + "to ten gracz zgarnia " + str((rarity+1)*500) + " doświadczenia!*"
         else:
             imageNumber = pow(10,rarity)
@@ -91,6 +96,18 @@ class functions_boss(commands.Cog, name="functions_boss"):
             file=discord.File(imageName)
             boss_player = "boss"
             add_desc = ""
+
+        #Load modifiers
+        modifiers = await functions_modifiers.load_modifiers(self, ctx)
+        if modifiers["player_id"] > 0:
+            member = discord.utils.get(ctx.guild.members, id=modifiers["player_id"])
+            boss_player = member
+            print(member)
+            file = member.avatar_url
+            add_desc = "\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "\
+            + "to ten gracz zgarnia " + str((rarity+1)*500) + " doświadczenia!*"
+
+        add_desc += await functions_modifiers.load_desc_modifiers(self, ctx)
 
         print("File with boss picture generated.")
 
@@ -104,7 +121,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         elif rarity == 3:
             eTitle = f"💀 Legendarny {boss_player}! 💀"
         else:
-            eTitle = f"💀 {boss_player}! 💀"
+            eTitle = f"💀 Legendarny {boss_player}! 💀"
 
         #description
         if rarity == 0:
@@ -114,9 +131,9 @@ class functions_boss(commands.Cog, name="functions_boss"):
         elif rarity == 2:
             eDescr = "Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         elif rarity == 3:
-            eDescr = "Pojawił się LEGENDARNY boss! Nie dasz rady sam, będziesz potrzebował kompanów! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
+            eDescr = "Pojawił się LEGENDARNY boss! Nie dasz rady sam, będziesz potrzebował kompanów spośród <@&985071779787730944>! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         else:
-            eDescr = "Pojawił się boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
+            eDescr = "Pojawił się LEGENDARNY boss! Nie dasz rady sam, będziesz potrzebował kompanów spośród <@&985071779787730944>! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
 
         #color
         if rarity == 0:
@@ -128,7 +145,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         elif rarity == 3:
             eColor = 0x7F5A00
         else:
-            eColor = 0xFFFFFF
+            eColor = 0x7F5A00
 
         #thumb
         if rarity == 0:
@@ -140,7 +157,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         elif rarity == 3:
             eThumb = 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/google/313/large-orange-square_1f7ea.png'
         else:
-            eThumb = 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/google/313/large-green-square_1f7e9.png'
+            eThumb = 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/google/313/large-orange-square_1f7ea.png'
 
         #image
         embed = discord.Embed(
@@ -156,70 +173,68 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
         return is_player_boss, boss_player
 
-
     #function to set boss rarity
-    global fBossRarity
-    def fBossRarity(time):
+    global fBOSSRARITY
+    def fBOSSRARITY(time):
         iTime = int(time)
         print("Time inside function: " + str(iTime))
         if DebugMode == False:
             if iTime >= 0 and iTime < 14400: #0-4h
-                bossRarity = 0
+                BOSSRARITY = 0
             elif iTime >= 14400 and iTime < 28800: #4-8h
-                bossRarity = 1
+                BOSSRARITY = 1
             elif iTime >= 28800 and iTime < 39600: #8-11h
-                bossRarity = 2
+                BOSSRARITY = 2
             elif iTime >= 39600 and iTime <= 45000: #12h
-                bossRarity = 3
+                BOSSRARITY = 3
             else:
-                bossRarity = 0
+                BOSSRARITY = 0
         else:
             if iTime >= 0 and iTime < 12:
-                bossRarity = 0
+                BOSSRARITY = 0
             elif iTime >= 10 and iTime < 17:
-                bossRarity = 1
+                BOSSRARITY = 1
             elif iTime >= 17 and iTime <= 20:
-                bossRarity = 2
+                BOSSRARITY = 2
             elif iTime >= 20 and iTime <= 25:
-                bossRarity = 3
+                BOSSRARITY = 3
             else:
-                bossRarity = 0
-            bossRarity = 3
-        return bossRarity
-
+                BOSSRARITY = 0
+            BOSSRARITY = 3
+        return BOSSRARITY
 
     #function to Random BossHP
     global fRandomBossHp
-    def fRandomBossHp(bossRarity):
-        ibossRarity = int(bossRarity)
-        if ibossRarity == 0:
+    def fRandomBossHp(BOSSRARITY):
+        iBOSSRARITY = int(BOSSRARITY)
+        if iBOSSRARITY == 0:
             minHp = 2
             maxHp = 4
-        elif ibossRarity == 1:
+        elif iBOSSRARITY == 1:
             minHp = 5
             maxHp = 8
-        elif ibossRarity == 2:
+        elif iBOSSRARITY == 2:
             minHp = 9
             maxHp = 12
-        elif ibossRarity == 3:
+        elif iBOSSRARITY == 3:
             minHp = 15
             maxHp = 20
         else:
-            minHp = 2
-            maxHp = 4
+            minHp = 15
+            maxHp = 20
         bossHP = random.randint(minHp,maxHp)
         return bossHP
 
     #function to save respawn time to file
     global fSaveRespawnToFile
-    def fSaveRespawnToFile (respawnTime, bossRarity, respStarted):
+    def fSaveRespawnToFile (respawnTime, BOSSRARITY, respStarted):
         intRespawnTime = int(respawnTime)
         Time = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
         + datetime.timedelta(seconds=intRespawnTime)
         print("Respawn timestamp saved to file: " + str(Time))
         with open('respawnTimeInfo.txt', 'w') as f:
             f.write(str(Time) + '\n')
-            f.write(str(bossRarity) + '\n')
+            f.write(str(BOSSRARITY) + '\n')
             f.write(str(respStarted))
 
     #function to read respawn time from file
@@ -232,11 +247,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
         print(str(spawnTimestamp))
         secondsToSpawn = spawnTimestamp - (datetime.datetime.utcnow() + datetime.timedelta(hours=2))
         #line 1
-        bossRarity = readLines[1].rstrip('\n')
+        BOSSRARITY = readLines[1].rstrip('\n')
         #line 2
         respStarted = readLines[2]
 
-        return secondsToSpawn.total_seconds(), bossRarity, respStarted
+        return secondsToSpawn.total_seconds(), BOSSRARITY, respStarted
 
     #function to get context
     global getContext
@@ -249,11 +264,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
     #SINGLE
     #function to single init fight
     global singleInit
-    async def singleInit(self, ctx, bossAlive, bossRarity):
+    async def singleInit(self, ctx, BOSSALIVE, BOSSRARITY):
         global respawnResume
         await ctx.message.add_reaction("⚔️")
         async with ctx.typing():
-            await ctx.channel.send('Jesteś sam?... 120...')
+            await ctx.channel.send('Jesteś sam?... 120... *Wpisz **$zaatakuj**, jeśli chcesz zawalczyć o bossa!*')
         respawnResume = False
         preFight = False
         mainUser = ctx.author
@@ -276,7 +291,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
         i = range(maxWait)
         for x in i:
             try:
-                anotherAtkCmd = await self.bot.wait_for('message', timeout=15, check=check(ctx.author))
+                if DebugMode is True:
+                    timeout=1
+                else:
+                    timeout=15
+                anotherAtkCmd = await self.bot.wait_for('message', timeout=timeout, check=check(ctx.author))
+
                 preFight = True
                 async with ctx.typing():
                     await asyncio.sleep(2)
@@ -306,8 +326,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
                     if  response.lower() == initCmd.lower():
                         bossHunterID = spellCmd.author
                         await spellCmd.add_reaction("⚔️")
-                        bossAlive = 6
-                        return bossAlive, bossHunterID
+                        BOSSALIVE = 6
+                        return BOSSALIVE, bossHunterID
                     else:
                         Try+=1
             except asyncio.TimeoutError:
@@ -315,35 +335,43 @@ class functions_boss(commands.Cog, name="functions_boss"):
                     await ctx.channel.send('"Pfff... Miernoty. Nikt z Was nie jest godzien."')
                 logChannel = self.bot.get_channel(881090112576962560)
                 await  logChannel.send("Cała grupa nie zdążyła wpisac hasła.")
-                await functions_database.updateBossTable(self, ctx, 0, 0, False)
-                bossAlive = 0
-                return bossAlive, 0
-                
+
+                #Reset at the end of the fight.
+                await resetEnd(self, ctx)
+                BOSSALIVE = 0
+
+                return BOSSALIVE, 0
+
         elif preFight == False:
             print("Prefight False")
             bossHunterID = ctx.author
             print("Boss hunter name: " + bossHunterID.name)
-            bossAlive = 6
-            return bossAlive, bossHunterID
+            BOSSALIVE = 6
+            return BOSSALIVE, bossHunterID
 
     #function to carry fight by single player
     global singleFight
-    async def singleFight(self, ctx, bossAlive ,bossHunterID, bossRarity, is_player_boss, player_boss):
-        if bossAlive == 6:
+    async def singleFight(self, ctx, BOSSALIVE ,bossHunterID, BOSSRARITY, is_player_boss, player_boss):
+        if BOSSALIVE == 6:
             async with ctx.typing():
                 await ctx.channel.send('Zaatakowałeś bossa <@' + format(bossHunterID.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe! Przygotuj się!')
+
+            #Load modifiers
+            modifiers = await functions_modifiers.load_modifiers(self, ctx)
+
             await asyncio.sleep(6)
 
             #Start time counting
-            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
             #Save resp time and nickname
             await functions_database.updateHistoryTable(self, ctx, bossHunterID.name, startTime)
 
             #Random the message and requested action
             requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **UNIK**", "Boss zawahał się! Teraz! Wpisz **ATAK**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**", 
             "Boss próbuje ataku w nogi, wpisz **SKOK**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **BIEG**", "Boss atakuje w powietrzu, wpisz **TURLAJ**", "Boss rzuca klątwę, wpisz **CZARUJ**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **BLOK**","Boss próbuje ataku w nogi, wpisz **SKACZ**","Boss szarżuje na Ciebie, zrób coś, wpisz **AKCJA**", "Nie masz pojęcia co robić, wpisz **KRZYK**", "Musisz zrobić cokolwiek, wpisz **RUCH**", "Boss rzuca głazem w Twoją stronę, wpisz **POSUW**", "Dostrzegasz szansę na uderzenie, wpisz **IMPET**", "Pojawiła się chwila zawachania potwora, wpisz **ZRYW**")]
-    
-            bossHP = fRandomBossHp(bossRarity)
+
+            bossHP = fRandomBossHp(BOSSRARITY)
+            bossHP = int(bossHP * (1+(modifiers["hp_boost_perc"] - modifiers["hp_reduced_perc"])/100))
             print("Wylosowane HP bossa: " + str(bossHP))
             iterator = 0
 
@@ -355,7 +383,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 return inner
 
             #Start time counting
-            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
 
             #Start whole fight
             for iterator in range(bossHP): #start boss turn
@@ -372,24 +400,25 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         cmdTimeout = 7
                     else:
                         #Timeout depends on boss rarity
-                        print("Boss rarity before timeout calc: " + str(bossRarity))
-                        cmdTimeout = 5 - bossRarity
+                        print("Boss rarity before timeout calc: " + str(BOSSRARITY))
+                        cmdTimeout = 5 - BOSSRARITY
+                        cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"])/100
                     msg = await self.bot.wait_for('message', check=check(ctx), timeout=cmdTimeout)
                     response = str(msg.content)
 
                     if response.lower() == requestedAction[0][choosenAction]:
                         #Boss killed?
                         if iterator >= bossHP:
-                            
+
                             await ctx.channel.send('Brawo <@' + format(bossHunterID.id) + '>! Pokonałeś bossa! <:POGGIES:790963160491753502><:POGGIES:790963160491753502><:POGGIES:790963160491753502>')
 
                             #Time record
-                            endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+                            endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
                             recordTime = endTime - startTime
                             recordTurnTime = recordTime/bossHP
                             await ctx.channel.send('Zabicie bossa zajęło Ci: ' + str(recordTime).lstrip('0:00:') + ' sekundy! Jedna tura zajęła Ci średnio ' + str(recordTurnTime).lstrip('0:00:') + ' sekundy!')
                             previousRecord, Nick = await functions_database.readRecordTable(self, ctx)
-                        
+
                             if datetime.datetime.strptime(previousRecord, "%H:%M:%S.%f") > datetime.datetime.strptime(str(recordTurnTime), "%H:%M:%S.%f"):
                                 await ctx.channel.send('Pobiłeś rekord i zgarniasz dodatkowe 1500 doświadczenia na discordzie!')
                                 logChannel = self.bot.get_channel(881090112576962560)
@@ -397,21 +426,21 @@ class functions_boss(commands.Cog, name="functions_boss"):
                                 await functions_database.updateRecordTable(self, ctx, bossHunterID.name, recordTurnTime)
 
                             #Ranking - add points
-                            await functions_database.updateRankingTable(self, ctx, bossHunterID.id, bossRarity)
-                    
-                            #Spawn resume off
-                            await functions_database.updateBossTable(self, ctx, 0, 0, False)                         
-                    
+                            await functions_database.updateRankingTable(self, ctx, bossHunterID.id, BOSSRARITY, modifiers["points_boost"])
+
                             #Randomize Loot
-                            dropLoot = await randLoot(self, ctx, bossRarity, bossHunterID, 0)                                
+                            dropLoot = await randLoot(self, ctx, BOSSRARITY, bossHunterID, modifiers["drop_boost_perc"])
 
                             #Send info about loot
                             logChannel = self.bot.get_channel(881090112576962560)
                             await logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " otrzymał: \n" + dropLoot)
 
-                            bossAlive = 0
-                            return bossAlive
-                    
+                            #Reset at the end of the fight.
+                            await resetEnd(self, ctx)
+                            BOSSALIVE = 0
+
+                            return BOSSALIVE
+
                         else:
                             print("Good command.")
                     else:
@@ -420,28 +449,42 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         if is_player_boss == False:
                             await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " pomylił się i nie zabił bossa.")
                         else:
-                            await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " pomylił się i nie zabił bossa. Bossem był " + player_boss.name + " i należy mu się " + str((bossRarity+1)*500) + " expa.")
-                        await functions_database.updateBossTable(self, ctx, 0, 0, False)
-                        bossAlive = 0
-                        return bossAlive
-                
+                            await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " pomylił się i nie zabił bossa. Bossem był " + player_boss.name + " i należy mu się " + str((BOSSRARITY+1)*500) + " expa.")
+
+                        #Reset at the end of the fight.
+                        await resetEnd(self, ctx)
+                        BOSSALIVE = 0
+
+                        if modifiers["ban_loser"] > 0:
+                            print("Hunter " + str(bossHunterID.name) + " is dead.")
+                            await setDeadHunters(self, ctx, bossHunterID.id)
+
+                        return BOSSALIVE
+
                 except asyncio.TimeoutError:
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
                     logChannel = self.bot.get_channel(881090112576962560)
                     if is_player_boss == False:
                         await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " nie zdążył wpisać komend i boss uciekł.")
                     else:
-                        await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " nie zdążył wpisać komend i boss uciekł. Bossem był " + player_boss.name + " i należy mu się " + str((bossRarity+1)*500) + " expa.")
-                    await functions_database.updateBossTable(self, ctx, 0, 0, False)
-                    bossAlive = 0
-                    return bossAlive
+                        await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " nie zdążył wpisać komend i boss uciekł. Bossem był " + player_boss.name + " i należy mu się " + str((BOSSRARITY+1)*500) + " expa.")
+
+                    #Reset at the end of the fight.
+                    await resetEnd(self, ctx)
+                    BOSSALIVE = 0
+
+                    if modifiers["ban_loser"] > 0:
+                        print("Hunter " + str(bossHunterID.name) + " is dead.")
+                        await setDeadHunters(self, ctx, bossHunterID.id)
+
+                    return BOSSALIVE
         else:
             pass
 
     #GROUP
     #function to group init fight
     global groupInit
-    async def groupInit(self, ctx, bossAlive, bossRarity):
+    async def groupInit(self, ctx, BOSSALIVE, BOSSRARITY):
         global respawnResume
         await ctx.message.add_reaction("⚔️")
         async with ctx.typing():
@@ -455,13 +498,13 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
         #Initialization Check Function
         def check(author, playersList):
-            def inner_check(message): 
-                if message.author in playersList and False:
+            def inner_check(message):
+                if message.author in playersList and not DebugMode:
                     print("Group fight init error: player already exists!")
                     return False
                 else:
-                    if message.content.lower() == "$zaatakuj": 
-                        return True 
+                    if message.content.lower() == "$zaatakuj":
+                        return True
                     else:
                         print("Group init error: wrong message!")
                         return False
@@ -469,9 +512,9 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
         #Fight Check Function
         def checkFight(author, playersList, confirmPlayerList):
-            def inner_check(message): 
+            def inner_check(message):
                 if message.author in playersList: #and message.author not in confirmPlayerList:
-                    if message.content.lower() == "$tak": 
+                    if message.content.lower() == "$tak":
                         print("Group fight: player exists!")
                         return True
                 else:
@@ -482,10 +525,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
         maxWait = 6
         timeout = 300
         y=0
-        while(bossAlive == 5):
+        while BOSSALIVE == 5:
             try:
                 #Wait for attack command
-                anotherAtkCmd = await self.bot.wait_for('message', timeout=timeout, check=check(ctx.author, playersList))
+                anotherAtkCmd = await self.bot.wait_for('message',
+                                                        timeout=timeout,
+                                                        check=check(ctx.author, playersList))
                 playersList.append(anotherAtkCmd.author)
 
                 print(playersList)
@@ -496,22 +541,25 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 #Found all player
                 if len(playersList) >= 4:
                     print("Group fight begins!")
-                    
+
                     async with ctx.typing():
                         await ctx.channel.send('Jesteście gotowi do ataku? Wpiszcie **$tak**.' + playerListString + "... 60...")
                     confirmPlayerList = []
 
-                    while(bossAlive == 5):
+                    while BOSSALIVE == 5:
                         try:
                             #Wait for confirm command
                             print("Waiting for confirm command...")
-                            confirmCmd = await self.bot.wait_for('message', timeout=60, check=checkFight(ctx.author, playersList, confirmPlayerList))
+                            confirmCmd = await self.bot.wait_for('message', timeout=60,
+                                                                check=checkFight(ctx.author,
+                                                                                 playersList,
+                                                                                 confirmPlayerList))
                             await confirmCmd.add_reaction("⚔️")
                             confirmPlayerList.append(confirmCmd.author)
 
                             #4 players confirmed
                             if len(confirmPlayerList) == 4:
-                                bossAlive = 6
+                                BOSSALIVE = 6
 
                         except asyncio.TimeoutError:
                             #someone did not confirm, return to waiting for players
@@ -535,32 +583,29 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 if y == 1:
                     await ctx.channel.send("**Tchórzycie, co? Pff...** - *Wpisz $zaatakuj, jeśli chcesz dołączyć do walki!* " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
                 elif y == maxWait - 2:
-                    await ctx.channel.send("**A myślałem, że czas na rozrywkę...** - *Wpisz $zaatakuj, jeśli chcesz dołączyć do walki!* " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
+                    await ctx.channel.send("**A myślałem, że czas na rozrywkę...** - *Wpisz $zaatakuj, jeśli chcesz dołączyć do walki! Ostatnia szansa <@&985071779787730944>!* " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
                 elif y == maxWait - 1:
-                    bossAlive = 0
-                    pass
+                    #Reset in the end of the fight
+                    await resetEnd(self, ctx)
+                    BOSSALIVE = 0
+                    await ctx.channel.send("**Miernoty... Wiedziałem, że nie jesteście godni walki ze mną.**  - *słyszycie głos w swojej głowie.*")
                 else:
                     await ctx.channel.send("... " + str(math.trunc((timeout*maxWait)/60 - (((y+1)*timeout)/60))) + "...")
-                
-                
-                    
-
-        if bossAlive == 0:
-            #Spawn resume off
-            await functions_database.updateBossTable(self, ctx, 0, 0, False)
-            await ctx.channel.send("**Miernoty... Wiedziałem, że nie jesteście godni walki ze mną.**  - *słyszycie głos w swojej głowie.*")
 
         for player in playersList:
             print("Boss hunter: " + str(player.name))
 
         print("List printed")
-        return bossAlive, playersList
+        return BOSSALIVE, playersList
 
     #function to carry fight by single player
     global groupFight
-    async def groupFight(self, ctx, bossAlive , playersList, is_player_boss, player_boss):
-        if bossAlive == 6:
-            bossRarity = 3
+    async def groupFight(self, ctx, BOSSALIVE , playersList, is_player_boss, player_boss):
+        if BOSSALIVE == 6:
+            BOSSRARITY = 3
+
+            #Load modifiers
+            modifiers = await functions_modifiers.load_modifiers(self, ctx)
 
             playerListString = " "
             for player in playersList:
@@ -570,7 +615,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 await ctx.channel.send('Zaatakowaliście bossa' + playerListString + '! <:REEeee:790963160495947856> Wpiszcie **komendy przypisane do Was** tak szybko, jak to możliwe! Przygotujcie się!')
             await asyncio.sleep(17)
             #Start time counting
-            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
             #Save resp time and nickname
             await functions_database.updateHistoryTable(self, ctx, "Party " + str(playersList[0].name), startTime)
 
@@ -581,12 +626,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
             await ctx.channel.send('... 1...')
             await asyncio.sleep(1)
 
-            
             #Random the message and requested action
             requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **UNIK**", "Boss zawahał się! Teraz! Wpisz **ATAK**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**", 
             "Boss próbuje ataku w nogi, wpisz **SKOK**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **BIEG**", "Boss atakuje w powietrzu, wpisz **TURLAJ**", "Boss rzuca klątwę, wpisz **CZARUJ**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **BLOK**","Boss próbuje ataku w nogi, wpisz **SKACZ**","Boss szarżuje na Ciebie, zrób coś, wpisz **AKCJA**", "Nie masz pojęcia co robić, wpisz **KRZYK**", "Musisz zrobić cokolwiek, wpisz **RUCH**", "Boss rzuca głazem w Twoją stronę, wpisz **POSUW**", "Dostrzegasz szansę na uderzenie, wpisz **IMPET**", "Pojawiła się chwila zawachania potwora, wpisz **ZRYW**")]
-    
-            bossHP = fRandomBossHp(bossRarity)
+
+            bossHP = fRandomBossHp(BOSSRARITY)
+            bossHP = int(bossHP * (1+(modifiers["hp_boost_perc"] - modifiers["hp_reduced_perc"])/100))
             print("Wylosowane HP bossa: " + str(bossHP))
             iterator = 0
             chances = 1
@@ -599,7 +644,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 return inner
 
             #Start time counting
-            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+            startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
 
             #Start whole fight
             for iterator in range(bossHP): #start boss turn
@@ -617,55 +662,55 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         cmdTimeout = 7
                     else:
                         #Timeout depends on boss rarity
-                        print("Boss rarity before timeout calc: " + str(bossRarity))
+                        print("Boss rarity before timeout calc: " + str(BOSSRARITY))
                         cmdTimeout = 4
+                        cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"])/100
                     msg = await self.bot.wait_for('message', check=check(ctx, playersList), timeout=cmdTimeout)
                     response = str(msg.content)
 
                     if response.lower() == requestedAction[0][choosenAction] and msg.author == bossHunterID:
                         #Boss killed?
                         if iterator >= bossHP:
-                            
+
                             await ctx.channel.send('Wow! Świetnie' + playerListString + '! Pokonaliście legendarnego bossa! <:POGGIES:790963160491753502><:POGGIES:790963160491753502><:POGGIES:790963160491753502>')
 
                             #Time record
-                            endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+                            endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
                             recordTime = endTime - startTime
                             recordTurnTime = recordTime/bossHP
                             await ctx.channel.send('Zabicie bossa zajęło Wam: ' + str(recordTime).lstrip('0:00:') + ' sekundy! Jedna tura zajęła Wam średnio ' + str(recordTurnTime).lstrip('0:00:') + ' sekundy!')
                             previousRecord, Nick = await functions_database.readRecordTable(self, ctx)
-                        
+
                             if datetime.datetime.strptime(previousRecord, "%H:%M:%S.%f") > datetime.datetime.strptime(str(recordTurnTime), "%H:%M:%S.%f"):
                                 await ctx.channel.send('Pobiliście rekord i zgarniacie dodatkowe 1500 doświadczenia na discordzie!')
                                 logChannel = self.bot.get_channel(881090112576962560)
                                 await logChannel.send("<@291836779495948288>!   " + playerListString + " otrzymali: 1500 expa za rekord")
                                 await functions_database.updateRecordTable(self, ctx, "Party " + str(playersList[0].name), recordTurnTime)
 
-                            #Spawn resume off
-                            await functions_database.updateBossTable(self, ctx, 0, 0, False)                         
-
                             for hunter in playersList:
 
                                 #Ranking - add points
                                 await functions_database.updateRankingTable(self, ctx,
-                                                                            hunter.id, bossRarity)
+                                                                            hunter.id, BOSSRARITY, modifiers["points_boost"])
 
                                 #Randomize Loot
-                                dropLoot = await randLoot(self, ctx, bossRarity, hunter, 0)
+                                dropLoot = await randLoot(self, ctx, BOSSRARITY, hunter, modifiers["drop_boost_perc"])
 
                                 #Send info about loot
                                 logChannel = self.bot.get_channel(881090112576962560)
                                 await logChannel.send("<@291836779495948288>!   " + str(hunter) +
                                                      " otrzymał: " + dropLoot)
 
-                            bossAlive = 0
-                            return bossAlive, playersList
-                  
+                            #Reset in the end of the fight
+                            await resetEnd(self, ctx)
+                            BOSSALIVE = 0
+
+                            return BOSSALIVE, playersList
                         else:
                             print("Good command.")
                     else:
                         if chances > 0:
-                            chances -= 1           
+                            chances -= 1
                         else:
                             await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
                             logChannel = self.bot.get_channel(881090112576962560)
@@ -673,27 +718,43 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             if is_player_boss == False:
                                 await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa.")
                             else:
-                                await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa. Bossem był " + player_boss.name + " i należy mu się " + str((bossRarity+1)*500) + " expa.")
-                            await functions_database.updateBossTable(self, ctx, 0, 0, False)
-                            bossAlive = 0
-                            return bossAlive, playersList
-                
+                                await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa. Bossem był " + player_boss.name + " i należy mu się " + str((BOSSRARITY+1)*500) + " expa.")
+
+                            #Reset in the end of the fight
+                            await resetEnd(self, ctx)
+                            BOSSALIVE = 0
+
+                            if modifiers["ban_loser"] > 0:
+                                for hunter in playersList:
+                                    print("Hunter " + str(hunter.name) + " is dead.")
+                                    await setDeadHunters(self, ctx, hunter.id)
+
+                            return BOSSALIVE, playersList
+
                 except asyncio.TimeoutError:
                     if chances > 0:
                         chances -= 1
-                
+
                     else:
                         await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
                         logChannel = self.bot.get_channel(881090112576962560)
                         if is_player_boss == False:
                             await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa.")
                         else:
-                            await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa. Bossem był " + player_boss.name + " i należy mu się " + str((bossRarity+1)*500) + " expa.")
-                        await functions_database.updateBossTable(self, ctx, 0, 0, False)
-                        bossAlive = 0
-                        return bossAlive, playersList
+                            await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa. Bossem był " + player_boss.name + " i należy mu się " + str((BOSSRARITY+1)*500) + " expa.")
+
+                        #Reset in the end of the fight
+                        await resetEnd(self, ctx)
+                        BOSSALIVE = 0
+
+                        if modifiers["ban_loser"] > 0:
+                            for hunter in playersList:
+                                print("Hunter " + str(hunter.name) + " is dead.")
+                                await setDeadHunters(self, ctx, hunter.id)
+
+                        return BOSSALIVE, playersList
         else:
-            return bossAlive, playersList
+            return BOSSALIVE, playersList
 
     #function to add Boss Slayer role
     global setBossSlayer
@@ -710,6 +771,29 @@ class functions_boss(commands.Cog, name="functions_boss"):
         user = guild.get_member(int(userID))
         await user.add_roles(my_role)
         print("Boss slayer role granted.")
+
+    #function to remove dead hunter role
+    global resetDeadHunters
+    async def resetDeadHunters(self, ctx):
+        my_role = discord.utils.get(ctx.guild.roles, id=1091050836303544402)
+        members = my_role.members
+        print(my_role)
+        if members:
+            print(members)
+            for member in members:
+                 await member.remove_roles(my_role)
+        print("Dead Hunter role removed.")
+
+    #function to add Boss Slayer role
+    global setDeadHunters
+    async def setDeadHunters(self, ctx, userID):
+        my_role = discord.utils.get(ctx.guild.roles, id=1091050836303544402)
+        members = my_role.members
+        print(my_role)
+        guild = self.bot.get_guild(686137998177206281)
+        user = guild.get_member(int(userID))
+        await user.add_roles(my_role)
+        print("Dead hunter role granted.")
 
     #function to add random gif for Boss Slayer
     global flexGif
@@ -750,6 +834,13 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 await ctx.send("<@" + str(ctx.author.id) + ">, zły format ikony. Poprawny format to .png. <:madge:882184635474386974>")
         else:
             await ctx.send("Dodaj ikonę w wiadomości z komendą - format .png <:madge:882184635474386974>")
+
+    global resetEnd
+    async def resetEnd(self, ctx):
+        await functions_modifiers.init_modifiers(self, ctx)
+        await functions_database.updateBossTable(self, ctx, 0, 0, False)
+        await resetDeadHunters(self, ctx)
+        print("Reset after boss... Modifiers, database and dead hunters reset.")
 
 def setup(bot):
     bot.add_cog(functions_boss(bot))
