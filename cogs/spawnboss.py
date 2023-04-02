@@ -227,9 +227,19 @@ class message(commands.Cog, name="spawnBoss"):
     async def ShrinePray(self, ctx):
         print("Praying...")
         global SHRINEALIVE
-        prayed = await functions_modifiers.pray_shrine(self, ctx, SHRINEALIVE)
-        if prayed == 0:
+            
+        if SHRINEALIVE == 1:
             SHRINEALIVE = 0
+            crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
+            if crafter in ctx.message.author.roles:
+                await ctx.message.add_reaction("<:prayge:1063891597760139304>")
+                await functions_modifiers.random_modifiers(self, ctx)
+            else:
+                await ctx.channel.send("Nie umiesz pacierza. Poczekaj na kogoś bardziej wierzącego. <:prayge:1063891597760139304>")
+                SHRINEALIVE = 1
+        else:
+            await ctx.channel.send("Do kogo Ty chcesz się modlić? Przecież tu nic nie ma...")
+       
 
     #create Spawn Boss task command
     @commands.command(name="startSpawnBoss", brief="Starts spawning boss")

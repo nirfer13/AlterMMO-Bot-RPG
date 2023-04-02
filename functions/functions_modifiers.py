@@ -43,24 +43,6 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
         await ctx.channel.send(file=file)
         await ctx.send(embed=embed)
 
-    global pray_shrine
-    async def pray_shrine(self, ctx, SHRINEALIVE):
-        """Pray to shrine to get bonuses for bosses."""
-
-        if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
-            if SHRINEALIVE == 1:
-                crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-                #patron
-                if crafter in ctx.message.author.roles:
-                    SHRINEALIVE = 0
-                    await ctx.message.add_reaction("<:prayge:1063891597760139304>")
-                    await random_modifiers(self, ctx)
-                    return SHRINEALIVE
-                else:
-                    await ctx.channel.send("Nie umiesz pacierza. Poczekaj na kogoś bardziej wierzącego. <:prayge:1063891597760139304>")
-            else:
-                await ctx.channel.send("Do kogo Ty chcesz się modlić? Przecież tu nic nie ma...")
-
     global random_modifiers
     async def random_modifiers(self, ctx):
         """Random modifiers and save it to the file."""
