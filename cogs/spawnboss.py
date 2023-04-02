@@ -103,7 +103,7 @@ class message(commands.Cog, name="spawnBoss"):
 
         while True:
             if DebugMode is False:
-                resp_time = random.randint(900, 7200)
+                resp_time = random.randint(2700, 7200)
             elif DebugMode is True:
                 resp_time = random.randint(30, 55)
 

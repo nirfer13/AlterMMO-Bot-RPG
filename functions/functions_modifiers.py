@@ -87,9 +87,9 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
             desc = "Modlitwa w kapliczce sprawiła, że "\
             "następny boss **będzie miał o " + str(random_value) + "% więcej życia!**"
         elif modifier == "rarity_boost":
-            random_value = random.randint(1, 3)
+            random_value = 1
             desc = "Modlitwa w kapliczce sprawiła, że "\
-            "następny boss **będzie o " + str(random_value) + " poziomy rzadszy!**"
+            "następny boss **będzie o " + str(random_value) + " poziom rzadszy!**"
         elif modifier == "drop_boost_perc":
             random_value = random.randint(5, 25)
             desc = "Modlitwa w kapliczce sprawiła, że "\
@@ -184,7 +184,7 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
                 elif key == "time_reduced_perc":
                     modifiers_desc+= f"\n🔻 Czas na reakcję zmniejszony o {value} %"
                 elif key == "rarity_boost":
-                    modifiers_desc+= f"\n🔺 Rzadkość zwiększona o {value} poziomy"
+                    modifiers_desc+= f"\n🔺 Rzadkość zwiększona o {value} poziom"
                 elif key == "points_boost":
                     modifiers_desc+= f"\n🔺 Punkty za wygraną zwiększone o {value}"
                 elif key == "player_id":

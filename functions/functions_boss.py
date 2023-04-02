@@ -100,12 +100,22 @@ class functions_boss(commands.Cog, name="functions_boss"):
         #Load modifiers
         modifiers = await functions_modifiers.load_modifiers(self, ctx)
         if modifiers["player_id"] > 0:
-            member = discord.utils.get(ctx.guild.members, id=modifiers["player_id"])
-            boss_player = member
-            print(member)
-            file = member.avatar_url
-            add_desc = "\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "\
-            + "to ten gracz zgarnia " + str((rarity+1)*500) + " doświadczenia!*"
+            try:
+                member = discord.utils.get(ctx.guild.members, id=modifiers["player_id"])
+                boss_player = member
+                print(member)
+                file = member.avatar_url
+                add_desc = "\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "\
+                + "to ten gracz zgarnia " + str((rarity+1)*500) + " doświadczenia!*"
+            except:
+                imageNumber = pow(10,rarity)
+                if imageNumber == 1:
+                    imageNumber = 0
+                imageName = "mobs/" + str(random.randint(0,7)+imageNumber) + ".gif"
+                file=discord.File(imageName)
+                boss_player = "boss"
+                add_desc = ""
+                
 
         add_desc += await functions_modifiers.load_desc_modifiers(self, ctx)
 
@@ -327,7 +337,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         bossHunterID = spellCmd.author
                         await spellCmd.add_reaction("⚔️")
                         BOSSALIVE = 6
-                        return BOSSALIVE, bossHunterID
+                        return BOSSALIVE, ctx.author
                     else:
                         Try+=1
             except asyncio.TimeoutError:
@@ -479,7 +489,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
                     return BOSSALIVE
         else:
-            pass
+            return 0
 
     #GROUP
     #function to group init fight
