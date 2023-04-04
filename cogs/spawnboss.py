@@ -20,6 +20,7 @@ import functions_boss
 import functions_database
 import functions_general
 import functions_modifiers
+import functions_pets
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -227,7 +228,7 @@ class message(commands.Cog, name="spawnBoss"):
     async def ShrinePray(self, ctx):
         print("Praying...")
         global SHRINEALIVE
-            
+
         if SHRINEALIVE == 1:
             SHRINEALIVE = 0
             crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
@@ -325,6 +326,10 @@ class message(commands.Cog, name="spawnBoss"):
         if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
             await functions_database.readRankingTable(self, ctx)
             print ("Ranking database read.")
+
+    @commands.command(name="towarzysz", brief="Shows author's pet.")
+    async def show_pet(self, ctx):
+        await functions_pets.show_pet(self, ctx)
 
     # command to flex boss slayer
     @commands.command(pass_context=True, name="flex", brief="Boss slayer flex")
@@ -468,6 +473,13 @@ class message(commands.Cog, name="spawnBoss"):
         await functions_modifiers.random_modifiers(self,)
 
     # command to debug
+    @commands.command(pass_context=True, name="GenerateEgg",
+                      brief="Generates egg and print its data.")
+    @commands.has_permissions(administrator=True)
+    async def generate_egg(self, ctx):
+        await functions_pets.generate_pet_egg(self, ctx)
+
+    # command to debug
     @commands.command(pass_context=True, name="spawn")
     @commands.has_permissions(administrator=True)
     async def spawn(self, ctx):
@@ -510,6 +522,27 @@ class message(commands.Cog, name="spawnBoss"):
     async def createBossDatabase(self, ctx):
         await functions_database.createBossTable(self)
         await ctx.channel.send("Baza danych utworzona.")
+
+    @commands.command(name="createPetOwnersDatabase",
+                      brief="Create table PETOWNER table with one default record.")
+    @commands.has_permissions(administrator=True)
+    async def create_pet_owners_table(self, ctx):
+        await functions_pets.create_pet_owners_table(self)
+        await ctx.channel.send("Baza danych PETOWNERS utworzona.")
+
+    @commands.command(name="createPetsDatabase",
+                      brief="Create table PETS table with one default record.")
+    @commands.has_permissions(administrator=True)
+    async def create_pets_table(self, ctx):
+        await functions_pets.create_pets_table(self)
+        await ctx.channel.send("Baza danych PETS utworzona.")
+
+    @commands.command(name="ReassignPet",
+                      brief="Assign pet_id to player_id.")
+    @commands.has_permissions(administrator=True)
+    async def reassign_pet(self, ctx, pet_id, player_id):
+        await functions_pets.reassing_pet(self, pet_id, player_id)
+        await ctx.channel.send(f"Pet {pet_id} przypisany do gracza <@{player_id}>.")
 
     # ====== Record Database Commands to Debug
 

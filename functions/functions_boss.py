@@ -16,6 +16,7 @@ import datetime
 from globals.globalvariables import DebugMode
 import functions_database
 import functions_modifiers
+import functions_pets
 
 class functions_boss(commands.Cog, name="functions_boss"):
     def __init__(self, bot):
@@ -51,10 +52,15 @@ class functions_boss(commands.Cog, name="functions_boss"):
             if loot['weight'] > 100:
                 dropMessage += "👉 " + loot['descr'] + "\n"
                 loot['weight'] -= 100
-                if random.random()*100 <= loot['weight']:
+                if random.random()*100 <= loot['weight'] and loot['id'] != 10:
                     dropMessage += "👉 " + loot['descr'] + " (Bonus)\n"
             elif random.random()*100 <= loot['weight']:
-                dropMessage += "👉 " + loot['descr'] + "\n"
+                if loot['id'] == 10:
+                    # Egg dropped
+                    if await functions_pets.assign_pet(self, ctx, BossHunter.id):
+                        dropMessage += "👉 " + loot['descr'] + "\n"
+                else:
+                    dropMessage += "👉 " + loot['descr'] + "\n"
 
         title = 'Boss Drop - ' + str(BossHunter)
         #Embed create
@@ -115,7 +121,6 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 file=discord.File(imageName)
                 boss_player = "boss"
                 add_desc = ""
-                
 
         add_desc += await functions_modifiers.load_desc_modifiers(self, ctx)
 
@@ -210,7 +215,6 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 BOSSRARITY = 3
             else:
                 BOSSRARITY = 0
-            BOSSRARITY = 3
         return BOSSRARITY
 
     #function to Random BossHP

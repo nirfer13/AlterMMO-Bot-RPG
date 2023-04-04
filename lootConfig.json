@@ -26,6 +26,11 @@
 		"id": 2,
 		"descr": "Ukradnij wybranemu użytkownikowi 2500 doświadczenia na Discordzie",
 		"weight": 2.5
+	},
+	{
+		"id": 10,
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"weight": 1
 	}
 	],"loot_details_Epic": [
 	{
@@ -47,6 +52,11 @@
 		"id": 3,
 		"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
 		"weight": 1
+	},
+	{
+		"id": 10,
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"weight": 5
 	}
 	],"loot_details_Legend": [
 	{
@@ -68,6 +78,11 @@
 		"id": 3,
 		"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
 		"weight": 1
+	},
+	{
+		"id": 10,
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"weight": 10
 	}
 	]
 }
