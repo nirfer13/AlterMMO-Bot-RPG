@@ -3,6 +3,7 @@
 import json
 import discord
 import random
+import asyncio
 from enum import Enum
 from discord.ext import commands
 
@@ -92,7 +93,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
         pet_exists = await self.bot.pg_con.fetch(sql)
 
-        if pet_exists:
+        if pet_exists[0][0] > 0:
             sql = f"""SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
             TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
             LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION FROM PETS
@@ -149,7 +150,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         pet = random.choice(pets_list)
 
         percentage = random.randint(0,100)
-        shiny = percentage >= 95
+        shiny = percentage >= 85
 
         if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN]:
             quality = "Premium"
@@ -197,6 +198,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         if player_exists:
             if player_exists[0][0] > 0:
                 print("Player exists in PETOWNER database, but it already has pet.")
+                return False
             else:
                 pet_id = await generate_pet_egg(self, ctx)
                 print("Player exists in PETOWNER database and he has not pet. Assigning...")
@@ -239,6 +241,44 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
              VALUES ({player_id},{pet_id},{True});""")
         elif not pet_exists:
             print("Pet does not exists in PETOWNER database. Nothing happens.")
+
+    global discard_pet
+    async def discard_pet(self, ctx):
+        """Discarding pet from the author if it is possible."""
+
+        sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
+        player_exists = await self.bot.pg_con.fetch(sql)
+
+        # Check if discard pet is confirmed
+        def check_discard(author):
+            def inner_check(message):
+                if message.author == author: #and message.author not in confirmPlayerList:
+                    if message.content.lower() == "$potwierdzam":
+                        print("Discard accepted: player exists!")
+                        return True
+                else:
+                    print("Wrong person or wrong message!")
+                    return False
+            return inner_check
+
+        if player_exists:
+            if player_exists[0][0] > 0:
+                print("Player exists in PETOWNER database, it already has pet.")
+                await ctx.channel.send("Czy jesteś pewien, że chcesz porzucić swojego towarzysza? <:MonkaS:882181709100097587> Wpisz **$potwierdzam**.")
+                print("Waiting for confirm command...")
+                try:
+                    confirm_cmd = await self.bot.wait_for('message', timeout=15,
+                                                        check=check_discard(ctx.author))
+                    await confirm_cmd.add_reaction("<:MonkaS:882181709100097587>")
+                    sql = f"UPDATE PETOWNER SET PET_ID = {0} WHERE PLAYER_ID = {ctx.author.id};"
+                    await self.bot.pg_con.fetch(sql)
+
+                except asyncio.TimeoutError:
+                    await ctx.channel.send("*Twój towarzysz oddycha z ulgą...*")
+            else:
+                await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
+        else:
+            await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
 
 def setup(bot):
     """Load the FunctionsPets cog."""

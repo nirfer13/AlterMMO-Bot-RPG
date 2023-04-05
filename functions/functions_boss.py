@@ -50,15 +50,28 @@ class functions_boss(commands.Cog, name="functions_boss"):
             print(loot['descr'])
             print(loot['weight'])
             if loot['weight'] > 100:
-                dropMessage += "👉 " + loot['descr'] + "\n"
+                if loot['id'] == 10:
+                    # Egg dropped
+                    print("Egg dropped")
+                    check = await functions_pets.assign_pet(self, ctx, BossHunter.id)
+                    if check:
+                        dropMessage += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during pet assigning.")
+                else:
+                    dropMessage += "👉 " + loot['descr'] + "\n"
                 loot['weight'] -= 100
                 if random.random()*100 <= loot['weight'] and loot['id'] != 10:
                     dropMessage += "👉 " + loot['descr'] + " (Bonus)\n"
             elif random.random()*100 <= loot['weight']:
                 if loot['id'] == 10:
                     # Egg dropped
-                    if await functions_pets.assign_pet(self, ctx, BossHunter.id):
+                    print("Egg dropped")
+                    check = await functions_pets.assign_pet(self, ctx, BossHunter.id)
+                    if check:
                         dropMessage += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during pet assigning.")
                 else:
                     dropMessage += "👉 " + loot['descr'] + "\n"
 

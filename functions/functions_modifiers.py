@@ -81,7 +81,7 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
             if loaded_modifiers["player_id"] == 0:
                 random_value = ctx.author.id
                 desc = "Modlitwa w kapliczce sprawiła, że "\
-                "**zostaniesz następny bossem <@" + str(ctx.author.id) + ">!**"
+                "**zostaniesz następnym bossem <@" + str(ctx.author.id) + ">!**"
             else:
                 random_value = loaded_modifiers["player_id"]
                 desc = "Modlitwa nie odnosi żadnego skutku..."

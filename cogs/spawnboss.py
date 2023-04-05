@@ -331,6 +331,11 @@ class message(commands.Cog, name="spawnBoss"):
     async def show_pet(self, ctx):
         await functions_pets.show_pet(self, ctx)
 
+    @commands.command(name="porzucam", brief="Discards author's pet.")
+    async def discard_pet(self, ctx):
+        print("Discarding author's pet")
+        await functions_pets.discard_pet(self, ctx)
+
     # command to flex boss slayer
     @commands.command(pass_context=True, name="flex", brief="Boss slayer flex")
     @commands.cooldown(1, 1800, commands.BucketType.user)
