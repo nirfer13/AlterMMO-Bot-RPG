@@ -93,64 +93,67 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
         pet_exists = await self.bot.pg_con.fetch(sql)
 
-        if pet_exists[0][0] > 0:
-            sql = f"""SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
-            TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
-            LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION FROM PETS
-            WHERE PET_ID = {pet_exists[0][0]};"""
-            pet_data = await self.bot.pg_con.fetch(sql)
-            print(pet_data)
+        if pet_exists:
+            if pet_exists[0][0] > 0:
+                sql = f"""SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
+                TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
+                LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION FROM PETS
+                WHERE PET_ID = {pet_exists[0][0]};"""
+                pet_data = await self.bot.pg_con.fetch(sql)
+                print(pet_data)
 
-            #Check if pet is shiny
-            if pet_data[0][5]:
-                color = 0xffdd00
-                add_desc = "\n\n*Wygląda na bardzo rzadkie. Miałeś niesamowite szczęście.*"
-            else:
-                color = 0xfffffc
-                add_desc = ""
-
-            # Check if pet is level 0
-            if pet_data[0][2] == 0:
-
-                #Check if pet has name
-                if pet_data[0][1] != "Towarzysz":
-                    title = f'Jajko {pet_data[0][1]}'
+                #Check if pet is shiny
+                if pet_data[0][5]:
+                    color = 0xffdd00
+                    add_desc = "\n\n*Wygląda na bardzo rzadkie. Miałeś niesamowite szczęście.*"
                 else:
-                    title = 'Jajko'
+                    color = 0xfffffc
+                    add_desc = ""
 
-                #Check if pet is premium
-                if pet_data[0][4] == "Standard":
-                    path = f"eggs/standard/{pet_data[0][7]}.png"
-                elif pet_data[0][4] == "Premium":
-                    path = f"eggs/premium/{pet_data[0][6]}/{pet_data[0][7]}.png"
+                # Check if pet is level 0
+                if pet_data[0][2] == 0:
 
-                embed = discord.Embed(title=title,
-                                     description="Oto Twój towarzysz. Opiekuj się nim, a być może kiedyś coś z niego wyrośnie..." + add_desc,
-                                     color=color)
-                file = discord.File(path, filename=f"{pet_data[0][7]}.png")
-                embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
-                embed.set_image(url=f"attachment://{pet_data[0][7]}.png")
-                await ctx.send(file=file, embed=embed)
+                    #Check if pet has name
+                    if pet_data[0][1] != "Towarzysz":
+                        title = f'Jajko {pet_data[0][1]}'
+                    else:
+                        title = 'Jajko'
+
+                    #Check if pet is premium
+                    if pet_data[0][4] == "Standard":
+                        path = f"eggs/standard/{pet_data[0][7]}.png"
+                    elif pet_data[0][4] == "Premium":
+                        path = f"eggs/premium/{pet_data[0][6]}/{pet_data[0][7]}.png"
+
+                    embed = discord.Embed(title=title,
+                                        description="Oto Twój towarzysz. Opiekuj się nim, a być może kiedyś coś z niego wyrośnie..." + add_desc,
+                                        color=color)
+                    file = discord.File(path, filename=f"{pet_data[0][7]}.png")
+                    embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
+                    embed.set_image(url=f"attachment://{pet_data[0][7]}.png")
+                    await ctx.send(file=file, embed=embed)
         else:
             await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
 
     global generate_pet_egg
-    async def generate_pet_egg(self, ctx):
+    async def generate_pet_egg(self, ctx, player):
         """Generate first pet as an egg."""
 
         crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-        if crafter in ctx.message.author.roles:
+        if crafter in player.roles:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
                          PetType.PHOENIX, PetType.UNICORN]
         else:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP]
+            
+        print(pets_list)
 
         pet = random.choice(pets_list)
 
         percentage = random.randint(0,100)
-        shiny = percentage >= 85
+        shiny = percentage >= 95
 
         if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN]:
             quality = "Premium"
@@ -187,10 +190,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         return pet_config["PET_ID"]
 
     global assign_pet
-    async def assign_pet(self, ctx, player_id):
+    async def assign_pet(self, ctx, player):
         """Assigning new pet to player in database, but first check if it is possible."""
 
-        player_id = int(player_id)
+        player_id = int(player.id)
 
         sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
         player_exists = await self.bot.pg_con.fetch(sql)
@@ -200,14 +203,14 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 print("Player exists in PETOWNER database, but it already has pet.")
                 return False
             else:
-                pet_id = await generate_pet_egg(self, ctx)
+                pet_id = await generate_pet_egg(self, ctx, player)
                 print("Player exists in PETOWNER database and he has not pet. Assigning...")
                 sql = f"UPDATE PETOWNER SET PET_ID = {pet_id} WHERE PLAYER_ID = {player_id};"
                 await self.bot.pg_con.fetch(sql)
                 return True
         else:
             print("Player does not exist in PETOWNER database, so creating new record.")
-            pet_id = await generate_pet_egg(self, ctx)
+            pet_id = await generate_pet_egg(self, ctx, player)
             await self.bot.pg_con.execute(f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED)
              VALUES ({player_id},{pet_id},{True});""")
             return True

@@ -12,6 +12,7 @@ from discord.errors import ClientException
 from discord.ext import commands, tasks
 from discord.message import Message
 from discord.user import ClientUser
+from numpy import busday_count
 
 from functions.functions_boss import fRandomBossHp
 
@@ -21,6 +22,7 @@ import functions_database
 import functions_general
 import functions_modifiers
 import functions_pets
+import functions_daily
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -40,6 +42,10 @@ SHRINEALIVE = 0
 #Boss rarity
 global BOSSRARITY
 BOSSRARITY = 0
+
+#Bot is busy
+global BUSY
+BUSY = 0
 
 class message(commands.Cog, name="spawnBoss"):
     def __init__(self, bot):
@@ -115,8 +121,11 @@ class message(commands.Cog, name="spawnBoss"):
                 SHRINEALIVE = 1
             elif BOSSALIVE > 2:
                 print("Boss spawned. Skip.")
+            elif SHRINEALIVE == 1 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
+                print("Shrine already spawned. Spawn again.")
+                await functions_modifiers.spawn_modifier_shrine(self, ctx)
             else:
-                print("Shrine already spawned. Skip.")
+                print("Unknow state of shrine.")
 
     #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
@@ -335,6 +344,30 @@ class message(commands.Cog, name="spawnBoss"):
     async def discard_pet(self, ctx):
         print("Discarding author's pet")
         await functions_pets.discard_pet(self, ctx)
+
+    @commands.command(name="polowanie", brief="Try to hunt on a mobs.")
+    async def hunting(self, ctx):
+        global BOSSALIVE, BUSY, DebugMode
+        if (BOSSALIVE in [0,1,2] or DebugMode is True) and BUSY == 0:
+            BUSY = 1
+            rarity = random.randint(0,100)
+            if 0 <= rarity < 70:
+                rarity = 0
+            elif 70 <= rarity <= 98:
+                rarity = 1
+            else:
+                rarity = 2
+            is_player_boss, boss_player = await functions_daily.fBossImage(self, ctx, rarity)
+            await functions_daily.hunt_mobs(self, ctx, rarity, is_player_boss, boss_player)
+            BUSY = 0
+        elif BOSSALIVE == 3:
+            await ctx.channel.send("Zaraz pojawi się prawidzwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, to wpisz **$zaatakuj**, żeby stawić mu czoła.")
+        elif BOSSALIVE == 4:
+            await ctx.channel.send("Teraz pora na walkę z prawdziwym bossem, nie mieszaj się leszczyku <:madge:882184635474386974>")
+        elif BOSSALIVE > 4:
+            pass
+        elif BUSY == 1:
+            pass
 
     # command to flex boss slayer
     @commands.command(pass_context=True, name="flex", brief="Boss slayer flex")

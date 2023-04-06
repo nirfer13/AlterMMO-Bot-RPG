@@ -1,0 +1,51 @@
+{   
+	"loot_details_Normal": [
+	{
+		"id": 9,
+		"descr": "Fragment zwoju. Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 100
+	},
+	{
+		"id": 10,
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"weight": 1
+	},
+	{
+		"id": 11,
+		"descr": "Dostałeś zwój... Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 1
+	}
+	],"loot_details_Rare": [
+	{
+		"id": 9,
+		"descr": "Fragment zwoju. Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 100
+	},
+	{
+		"id": 10,
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"weight": 25
+	},
+	{
+		"id": 11,
+		"descr": "Dostałeś zwój... Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 25
+	}
+	],"loot_details_Epic": [
+	{
+		"id": 1,
+		"descr": "Doświadczenie w walce",
+		"weight": 100
+	},
+	{
+		"id": 10,
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"weight": 100
+	},
+	{
+		"id": 11,
+		"descr": "Dostałeś zwój... Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 100
+	}
+	]
+}

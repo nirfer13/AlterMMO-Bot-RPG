@@ -53,7 +53,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 if loot['id'] == 10:
                     # Egg dropped
                     print("Egg dropped")
-                    check = await functions_pets.assign_pet(self, ctx, BossHunter.id)
+                    check = await functions_pets.assign_pet(self, ctx, BossHunter)
                     if check:
                         dropMessage += "👉 " + loot['descr'] + "\n"
                     else:
@@ -67,7 +67,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 if loot['id'] == 10:
                     # Egg dropped
                     print("Egg dropped")
-                    check = await functions_pets.assign_pet(self, ctx, BossHunter.id)
+                    check = await functions_pets.assign_pet(self, ctx, BossHunter)
                     if check:
                         dropMessage += "👉 " + loot['descr'] + "\n"
                     else:
@@ -111,7 +111,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
             imageNumber = pow(10,rarity)
             if imageNumber == 1:
                 imageNumber = 0
-            imageName = "mobs/" + str(random.randint(0,7)+imageNumber) + ".gif"
+            imageName = "boss/" + str(random.randint(0,7)+imageNumber) + ".gif"
             file=discord.File(imageName)
             boss_player = "boss"
             add_desc = ""
@@ -130,7 +130,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 imageNumber = pow(10,rarity)
                 if imageNumber == 1:
                     imageNumber = 0
-                imageName = "mobs/" + str(random.randint(0,7)+imageNumber) + ".gif"
+                imageName = "boss/" + str(random.randint(0,7)+imageNumber) + ".gif"
                 file=discord.File(imageName)
                 boss_player = "boss"
                 add_desc = ""
@@ -349,10 +349,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 while True:
                     spellCmd = await self.bot.wait_for('message', timeout=15)
                     print ("Wait for event.")
-                    response = str(spellCmd.content)
+                    Cmd = spellCmd
+                    response = str(Cmd.content)
                     if  response.lower() == initCmd.lower():
-                        bossHunterID = spellCmd.author
-                        await spellCmd.add_reaction("⚔️")
+                        bossHunterID = Cmd.author
+                        #await Cmd.add_reaction("⚔️")
                         BOSSALIVE = 6
                         return BOSSALIVE, ctx.author
                     else:
