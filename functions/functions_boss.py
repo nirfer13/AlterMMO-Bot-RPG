@@ -382,7 +382,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
     async def singleFight(self, ctx, BOSSALIVE ,bossHunterID, BOSSRARITY, is_player_boss, player_boss):
         if BOSSALIVE == 6:
             async with ctx.typing():
-                await ctx.channel.send('Zaatakowałeś bossa <@' + format(bossHunterID.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe! Przygotuj się!')
+                await ctx.channel.send('Zaatakowałeś bossa <@' + format(bossHunterID.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Przygotuj się!')
 
             #Load modifiers
             modifiers = await functions_modifiers.load_modifiers(self, ctx)
@@ -640,7 +640,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 playerListString = playerListString + ("<@" + str(player.id) + "> ")
 
             async with ctx.typing():
-                await ctx.channel.send('Zaatakowaliście bossa' + playerListString + '! <:REEeee:790963160495947856> Wpiszcie **komendy przypisane do Was** tak szybko, jak to możliwe! Przygotujcie się!')
+                await ctx.channel.send('Zaatakowaliście bossa' + playerListString + '! <:REEeee:790963160495947856> Wpiszcie **komendy przypisane do Was** tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Przygotujcie się!')
             await asyncio.sleep(17)
             #Start time counting
             startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)

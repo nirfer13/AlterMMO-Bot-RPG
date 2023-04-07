@@ -38,7 +38,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         sql ='''CREATE TABLE PETOWNER(
            PLAYER_ID NUMERIC,
            PET_ID NUMERIC,
-           PET_OWNED BOOLEAN
+           PET_OWNED BOOLEAN,
+           REROLL_SCROLL NUMERIC,
+           REROLL_SCROLL_SHARD NUMERIC
         )'''
         await self.bot.pg_con.execute(sql)
         print("Table created successfully.")
@@ -282,6 +284,82 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
         else:
             await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
+
+    global assign_shard
+    async def assign_shard(self, ctx, number, player_id):
+        """Assigning scroll shard to the player in database."""
+
+        player_id = int(player_id)
+        number = int(number)
+
+        sql = f"SELECT REROLL_SCROLL_SHARD FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+        scroll_shards = await self.bot.pg_con.fetch(sql)
+
+        if scroll_shards:
+            if scroll_shards[0][0] is None:
+                print("Player exists and has no shards, we can update dabatase..")
+
+                sql = f"""UPDATE PETOWNER SET REROLL_SCROLL_SHARD = {number}
+                WHERE PLAYER_ID = {player_id};"""
+                await self.bot.pg_con.fetch(sql)
+                return True
+            else:
+                print("Player exists and has some shards, we can update dabatase..")
+                number += scroll_shards[0][0]
+
+                sql = f"""UPDATE PETOWNER SET REROLL_SCROLL_SHARD = {number}
+                WHERE PLAYER_ID = {player_id};"""
+                await self.bot.pg_con.fetch(sql)
+                return True
+        else:
+            print("Player doest not exists in PETOWNER database, we can update dabatase..")
+            sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
+            REROLL_SCROLL, REROLL_SCROLL_SHARD)
+
+             VALUES ({player_id},{0},{False},{0},{number});"""
+            await self.bot.pg_con.fetch(sql)
+            return True
+
+        # Nothing happened.
+        return False
+
+    global assign_scroll
+    async def assign_scroll(self, ctx, number, player_id):
+        """Assigning full scroll to the player in database."""
+
+        player_id = int(player_id)
+        number = int(number)
+
+        sql = f"SELECT REROLL_SCROLL FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+        scrolls = await self.bot.pg_con.fetch(sql)
+        print(scrolls)
+
+        if scrolls:
+            if scrolls[0][0] is None:
+                print("Player exists and has no shards, we can update dabatase..")
+
+                sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {number}
+                WHERE PLAYER_ID = {player_id};"""
+                await self.bot.pg_con.fetch(sql)
+                return True
+            else:
+                print("Player exists and has some shards, we can update dabatase..")
+                number += scrolls[0][0]
+
+                sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {number}
+                WHERE PLAYER_ID = {player_id};"""
+                await self.bot.pg_con.fetch(sql)
+                return True
+        else:
+            print("Player doest not exists in PETOWNER database, we can update dabatase..")
+            sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
+            REROLL_SCROLL, REROLL_SCROLL_SHARD)
+             VALUES ({player_id},{0},{False},{number},{0});"""
+            await self.bot.pg_con.fetch(sql)
+            return True
+
+        # Nothing happened.
+        return False
 
 def setup(bot):
     """Load the FunctionsPets cog."""

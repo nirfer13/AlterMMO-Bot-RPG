@@ -57,6 +57,11 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         print("Failed to check database during pet assigning.")
                 elif loot['id'] == 11:
                     print("Add scroll to user")
+                    await functions_pets.assign_scroll(self, ctx, 1, BossHunter.id)
+                    drop_message += "👉 " + loot['descr'] + "\n"
+                elif loot['id'] == 9:
+                    print("Add shard to user")
+                    await functions_pets.assign_shard(self, ctx, 1, BossHunter.id)
                     drop_message += "👉 " + loot['descr'] + "\n"
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
@@ -73,6 +78,11 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         print("Failed to check database during pet assigning.")
                 elif loot['id'] == 11:
                     print("Add scroll to user")
+                    await functions_pets.assign_scroll(self, ctx, 1, BossHunter.id)
+                    drop_message += "👉 " + loot['descr'] + "\n"
+                elif loot['id'] == 9:
+                    print("Add shard to user")
+                    await functions_pets.assign_shard(self, ctx, 1, BossHunter.id)
                     drop_message += "👉 " + loot['descr'] + "\n"
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
@@ -233,7 +243,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
     async def hunt_mobs(self, ctx, BOSSRARITY, is_player_boss, player_boss):
 
         async with ctx.typing():
-            await ctx.channel.send('Zaatakowałeś potwora <@' + format(ctx.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe! Przygotuj się!')
+            await ctx.channel.send('Zaatakowałeś potwora <@' + format(ctx.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Przygotuj się!')
 
         #Load modifiers
         modifiers = await functions_modifiers.load_modifiers(self, ctx)
@@ -244,8 +254,8 @@ class functions_daily(commands.Cog, name="functions_daily"):
         startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
 
         #Random the message and requested action
-        requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **UNIK**", "Boss zawahał się! Teraz! Wpisz **ATAK**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**", 
-        "Boss próbuje ataku w nogi, wpisz **SKOK**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **BIEG**", "Boss atakuje w powietrzu, wpisz **TURLAJ**", "Boss rzuca klątwę, wpisz **CZARUJ**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **BLOK**","Boss próbuje ataku w nogi, wpisz **SKACZ**","Boss szarżuje na Ciebie, zrób coś, wpisz **AKCJA**", "Nie masz pojęcia co robić, wpisz **KRZYK**", "Musisz zrobić cokolwiek, wpisz **RUCH**", "Boss rzuca głazem w Twoją stronę, wpisz **POSUW**", "Dostrzegasz szansę na uderzenie, wpisz **IMPET**", "Pojawiła się chwila zawachania potwora, wpisz **ZRYW**")]
+        requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Mob szarżuje na Ciebie! Wpisz **UNIK**", "Mob zawahał się! Teraz! Wpisz **ATAK**", "Mob atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**", 
+        "Mob próbuje ataku w nogi, wpisz **SKOK**", "Mob szykuje potężny atak o szerokim zasięgu, wpisz **BIEG**", "Mob atakuje w powietrzu, wpisz **TURLAJ**", "Mob rzuca klątwę, wpisz **CZARUJ**", "Mob atakuje, nie masz miejsca na ucieczkę, wpisz **BLOK**","Mob próbuje ataku w nogi, wpisz **SKACZ**","Mob szarżuje na Ciebie, zrób coś, wpisz **AKCJA**", "Nie masz pojęcia co robić, wpisz **KRZYK**", "Musisz zrobić cokolwiek, wpisz **RUCH**", "Mob rzuca głazem w Twoją stronę, wpisz **POSUW**", "Dostrzegasz szansę na uderzenie, wpisz **IMPET**", "Pojawiła się chwila zawachania potwora, wpisz **ZRYW**")]
 
         bossHP = fRandomBossHp(BOSSRARITY)
         bossHP = int(bossHP * (1+(modifiers["hp_boost_perc"] - modifiers["hp_reduced_perc"])/100))
@@ -277,7 +287,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
                     cmdTimeout = 7
                 else:
                     #Timeout depends on boss rarity
-                    print("Boss rarity before timeout calc: " + str(BOSSRARITY))
+                    print("Mob rarity before timeout calc: " + str(BOSSRARITY))
                     cmdTimeout = 5 - BOSSRARITY
                     cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"])/100
                 msg = await self.bot.wait_for('message', check=check(ctx), timeout=cmdTimeout)
@@ -287,7 +297,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
                     #Boss killed?
                     if iterator >= bossHP:
 
-                        await ctx.channel.send('Brawo <@' + format(ctx.author.id) + '>! Pokonałeś bossa! <:POGGIES:790963160491753502><:POGGIES:790963160491753502><:POGGIES:790963160491753502>')
+                        await ctx.channel.send('Brawo <@' + format(ctx.author.id) + '>! Pokonałeś potwora! <:ok:990161663053422592>')
 
                         #Time record
                         endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
@@ -308,12 +318,13 @@ class functions_daily(commands.Cog, name="functions_daily"):
                     else:
                         print("Good command.")
                 else:
-                    await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')
+                    await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie jutro! <:RIP:912797982917816341>')
                     logChannel = self.bot.get_channel(881090112576962560)
                     if is_player_boss == False:
-                        await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił bossa.")
+                        await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba.")
                     else:
-                        await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił bossa. Bossem był " + player_boss.name + " i należy mu się " + str((BOSSRARITY+1)*500) + " expa.")
+                        await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba. Mobem był " + player_boss.name + ".")
+                        await functions_pets.assign_scroll(self, ctx, BOSSRARITY+1, player_boss.id)
 
                     if modifiers["ban_loser"] > 0:
                         print("Hunter " + str(ctx.author.name) + " is dead.")
@@ -322,18 +333,57 @@ class functions_daily(commands.Cog, name="functions_daily"):
                     return False
 
             except asyncio.TimeoutError:
-                await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
+                await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Odpocznij i spróbuj jutro! <:RIP:912797982917816341>')
                 logChannel = self.bot.get_channel(881090112576962560)
                 if is_player_boss == False:
                     await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł.")
                 else:
-                    await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł. Bossem był " + player_boss.name + " i należy mu się " + str((BOSSRARITY+1)) + " zwojów.")
+                    await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł. Potworem był " + player_boss.name + ".")
+                    await functions_pets.assign_scroll(self, ctx, BOSSRARITY+1, player_boss.id)
 
                 if modifiers["ban_loser"] > 0:
                     print("Hunter " + str(ctx.author.name) + " is dead.")
                     await setDeadHunters(self, ctx, ctx.author.id)
 
                 return False
+
+    #function to save daily hunter to file
+    global save_daily_to_file
+    def save_daily_to_file (player_id):
+        player_id = str(player_id)
+
+        with open('daily_player_cd.txt', 'r') as r:
+            read_lines = r.readlines()
+        r.close()
+        new_list = []
+        for line in read_lines:
+            new_list.append(line.strip())
+
+        if player_id not in new_list:
+            with open('daily_player_cd.txt', 'a') as f:
+                f.write(str(player_id) + '\n')
+
+    #function to read daily hunter from file
+    global load_daily_from_file
+    def load_daily_from_file(player_id):
+        player_id = str(player_id)
+
+        with open('daily_player_cd.txt', 'r') as r:
+            read_lines = r.readlines()
+
+        new_list = []
+        for line in read_lines:
+            new_list.append(line.strip())
+
+        print(new_list)
+
+        return player_id in new_list
+
+    #function to read daily hunter from file
+    global clear_daily_file
+    def clear_daily_file():
+
+        open('daily_player_cd.txt', 'w').close()
 
 def setup(bot):
     bot.add_cog(functions_daily(bot))

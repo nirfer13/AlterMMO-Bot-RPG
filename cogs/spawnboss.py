@@ -98,6 +98,9 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_database.resetRankingTable(self)
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
                 return
+            if timestamp.strftime("%H:%M UTC") == "04:05 UTC":
+                functions_daily.clear_daily_file()
+                await ctx.channel.send("Noc jest piękna i spokojna. Można wyruszyć na polowanie...")
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(30)
 
@@ -196,7 +199,7 @@ class message(commands.Cog, name="spawnBoss"):
                 async with ctx.typing():
                     await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>')
                 if DebugMode is False:
-                    await asyncio.sleep(random.randint(60,120)*5)  # time in second
+                    await asyncio.sleep(random.randint(4,7)*60)  # time in second
                 else:
                     await asyncio.sleep(random.randint(3,10))  # time in second
 
@@ -208,10 +211,19 @@ class message(commands.Cog, name="spawnBoss"):
                 print("Boss appeared.")
                 #Send info about boss spawn
 
+                # Load all modifiers from file
                 modifiers = await functions_modifiers.load_modifiers(self, ctx)
                 BOSSRARITY += modifiers["rarity_boost"]
                 if BOSSRARITY > 3:
                     BOSSRARITY = 3
+
+                # If early hour then reduce boss rarity to epic
+                timestamp = (datetime.utcnow() + timedelta(hours=2))
+                hour = timestamp.strftime("%H")
+                day = timestamp.strftime("%a")
+                print(day)
+                if BOSSRARITY == 3 and not (hour == "15" or hour == "16" or hour == "17" or hour == "18" or hour == "19" or hour == "20" or hour == "21" or hour == "22") and not (day == "Sun" or day == "Sat"):
+                    BOSSRARITY = 2
 
                 try:
                     await generalSpawnMessage.delete()
@@ -348,8 +360,10 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(name="polowanie", brief="Try to hunt on a mobs.")
     async def hunting(self, ctx):
         global BOSSALIVE, BUSY, DebugMode
-        if (BOSSALIVE in [0,1,2] or DebugMode is True) and BUSY == 0:
+        on_cd = functions_daily.load_daily_from_file(ctx.author.id)
+        if (BOSSALIVE in [0,1,2] or DebugMode is True) and BUSY == 0 and not on_cd:
             BUSY = 1
+            functions_daily.save_daily_to_file(ctx.author.id)
             rarity = random.randint(0,100)
             if 0 <= rarity < 70:
                 rarity = 0
@@ -366,6 +380,8 @@ class message(commands.Cog, name="spawnBoss"):
             await ctx.channel.send("Teraz pora na walkę z prawdziwym bossem, nie mieszaj się leszczyku <:madge:882184635474386974>")
         elif BOSSALIVE > 4:
             pass
+        elif on_cd:
+            await ctx.channel.send("Zregeneruj się i spróbuj zapolować jutro <:Bedge:970576892874854400>")
         elif BUSY == 1:
             pass
 
@@ -421,6 +437,53 @@ class message(commands.Cog, name="spawnBoss"):
     # ==================================== COMMANDS FOR DEBUG ======================================
 
     # command to debug
+    @commands.command(pass_context=True, name="AddColumn")
+    @commands.has_permissions(administrator=True)
+    async def add_column(self, ctx):
+        sql ='''ALTER TABLE PETOWNER
+        ADD REROLL_SCROLL NUMERIC;
+        '''
+        await self.bot.pg_con.execute(sql)
+
+        sql ='''ALTER TABLE PETOWNER
+        ADD REROLL_SCROLL_SHARD NUMERIC;
+        '''
+        await self.bot.pg_con.execute(sql)
+
+    # command to debug
+    @commands.command(pass_context=True, name="AddScroll")
+    @commands.has_permissions(administrator=True)
+    async def add_scroll(self, ctx, number, player_id):
+        await functions_pets.assign_scroll(self, ctx, number, player_id)
+
+    # command to debug
+    @commands.command(pass_context=True, name="AddShard")
+    @commands.has_permissions(administrator=True)
+    async def add_shard(self, ctx, number, player_id):
+        await functions_pets.assign_shard(self, ctx, number, player_id)
+
+    # command to debug
+    @commands.command(pass_context=True, name="SaveCD")
+    @commands.has_permissions(administrator=True)
+    async def save_cd(self, ctx, player_id):
+        functions_daily.save_daily_to_file(player_id)
+        await ctx.channel.send("Dopisano cooldown daily.")
+
+    # command to debug
+    @commands.command(pass_context=True, name="LoadCD")
+    @commands.has_permissions(administrator=True)
+    async def load_cd(self, ctx, player_id):
+        on_cd = functions_daily.load_daily_from_file(player_id)
+        await ctx.channel.send("Cooldown " + str(on_cd))
+
+    # command to debug
+    @commands.command(pass_context=True, name="ClearCD")
+    @commands.has_permissions(administrator=True)
+    async def clear_cd(self, ctx):
+        functions_daily.clear_daily_file()
+        await ctx.channel.send("Zresetowano cd.")
+
+    # command to debug
     @commands.command(pass_context=True, name="time")
     @commands.has_permissions(administrator=True)
     async def checkTime(self, ctx):
@@ -457,19 +520,6 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def bossImage(self, ctx, rarity):
         await functions_boss.fBossImage(self, ctx, rarity)
-
-    # command to debug
-    @commands.command(pass_context=True, name="hp")
-    @commands.has_permissions(administrator=True)
-    async def bossHp(self, ctx, rarity):
-        await ctx.channel.send(str(fRandomBossHp(rarity)))
-
-    # command to debug
-    @commands.command(pass_context=True, name="respToFile")
-    @commands.has_permissions(administrator=True)
-    async def respToFile(self, ctx, respawnTime, BOSSRARITY, respawnStarted):
-        functions_boss.fSaveRespawnToFile(respawnTime, BOSSRARITY, respawnStarted)
-        await ctx.channel.send("File Saved")
 
     # command to debug
     @commands.command(pass_context=True, name="ModifiersInit",
