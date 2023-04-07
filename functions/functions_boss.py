@@ -348,14 +348,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 print("Prefight True")
                 while True:
                     spellCmd = await self.bot.wait_for('message', timeout=15)
-                    print ("Wait for event.")
-                    Cmd = spellCmd
-                    response = str(Cmd.content)
+                    response = str(spellCmd.content)
                     if  response.lower() == initCmd.lower():
-                        bossHunterID = Cmd.author
+                        bossHunterID = spellCmd.author
                         #await Cmd.add_reaction("⚔️")
                         BOSSALIVE = 6
-                        return BOSSALIVE, ctx.author
+                        return BOSSALIVE, spellCmd.author
                     else:
                         Try+=1
             except asyncio.TimeoutError:
