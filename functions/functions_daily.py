@@ -238,12 +238,16 @@ class functions_daily(commands.Cog, name="functions_daily"):
         await user.add_roles(my_role)
         print("Dead hunter role granted.")
 
+        chatChannel = self.bot.get_channel(776379796367212594)
+        await chatChannel.send("Na kanale <#970684202880204831> poległeś z ręki potwora <@" + str(userID) + ">, a groziło to banem... <:RIP:912797982917816341> Musisz odpocząć od przygód aż do momentu zabicia następnego bossa.")
+
+
     #function to carry fight by single player with daily boss
     global hunt_mobs
     async def hunt_mobs(self, ctx, BOSSRARITY, is_player_boss, player_boss):
 
         async with ctx.typing():
-            await ctx.channel.send('Zaatakowałeś potwora <@' + format(ctx.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się komendy tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Przygotuj się!')
+            await ctx.channel.send('Zaatakowałeś potwora <@' + format(ctx.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się słowa tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Przygotuj się!')
 
         #Load modifiers
         modifiers = await functions_modifiers.load_modifiers(self, ctx)
@@ -314,16 +318,18 @@ class functions_daily(commands.Cog, name="functions_daily"):
 
                         #Send info about loot
                         logChannel = self.bot.get_channel(881090112576962560)
-                        await logChannel.send("<@291836779495948288>!   " + ctx.author.name + " otrzymał: \n" + dropLoot)
+                        #await logChannel.send("<@291836779495948288>!   " + ctx.author.name + " otrzymał: \n" + dropLoot)
                     else:
                         print("Good command.")
                 else:
-                    await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie jutro! <:RIP:912797982917816341>')
+                    await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie jutro lub poczekaj na modlitwę Crafterów i Patronów! <:RIP:912797982917816341>')
                     logChannel = self.bot.get_channel(881090112576962560)
                     if is_player_boss == False:
-                        await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba.")
+                        pass
+                        #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba.")
                     else:
-                        await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba. Mobem był " + player_boss.name + ".")
+                        pass
+                        #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba. Mobem był " + player_boss.name + ".")
                         await functions_pets.assign_scroll(self, ctx, BOSSRARITY+1, player_boss.id)
 
                     if modifiers["ban_loser"] > 0:
@@ -336,9 +342,11 @@ class functions_daily(commands.Cog, name="functions_daily"):
                 await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Odpocznij i spróbuj jutro! <:RIP:912797982917816341>')
                 logChannel = self.bot.get_channel(881090112576962560)
                 if is_player_boss == False:
-                    await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł.")
+                    pass
+                    #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł.")
                 else:
-                    await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł. Potworem był " + player_boss.name + ".")
+                    pass
+                    #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł. Potworem był " + player_boss.name + ".")
                     await functions_pets.assign_scroll(self, ctx, BOSSRARITY+1, player_boss.id)
 
                 if modifiers["ban_loser"] > 0:
@@ -381,9 +389,11 @@ class functions_daily(commands.Cog, name="functions_daily"):
 
     #function to read daily hunter from file
     global clear_daily_file
-    def clear_daily_file():
+    async def clear_daily_file(self):
 
         open('daily_player_cd.txt', 'w').close()
+        logChannel = self.bot.get_channel(881090112576962560)
+        await logChannel.send("Zresetowano cooldown na daily.")
 
 def setup(bot):
     bot.add_cog(functions_daily(bot))

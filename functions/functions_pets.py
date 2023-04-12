@@ -94,6 +94,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         print("Checking if user has a pet...")
         sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
         pet_exists = await self.bot.pg_con.fetch(sql)
+        print(pet_exists)
 
         if pet_exists:
             if pet_exists[0][0] > 0:
@@ -128,14 +129,16 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         path = f"eggs/premium/{pet_data[0][6]}/{pet_data[0][7]}.png"
 
                     embed = discord.Embed(title=title,
-                                        description="Oto Twój towarzysz. Opiekuj się nim, a być może kiedyś coś z niego wyrośnie..." + add_desc,
+                                        description="Oto Twój towarzysz, <@" + str(ctx.author.id) + ">. Opiekuj się nim, a być może kiedyś coś z niego wyrośnie..." + add_desc,
                                         color=color)
                     file = discord.File(path, filename=f"{pet_data[0][7]}.png")
                     embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
                     embed.set_image(url=f"attachment://{pet_data[0][7]}.png")
                     await ctx.send(file=file, embed=embed)
+            else:
+                await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
         else:
-            await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
+            await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
 
     global generate_pet_egg
     async def generate_pet_egg(self, ctx, player):
@@ -269,7 +272,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         if player_exists:
             if player_exists[0][0] > 0:
                 print("Player exists in PETOWNER database, it already has pet.")
-                await ctx.channel.send("Czy jesteś pewien, że chcesz porzucić swojego towarzysza? <:MonkaS:882181709100097587> Wpisz **$potwierdzam**.")
+                await ctx.channel.send("Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@" + str(ctx.author.id) + ">? <:MonkaS:882181709100097587> Wpisz **$potwierdzam**.")
                 print("Waiting for confirm command...")
                 try:
                     confirm_cmd = await self.bot.wait_for('message', timeout=15,

@@ -99,10 +99,10 @@ class message(commands.Cog, name="spawnBoss"):
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
                 return
             if timestamp.strftime("%H:%M UTC") == "04:05 UTC":
-                functions_daily.clear_daily_file()
+                await functions_daily.clear_daily_file(self)
                 await ctx.channel.send("Noc jest piękna i spokojna. Można wyruszyć na polowanie...")
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
-            await asyncio.sleep(30)
+            await asyncio.sleep(40)
 
     async def spawn_modifiers_shrine(self, ctx):
         """Spawns a shrine when boss is not alive. Shrine drops different modifiers."""
@@ -115,7 +115,7 @@ class message(commands.Cog, name="spawnBoss"):
             if DebugMode is False:
                 resp_time = random.randint(2700, 7200)
             elif DebugMode is True:
-                resp_time = random.randint(30, 55)
+                resp_time = random.randint(10, 15)
 
             await asyncio.sleep(resp_time)
 
@@ -381,7 +381,7 @@ class message(commands.Cog, name="spawnBoss"):
         elif BOSSALIVE > 4:
             pass
         elif on_cd:
-            await ctx.channel.send("Zregeneruj się i spróbuj zapolować jutro <:Bedge:970576892874854400>")
+            await ctx.channel.send("Zregeneruj się i spróbuj zapolować jutro <:Bedge:970576892874854400> Niektóre modlitwy przy kapliczkach również są w stanie zregenerować Twoje siły, więc bądź czujny!")
         elif BUSY == 1:
             pass
 
@@ -480,7 +480,7 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(pass_context=True, name="ClearCD")
     @commands.has_permissions(administrator=True)
     async def clear_cd(self, ctx):
-        functions_daily.clear_daily_file()
+        await functions_daily.clear_daily_file(self)
         await ctx.channel.send("Zresetowano cd.")
 
     # command to debug
