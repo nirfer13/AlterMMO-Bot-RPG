@@ -8,7 +8,7 @@
 	{
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
-		"weight": 1
+		"weight": 15
 	},
 	{
 		"id": 11,
@@ -24,7 +24,7 @@
 	{
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
-		"weight": 25
+		"weight": 50
 	},
 	{
 		"id": 11,

@@ -14,7 +14,7 @@
 	{
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
-		"weight": 1
+		"weight": 50
 	}
 	],"loot_details_Rare": [
 	{
@@ -35,7 +35,7 @@
 	{
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
-		"weight": 5
+		"weight": 100
 	}
 	],"loot_details_Epic": [
 	{
