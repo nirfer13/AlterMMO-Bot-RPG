@@ -61,7 +61,7 @@
 	{
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
-		"weight": 15
+		"weight": 100
 	}
 	],"loot_details_Legend": [
 	{
