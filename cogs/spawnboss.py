@@ -101,6 +101,7 @@ class message(commands.Cog, name="spawnBoss"):
             if timestamp.strftime("%H:%M UTC") == "04:05 UTC":
                 await functions_daily.clear_daily_file(self)
                 await ctx.channel.send("Noc jest piękna i spokojna. Można wyruszyć na polowanie...")
+                await asyncio.sleep(100)
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(40)
 

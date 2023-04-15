@@ -820,6 +820,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
         user = guild.get_member(int(userID))
         await user.add_roles(my_role)
         print("Dead hunter role granted.")
+        chatChannel = self.bot.get_channel(776379796367212594)
+        await chatChannel.send("Na kanale <#970684202880204831> poległeś z ręki potwora <@" + str(userID) + ">, a groziło to banem... <:RIP:912797982917816341> Musisz odpocząć od przygód aż do momentu zabicia następnego bossa.")
 
     #function to add random gif for Boss Slayer
     global flexGif
