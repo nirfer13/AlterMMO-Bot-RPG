@@ -247,7 +247,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
     async def hunt_mobs(self, ctx, BOSSRARITY, is_player_boss, player_boss):
 
         async with ctx.typing():
-            await ctx.channel.send('Zaatakowałeś potwora <@' + format(ctx.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się słowa tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Przygotuj się!')
+            await ctx.channel.send('Zaatakowałeś potwora <@' + format(ctx.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się słowa tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpisz słowa bez spacji! Przygotuj się!')
 
         #Load modifiers
         modifiers = await functions_modifiers.load_modifiers(self, ctx)
@@ -258,8 +258,8 @@ class functions_daily(commands.Cog, name="functions_daily"):
         startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
 
         #Random the message and requested action
-        requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Mob szarżuje na Ciebie! Wpisz **UNIK**", "Mob zawahał się! Teraz! Wpisz **ATAK**", "Mob atakuje, nie masz miejsca na ucieczkę, wpisz **PARUJ**", 
-        "Mob próbuje ataku w nogi, wpisz **SKOK**", "Mob szykuje potężny atak o szerokim zasięgu, wpisz **BIEG**", "Mob atakuje w powietrzu, wpisz **TURLAJ**", "Mob rzuca klątwę, wpisz **CZARUJ**", "Mob atakuje, nie masz miejsca na ucieczkę, wpisz **BLOK**","Mob próbuje ataku w nogi, wpisz **SKACZ**","Mob szarżuje na Ciebie, zrób coś, wpisz **AKCJA**", "Nie masz pojęcia co robić, wpisz **KRZYK**", "Musisz zrobić cokolwiek, wpisz **RUCH**", "Mob rzuca głazem w Twoją stronę, wpisz **POSUW**", "Dostrzegasz szansę na uderzenie, wpisz **IMPET**", "Pojawiła się chwila zawachania potwora, wpisz **ZRYW**")]
+        requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **U N I K**", "Boss zawahał się! Teraz! Wpisz **A T A K**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **P A R U J**", 
+        "Boss próbuje ataku w nogi, wpisz **S K O K**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **B I E G**", "Boss atakuje w powietrzu, wpisz **T U R L A J**", "Boss rzuca klątwę, wpisz **C Z A R U J**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **B L O K**","Boss próbuje ataku w nogi, wpisz **S K A C Z**","Boss szarżuje na Ciebie, zrób coś, wpisz **A K C J A**", "Nie masz pojęcia co robić, wpisz **K R Z Y K**", "Musisz zrobić cokolwiek, wpisz **R U C H**", "Boss rzuca głazem w Twoją stronę, wpisz **P O S U W**", "Dostrzegasz szansę na uderzenie, wpisz **I M P E T**", "Pojawiła się chwila zawachania potwora, wpisz **Z R Y W**")]
 
         bossHP = fRandomBossHp(BOSSRARITY)
         bossHP = int(bossHP * (1+(modifiers["hp_boost_perc"] - modifiers["hp_reduced_perc"])/100))
