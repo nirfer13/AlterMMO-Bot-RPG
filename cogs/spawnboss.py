@@ -109,7 +109,7 @@ class message(commands.Cog, name="spawnBoss"):
         """Spawns a shrine when boss is not alive. Shrine drops different modifiers."""
 
         print("Spawning shrine task starting...")
-        global SHRINEALIVE, BOSSALIVE
+        global SHRINEALIVE, BOSSALIVE, BUSY
         SHRINEALIVE = 0
 
         while True:
@@ -128,6 +128,8 @@ class message(commands.Cog, name="spawnBoss"):
             elif SHRINEALIVE == 1 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
                 print("Shrine already spawned. Spawn again.")
                 await functions_modifiers.spawn_modifier_shrine(self, ctx)
+            elif BUSY == 1:
+                print("Bot busy, skip.")
             else:
                 print("Unknow state of shrine.")
 
@@ -138,6 +140,7 @@ class message(commands.Cog, name="spawnBoss"):
             global BOSSALIVE
             global BOSSRARITY
             global SHRINEALIVE
+            global BUSY
             global respawnResume
             #=== Episode 0
             if BOSSALIVE == 0:
@@ -145,7 +148,7 @@ class message(commands.Cog, name="spawnBoss"):
                 BOSSALIVE = 1
                 if DebugMode is False:
                     respTime = random.randint(150,3600)*12
-                    #Save Resp to file
+
                     BOSSRARITY = functions_boss.fBOSSRARITY(respTime)
                     await functions_database.updateBossTable(self, ctx, BOSSRARITY, respTime, True)
 
@@ -154,7 +157,7 @@ class message(commands.Cog, name="spawnBoss"):
                     await asyncio.sleep(3600)
                 else:
                     respTime = random.randint(15,24)
-                    #Save Resp to database
+
                     BOSSRARITY = functions_boss.fBOSSRARITY(respTime)
                     print("Updating database...")
                     await functions_database.updateBossTable(self, ctx, BOSSRARITY, respTime, True)
@@ -171,25 +174,26 @@ class message(commands.Cog, name="spawnBoss"):
                     print("Channel cleared. BOSSALIVE = 1")
                     async with ctx.typing():
                         await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
-                    if DebugMode is False:
-                        await asyncio.sleep(respTime)  # time in second
-                    else:
-                        await asyncio.sleep(respTime)  # time in second
+
+                    await asyncio.sleep(respTime)  # time in seconds
 
             #Resume Spawn
             else:
                 if BOSSALIVE == 1:
                     BOSSALIVE = 2
+
+                    wait_loop = 0
+                    while BUSY == 1 and wait_loop <= 5:
+                        await asyncio.sleep(60)
+                        wait_loop += 1
+                        print("Waiting in loop, beacuse bot BUSY")
                     await functions_general.fClear(self, ctx)
                     print("Channel cleared. BOSSALIVE = 1. Resuming.")
                     print("Resume resp time: " + str(respTime))
                     print("Resume boss Rarity: " + str(BOSSRARITY))
                     async with ctx.typing():
                         await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
-                    if DebugMode is False:
-                        await asyncio.sleep(respTime)  # time in second
-                    else:
-                        await asyncio.sleep(respTime)  # time in second
+                    await asyncio.sleep(respTime)  # time in seconds
 
             #=== Episode 2 - Before fight
             if BOSSALIVE == 2:
@@ -222,7 +226,7 @@ class message(commands.Cog, name="spawnBoss"):
                 timestamp = (datetime.utcnow() + timedelta(hours=2))
                 hour = timestamp.strftime("%H")
                 day = timestamp.strftime("%a")
-                print(day)
+
                 if BOSSRARITY == 3 and not (hour == "15" or hour == "16" or hour == "17" or hour == "18" or hour == "19" or hour == "20" or hour == "21" or hour == "22") and not (day == "Sun" or day == "Sat"):
                     BOSSRARITY = 2
 
@@ -262,33 +266,6 @@ class message(commands.Cog, name="spawnBoss"):
                 SHRINEALIVE = 1
         else:
             await ctx.channel.send("Do kogo Ty chcesz się modlić? Przecież tu nic nie ma...")
-       
-
-    #create Spawn Boss task command
-    @commands.command(name="startSpawnBoss", brief="Starts spawning boss")
-    @commands.has_permissions(administrator=True)
-    async def startMessage(self, ctx):
-        print("Spawning started!")
-        global BOSSALIVE
-        BOSSALIVE = 0
-        self.task = self.bot.loop.create_task(self.spawn_task(ctx))
-
-    # command to stop Spawn Boss task
-    @commands.command(pass_context=True, name="stopSpawnBoss", brief="Stops spawning boss")
-    @commands.has_permissions(administrator=True)
-    async def stopMessage(self, ctx):
-        print("Spawning stopped!")
-        global BOSSALIVE, respawnResume
-        respawnResume = False
-        BOSSALIVE = 0
-        await functions_database.updateBossTable(self, ctx, 0, 0, False)
-        self.task.cancel()
-
-    # command to check Spawn Boss
-    @commands.command(pass_context=True, name="checkSpawnBoss", brief="Checking boss spawn time")
-    @commands.has_permissions(administrator=True)
-    async def checkSpawnMessage(self, ctx):
-        await ctx.channel.send("Resp time is " + str(respTime/60/60) + " hours.")
 
     # command to attack the boss - rarity 0, 1, 2
     @commands.command(pass_context=True, name="zaatakuj", brief="Attacking the boss")
@@ -396,7 +373,8 @@ class message(commands.Cog, name="spawnBoss"):
             await functions_boss.flexGif(self, ctx)
             await ctx.channel.send('Potężny <:GigaChad:970665721321381958> <@' + format(ctx.message.author.id) + '> napina swe sprężyste, naoliwione muskuły! Co za widok, robi wrażenie! <:pogu:882182966372106280>')
         else:
-            await ctx.channel.send('<:KEKW:936907435921252363> **Miernota** <:2Head:882184634572627978>')
+            await ctx.channel.send("""
+            <:KEKW:936907435921252363> **Miernota** <:2Head:882184634572627978>""")
 
     @flex.error
     async def flexcommand_cooldown(self, ctx, error):
@@ -437,17 +415,38 @@ class message(commands.Cog, name="spawnBoss"):
 
     # ==================================== COMMANDS FOR DEBUG ======================================
 
+    #create Spawn Boss task command
+    @commands.command(name="startSpawnBoss", brief="Starts spawning boss")
+    @commands.has_permissions(administrator=True)
+    async def startMessage(self, ctx):
+        print("Spawning started!")
+        global BOSSALIVE
+        BOSSALIVE = 0
+        self.task = self.bot.loop.create_task(self.spawn_task(ctx))
+
+    # command to stop Spawn Boss task
+    @commands.command(pass_context=True, name="stopSpawnBoss", brief="Stops spawning boss")
+    @commands.has_permissions(administrator=True)
+    async def stopMessage(self, ctx):
+        print("Spawning stopped!")
+        global BOSSALIVE, respawnResume
+        respawnResume = False
+        BOSSALIVE = 0
+        await functions_database.updateBossTable(self, ctx, 0, 0, False)
+        self.task.cancel()
+
+    # command to check Spawn Boss
+    @commands.command(pass_context=True, name="checkSpawnBoss", brief="Checking boss spawn time")
+    @commands.has_permissions(administrator=True)
+    async def checkSpawnMessage(self, ctx):
+        await ctx.channel.send("Resp time is " + str(respTime/60/60) + " hours.")
+
     # command to debug
     @commands.command(pass_context=True, name="AddColumn")
     @commands.has_permissions(administrator=True)
     async def add_column(self, ctx):
         sql ='''ALTER TABLE PETOWNER
-        ADD REROLL_SCROLL NUMERIC;
-        '''
-        await self.bot.pg_con.execute(sql)
-
-        sql ='''ALTER TABLE PETOWNER
-        ADD REROLL_SCROLL_SHARD NUMERIC;
+        ADD GEM_0 NUMERIC;
         '''
         await self.bot.pg_con.execute(sql)
 
@@ -462,20 +461,6 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def add_shard(self, ctx, number, player_id):
         await functions_pets.assign_shard(self, ctx, number, player_id)
-
-    # command to debug
-    @commands.command(pass_context=True, name="SaveCD")
-    @commands.has_permissions(administrator=True)
-    async def save_cd(self, ctx, player_id):
-        functions_daily.save_daily_to_file(player_id)
-        await ctx.channel.send("Dopisano cooldown daily.")
-
-    # command to debug
-    @commands.command(pass_context=True, name="LoadCD")
-    @commands.has_permissions(administrator=True)
-    async def load_cd(self, ctx, player_id):
-        on_cd = functions_daily.load_daily_from_file(player_id)
-        await ctx.channel.send("Cooldown " + str(on_cd))
 
     # command to debug
     @commands.command(pass_context=True, name="ClearCD")
@@ -498,19 +483,6 @@ class message(commands.Cog, name="spawnBoss"):
         await functions_boss.randLoot(self, ctx, srarity, BossHunter, boost_percent)
 
     # command to debug
-    @commands.command(pass_context=True, name="bossslayer")
-    @commands.has_permissions(administrator=True)
-    async def bossSlayer(self, ctx, userID):
-        await functions_boss.setBossSlayer(self, ctx, userID)
-
-    # command to debug
-    @commands.command(pass_context=True, name="remind")
-    @commands.has_permissions(administrator=True)
-    async def remind(self, ctx):
-        Channel = self.bot.get_channel(970684202880204831)
-        await Channel.send("Potwór oczekuje na zabicie! Wpisz **$zaatakuj**, aby rozpocząć walkę! @here")
-
-    # command to debug
     @commands.command(pass_context=True, name="rarity")
     @commands.has_permissions(administrator=True)
     async def BOSSRARITY(self, ctx, time):
@@ -523,14 +495,6 @@ class message(commands.Cog, name="spawnBoss"):
         await functions_boss.fBossImage(self, ctx, rarity)
 
     # command to debug
-    @commands.command(pass_context=True, name="ModifiersInit",
-                      brief="Creates new file with 0 value of modifiers.")
-    @commands.has_permissions(administrator=True)
-    async def initModifiers(self, ctx):
-        await functions_modifiers.init_modifiers(self, ctx)
-        await ctx.channel.send("Modifiers file initialized.")
-
-    # command to debug
     @commands.command(pass_context=True, name="ModifiersLoad",
                       brief="Load modifiers and prints values.")
     @commands.has_permissions(administrator=True)
@@ -539,41 +503,11 @@ class message(commands.Cog, name="spawnBoss"):
         await ctx.channel.send("Modifiers file loaded.")
 
     # command to debug
-    @commands.command(pass_context=True, name="ModifiersLoadDesc",
-                      brief="Load modifiers and prepare string for them.")
-    @commands.has_permissions(administrator=True)
-    async def loadModifiersDesc(self, ctx):
-        await functions_modifiers.load_desc_modifiers(self, ctx)
-        await ctx.channel.send("Modifiers string loaded.")
-
-    # command to debug
-    @commands.command(pass_context=True, name="ModifiersModify",
-                      brief="modifier_name value - set value of the modifier.")
-    @commands.has_permissions(administrator=True)
-    async def modifyModifiers(self, ctx, modifier_name, value):
-        await functions_modifiers.modify_modifiers(self, ctx, modifier_name, value)
-        await ctx.channel.send("Modifiers file modified.")
-
-    # command to debug
-    @commands.command(pass_context=True, name="ModifiersRandom",
-                      brief="Select random modifier.")
-    @commands.has_permissions(administrator=True)
-    async def randomModifiers(self, ctx):
-        await functions_modifiers.random_modifiers(self,)
-
-    # command to debug
     @commands.command(pass_context=True, name="GenerateEgg",
                       brief="Generates egg and print its data.")
     @commands.has_permissions(administrator=True)
     async def generate_egg(self, ctx):
         await functions_pets.generate_pet_egg(self, ctx)
-
-    # command to debug
-    @commands.command(pass_context=True, name="spawn")
-    @commands.has_permissions(administrator=True)
-    async def spawn(self, ctx):
-        await functions_boss.fCreateSpawn(self)
-        await ctx.channel.send("Spawn created")
 
     # command to debug
     @commands.command(name="context")

@@ -89,15 +89,34 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
     global show_pet
     async def show_pet(self, ctx):
-        """Show author's pet."""
+        """Show author's pet and his scrolls."""
 
         print("Checking if user has a pet...")
-        sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
+        sql = f"SELECT PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
         pet_exists = await self.bot.pg_con.fetch(sql)
         print(pet_exists)
+        reroll_scroll = pet_exists[0][1]
+        reroll_shard = pet_exists[0][2]
 
         if pet_exists:
             if pet_exists[0][0] > 0:
+                # Convert shards to full scrolls
+                if reroll_shard // 10 > 0:
+                    reroll_scroll += reroll_shard // 10
+                    sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {reroll_scroll}
+                    WHERE PLAYER_ID = {ctx.author.id};"""
+                    await self.bot.pg_con.fetch(sql)
+
+                    reroll_shard = reroll_shard % 10
+                    sql = f"""UPDATE PETOWNER SET REROLL_SCROLL_SHARD = {reroll_shard}
+                    WHERE PLAYER_ID = {ctx.author.id};"""
+                    await self.bot.pg_con.fetch(sql)
+                    print(f"Update reroll scrolls {reroll_scroll} and shards {reroll_shard}")
+
+                # Add info about scrolls
+                scroll_desc = f"""\n\nZwoje odrodzenia: {reroll_scroll}
+                Fragmenty zwojów: {reroll_shard}"""
+
                 sql = f"""SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
                 TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
                 LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION FROM PETS
@@ -129,7 +148,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         path = f"eggs/premium/{pet_data[0][6]}/{pet_data[0][7]}.png"
 
                     embed = discord.Embed(title=title,
-                                        description="Oto Twój towarzysz, <@" + str(ctx.author.id) + ">. Opiekuj się nim, a być może kiedyś coś z niego wyrośnie..." + add_desc,
+                                        description="Oto Twój towarzysz, <@" + str(ctx.author.id) + ">. Opiekuj się nim, a być może kiedyś coś z niego wyrośnie..." + scroll_desc + add_desc,
                                         color=color)
                     file = discord.File(path, filename=f"{pet_data[0][7]}.png")
                     embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
