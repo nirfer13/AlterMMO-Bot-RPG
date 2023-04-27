@@ -235,8 +235,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         else:
             print("Player does not exist in PETOWNER database, so creating new record.")
             pet_id = await generate_pet_egg(self, ctx, player)
-            await self.bot.pg_con.execute(f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED)
-             VALUES ({player_id},{pet_id},{True});""")
+            await self.bot.pg_con.execute(f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
+             REROLL_SCROLL, REROLL_SCROLL_SHARD))
+             VALUES ({player_id},{pet_id},{True},{0},{0});""")
             return True
 
         # Nothing happened.
@@ -264,8 +265,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 await self.bot.pg_con.fetch(sql)
         elif not player_exists and pet_exists:
             print("Player does not exist in PETOWNER database, so creating new record.")
-            await self.bot.pg_con.execute(f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED)
-             VALUES ({player_id},{pet_id},{True});""")
+            await self.bot.pg_con.execute(f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
+             REROLL_SCROLL, REROLL_SCROLL_SHARD))
+             VALUES ({player_id},{pet_id},{True},{0},{0});""")
         elif not pet_exists:
             print("Pet does not exists in PETOWNER database. Nothing happens.")
 
