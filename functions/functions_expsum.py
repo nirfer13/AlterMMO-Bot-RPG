@@ -2,13 +2,19 @@
 
 import json
 import asyncio
+import discord
+from discord.ext import commands
+import asyncio
 
-class TestClass:
-    """Test class"""
+#Import Globals
+from globals.globalvariables import DebugMode
 
-    def __init__(self):
-        self.name = "TestClass"
+class FunctionsExpsum(commands.Cog, name="FunctionsExpsum"):
+    """Exp summary class, which is used to sum up the experience from drops."""
+    def __init__(self, bot):
+        self.bot = bot
 
+    global init_file_exp
     def init_file_exp(self):
         """Reset the file with experience."""
 
@@ -19,6 +25,7 @@ class TestClass:
         with open('expSummary.json', 'w', encoding="utf-8") as file:
             json.dump(modifiers, file)
 
+    global add_file_exp
     def add_file_exp(self, player_id, experience):
         """Check if an ID exists, then add exp."""
 
@@ -26,19 +33,18 @@ class TestClass:
             players = json.load(file)
 
         player_id = str(player_id)
-        print(type(players))
         file.close()
 
         if player_id in players:
             players[player_id] += experience
         else:
             players[player_id] = experience
-        print(players)
 
         with open('expSummary.json', 'w', encoding="utf-8") as file:
             json.dump(players, file)
 
-    def show_fileexp(self):
+    global show_file_exp
+    async def show_file_exp(self, ctx):
         """Show the table with an exp summary."""
 
         with open('expSummary.json', 'r', encoding="utf-8") as file:
@@ -49,15 +55,8 @@ class TestClass:
             text.append(f"<@{key}>: {value}")
 
         exp_table = '\n'.join(text)
-        print(exp_table)
+        await ctx.send(exp_table)
 
-print("Test executed.")
-Test = TestClass()
-
-Test.init_file_exp()
-Test.add_file_exp(12345, 500)
-Test.add_file_exp(12345, 500)
-Test.add_file_exp(123456, 1250)
-Test.add_file_exp(123456, 1250)
-Test.add_file_exp(21321223, 1250)
-Test.show_fileexp()
+def setup(bot):
+    """Load the FunctionsExpsum cog."""
+    bot.add_cog(FunctionsExpsum(bot))

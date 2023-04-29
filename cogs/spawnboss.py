@@ -23,6 +23,7 @@ import functions_general
 import functions_modifiers
 import functions_pets
 import functions_daily
+import functions_expsum
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -413,6 +414,14 @@ class message(commands.Cog, name="spawnBoss"):
             print("Command on cooldown.")
             await ctx.send('Poczekaj na odnowienie komendy! Zostało ' + str(round(error.retry_after/60/60, 2)) + ' godzin/y <:Bedge:970576892874854400>.')
 
+    # Command to check the exp summary and reset it.
+    @commands.command(pass_context=True, name="Exp")
+    @commands.has_permissions(administrator=True)
+    async def exp_summary(self, ctx):
+        """Show the exp summary."""
+
+        await functions_expsum.show_file_exp(self, ctx)
+        functions_expsum.init_file_exp(self)
     # ==================================== COMMANDS FOR DEBUG ======================================
 
     #create Spawn Boss task command

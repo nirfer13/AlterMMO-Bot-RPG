@@ -235,9 +235,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         else:
             print("Player does not exist in PETOWNER database, so creating new record.")
             pet_id = await generate_pet_egg(self, ctx, player)
-            await self.bot.pg_con.execute(f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
-             REROLL_SCROLL, REROLL_SCROLL_SHARD))
-             VALUES ({player_id},{pet_id},{True},{0},{0});""")
+            await new_record_petowners(self, player_id, pet_id, True, 0, 0)
             return True
 
         # Nothing happened.
@@ -322,7 +320,6 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         if scroll_shards:
             if scroll_shards[0][0] is None:
                 print("Player exists and has no shards, we can update dabatase..")
-
                 sql = f"""UPDATE PETOWNER SET REROLL_SCROLL_SHARD = {number}
                 WHERE PLAYER_ID = {player_id};"""
                 await self.bot.pg_con.fetch(sql)
@@ -330,18 +327,13 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             else:
                 print("Player exists and has some shards, we can update dabatase..")
                 number += scroll_shards[0][0]
-
                 sql = f"""UPDATE PETOWNER SET REROLL_SCROLL_SHARD = {number}
                 WHERE PLAYER_ID = {player_id};"""
                 await self.bot.pg_con.fetch(sql)
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
-            REROLL_SCROLL, REROLL_SCROLL_SHARD)
-
-             VALUES ({player_id},{0},{False},{0},{number});"""
-            await self.bot.pg_con.fetch(sql)
+            await new_record_petowners(self, player_id, 0, False, 0, number)
             return True
 
         # Nothing happened.
@@ -361,7 +353,6 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         if scrolls:
             if scrolls[0][0] is None:
                 print("Player exists and has no shards, we can update dabatase..")
-
                 sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {number}
                 WHERE PLAYER_ID = {player_id};"""
                 await self.bot.pg_con.fetch(sql)
@@ -369,21 +360,26 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             else:
                 print("Player exists and has some shards, we can update dabatase..")
                 number += scrolls[0][0]
-
                 sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {number}
                 WHERE PLAYER_ID = {player_id};"""
                 await self.bot.pg_con.fetch(sql)
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
-            REROLL_SCROLL, REROLL_SCROLL_SHARD)
-             VALUES ({player_id},{0},{False},{number},{0});"""
-            await self.bot.pg_con.fetch(sql)
+            await new_record_petowners(self, player_id, 0, False, number, 0)
             return True
 
         # Nothing happened.
         return False
+ 
+async def new_record_petowners(self, player_id: int, pet_id: int, pet_owned: bool,
+                                reroll_scroll: int, reroll_scroll_shard: int):
+    """New record of user in petowners database."""
+
+    sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
+    REROLL_SCROLL, REROLL_SCROLL_SHARD)
+    VALUES ({player_id},{pet_id},{pet_owned},{reroll_scroll},{reroll_scroll_shard});"""
+    await self.bot.pg_con.fetch(sql)
 
 def setup(bot):
     """Load the FunctionsPets cog."""

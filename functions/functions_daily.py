@@ -45,22 +45,18 @@ class functions_daily(commands.Cog, name="functions_daily"):
         drop_message = ""
         for loot in json_object:
             loot['weight'] = (boost_percent/100 + 1) * loot['weight']
-            print(loot['descr'])
-            print(loot['weight'])
+
             if loot['weight'] > 100:
                 if loot['id'] == 10:
-                    print("Egg dropped")
                     check = await functions_pets.assign_pet(self, ctx, BossHunter)
                     if check:
                         drop_message += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during pet assigning.")
                 elif loot['id'] == 11:
-                    print("Add scroll to user")
                     await functions_pets.assign_scroll(self, ctx, 1, BossHunter.id)
                     drop_message += "👉 " + loot['descr'] + "\n"
                 elif loot['id'] == 9:
-                    print("Add shard to user")
                     await functions_pets.assign_shard(self, ctx, 1, BossHunter.id)
                     drop_message += "👉 " + loot['descr'] + "\n"
                 else:
@@ -70,18 +66,15 @@ class functions_daily(commands.Cog, name="functions_daily"):
                     drop_message += "👉 " + loot['descr'] + " (Bonus)\n"
             elif random.random()*100 <= loot['weight']:
                 if loot['id'] == 10:
-                    print("Egg dropped")
                     check = await functions_pets.assign_pet(self, ctx, BossHunter)
                     if check:
                         drop_message += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during pet assigning.")
                 elif loot['id'] == 11:
-                    print("Add scroll to user")
                     await functions_pets.assign_scroll(self, ctx, 1, BossHunter.id)
                     drop_message += "👉 " + loot['descr'] + "\n"
                 elif loot['id'] == 9:
-                    print("Add shard to user")
                     await functions_pets.assign_shard(self, ctx, 1, BossHunter.id)
                     drop_message += "👉 " + loot['descr'] + "\n"
                 else:
@@ -252,10 +245,17 @@ class functions_daily(commands.Cog, name="functions_daily"):
         #Load modifiers
         modifiers = await functions_modifiers.load_modifiers(self, ctx)
 
-        await asyncio.sleep(6)
+        await asyncio.sleep(9)
 
         #Start time counting
         startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+
+        await ctx.channel.send('Uwaga!!! 3...')
+        await asyncio.sleep(1)
+        await ctx.channel.send('... 2...')
+        await asyncio.sleep(1)
+        await ctx.channel.send('... 1...')
+        await asyncio.sleep(1)
 
         #Random the message and requested action
         requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **U N I K**", "Boss zawahał się! Teraz! Wpisz **A T A K**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **P A R U J**", 
@@ -288,7 +288,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
 
                 #Longer timeout for the first action
                 if iterator == 1:
-                    cmdTimeout = 7
+                    cmdTimeout = 15
                 else:
                     #Timeout depends on boss rarity
                     print("Mob rarity before timeout calc: " + str(BOSSRARITY))

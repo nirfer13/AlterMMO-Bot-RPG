@@ -17,6 +17,7 @@ from globals.globalvariables import DebugMode
 import functions_database
 import functions_modifiers
 import functions_pets
+import functions_expsum
 
 class functions_boss(commands.Cog, name="functions_boss"):
     def __init__(self, bot):
@@ -47,31 +48,60 @@ class functions_boss(commands.Cog, name="functions_boss"):
         dropMessage = ""
         for loot in jsonObject:
             loot['weight'] = (boost_percent/100 + 1) * loot['weight']
-            print(loot['descr'])
-            print(loot['weight'])
+
+            # Bonus drop
             if loot['weight'] > 100:
-                if loot['id'] == 10:
-                    # Egg dropped
-                    print("Egg dropped")
+
+                # Exp dropped
+                if loot['id'] == 0:
+                    dropMessage += "👉 " + loot['descr'] + "\n"
+                    exp = [int(s) for s in loot['descr'].split() if s.isdigit()]
+                    functions_expsum.add_file_exp(self, BossHunter.id, exp[0])
+                # Pet dropped
+                elif loot['id'] == 10:
                     check = await functions_pets.assign_pet(self, ctx, BossHunter)
                     if check:
                         dropMessage += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during pet assigning.")
+                # Other drop
                 else:
                     dropMessage += "👉 " + loot['descr'] + "\n"
+
                 loot['weight'] -= 100
-                if random.random()*100 <= loot['weight'] and loot['id'] != 10:
-                    dropMessage += "👉 " + loot['descr'] + " (Bonus)\n"
-            elif random.random()*100 <= loot['weight']:
-                if loot['id'] == 10:
+
+                # Normal drop after bonus remove
+                if random.random()*100 <= loot['weight']:
+                    # Exp dropped
+                    if loot['id'] == 0:
+                        dropMessage += "👉 " + loot['descr'] + "\n"
+                        exp = [int(s) for s in loot['descr'].split() if s.isdigit()]
+                        functions_expsum.add_file_exp(self, BossHunter.id, exp[0])
                     # Egg dropped
+                    elif loot['id'] == 10:
+                        pass
+                    # Other drop
+                    else:
+                        dropMessage += "👉 " + loot['descr'] + " (Bonus)\n"
+
+            # Normal drop
+            elif random.random()*100 <= loot['weight']:
+
+                # Exp dropped
+                if loot['id'] == 0:
+                    dropMessage += "👉 " + loot['descr'] + "\n"
+                    exp = [int(s) for s in loot['descr'].split() if s.isdigit()]
+                    functions_expsum.add_file_exp(self, BossHunter.id, exp[0])
+                # Egg dropped
+                elif loot['id'] == 10:
                     print("Egg dropped")
                     check = await functions_pets.assign_pet(self, ctx, BossHunter)
                     if check:
+                        print("PET ASSIGNED")
                         dropMessage += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during pet assigning.")
+                # Other drop
                 else:
                     dropMessage += "👉 " + loot['descr'] + "\n"
 
@@ -392,6 +422,13 @@ class functions_boss(commands.Cog, name="functions_boss"):
             #Save resp time and nickname
             await functions_database.updateHistoryTable(self, ctx, bossHunterID.name, startTime)
 
+            await ctx.channel.send('Uwaga!!! 3...')
+            await asyncio.sleep(1)
+            await ctx.channel.send('... 2...')
+            await asyncio.sleep(1)
+            await ctx.channel.send('... 1...')
+            await asyncio.sleep(1)
+
             #Random the message and requested action
             requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **U N I K**", "Boss zawahał się! Teraz! Wpisz **A T A K**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **P A R U J**", 
             "Boss próbuje ataku w nogi, wpisz **S K O K**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **B I E G**", "Boss atakuje w powietrzu, wpisz **T U R L A J**", "Boss rzuca klątwę, wpisz **C Z A R U J**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **B L O K**","Boss próbuje ataku w nogi, wpisz **S K A C Z**","Boss szarżuje na Ciebie, zrób coś, wpisz **A K C J A**", "Nie masz pojęcia co robić, wpisz **K R Z Y K**", "Musisz zrobić cokolwiek, wpisz **R U C H**", "Boss rzuca głazem w Twoją stronę, wpisz **P O S U W**", "Dostrzegasz szansę na uderzenie, wpisz **I M P E T**", "Pojawiła się chwila zawachania potwora, wpisz **Z R Y W**")]
@@ -638,7 +675,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 playerListString = playerListString + ("<@" + str(player.id) + "> ")
 
             async with ctx.typing():
-                await ctx.channel.send('Zaatakowaliście bossa' + playerListString + '! <:REEeee:790963160495947856> Wpiszcie **słowa przypisane do Was** tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpisz słowa bez spacji! Przygotujcie się!')
+                await ctx.channel.send('Zaatakowaliście bossa' + playerListString + '! <:REEeee:790963160495947856> Wpiszcie **słowa przypisane do Was** tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpiszcie słowa bez spacji! Przygotujcie się!')
             await asyncio.sleep(17)
             #Start time counting
             startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
