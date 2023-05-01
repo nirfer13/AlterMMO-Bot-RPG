@@ -1,6 +1,7 @@
 ﻿"""Class with all functions used for pets."""
 
 import json
+from symbol import namedexpr_test
 import discord
 import random
 import asyncio
@@ -92,11 +93,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         """Show author's pet and his scrolls."""
 
         print("Checking if user has a pet...")
-        sql = f"SELECT PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
+        sql = f"SELECT PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
         pet_exists = await self.bot.pg_con.fetch(sql)
         print(pet_exists)
         reroll_scroll = pet_exists[0][1]
         reroll_shard = pet_exists[0][2]
+        rebirt_stones = pet_exists[0][3]
 
         if pet_exists:
             if pet_exists[0][0] > 0:
@@ -113,9 +115,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     await self.bot.pg_con.fetch(sql)
                     print(f"Update reroll scrolls {reroll_scroll} and shards {reroll_shard}")
 
-                # Add info about scrolls
-                scroll_desc = f"""\n\nZwoje odrodzenia: {reroll_scroll}
-                Fragmenty zwojów: {reroll_shard}"""
+                # Add info about items
+                scroll_desc = (f"\n**<:RPGWarrior:995576809666134046> PRZEDMIOTY:**\nZwoje odrodzenia: {reroll_scroll}\n" +
+                f"Fragmenty zwojów: {reroll_shard}\nKamienie olśnienia: {rebirt_stones}")
 
                 sql = f"""SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
                 TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
@@ -148,12 +150,94 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         path = f"eggs/premium/{pet_data[0][6]}/{pet_data[0][7]}.png"
 
                     embed = discord.Embed(title=title,
-                                        description="Oto Twój towarzysz, <@" + str(ctx.author.id) + ">. Opiekuj się nim, a być może kiedyś coś z niego wyrośnie..." + scroll_desc + add_desc,
+                                        description="Oto Twój towarzysz, <@" + str(ctx.author.id) + ">. Opiekuj się nim, a być może kiedyś coś z niego wyrośnie...\n" + scroll_desc + add_desc,
                                         color=color)
                     file = discord.File(path, filename=f"{pet_data[0][7]}.png")
                     embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
                     embed.set_image(url=f"attachment://{pet_data[0][7]}.png")
                     await ctx.send(file=file, embed=embed)
+                else:
+                    #Check if pet has name
+                    if pet_data[0][6] == "Bear":
+                        polish_type = "Niedźwiedź"
+                    elif pet_data[0][6] == "Cat":
+                        polish_type = "Kot"
+                    elif pet_data[0][6] == "Boar":
+                        polish_type = "Dzik"
+                    elif pet_data[0][6] == "Dragon":
+                        polish_type = "Smok"
+                    elif pet_data[0][6] == "Phoenix":
+                        polish_type = "Feniks"
+                    elif pet_data[0][6] == "Rabbit":
+                        polish_type = "Królik"
+                    elif pet_data[0][6] == "Sheep":
+                        polish_type = "Owca"
+                    elif pet_data[0][6] == "Unicorn":
+                        polish_type = "Jednorożec"
+                    else:
+                        polish_type = ""
+                    if pet_data[0][1] != "Towarzysz":
+                        title = f'{polish_type} {pet_data[0][1]}'
+                    else:
+                        title = f'{polish_type}'
+
+                    #Check if pet is premium
+                    if pet_data[0][4] == "Standard":
+                        path = f"eggs/standard/{pet_data[0][7]}.png"
+                    elif pet_data[0][4] == "Premium":
+                        path = f"eggs/premium/{pet_data[0][6]}/{pet_data[0][7]}.png"
+
+                    image_number = pow(10,(int(pet_data[0][2])-1))
+                    if image_number == 1:
+                        image_number = 0
+                    image_number += int(pet_data[0][7])
+                    path = f"pets/{pet_data[0][6]}/{image_number}.png"
+
+                    skill_desc = "<:RPGAddStat:995642835531472956> **STATYSTYKI:**\n"
+                    skill_desc += f"Poziom: {pet_data[0][2]}\n"
+                    if pet_data[0][3] == 0:
+                        talent = "Miernota"
+                    elif pet_data[0][3] == 1:
+                        talent = "Nowicjusz"
+                    elif pet_data[0][3] == 2:
+                        talent = "Uczeń"
+                    elif pet_data[0][3] == 3:
+                        talent = "Przeciętny"
+                    elif pet_data[0][3] == 4:
+                        talent = "Ekspert"
+                    elif pet_data[0][3] == 5:
+                        talent = "Mistrz"
+                    elif pet_data[0][3] == 6:
+                        talent = "Oświecony"
+                    else:
+                        talent = "Transcendentny"
+                    skill_desc += f"Talent: {talent}\n"
+                    skill_desc += f"Wygląd: {pet_data[0][4]}\n\n"
+                    if pet_data[0][9] > 0:
+                        skill_desc += f"Szansa na atak: {pet_data[0][9]} %\n"
+                    if pet_data[0][8] > 0:
+                        skill_desc += f"Szansa na krytyczne uderzenie: {pet_data[0][8]} %\n"
+                    if pet_data[0][10] > 0:
+                        skill_desc += f"Szansa na zablokowanie ataku: {pet_data[0][10]} %\n"
+                    if pet_data[0][12] > 0:
+                        skill_desc += f"Zmniejszenie życia przeciwnika: {pet_data[0][12]} %\n"
+                    if pet_data[0][13] > 0:
+                        skill_desc += f"Spowolnienie przeciwnika: {pet_data[0][13]} %\n"
+                    if pet_data[0][11] > 0:
+                        skill_desc += f"Rzadszy drop o: {pet_data[0][11]} %\n"
+                    if pet_data[0][14] > 0:
+                        skill_desc += f"Szansa na inicjację bossa: {pet_data[0][14]} %\n"
+                    if pet_data[0][15] is True:
+                        skill_desc += f"Wyczuwanie bossa: Tak\n"
+
+                    embed = discord.Embed(title=title,
+                                        description="Oto Twój towarzysz, <@" + str(ctx.author.id) + ">.\n\n" + skill_desc + scroll_desc + add_desc,
+                                        color=color)
+                    file = discord.File(path, filename=f"{image_number}.png")
+                    embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
+                    embed.set_image(url=f"attachment://{image_number}.png")
+                    await ctx.send(file=file, embed=embed)
+
             else:
                 await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
         else:
@@ -200,14 +284,30 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         pet_config["TYPE"] = pet
         pet_config["VARIANT"] = variant
 
+        pet_config["CRIT_PERC"] = 0
+        pet_config["REPLACE_PERC"] = 0
+        pet_config["DEF_PERC"] = 0
+        pet_config["DROP_PERC"] = 0
+        pet_config["LOWHP_PERC"] = 0
+        pet_config["SLOW_PERC"] = 0
+        pet_config["INIT_PERC"] = 0
+        pet_config["DETECTION"] = False
+
         print(pet_config)
 
         await self.bot.pg_con.execute(f"""INSERT INTO PETS
             (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
-            TYPE, VARIANT) VALUES ({pet_config["PET_ID"]},\'{pet_config["PET_NAME"]}\',
+            TYPE, VARIANT,
+            CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
+            LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION) VALUES 
+            ({pet_config["PET_ID"]},\'{pet_config["PET_NAME"]}\',
             {pet_config["PET_LVL"]},{pet_config["PET_SKILLS"]},
             \'{pet_config["QUALITY"]}\',{pet_config["SHINY"]},
-            \'{pet_config["TYPE"]}\',\'{pet_config["VARIANT"]}\');""")
+            \'{pet_config["TYPE"]}\',\'{pet_config["VARIANT"]}\',
+            {pet_config["CRIT_PERC"]},{pet_config["REPLACE_PERC"]},
+            {pet_config["DEF_PERC"]},{pet_config["DROP_PERC"]},
+            {pet_config["LOWHP_PERC"]},{pet_config["SLOW_PERC"]},
+            {pet_config["INIT_PERC"]},{pet_config["DETECTION"]});""")
 
         print(f"Pet egg generated {pet}, shiny: {shiny}.")
 
@@ -235,7 +335,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         else:
             print("Player does not exist in PETOWNER database, so creating new record.")
             pet_id = await generate_pet_egg(self, ctx, player)
-            await new_record_petowners(self, player_id, pet_id, True, 0, 0)
+            await new_record_petowners(self, player_id, pet_id, True, 0, 0, 0)
             return True
 
         # Nothing happened.
@@ -307,6 +407,27 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         else:
             await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
 
+    global name_pet
+    async def name_pet(self, ctx, name):
+        "Set name of pet."
+
+        sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
+        player_exists = await self.bot.pg_con.fetch(sql)
+
+        if player_exists:
+            if player_exists[0][0] > 0:
+
+                sql = f"""UPDATE PETS SET PET_NAME = \'{name}\'
+                    WHERE PET_ID = {player_exists[0][0]};"""
+                await self.bot.pg_con.fetch(sql)
+
+                await ctx.message.add_reaction("<:peepoBlush:984769061340737586>")
+
+            else:
+                await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
+        else:
+            await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
+
     global assign_shard
     async def assign_shard(self, ctx, number, player_id):
         """Assigning scroll shard to the player in database."""
@@ -333,7 +454,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            await new_record_petowners(self, player_id, 0, False, 0, number)
+            await new_record_petowners(self, player_id, 0, False, 0, number, 0)
             return True
 
         # Nothing happened.
@@ -366,19 +487,244 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            await new_record_petowners(self, player_id, 0, False, number, 0)
+            await new_record_petowners(self, player_id, 0, False, number, 0, 0)
             return True
 
         # Nothing happened.
         return False
- 
+    
+    global assign_rebirth_stone
+    async def assign_rebirth_stone(self, ctx, number, player_id):
+        """Assigning rebirth stone to the player in database."""
+
+        player_id = int(player_id)
+        number = int(number)
+
+        sql = f"SELECT REBIRTH_STONES FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+        rebirth_stones = await self.bot.pg_con.fetch(sql)
+
+        if rebirth_stones:
+            if rebirth_stones[0][0] is None:
+                print("Player exists and has no rebirth stones, we can update dabatase..")
+                sql = f"""UPDATE PETOWNER SET REBIRTH_STONES = {number}
+                WHERE PLAYER_ID = {player_id};"""
+                await self.bot.pg_con.fetch(sql)
+                return True
+            else:
+                print("Player exists and has some rebirth stones, we can update dabatase..")
+                number += rebirth_stones[0][0]
+                sql = f"""UPDATE PETOWNER SET REBIRTH_STONES = {number}
+                WHERE PLAYER_ID = {player_id};"""
+                await self.bot.pg_con.fetch(sql)
+                return True
+        else:
+            print("Player doest not exists in PETOWNER database, we can update dabatase..")
+            await new_record_petowners(self, player_id, 0, False, 0, 0, number)
+            return True
+
+        # Nothing happened.
+        return False
+    
+    global level_up_pet
+    async def level_up_pet(self, ctx, player_id):
+        """Level up the pet."""
+
+        player_id = int(player_id)
+
+        sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+        player_exists = await self.bot.pg_con.fetch(sql)
+
+        if player_exists:
+            if player_exists[0][0] > 0:
+                print("Player exists in PETOWNER database, it already has pet.")
+
+                sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC, REPLACE_PERC,
+                DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION
+                FROM PETS WHERE PET_ID = {player_exists[0][0]};"""
+                pet_stats = await self.bot.pg_con.fetch(sql)
+
+                pet_id = player_exists[0][0]
+                pet_lvl = pet_stats[0][0]
+                pet_skills = pet_stats[0][1]
+                pet_shiny = pet_stats[0][2]
+                pet_type = pet_stats[0][3]
+                pet_variant = int(pet_stats[0][4])
+                pet_crit_perc = pet_stats[0][5]
+                pet_replace_perc = pet_stats[0][6]
+                pet_def_perc = pet_stats[0][7]
+                pet_drop_perc = pet_stats[0][8]
+                pet_lowhp_perc = pet_stats[0][9]
+                pet_slow_perc = pet_stats[0][10]
+                pet_init_perc = pet_stats[0][11]
+                pet_detection = pet_stats[0][12]
+
+                skill_list = {"CRIT_PERC": pet_crit_perc, "REPLACE_PERC": pet_replace_perc,
+                            "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
+                            "LOWHP_PERC": pet_lowhp_perc, "SLOW_PERC": pet_slow_perc,
+                            "INIT_PERC": pet_init_perc, "DETECTION": pet_detection}
+
+                # Check if pet is possible to level up...
+                if pet_lvl < 3:
+                    # Check if pet is EGG
+                    if pet_lvl == 0:
+                        pet_variant = pet_variant % 2
+
+                    pet_lvl += 1
+
+                    add_skill = random.randint(1,2)
+                    pet_skills += add_skill
+
+                    for i in range(add_skill):
+                        while True:
+                            skill_name, skill_value = random.choice(list(skill_list.items()))
+                            if skill_name == "DETECTION" and pet_detection:
+                                pass
+                            else:
+                                if skill_name == "INIT_PERC":
+                                    if pet_shiny:
+                                        add_skill_value = random.randint(5, 10)
+                                    else:
+                                        add_skill_value = random.randint(5, 8)
+                                elif skill_name == "SLOW_PERC":
+                                    if pet_shiny:
+                                        add_skill_value = random.randint(5, 10)
+                                    else:
+                                        add_skill_value = random.randint(5, 8)
+                                else:
+                                    if pet_shiny:
+                                        add_skill_value = random.randint(3, 7)
+                                    else:
+                                        add_skill_value = random.randint(3, 5)
+
+                                if skill_name == "DETECTION":
+                                    skill_list[skill_name] = True
+                                else:
+                                    skill_list[skill_name] += add_skill_value
+
+                                if skill_name == "INIT_PERC":
+                                    add_skill_value = random.randint(3, 7)
+
+                                await self.bot.pg_con.execute(f"""UPDATE PETS SET
+                                PET_LVL={pet_lvl}, PET_SKILLS={pet_skills},
+                                VARIANT={pet_variant},
+                                CRIT_PERC={skill_list["CRIT_PERC"]},
+                                REPLACE_PERC={skill_list["REPLACE_PERC"]},
+                                DEF_PERC={skill_list["DEF_PERC"]},
+                                DROP_PERC={skill_list["DROP_PERC"]},
+                                LOWHP_PERC={skill_list["LOWHP_PERC"]},
+                                SLOW_PERC={skill_list["SLOW_PERC"]},
+                                INIT_PERC={skill_list["INIT_PERC"]},
+                                DETECTION={skill_list["DETECTION"]} WHERE PET_ID = {pet_id};""")
+
+                                break
+                    return True
+                else:
+                    return False
+            else:
+                return False
+        else:
+            return False
+        
+    global get_pet_skills
+    async def get_pet_skills(self, player_id):
+        """Get all user pet skills"""
+
+        player_id = int(player_id)
+
+        sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+        player_exists = await self.bot.pg_con.fetch(sql)
+
+        skill_list = {"CRIT_PERC": 0, "REPLACE_PERC": 0,
+                        "DEF_PERC": 0, "DROP_PERC": 0,
+                        "LOWHP_PERC": 0, "SLOW_PERC": 0,
+                        "INIT_PERC": 0, "DETECTION": False}
+        if player_exists:
+            if player_exists[0][0] > 0:
+                print("Player exists in PETOWNER database, it already has pet.")
+
+                sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC, REPLACE_PERC,
+                DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION
+                FROM PETS WHERE PET_ID = {player_exists[0][0]};"""
+                pet_stats = await self.bot.pg_con.fetch(sql)
+
+                pet_id = player_exists[0][0]
+                pet_lvl = pet_stats[0][0]
+                pet_skills = pet_stats[0][1]
+                pet_shiny = pet_stats[0][2]
+                pet_type = pet_stats[0][3]
+                pet_variant = int(pet_stats[0][4])
+                pet_crit_perc = pet_stats[0][5]
+                pet_replace_perc = pet_stats[0][6]
+                pet_def_perc = pet_stats[0][7]
+                pet_drop_perc = pet_stats[0][8]
+                pet_lowhp_perc = pet_stats[0][9]
+                pet_slow_perc = pet_stats[0][10]
+                pet_init_perc = pet_stats[0][11]
+                pet_detection = pet_stats[0][12]
+
+                skill_list = {"CRIT_PERC": pet_crit_perc, "REPLACE_PERC": pet_replace_perc,
+                            "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
+                            "LOWHP_PERC": pet_lowhp_perc, "SLOW_PERC": pet_slow_perc,
+                            "INIT_PERC": pet_init_perc, "DETECTION": pet_detection}
+
+                return skill_list
+            else:
+                return skill_list
+        else:
+            return skill_list
+        
+    global detect_boss
+    async def detect_boss(self, boss_rarity):
+        """Send PM to everyone who owns the pet with detection."""
+        print("Detecting boss...")
+
+        sql = f"SELECT PET_ID FROM PETS WHERE DETECTION=True;"
+        pet_ids = await self.bot.pg_con.fetch(sql)
+
+        if len(pet_ids) > 0:
+            print("Length is ok.")
+            for pet_id in pet_ids:
+                pet_id = int(pet_id[0])
+                print("PET_ID: " + str(pet_id))
+
+                sql = f"SELECT PLAYER_ID FROM PETOWNER WHERE PET_ID={pet_id};"
+                player_id = await self.bot.pg_con.fetch(sql)
+
+                if len(player_id) > 0:
+                    print("Player exists.")
+                    player_id = int(player_id[0][0])
+                    if player_id > 0:
+                        print("Player: " + str(player_id))
+
+                        user = await self.bot.fetch_user(player_id)
+                        if boss_rarity == 0:
+                            rarity = "zwykły"
+                        elif boss_rarity == 1:
+                            rarity = "rzadki"
+                        elif boss_rarity == 2:
+                            rarity = "epicki"
+                        elif boss_rarity == 3:
+                            rarity = "legendarny"
+                        try:
+                            await user.send("Nadciąga boss! Będzie " + rarity + ".")
+                        except:
+                            if DebugMode:
+                                chatChannel = self.bot.get_channel(881090112576962560)
+                            else:
+                                chatChannel = self.bot.get_channel(776379796367212594)
+                            print("PM unavailable.")
+                            await chatChannel.send("<@" + str(player_id) + "> - Twój towarzysz: *Nadciąga boss! Odblokuj prywatne wiadomości, jeśli chcesz otrzymywać powiadomienia!*")
+                else:
+                    print("Player not exists.")
+
+
 async def new_record_petowners(self, player_id: int, pet_id: int, pet_owned: bool,
-                                reroll_scroll: int, reroll_scroll_shard: int):
+                                reroll_scroll: int, reroll_scroll_shard: int, rebirth_stones: int):
     """New record of user in petowners database."""
 
     sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
-    REROLL_SCROLL, REROLL_SCROLL_SHARD)
-    VALUES ({player_id},{pet_id},{pet_owned},{reroll_scroll},{reroll_scroll_shard});"""
+    REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES)
+    VALUES ({player_id},{pet_id},{pet_owned},{reroll_scroll},{reroll_scroll_shard},{rebirth_stones});"""
     await self.bot.pg_con.fetch(sql)
 
 def setup(bot):

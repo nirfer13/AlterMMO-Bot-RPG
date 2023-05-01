@@ -14,6 +14,11 @@
 		"id": 11,
 		"descr": "Dostałeś zwój... Na ten moment nie wiesz do czego jest potrzebny.",
 		"weight": 1
+	},
+	{
+		"id": 12,
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"weight": 0.25
 	}
 	],"loot_details_Rare": [
 	{
@@ -30,6 +35,11 @@
 		"id": 11,
 		"descr": "Dostałeś zwój... Na ten moment nie wiesz do czego jest potrzebny.",
 		"weight": 25
+	},
+	{
+		"id": 12,
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"weight": 2
 	}
 	],"loot_details_Epic": [
 	{
@@ -46,6 +56,16 @@
 		"id": 11,
 		"descr": "Dostałeś zwój... Na ten moment nie wiesz do czego jest potrzebny.",
 		"weight": 100
+	},
+	{
+		"id": 12,
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"weight": 100
+	},
+	{
+		"id": 13,
+		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 10
 	}
 	]
 }

@@ -59,6 +59,18 @@ class functions_daily(commands.Cog, name="functions_daily"):
                 elif loot['id'] == 9:
                     await functions_pets.assign_shard(self, ctx, 1, BossHunter.id)
                     drop_message += "👉 " + loot['descr'] + "\n"
+                elif loot['id'] == 12:
+                    check = await functions_pets.level_up_pet(self, ctx, BossHunter.id)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during pet leveling.")
+                elif loot['id'] == 13:
+                    check = await functions_pets.assign_rebirth_stone(self, ctx, 1, BossHunter.id)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during rebirth stone assigning.")
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
                 loot['weight'] -= 100
@@ -77,6 +89,18 @@ class functions_daily(commands.Cog, name="functions_daily"):
                 elif loot['id'] == 9:
                     await functions_pets.assign_shard(self, ctx, 1, BossHunter.id)
                     drop_message += "👉 " + loot['descr'] + "\n"
+                elif loot['id'] == 12:
+                    check = await functions_pets.level_up_pet(self, ctx, BossHunter.id)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during pet leveling.")
+                elif loot['id'] == 13:
+                    check = await functions_pets.assign_rebirth_stone(self, ctx, 1, BossHunter.id)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during rebirth stone assigning.")
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
 
@@ -245,6 +269,9 @@ class functions_daily(commands.Cog, name="functions_daily"):
         #Load modifiers
         modifiers = await functions_modifiers.load_modifiers(self, ctx)
 
+        #Load pet skills
+        pet_skills = await functions_pets.get_pet_skills(self, ctx.author.id)
+
         await asyncio.sleep(9)
 
         #Start time counting
@@ -262,7 +289,8 @@ class functions_daily(commands.Cog, name="functions_daily"):
         "Boss próbuje ataku w nogi, wpisz **S K O K**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **B I E G**", "Boss atakuje w powietrzu, wpisz **T U R L A J**", "Boss rzuca klątwę, wpisz **C Z A R U J**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **B L O K**","Boss próbuje ataku w nogi, wpisz **S K A C Z**","Boss szarżuje na Ciebie, zrób coś, wpisz **A K C J A**", "Nie masz pojęcia co robić, wpisz **K R Z Y K**", "Musisz zrobić cokolwiek, wpisz **R U C H**", "Boss rzuca głazem w Twoją stronę, wpisz **P O S U W**", "Dostrzegasz szansę na uderzenie, wpisz **I M P E T**", "Pojawiła się chwila zawachania potwora, wpisz **Z R Y W**")]
 
         bossHP = fRandomBossHp(BOSSRARITY)
-        bossHP = int(bossHP * (1+(modifiers["hp_boost_perc"] - modifiers["hp_reduced_perc"])/100))
+        bossHP = int(bossHP * (1+(modifiers["hp_boost_perc"] - modifiers["hp_reduced_perc"]
+                                  - pet_skills["LOWHP_PERC"])/100))
         print("Wylosowane HP bossa: " + str(bossHP))
         iterator = 0
 
@@ -277,27 +305,41 @@ class functions_daily(commands.Cog, name="functions_daily"):
         startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
 
         #Start whole fight
-        for iterator in range(bossHP): #start boss turn
+        while True: #start boss turn
             iterator += 1
 
             choosenAction = random.randint(0,len(requestedAction[0])-1)
 
             try:
-                #Send proper action request on chat
-                await ctx.channel.send(str(iterator) + '. ' + requestedAction[1][choosenAction])
+                if not random.random()*100 < pet_skills["REPLACE_PERC"]:
 
-                #Longer timeout for the first action
-                if iterator == 1:
-                    cmdTimeout = 15
+                    #Send proper action request on chat
+                    await ctx.channel.send(str(iterator) + '. ' + requestedAction[1][choosenAction])
+
+                    #Longer timeout for the first action
+                    if iterator == 1:
+                        cmdTimeout = 15
+                    else:
+                        #Timeout depends on boss rarity
+                        print("Mob rarity before timeout calc: " + str(BOSSRARITY))
+                        cmdTimeout = 5 - BOSSRARITY
+                        cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"] +
+                                                    float(pet_skills["SLOW_PERC"]))/100
+                    msg = await self.bot.wait_for('message', check=check(ctx), timeout=cmdTimeout)
+                    response = str(msg.content)
                 else:
-                    #Timeout depends on boss rarity
-                    print("Mob rarity before timeout calc: " + str(BOSSRARITY))
-                    cmdTimeout = 5 - BOSSRARITY
-                    cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"])/100
-                msg = await self.bot.wait_for('message', check=check(ctx), timeout=cmdTimeout)
-                response = str(msg.content)
+                    response = requestedAction[0][choosenAction]
+                    #Send proper action request on chat
+                    await ctx.channel.send('~~' + str(iterator) + '. ' +
+                                            requestedAction[1][choosenAction] +
+                                            '~~. Twój towarzysz wyprowadza atak!')
 
                 if response.lower() == requestedAction[0][choosenAction]:
+
+                    # Crit from pet
+                    if random.random()*100 < pet_skills["CRIT_PERC"]:
+                        iterator += 1
+
                     #Boss killed?
                     if iterator >= bossHP:
 
@@ -314,22 +356,44 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         await functions_database.updateRankingTable(self, ctx, ctx.author.id, BOSSRARITY, 0)
 
                         #Randomize Loot
-                        dropLoot = await randLoot(self, ctx, BOSSRARITY, ctx.author, modifiers["drop_boost_perc"])
+                        drop_boost = modifiers["drop_boost_perc"] + float(pet_skills["DROP_PERC"])
+                        dropLoot = await randLoot(self, ctx, BOSSRARITY, ctx.author, drop_boost)
 
                         #Send info about loot
                         logChannel = self.bot.get_channel(881090112576962560)
                         #await logChannel.send("<@291836779495948288>!   " + ctx.author.name + " otrzymał: \n" + dropLoot)
+                        break
                     else:
                         print("Good command.")
                 else:
-                    await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie jutro lub poczekaj na modlitwę Crafterów i Patronów! <:RIP:912797982917816341>')
+                    if not random.random()*100 < pet_skills["DEF_PERC"]:
+                        await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie jutro lub poczekaj na modlitwę Crafterów i Patronów! <:RIP:912797982917816341>')
+                        logChannel = self.bot.get_channel(881090112576962560)
+                        if is_player_boss == False:
+                            pass
+                            #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba.")
+                        else:
+                            pass
+                            #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba. Mobem był " + player_boss.name + ".")
+                            await functions_pets.assign_scroll(self, ctx, BOSSRARITY+1, player_boss.id)
+
+                        if modifiers["ban_loser"] > 0:
+                            print("Hunter " + str(ctx.author.name) + " is dead.")
+                            await setDeadHunters(self, ctx, ctx.author.id)
+
+                        return False
+                    else:
+                        await ctx.channel.send('Pomyliłeś się, ale Twój towarzysz Cię chroni!')
+
+            except asyncio.TimeoutError:
+                if not random.random()*100 < pet_skills["DEF_PERC"]:
+                    await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Odpocznij i spróbuj jutro! <:RIP:912797982917816341>')
                     logChannel = self.bot.get_channel(881090112576962560)
                     if is_player_boss == False:
                         pass
-                        #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba.")
+                        #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł.")
                     else:
-                        pass
-                        #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " pomylił się i nie zabił daily moba. Mobem był " + player_boss.name + ".")
+                        #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł. Potworem był " + player_boss.name + ".")
                         await functions_pets.assign_scroll(self, ctx, BOSSRARITY+1, player_boss.id)
 
                     if modifiers["ban_loser"] > 0:
@@ -337,23 +401,8 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         await setDeadHunters(self, ctx, ctx.author.id)
 
                     return False
-
-            except asyncio.TimeoutError:
-                await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Odpocznij i spróbuj jutro! <:RIP:912797982917816341>')
-                logChannel = self.bot.get_channel(881090112576962560)
-                if is_player_boss == False:
-                    pass
-                    #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł.")
                 else:
-                    pass
-                    #await  logChannel.send("<@291836779495948288>!   " + ctx.author.name + " nie zdążył wpisać komend i potwór przepadł. Potworem był " + player_boss.name + ".")
-                    await functions_pets.assign_scroll(self, ctx, BOSSRARITY+1, player_boss.id)
-
-                if modifiers["ban_loser"] > 0:
-                    print("Hunter " + str(ctx.author.name) + " is dead.")
-                    await setDeadHunters(self, ctx, ctx.author.id)
-
-                return False
+                    await ctx.channel.send('Nie zdążyłeś, ale Twój towarzysz Cię chroni!')
 
     #function to save daily hunter to file
     global save_daily_to_file

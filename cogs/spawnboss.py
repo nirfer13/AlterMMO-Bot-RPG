@@ -200,6 +200,9 @@ class message(commands.Cog, name="spawnBoss"):
             if BOSSALIVE == 2:
                 BOSSALIVE = 3
 
+                # Detection skill
+                await functions_pets.detect_boss(self, BOSSRARITY)
+                print("After dection.")
                 #Channel Clear
                 print("Channel cleared. BOSSALIVE = 2")
                 async with ctx.typing():
@@ -228,7 +231,7 @@ class message(commands.Cog, name="spawnBoss"):
                 hour = timestamp.strftime("%H")
                 day = timestamp.strftime("%a")
 
-                if BOSSRARITY == 3 and not (hour == "15" or hour == "16" or hour == "17" or hour == "18" or hour == "19" or hour == "20" or hour == "21" or hour == "22") and not (day == "Sun" or day == "Sat"):
+                if BOSSRARITY == 3 and not (hour == "15" or hour == "16" or hour == "17" or hour == "18" or hour == "19" or hour == "20" or hour == "21" or hour == "22") and not (day == "Sun" or day == "Sat") and not DebugMode:
                     BOSSRARITY = 2
 
                 try:
@@ -335,6 +338,10 @@ class message(commands.Cog, name="spawnBoss"):
     async def discard_pet(self, ctx):
         print("Discarding author's pet")
         await functions_pets.discard_pet(self, ctx)
+
+    @commands.command(name="nazwij", brief="Set the name of author's pet.")
+    async def name_pet(self, ctx, name):
+        await functions_pets.name_pet(self, ctx, name)
 
     @commands.command(name="polowanie", brief="Try to hunt on a mobs.")
     async def hunting(self, ctx):
@@ -454,10 +461,21 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(pass_context=True, name="AddColumn")
     @commands.has_permissions(administrator=True)
     async def add_column(self, ctx):
+        # sql ='''ALTER TABLE PETOWNER
+        # DROP COLUMN REBIRTH_STONES;
+        # '''
+        #await self.bot.pg_con.execute(sql)
+
         sql ='''ALTER TABLE PETOWNER
-        ADD GEM_0 NUMERIC;
+        ADD REBIRTH_STONES NUMERIC DEFAULT 0;
         '''
         await self.bot.pg_con.execute(sql)
+
+    # command to debug
+    @commands.command(pass_context=True, name="PetLvlUp", brief="Level up pet of the player id.")
+    @commands.has_permissions(administrator=True)
+    async def level_up_pet(self, ctx, player_id):
+        await functions_pets.level_up_pet(self, ctx, player_id)
 
     # command to debug
     @commands.command(pass_context=True, name="AddScroll")
@@ -517,6 +535,15 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def generate_egg(self, ctx):
         await functions_pets.generate_pet_egg(self, ctx)
+
+    @commands.command(pass_context=True, name="SendPM",
+                      brief="Sends private message to user.")
+    async def dm(self, ctx):
+        #user=await self.bot.get_user_info(291836779495948288)
+        #guild = self.bot.get_guild(686137998177206281)
+        #user = guild.get_member(int(291836779495948288))
+        user = await self.bot.fetch_user(291836779495948288)
+        await user.send("Hello there!")
 
     # command to debug
     @commands.command(name="context")

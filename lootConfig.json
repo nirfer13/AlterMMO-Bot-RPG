@@ -14,7 +14,12 @@
 	{
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
-		"weight": 50
+		"weight": 100
+	},
+	{
+		"id": 12,
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"weight": 1
 	}
 	],"loot_details_Rare": [
 	{
@@ -36,6 +41,16 @@
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
 		"weight": 100
+	},
+	{
+		"id": 12,
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"weight": 5
+	},
+	{
+		"id": 13,
+		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 0.05
 	}
 	],"loot_details_Epic": [
 	{
@@ -62,6 +77,16 @@
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
 		"weight": 100
+	},
+	{
+		"id": 12,
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"weight": 12
+	},
+	{
+		"id": 13,
+		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 0.12
 	}
 	],"loot_details_Legend": [
 	{
@@ -88,6 +113,16 @@
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
 		"weight": 100
+	},
+	{
+		"id": 12,
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"weight": 25
+	},
+	{
+		"id": 13,
+		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 0.25
 	}
 	]
 }
