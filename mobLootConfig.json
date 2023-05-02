@@ -18,7 +18,7 @@
 	{
 		"id": 12,
 		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
-		"weight": 0.25
+		"weight": 5
 	}
 	],"loot_details_Rare": [
 	{
@@ -39,7 +39,7 @@
 	{
 		"id": 12,
 		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
-		"weight": 2
+		"weight": 10
 	}
 	],"loot_details_Epic": [
 	{
@@ -65,7 +65,7 @@
 	{
 		"id": 13,
 		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
-		"weight": 10
+		"weight": 15
 	}
 	]
 }
