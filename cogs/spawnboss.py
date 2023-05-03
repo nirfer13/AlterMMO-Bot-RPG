@@ -133,7 +133,7 @@ class message(commands.Cog, name="spawnBoss"):
 
             await asyncio.sleep(resp_time)
             event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION]
-            EVENT_TYPE = random.choices(event_list, weights=(0, 0, 1))[0]
+            EVENT_TYPE = random.choices(event_list, weights=(1, 1, 1))[0]
             print("Event type: " + str(EVENT_TYPE))
             if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
                 if EVENT_TYPE == EventType.SHRINE:
