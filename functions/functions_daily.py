@@ -350,9 +350,9 @@ class functions_daily(commands.Cog, name="functions_daily"):
 
         #Define check function
         channel = ctx.channel
-        def check(ctx):
+        def check(ctx, player_list):
             def inner(msg):
-                return (msg.channel == channel) and (msg.author == ctx.author)
+                return (msg.channel == channel) and (msg.author in player_list)
             return inner
 
         #Start time counting
@@ -380,7 +380,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         cmdTimeout = 5 - BOSSRARITY
                         cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"] +
                                     float(pet_skills_dict[boss_hunter.id]["SLOW_PERC"]))/100
-                    msg = await self.bot.wait_for('message', check=check(ctx), timeout=cmdTimeout)
+                    msg = await self.bot.wait_for('message', check=check(ctx, player_list), timeout=cmdTimeout)
                     response = str(msg.content)
                 else:
                     response = requestedAction[0][choosenAction]
@@ -389,7 +389,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
                                             requestedAction[1][choosenAction] +
                                             '~~. Twój towarzysz wyprowadza atak!')
 
-                if response.lower() == requestedAction[0][choosenAction]:
+                if response.lower() == requestedAction[0][choosenAction] and msg.author == boss_hunter:
 
                     # Crit from pet
                     if random.random()*100 < pet_skills_dict[boss_hunter.id]["CRIT_PERC"]:
