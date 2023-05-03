@@ -384,8 +384,15 @@ class message(commands.Cog, name="spawnBoss"):
         await functions_pets.discard_pet(self, ctx)
 
     @commands.command(name="nazwij", brief="Set the name of author's pet.")
+    @commands.cooldown(1, 60*60*23, commands.BucketType.user)
     async def name_pet(self, ctx, name):
         await functions_pets.name_pet(self, ctx, name)
+
+    @name_pet.error
+    async def addfantasy_cooldown(self, ctx, error):
+        if isinstance(error, commands.CommandOnCooldown):
+            print("Command on cooldown.")
+            await ctx.send('Poczekaj na odnowienie komendy! Zostało ' + str(round(error.retry_after/60/60, 2)) + ' godzin/y <:Bedge:970576892874854400>.')
 
     @commands.command(name="polowanie", brief="Try to hunt on a mobs.")
     async def hunting(self, ctx):
