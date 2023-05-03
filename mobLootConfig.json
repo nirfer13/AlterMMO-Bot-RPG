@@ -66,6 +66,11 @@
 		"id": 13,
 		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
 		"weight": 15
+	},
+	{
+		"id": 14,
+		"descr": "Otrzymałeś lustro wizualiów... Na ten moment nie wiesz do czego jest potrzebne.",
+		"weight": 15
 	}
 	]
 }

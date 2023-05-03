@@ -71,6 +71,12 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         drop_message += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during rebirth stone assigning.")
+                elif loot['id'] == 14:
+                    check = await functions_pets.assign_mirror(self, ctx, 1, BossHunter.id)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during mirror assigning.")
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
                 loot['weight'] -= 100
@@ -101,14 +107,20 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         drop_message += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during rebirth stone assigning.")
+                elif loot['id'] == 14:
+                    check = await functions_pets.assign_mirror(self, ctx, 1, BossHunter.id)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during mirror assigning.")
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
 
-        title = 'Drop z potwora - ' + str(BossHunter)
+        title = 'Drop - ' + str(BossHunter)
         #Embed create
         embed=discord.Embed(title=title,
                             url='https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png',
-                            description='Potwór wydropił:\n' + drop_message, color=0xfcdb03)
+                            description='Otrzymałeś:\n' + drop_message, color=0xfcdb03)
         embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png')
         embed.set_footer(text='Gratulacje!')
         await ctx.channel.send(embed=embed)
@@ -168,6 +180,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
             is_player_boss = False
 
         add_desc += await functions_modifiers.load_desc_modifiers(self, ctx)
+        add_desc += "\n\n*Inny gracz może dołączyć do polowania wpisując natychmiast $polowanie*."
 
         print("File with mob picture generated.")
 
@@ -177,19 +190,19 @@ class functions_daily(commands.Cog, name="functions_daily"):
         elif rarity == 1:
             eTitle = f"💀 Rzadki {boss_player}! 💀"
         elif rarity == 2:
-            eTitle = f"💀 Wyjątkowy {boss_player}! 💀"
+            eTitle = f"💀 Unikalny {boss_player}! 💀"
         else:
-            eTitle = f"💀 Wyjątkowy {boss_player}! 💀"
+            eTitle = f"💀 Unikalny {boss_player}! 💀"
 
         #description
         if rarity == 0:
-            eDescr = "Rozpoczynasz codziennie polowanie! Twoją ofiarą będzie zwykły potwór! ⚔️" + add_desc
+            eDescr = "Na polowaniu pojawił się zwykły potwór! ⚔️" + add_desc
         elif rarity == 1:
-            eDescr = "Rozpoczynasz codziennie polowanie! Twoją ofiarą będzie rzadki potwór! ⚔️" + add_desc
+            eDescr = "Na polowaniu pojawił się rzadki potwór! ⚔️" + add_desc
         elif rarity == 2:
-            eDescr = "Rozpoczynasz codziennie polowanie! Twoją ofiarą będzie UNIKALNY potwór! ⚔️" + add_desc
+            eDescr = "Na polowaniu pojawił się UNIKALNY potwór! ⚔️" + add_desc
         else:
-            eDescr = "Rozpoczynasz codziennie polowanie! Twoją ofiarą będzie UNIKALNY potwór! ⚔️" + add_desc
+            eDescr = "Na polowaniu pojawił się UNIKALNY potwór! ⚔️" + add_desc
 
         #color
         if rarity == 0:
@@ -263,14 +276,55 @@ class functions_daily(commands.Cog, name="functions_daily"):
     global hunt_mobs
     async def hunt_mobs(self, ctx, BOSSRARITY, is_player_boss, player_boss):
 
+        # Cooperative hunting
+        #Fight Check Function
+        def check(author, player_list):
+            def inner_check(message):
+                if message.author in player_list and not DebugMode:
+                    print("Group fight init error: player already exists!")
+                    return False
+                else:
+                    if message.content.lower() == "$polowanie":
+                        return True
+                    else:
+                        print("Group init error: wrong message!")
+                        return False
+            return inner_check
+        
+        player_list = [ctx.author]
+        timeout = 5
+        while True:
+            try:
+                another_atk_cmd = await self.bot.wait_for('message',
+                                                                timeout=timeout,
+                                                                check=check(ctx.author, player_list))
+                player_list.append(another_atk_cmd.author)
+                print(player_list)
+                if len(player_list) >= 3:
+                    break
+            except asyncio.TimeoutError:
+                break
+
+        player_list_string = ""
+        if len(player_list) > 0:
+            for player in player_list:
+                player_list_string = player_list_string + ("<@" + str(player.id) + "> ")
+            print(player_list)
+
         async with ctx.typing():
-            await ctx.channel.send('Zaatakowałeś potwora <@' + format(ctx.author.id) + '>! <:REEeee:790963160495947856> Wpisz pojawiające się słowa tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpisz słowa bez spacji! Przygotuj się!')
+            if len(player_list) > 1:
+                await ctx.channel.send('Rozpoczęliście polowanie ' + player_list_string + '<:REEeee:790963160495947856>! Wpiszcie **słowa przypisane do Was** tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpiszcie słowa bez spacji! Przygotujcie się!')
+            else:
+                await ctx.channel.send('Polowanie się rozpoczyna ' + player_list_string + '<:REEeee:790963160495947856>! Wpisz pojawiające się słowa tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpisz słowa bez spacji! Przygotuj się!')
 
         #Load modifiers
         modifiers = await functions_modifiers.load_modifiers(self, ctx)
 
         #Load pet skills
-        pet_skills = await functions_pets.get_pet_skills(self, ctx.author.id)
+        pet_skills_dict = {}
+        for player in player_list:
+            pet_skill = await functions_pets.get_pet_skills(self, player.id)
+            pet_skills_dict[player.id] = pet_skill
 
         await asyncio.sleep(9)
 
@@ -285,12 +339,12 @@ class functions_daily(commands.Cog, name="functions_daily"):
         await asyncio.sleep(1)
 
         #Random the message and requested action
-        requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **U N I K**", "Boss zawahał się! Teraz! Wpisz **A T A K**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **P A R U J**", 
-        "Boss próbuje ataku w nogi, wpisz **S K O K**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **B I E G**", "Boss atakuje w powietrzu, wpisz **T U R L A J**", "Boss rzuca klątwę, wpisz **C Z A R U J**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **B L O K**","Boss próbuje ataku w nogi, wpisz **S K A C Z**","Boss szarżuje na Ciebie, zrób coś, wpisz **A K C J A**", "Nie masz pojęcia co robić, wpisz **K R Z Y K**", "Musisz zrobić cokolwiek, wpisz **R U C H**", "Boss rzuca głazem w Twoją stronę, wpisz **P O S U W**", "Dostrzegasz szansę na uderzenie, wpisz **I M P E T**", "Pojawiła się chwila zawachania potwora, wpisz **Z R Y W**")]
+        requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Potwór szarżuje na Ciebie! Wpisz **U N I K**", "Potwór zawahał się! Teraz! Wpisz **A T A K**", "Potwór atakuje, nie masz miejsca na ucieczkę, wpisz **P A R U J**", 
+        "Potwór próbuje ataku w nogi, wpisz **S K O K**", "Potwór szykuje potężny atak o szerokim zasięgu, wpisz **B I E G**", "Potwór atakuje w powietrzu, wpisz **T U R L A J**", "Potwór rzuca klątwę, wpisz **C Z A R U J**", "Potwór atakuje, nie masz miejsca na ucieczkę, wpisz **B L O K**","Potwór próbuje ataku w nogi, wpisz **S K A C Z**","Potwór szarżuje na Ciebie, zrób coś, wpisz **A K C J A**", "Nie masz pojęcia co robić, wpisz **K R Z Y K**", "Musisz zrobić cokolwiek, wpisz **R U C H**", "Potwór rzuca głazem w Twoją stronę, wpisz **P O S U W**", "Dostrzegasz szansę na uderzenie, wpisz **I M P E T**", "Pojawiła się chwila zawachania potwora, wpisz **Z R Y W**")]
 
         bossHP = fRandomBossHp(BOSSRARITY)
         bossHP = int(bossHP * (1+(modifiers["hp_boost_perc"] - modifiers["hp_reduced_perc"]
-                                  - pet_skills["LOWHP_PERC"])/100))
+                                  - pet_skills_dict[player_list[0].id]["LOWHP_PERC"])/100))
         print("Wylosowane HP bossa: " + str(bossHP))
         iterator = 0
 
@@ -309,12 +363,13 @@ class functions_daily(commands.Cog, name="functions_daily"):
             iterator += 1
 
             choosenAction = random.randint(0,len(requestedAction[0])-1)
+            boss_hunter = random.choice(player_list)
 
             try:
-                if not random.random()*100 < pet_skills["REPLACE_PERC"]:
+                if not random.random()*100 < pet_skills_dict[boss_hunter.id]["REPLACE_PERC"]:
 
                     #Send proper action request on chat
-                    await ctx.channel.send(str(iterator) + '. ' + requestedAction[1][choosenAction])
+                    await ctx.channel.send(str(iterator) + '. **'  + str(boss_hunter) + "**: " + requestedAction[1][choosenAction])
 
                     #Longer timeout for the first action
                     if iterator == 1:
@@ -324,7 +379,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         print("Mob rarity before timeout calc: " + str(BOSSRARITY))
                         cmdTimeout = 5 - BOSSRARITY
                         cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"] +
-                                                    float(pet_skills["SLOW_PERC"]))/100
+                                    float(pet_skills_dict[boss_hunter.id]["SLOW_PERC"]))/100
                     msg = await self.bot.wait_for('message', check=check(ctx), timeout=cmdTimeout)
                     response = str(msg.content)
                 else:
@@ -337,37 +392,38 @@ class functions_daily(commands.Cog, name="functions_daily"):
                 if response.lower() == requestedAction[0][choosenAction]:
 
                     # Crit from pet
-                    if random.random()*100 < pet_skills["CRIT_PERC"]:
+                    if random.random()*100 < pet_skills_dict[boss_hunter.id]["CRIT_PERC"]:
                         iterator += 1
 
                     #Boss killed?
                     if iterator >= bossHP:
 
-                        await ctx.channel.send('Brawo <@' + format(ctx.author.id) + '>! Pokonałeś potwora! <:ok:990161663053422592>')
+                        await ctx.channel.send('Brawo ' + player_list_string + '<:ok:990161663053422592> Potwór pokonany!')
 
                         #Time record
                         endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
                         recordTime = endTime - startTime
                         recordTurnTime = recordTime/bossHP
-                        await ctx.channel.send('Zabicie potwora zajęło Ci: ' + str(recordTime).lstrip('0:00:') + ' sekundy! Jedna tura zajęła Ci średnio ' + str(recordTurnTime).lstrip('0:00:') + ' sekundy!')
+                        await ctx.channel.send('Zabicie potwora zajęło: ' + str(recordTime).lstrip('0:00:') + ' sekundy! Jedna tura zajęła średnio ' + str(recordTurnTime).lstrip('0:00:') + ' sekundy!')
                         previousRecord, Nick = await functions_database.readRecordTable(self, ctx)
 
-                        #Ranking - add points
-                        await functions_database.updateRankingTable(self, ctx, ctx.author.id, BOSSRARITY, 0)
+                        for hunter in player_list:
+                            #Ranking - add points
+                            await functions_database.updateRankingTable(self, ctx, hunter.id, BOSSRARITY, 0)
 
-                        #Randomize Loot
-                        drop_boost = modifiers["drop_boost_perc"] + float(pet_skills["DROP_PERC"])
-                        dropLoot = await randLoot(self, ctx, BOSSRARITY, ctx.author, drop_boost)
-
-                        #Send info about loot
-                        logChannel = self.bot.get_channel(881090112576962560)
-                        #await logChannel.send("<@291836779495948288>!   " + ctx.author.name + " otrzymał: \n" + dropLoot)
+                            #Randomize Loot
+                            if len(player_list) > 1:
+                                party_boost = 10 * (len(player_list) - 1)
+                            else:
+                                party_boost = 0
+                            drop_boost = modifiers["drop_boost_perc"] + float(pet_skills_dict[hunter.id]["DROP_PERC"]) + party_boost
+                            dropLoot = await randLoot(self, ctx, BOSSRARITY, hunter, drop_boost)
                         break
                     else:
                         print("Good command.")
                 else:
-                    if not random.random()*100 < pet_skills["DEF_PERC"]:
-                        await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie jutro lub poczekaj na modlitwę Crafterów i Patronów! <:RIP:912797982917816341>')
+                    if not random.random()*100 < pet_skills_dict[boss_hunter.id]["DEF_PERC"]:
+                        await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie jutro lub poczekaj na modlitwę Crafterów i Patronów! <:RIP:912797982917816341>\n\n*Możesz również dołączyć do polowania innych graczy.*')
                         logChannel = self.bot.get_channel(881090112576962560)
                         if is_player_boss == False:
                             pass
@@ -378,16 +434,17 @@ class functions_daily(commands.Cog, name="functions_daily"):
                             await functions_pets.assign_scroll(self, ctx, BOSSRARITY+1, player_boss.id)
 
                         if modifiers["ban_loser"] > 0:
-                            print("Hunter " + str(ctx.author.name) + " is dead.")
-                            await setDeadHunters(self, ctx, ctx.author.id)
+                            for hunter in player_list:
+                                print("Hunter " + str(ctx.author.name) + " is dead.")
+                                await setDeadHunters(self, ctx, hunter.id)
 
                         return False
                     else:
                         await ctx.channel.send('Pomyliłeś się, ale Twój towarzysz Cię chroni!')
 
             except asyncio.TimeoutError:
-                if not random.random()*100 < pet_skills["DEF_PERC"]:
-                    await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Odpocznij i spróbuj jutro! <:RIP:912797982917816341>')
+                if not random.random()*100 < pet_skills_dict[boss_hunter.id]["DEF_PERC"]:
+                    await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Odpocznij i spróbuj jutro! <:RIP:912797982917816341>\n\n*Możesz również dołączyć do polowania innych graczy.*')
                     logChannel = self.bot.get_channel(881090112576962560)
                     if is_player_boss == False:
                         pass

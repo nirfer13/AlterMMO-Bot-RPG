@@ -51,6 +51,11 @@
 		"id": 13,
 		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
 		"weight": 1
+	},
+	{
+		"id": 14,
+		"descr": "Otrzymałeś lustro wizualiów... Na ten moment nie wiesz do czego jest potrzebne.",
+		"weight": 1
 	}
 	],"loot_details_Epic": [
 	{
@@ -87,6 +92,11 @@
 		"id": 13,
 		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
 		"weight": 3
+	},
+	{
+		"id": 14,
+		"descr": "Otrzymałeś lustro wizualiów... Na ten moment nie wiesz do czego jest potrzebne.",
+		"weight": 3
 	}
 	],"loot_details_Legend": [
 	{
@@ -122,6 +132,11 @@
 	{
 		"id": 13,
 		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
+		"weight": 3
+	},
+	{
+		"id": 14,
+		"descr": "Otrzymałeś lustro wizualiów... Na ten moment nie wiesz do czego jest potrzebne.",
 		"weight": 3
 	}
 	]

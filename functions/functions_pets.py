@@ -93,12 +93,13 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         """Show author's pet and his scrolls."""
 
         print("Checking if user has a pet...")
-        sql = f"SELECT PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
+        sql = f"SELECT PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
         pet_exists = await self.bot.pg_con.fetch(sql)
         print(pet_exists)
         reroll_scroll = pet_exists[0][1]
         reroll_shard = pet_exists[0][2]
         rebirt_stones = pet_exists[0][3]
+        mirrors = pet_exists[0][4]
 
         if pet_exists:
             if pet_exists[0][0] > 0:
@@ -117,7 +118,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
                 # Add info about items
                 scroll_desc = (f"\n**<:RPGWarrior:995576809666134046> PRZEDMIOTY:**\nZwoje odrodzenia: {reroll_scroll}\n" +
-                f"Fragmenty zwojów: {reroll_shard}\nKamienie olśnienia: {rebirt_stones}")
+                f"Fragmenty zwojów: {reroll_shard}\nKamienie olśnienia: {rebirt_stones}" +
+                f"\nLustra wizualiów: {mirrors}")
 
                 sql = f"""SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
                 TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
@@ -214,7 +216,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     skill_desc += f"Talent: {talent}\n"
                     skill_desc += f"Wygląd: {pet_data[0][4]}\n\n"
                     if pet_data[0][9] > 0:
-                        skill_desc += f"Szansa na atak: {pet_data[0][9]} %\n"
+                        skill_desc += f"Szansa na zastąpienie ataku: {pet_data[0][9]} %\n"
                     if pet_data[0][8] > 0:
                         skill_desc += f"Szansa na krytyczne uderzenie: {pet_data[0][8]} %\n"
                     if pet_data[0][10] > 0:
@@ -335,7 +337,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         else:
             print("Player does not exist in PETOWNER database, so creating new record.")
             pet_id = await generate_pet_egg(self, ctx, player)
-            await new_record_petowners(self, player_id, pet_id, True, 0, 0, 0)
+            await new_record_petowners(self, player_id, pet_id, True, 0, 0, 0, 0)
             return True
 
         # Nothing happened.
@@ -417,9 +419,18 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         if player_exists:
             if player_exists[0][0] > 0:
 
-                sql = f"""UPDATE PETS SET PET_NAME = \'{name}\'
-                    WHERE PET_ID = {player_exists[0][0]};"""
-                await self.bot.pg_con.fetch(sql)
+                percentage = random.randint(0,100)
+                if percentage >= 0:
+                    sql = f"""UPDATE PETS SET PET_NAME = \'{name}\', SHINY = \'{True}\'
+                        WHERE PET_ID = {player_exists[0][0]};"""
+                    await self.bot.pg_con.fetch(sql)
+                    await ctx.channel.send("Towarzysz wygląda na bardzo wdzięcznego i dostrzegasz" +
+                                           ", że wygląda jakoś inaczej <:Susge:973591024322633858>")
+
+                else:
+                    sql = f"""UPDATE PETS SET PET_NAME = \'{name}\'
+                        WHERE PET_ID = {player_exists[0][0]};"""
+                    await self.bot.pg_con.fetch(sql)
 
                 await ctx.message.add_reaction("<:peepoBlush:984769061340737586>")
 
@@ -454,7 +465,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            await new_record_petowners(self, player_id, 0, False, 0, number, 0)
+            await new_record_petowners(self, player_id, 0, False, 0, number, 0, 0)
             return True
 
         # Nothing happened.
@@ -487,7 +498,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            await new_record_petowners(self, player_id, 0, False, number, 0, 0)
+            await new_record_petowners(self, player_id, 0, False, number, 0, 0, 0)
             return True
 
         # Nothing happened.
@@ -519,7 +530,39 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            await new_record_petowners(self, player_id, 0, False, 0, 0, number)
+            await new_record_petowners(self, player_id, 0, False, 0, 0, number, 0)
+            return True
+
+        # Nothing happened.
+        return False
+
+    global assign_mirror
+    async def assign_mirror(self, ctx, number, player_id):
+        """Assigning mirror to the player in database."""
+
+        player_id = int(player_id)
+        number = int(number)
+
+        sql = f"SELECT MIRRORS FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+        mirrors = await self.bot.pg_con.fetch(sql)
+
+        if mirrors:
+            if mirrors[0][0] is None:
+                print("Player exists and has no mirrors, we can update dabatase..")
+                sql = f"""UPDATE PETOWNER SET MIRRORS = {number}
+                WHERE PLAYER_ID = {player_id};"""
+                await self.bot.pg_con.fetch(sql)
+                return True
+            else:
+                print("Player exists and has some mirrors, we can update dabatase..")
+                number += mirrors[0][0]
+                sql = f"""UPDATE PETOWNER SET MIRRORS = {number}
+                WHERE PLAYER_ID = {player_id};"""
+                await self.bot.pg_con.fetch(sql)
+                return True
+        else:
+            print("Player doest not exists in PETOWNER database, we can update dabatase..")
+            await new_record_petowners(self, player_id, 0, False, 0, 0, 0, number)
             return True
 
         # Nothing happened.
@@ -719,12 +762,14 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
 
 async def new_record_petowners(self, player_id: int, pet_id: int, pet_owned: bool,
-                                reroll_scroll: int, reroll_scroll_shard: int, rebirth_stones: int):
+                                reroll_scroll: int, reroll_scroll_shard: int, rebirth_stones: int,
+                                mirrors: int):
     """New record of user in petowners database."""
 
     sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
-    REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES)
-    VALUES ({player_id},{pet_id},{pet_owned},{reroll_scroll},{reroll_scroll_shard},{rebirth_stones});"""
+    REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS)
+    VALUES ({player_id},{pet_id},{pet_owned},{reroll_scroll},{reroll_scroll_shard},{rebirth_stones},
+    {mirrors});"""
     await self.bot.pg_con.fetch(sql)
 
 def setup(bot):

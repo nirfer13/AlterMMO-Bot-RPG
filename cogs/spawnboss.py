@@ -12,7 +12,7 @@ from discord.errors import ClientException
 from discord.ext import commands, tasks
 from discord.message import Message
 from discord.user import ClientUser
-from numpy import busday_count
+from enum import Enum
 
 from functions.functions_boss import fRandomBossHp
 
@@ -24,6 +24,7 @@ import functions_modifiers
 import functions_pets
 import functions_daily
 import functions_expsum
+import functions_events
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -37,8 +38,18 @@ global BOSSALIVE
 BOSSALIVE = 0
 
 #Shrine alive
-global SHRINEALIVE
-SHRINEALIVE = 0
+global EVENT_ALIVE
+EVENT_ALIVE = 0
+
+#Define event type enum
+class EventType(Enum):
+    NONE = 0
+    SHRINE = 1
+    CHEST = 2
+    INVASION = 3
+
+global EVENT_TYPE
+EVENT_TYPE = EventType.NONE
 
 #Boss rarity
 global BOSSRARITY
@@ -70,7 +81,7 @@ class message(commands.Cog, name="spawnBoss"):
         self.task2 = self.bot.loop.create_task(self.weekly_ranking(ctx))
 
         #Chest spawn task create
-        self.task3 = self.bot.loop.create_task(self.spawn_modifiers_shrine(ctx))
+        self.task3 = self.bot.loop.create_task(self.spawn_event(ctx))
 
         #Check if it is necessary to resume boss spawn
         print("Resume?: " + str(respawnResume))
@@ -106,12 +117,13 @@ class message(commands.Cog, name="spawnBoss"):
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(40)
 
-    async def spawn_modifiers_shrine(self, ctx):
-        """Spawns a shrine when boss is not alive. Shrine drops different modifiers."""
+    async def spawn_event(self, ctx):
+        """Spawns an event.."""
 
-        print("Spawning shrine task starting...")
-        global SHRINEALIVE, BOSSALIVE, BUSY
-        SHRINEALIVE = 0
+        print("Spawning event task starting...")
+        global EVENT_ALIVE, EVENT_TYPE, BOSSALIVE, BUSY
+        EVENT_ALIVE = 0
+        EVENT_TYPE = EventType.NONE
 
         while True:
             if DebugMode is False:
@@ -120,19 +132,39 @@ class message(commands.Cog, name="spawnBoss"):
                 resp_time = random.randint(10, 15)
 
             await asyncio.sleep(resp_time)
-
-            if SHRINEALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
-                await functions_modifiers.spawn_modifier_shrine(self, ctx)
-                SHRINEALIVE = 1
+            event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION]
+            EVENT_TYPE = random.choices(event_list, weights=(0, 0, 1))[0]
+            print("Event type: " + str(EVENT_TYPE))
+            if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
+                if EVENT_TYPE == EventType.SHRINE:
+                    await functions_modifiers.spawn_modifier_shrine(self, ctx)
+                    EVENT_ALIVE = 1
+                elif EVENT_TYPE == EventType.CHEST:
+                    await functions_events.spawn_chest(self, ctx)
+                    EVENT_ALIVE = 1
+                elif EVENT_TYPE == EventType.INVASION:
+                    EVENT_ALIVE = 1
+                    BUSY = 1
+                    await functions_events.spawn_invasion(self, ctx)
+                    EVENT_ALIVE = 0
+                    BUSY = 0
+                    print("Invasion ended.")
             elif BOSSALIVE > 2:
                 print("Boss spawned. Skip.")
-            elif SHRINEALIVE == 1 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
-                print("Shrine already spawned. Spawn again.")
-                await functions_modifiers.spawn_modifier_shrine(self, ctx)
             elif BUSY == 1:
                 print("Bot busy, skip.")
+            elif EVENT_ALIVE == 1 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
+                print("Event already spawned. Spawn again.")
+                if EVENT_TYPE == EventType.SHRINE:
+                    await functions_modifiers.spawn_modifier_shrine(self, ctx)
+                elif EVENT_TYPE == EventType.CHEST:
+                    await functions_events.spawn_chest(self, ctx)
+                elif EVENT_TYPE == EventType.INVASION:
+                    await functions_events.spawn_invasion(self, ctx)
+                    EVENT_ALIVE = 0
+                    print("Invasion ended.")
             else:
-                print("Unknow state of shrine.")
+                print("Unknow state of event.")
 
     #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
@@ -140,7 +172,7 @@ class message(commands.Cog, name="spawnBoss"):
             global respTime
             global BOSSALIVE
             global BOSSRARITY
-            global SHRINEALIVE
+            global EVENT_ALIVE
             global BUSY
             global respawnResume
             #=== Episode 0
@@ -185,7 +217,7 @@ class message(commands.Cog, name="spawnBoss"):
 
                     wait_loop = 0
                     while BUSY == 1 and wait_loop <= 5:
-                        await asyncio.sleep(60)
+                        await asyncio.sleep(70)
                         wait_loop += 1
                         print("Waiting in loop, beacuse bot BUSY")
                     await functions_general.fClear(self, ctx)
@@ -215,7 +247,7 @@ class message(commands.Cog, name="spawnBoss"):
             #=== Episode 3 - Boss respawn
             if BOSSALIVE == 3:
                 print("Channel cleared.")
-                SHRINEALIVE = 0
+                EVENT_ALIVE = 0
                 await functions_general.fClear(self, ctx)
                 print("Boss appeared.")
                 #Send info about boss spawn
@@ -257,19 +289,31 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(name="modlitwa", brief="Patron or Creator can pray to the shrine.")
     async def ShrinePray(self, ctx):
         print("Praying...")
-        global SHRINEALIVE
+        global EVENT_ALIVE, EVENT_TYPE
 
-        if SHRINEALIVE == 1:
-            SHRINEALIVE = 0
+        if EVENT_ALIVE == 1 and EVENT_TYPE == EventType.SHRINE:
+            EVENT_ALIVE = 0
             crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
             if crafter in ctx.message.author.roles:
                 await ctx.message.add_reaction("<:prayge:1063891597760139304>")
                 await functions_modifiers.random_modifiers(self, ctx)
             else:
                 await ctx.channel.send("Nie umiesz pacierza. Poczekaj na kogoś bardziej wierzącego. <:prayge:1063891597760139304>")
-                SHRINEALIVE = 1
+                EVENT_ALIVE = 1
         else:
             await ctx.channel.send("Do kogo Ty chcesz się modlić? Przecież tu nic nie ma...")
+
+    # Open a chest command
+    @commands.command(name="skrzynia", brief="Everyone can open a chest.")
+    async def OpenChest(self, ctx):
+        print("Opening chest...")
+        global EVENT_ALIVE, EVENT_TYPE
+
+        if EVENT_ALIVE == 1 and EVENT_TYPE == EventType.CHEST:
+            EVENT_ALIVE = 0
+            await functions_events.open_chest(self, ctx)
+        else:
+            await ctx.channel.send("Powiedz mi... Czy ta skrzynia jest tutaj z nami w pokoju? <:Hmm:984767035617730620>")
 
     # command to attack the boss - rarity 0, 1, 2
     @commands.command(pass_context=True, name="zaatakuj", brief="Attacking the boss")
@@ -366,10 +410,10 @@ class message(commands.Cog, name="spawnBoss"):
             await ctx.channel.send("Teraz pora na walkę z prawdziwym bossem, nie mieszaj się leszczyku <:madge:882184635474386974>")
         elif BOSSALIVE > 4:
             pass
-        elif on_cd:
-            await ctx.channel.send("Zregeneruj się i spróbuj zapolować jutro <:Bedge:970576892874854400> Niektóre modlitwy przy kapliczkach również są w stanie zregenerować Twoje siły, więc bądź czujny!")
         elif BUSY == 1:
             pass
+        elif on_cd:
+            await ctx.channel.send("Zregeneruj się i spróbuj zapolować jutro <:Bedge:970576892874854400> Niektóre modlitwy przy kapliczkach również są w stanie zregenerować Twoje siły, więc bądź czujny!")
 
     # command to flex boss slayer
     @commands.command(pass_context=True, name="flex", brief="Boss slayer flex")
@@ -467,7 +511,7 @@ class message(commands.Cog, name="spawnBoss"):
         #await self.bot.pg_con.execute(sql)
 
         sql ='''ALTER TABLE PETOWNER
-        ADD REBIRTH_STONES NUMERIC DEFAULT 0;
+        ADD MIRRORS NUMERIC DEFAULT 0;
         '''
         await self.bot.pg_con.execute(sql)
 

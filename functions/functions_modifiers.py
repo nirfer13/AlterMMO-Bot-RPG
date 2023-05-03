@@ -32,7 +32,7 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
 
         e_thumb = 'https://www.altermmo.pl/wp-content/uploads/Prayge.png'
 
-        image_name = "shrines/" + str(random.randint(0,3)) + ".png"
+        image_name = "events/shrines/" + str(random.randint(0,3)) + ".png"
         file=discord.File(image_name)
 
         #image

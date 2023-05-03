@@ -76,6 +76,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         drop_message += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during rebirth stone assigning.")
+                elif loot['id'] == 14:
+                    check = await functions_pets.assign_mirror(self, ctx, 1, BossHunter.id)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during mirror assigning.")
                 # Other drop
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
@@ -125,6 +131,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         drop_message += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during rebirth stone assigning.")
+                elif loot['id'] == 14:
+                    check = await functions_pets.assign_mirror(self, ctx, 1, BossHunter.id)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during mirror assigning.")
                 # Other drop
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
@@ -356,7 +368,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         if not random.random()*100 < pet_skills["INIT_PERC"]:
 
             async with ctx.typing():
-                await ctx.channel.send('Jesteś sam?... 120... *Wpisz **$zaatakuj**, jeśli chcesz zawalczyć o bossa!*')
+                await ctx.channel.send('Jesteś sam?... 120... *Inny gracz może wpisać **$zaatakuj**, jeśli chce zawalczyć o bossa!*')
             respawnResume = False
             pre_fight = False
             mainUser = ctx.author
