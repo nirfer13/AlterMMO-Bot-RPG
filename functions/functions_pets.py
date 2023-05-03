@@ -420,7 +420,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             if player_exists[0][0] > 0:
 
                 percentage = random.randint(0,100)
-                if percentage >= 0:
+                if percentage >= 85:
                     sql = f"""UPDATE PETS SET PET_NAME = \'{name}\', SHINY = \'{True}\'
                         WHERE PET_ID = {player_exists[0][0]};"""
                     await self.bot.pg_con.fetch(sql)
