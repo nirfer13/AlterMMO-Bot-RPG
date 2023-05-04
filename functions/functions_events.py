@@ -91,7 +91,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         if DebugMode:
             await asyncio.sleep(10)
         else:
-            await asyncio.sleep(300)
+            await asyncio.sleep(600)
 
         users = []
         message = await ctx.channel.fetch_message(msg.id)
@@ -103,7 +103,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
 
         chance = random.randint(0,100)
 
-        if chance <= len(users)*10 + 50:
+        if chance <= len(users)*10 + 10:
             for user in users:
                 rarity = random.randint(0,100)
                 if rarity >= 90:

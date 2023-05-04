@@ -127,13 +127,13 @@ class message(commands.Cog, name="spawnBoss"):
 
         while True:
             if DebugMode is False:
-                resp_time = random.randint(2700, 7200)
+                resp_time = random.randint(1800, 5000)
             elif DebugMode is True:
                 resp_time = random.randint(10, 15)
 
             await asyncio.sleep(resp_time)
             event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION]
-            EVENT_TYPE = random.choices(event_list, weights=(1, 1, 1))[0]
+            EVENT_TYPE = random.choices(event_list, weights=(2, 3, 1))[0]
             print("Event type: " + str(EVENT_TYPE))
             if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
                 if EVENT_TYPE == EventType.SHRINE:
