@@ -19,7 +19,7 @@
 	{
 		"id": 12,
 		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
-		"weight": 10
+		"weight": 5
 	}
 	],"loot_details_Rare": [
 	{
@@ -45,7 +45,7 @@
 	{
 		"id": 12,
 		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
-		"weight": 15
+		"weight": 7
 	},
 	{
 		"id": 13,
@@ -86,7 +86,7 @@
 	{
 		"id": 12,
 		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
-		"weight": 25
+		"weight": 12
 	},
 	{
 		"id": 13,
@@ -127,7 +127,7 @@
 	{
 		"id": 12,
 		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
-		"weight": 25
+		"weight": 12
 	},
 	{
 		"id": 13,
