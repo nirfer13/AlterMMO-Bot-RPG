@@ -243,11 +243,11 @@ class functions_daily(commands.Cog, name="functions_daily"):
     def fRandomBossHp(BOSSRARITY):
         iBOSSRARITY = int(BOSSRARITY)
         if iBOSSRARITY == 0:
-            minHp = 2
-            maxHp = 4
+            minHp = 3
+            maxHp = 5
         elif iBOSSRARITY == 1:
-            minHp = 5
-            maxHp = 8
+            minHp = 6
+            maxHp = 9
         elif iBOSSRARITY == 2:
             minHp = 9
             maxHp = 12
@@ -292,7 +292,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
             return inner_check
         
         player_list = [ctx.author]
-        timeout = 5
+        timeout = 8
         while True:
             try:
                 another_atk_cmd = await self.bot.wait_for('message',
@@ -326,7 +326,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
             pet_skill = await functions_pets.get_pet_skills(self, player.id)
             pet_skills_dict[player.id] = pet_skill
 
-        await asyncio.sleep(9)
+        await asyncio.sleep(5)
 
         #Start time counting
         startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
@@ -369,7 +369,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
                 if not random.random()*100 < pet_skills_dict[boss_hunter.id]["REPLACE_PERC"]:
 
                     #Send proper action request on chat
-                    await ctx.channel.send(str(iterator) + '. **'  + str(boss_hunter) + "**: " + requestedAction[1][choosenAction])
+                    await ctx.channel.send(str(iterator) + ". **"  + str(boss_hunter) + "**: " + requestedAction[1][choosenAction])
 
                     #Longer timeout for the first action
                     if iterator == 1:
@@ -384,10 +384,13 @@ class functions_daily(commands.Cog, name="functions_daily"):
                     response = str(msg.content)
                 else:
                     response = requestedAction[0][choosenAction]
+                    
                     #Send proper action request on chat
-                    await ctx.channel.send('~~' + str(iterator) + '. ' +
+                    msg = await ctx.channel.send('~~' + str(iterator) + ". **" +
+                                                str(boss_hunter) + "**: " +
                                             requestedAction[1][choosenAction] +
                                             '~~. Twój towarzysz wyprowadza atak!')
+                    msg.author = boss_hunter
 
                 if response.lower() == requestedAction[0][choosenAction] and msg.author == boss_hunter:
 

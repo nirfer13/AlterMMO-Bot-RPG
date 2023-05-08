@@ -824,11 +824,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         response = str(msg.content)
                     else:
                         response = requestedAction[0][choosenAction]
-                        msg.author = boss_hunter
                         #Send proper action request on chat
-                        await ctx.channel.send('~~' + str(iterator) + '. ' + str(boss_hunter) +
+                        msg = await ctx.channel.send('~~' + str(iterator) + '. ' + str(boss_hunter) +
                                                ':' + requestedAction[1][choosenAction] +
                                                '~~. Twój towarzysz wyprowadza atak!')
+                        msg.author = boss_hunter
 
                     if response.lower() == requestedAction[0][choosenAction] and msg.author == boss_hunter:
                         #Boss killed?
