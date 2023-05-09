@@ -343,6 +343,218 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         # Nothing happened.
         return False
 
+    global store_pet
+    async def store_pet(self, ctx, slot):
+        """Store a pet to free space in database, but first check if it is possible."""
+
+        player_id = int(ctx.author.id)
+        slot = int(slot)
+
+        sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+        pet_exists = await self.bot.pg_con.fetch(sql)
+
+        if pet_exists:
+            if pet_exists[0][0] > 0:
+                print("Player exists in PETOWNER database and it already has pet.")
+                if slot == 1:
+                    slot_name = "PET_ID_ALT1"
+                elif slot == 2:
+                    slot_name = "PET_ID_ALT2"
+                else:
+                    await ctx.channel.send("Każdy gracz ma tylko dwa miejsca na przechowanie slotów - 1 oraz 2, <@" + str(ctx.author.id) + ">! Wpisz np. **$schowajtowarzysza 1**.")
+
+                sql = f"SELECT {slot_name} FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+                stored_pet = await self.bot.pg_con.fetch(sql)
+
+                if stored_pet[0][0] > 0:
+                    sql = (f"""UPDATE PETOWNER SET {slot_name} = {pet_exists[0][0]},
+                    PET_ID = {stored_pet[0][0]}""")
+                    await self.bot.pg_con.fetch(sql)
+                else:
+                    sql = (f"""UPDATE PETOWNER SET {slot_name} = {pet_exists[0][0]},
+                    PET_ID = {0}""")
+                    await self.bot.pg_con.fetch(sql)
+
+                await ctx.channel.send("Towarzysz został ulokowany w stajni <:peepoBlush:984769061340737586>")
+
+                return True
+            else:
+                print("Player exists in PETOWNER database and he has not pet. Assigning...")
+                await ctx.channel.send("Niestety nie posiadasz aktualnie żadnego peta, <@" + str(ctx.author.id) + ">. Możesz sprawdzić swoją stajnie wpisując **$stajnia**.")
+                return False
+        else:
+            print("Player does not exist in PETOWNER database, so creating new record.")
+            await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
+            return False
+
+        # Nothing happened.
+        return False
+    
+    global unstore_pet
+    async def unstore_pet(self, ctx, slot):
+        """Take a pet from a space in database, but first check if it is possible."""
+
+        player_id = int(ctx.author.id)
+        slot = int(slot)
+
+        if slot == 1:
+            slot_name = "PET_ID_ALT1"
+        elif slot == 2:
+            slot_name = "PET_ID_ALT2"
+        else:
+            await ctx.channel.send("Każdy gracz ma tylko dwa miejsca na przechowanie slotów - 1 oraz 2, <@" + str(ctx.author.id) + ">! Wpisz np. **$wyciagnijtowarzysza 1**.")
+            return False
+
+        sql = f"SELECT {slot_name } FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+        stored_pet = await self.bot.pg_con.fetch(sql)
+
+        if stored_pet:
+            if stored_pet[0][0] > 0:
+                print("Pet exists in PETOWNER database.")
+
+                sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+                current_pet = await self.bot.pg_con.fetch(sql)
+
+                if current_pet[0][0] > 0:
+                    sql = (f"""UPDATE PETOWNER SET {slot_name} = {current_pet[0][0]},
+                    PET_ID = {stored_pet[0][0]}""")
+                    await self.bot.pg_con.fetch(sql)
+                    await ctx.channel.send("Nowy towarzysz został wyciągnięty ze stajni, a stary został w niej schowany <:peepoBlush:984769061340737586>")
+                    return True
+                else:
+                    sql = (f"""UPDATE PETOWNER SET {slot_name} = {0},
+                    PET_ID = {stored_pet[0][0]}""")
+                    await self.bot.pg_con.fetch(sql)
+                    await ctx.channel.send("Towarzysz został wyciągnięty ze stajni <:peepoBlush:984769061340737586>")
+                    return True
+            else:
+                print("Stored pet does not exist...")
+                await ctx.channel.send("W stajni nie ma towarzysza na podanym miejscu. Sprawdź stajnie wpisując **$stajnia**.")
+                return False
+        else:
+            print("Player does not exist in PETOWNER database, so creating new record.")
+            await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
+            return False
+
+        # Nothing happened.
+        return False
+    
+    global check_stable
+    async def check_stable(self, ctx):
+        """Check all pets in stable"""
+
+        player_id = int(ctx.author.id)
+
+        sql = f"SELECT PET_ID, PET_ID_ALT1, PET_ID_ALT2 FROM PETOWNER WHERE PLAYER_ID = {player_id};"
+        pets = await self.bot.pg_con.fetch(sql)
+
+        if pets:
+            if pets[0][0] > 0:
+                # PET 0
+                print("Main pet exists in PETOWNER database.")
+                sql = f"SELECT PET_NAME, PET_LVL, TYPE FROM PETS WHERE PET_ID = {pets[0][0]};"
+                pet0 = await self.bot.pg_con.fetch(sql)
+
+                #Check if pet has name
+                if pet0[0][2] == "Bear":
+                    polish_type = "Niedźwiedź"
+                elif pet0[0][2] == "Cat":
+                    polish_type = "Kot"
+                elif pet0[0][2] == "Boar":
+                    polish_type = "Dzik"
+                elif pet0[0][2] == "Dragon":
+                    polish_type = "Smok"
+                elif pet0[0][2] == "Phoenix":
+                    polish_type = "Feniks"
+                elif pet0[0][2] == "Rabbit":
+                    polish_type = "Królik"
+                elif pet0[0][2] == "Sheep":
+                    polish_type = "Owca"
+                elif pet0[0][2] == "Unicorn":
+                    polish_type = "Jednorożec"
+                else:
+                    polish_type = ""
+
+                pet1_desc = f"Obecnie posiadany pet: {polish_type} {pet0[0][0]} ({pet0[0][1]} LVL).\n"
+            else:
+                pet1_desc = "Obecnie posiadany pet: Brak.\n"
+
+            if pets[0][1] > 0:
+                # PET 1
+                print("Alt pet 1 exists in PETOWNER database.")
+                sql = f"SELECT PET_NAME, PET_LVL, TYPE FROM PETS WHERE PET_ID = {pets[0][1]};"
+                pet0 = await self.bot.pg_con.fetch(sql)
+
+                #Check if pet has name
+                if pet0[0][2] == "Bear":
+                    polish_type = "Niedźwiedź"
+                elif pet0[0][2] == "Cat":
+                    polish_type = "Kot"
+                elif pet0[0][2] == "Boar":
+                    polish_type = "Dzik"
+                elif pet0[0][2] == "Dragon":
+                    polish_type = "Smok"
+                elif pet0[0][2] == "Phoenix":
+                    polish_type = "Feniks"
+                elif pet0[0][2] == "Rabbit":
+                    polish_type = "Królik"
+                elif pet0[0][2] == "Sheep":
+                    polish_type = "Owca"
+                elif pet0[0][2] == "Unicorn":
+                    polish_type = "Jednorożec"
+                else:
+                    polish_type = ""
+
+                pet2_desc = f"Pet w stajni 1: {polish_type} {pet0[0][0]} ({pet0[0][1]} LVL).\n"
+            else:
+                pet2_desc = "Pet w stajni 1: Brak.\n"
+
+            if pets[0][2] > 0:
+                # PET 2
+                print("Alt pet 2 exists in PETOWNER database.")
+                sql = f"SELECT PET_NAME, PET_LVL, TYPE FROM PETS WHERE PET_ID = {pets[0][2]};"
+                pet0 = await self.bot.pg_con.fetch(sql)
+
+                #Check if pet has name
+                if pet0[0][2] == "Bear":
+                    polish_type = "Niedźwiedź"
+                elif pet0[0][2] == "Cat":
+                    polish_type = "Kot"
+                elif pet0[0][2] == "Boar":
+                    polish_type = "Dzik"
+                elif pet0[0][2] == "Dragon":
+                    polish_type = "Smok"
+                elif pet0[0][2] == "Phoenix":
+                    polish_type = "Feniks"
+                elif pet0[0][2] == "Rabbit":
+                    polish_type = "Królik"
+                elif pet0[0][2] == "Sheep":
+                    polish_type = "Owca"
+                elif pet0[0][2] == "Unicorn":
+                    polish_type = "Jednorożec"
+                else:
+                    polish_type = ""
+
+                pet3_desc = f"Pet w stajni 2: {polish_type} {pet0[0][0]} ({pet0[0][1]} LVL).\n"
+            else:
+                pet3_desc = "Pet w stajni 2: Brak.\n"
+
+            embed = discord.Embed(title="Stajnia",
+                                description="Oto Twoja stajnia, <@" + str(ctx.author.id) + "> <:peepoBlush:984769061340737586>\n\n" + pet1_desc + pet2_desc + pet3_desc,
+                                color=0x34cceb, )
+            embed.set_footer(text = "Możesz schować lub wyciągnąć peta za pomocą komend $schowajtowarzysza oraz $wyciagnijtowarzysza.")
+            embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png')
+            await ctx.send(embed=embed)
+
+            
+        else:
+            print("Player does not exist in PETOWNER database, so creating new record.")
+            await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
+            return False
+
+        # Nothing happened.
+        return False
+
     global reassign_pet
     async def reassign_pet(self, pet_id, player_id):
         """Ressigning pet to player in database, but first check if it is possible."""

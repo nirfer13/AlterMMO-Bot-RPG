@@ -110,12 +110,12 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_database.resetRankingTable(self)
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
                 return
-            if timestamp.strftime("%H:%M UTC") == "04:05 UTC":
+            if timestamp.strftime("%H:%M UTC") == "04:10 UTC":
                 await functions_daily.clear_daily_file(self)
-                await ctx.channel.send("Noc jest piękna i spokojna. Można wyruszyć na polowanie...")
-                await asyncio.sleep(300)
+                #await ctx.channel.send("Noc jest piękna i spokojna. Można wyruszyć na polowanie...")
+                await asyncio.sleep(60)
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
-            await asyncio.sleep(40)
+            await asyncio.sleep(35)
 
     async def spawn_event(self, ctx):
         """Spawns an event.."""
@@ -383,6 +383,30 @@ class message(commands.Cog, name="spawnBoss"):
         print("Discarding author's pet")
         await functions_pets.discard_pet(self, ctx)
 
+    @commands.command(name="schowajtowarzysza", brief="Stores author's pet.")
+    async def store_pet(self, ctx, slot):
+        await functions_pets.store_pet(self, ctx, slot)
+
+    @store_pet.error
+    async def storepet_error(self, ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("Po spacji podaj numer miejsca w stajni, do którego chcesz schować " +
+                           "towarzysza (1 lub 2) np. **$schowajtowarzysza 1**.")
+    
+    @commands.command(name="wyciagnijtowarzysza", brief="Stores author's pet.")
+    async def unstore_pet(self, ctx, slot):
+        await functions_pets.unstore_pet(self, ctx, slot)
+
+    @unstore_pet.error
+    async def unstorepet_error(self, ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("Po spacji podaj numer miejsca w stajni, z którego chcesz wyjąć " +
+                           "towarzysza (1 lub 2) np. **$wyciagnijtowarzysza 1**.")
+            
+    @commands.command(name="stajnia", brief="Show player's stable.")
+    async def check_stable(self, ctx):
+        await functions_pets.check_stable(self, ctx)
+
     @commands.command(name="nazwij", brief="Set the name of author's pet.")
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)
     async def name_pet(self, ctx, name):
@@ -518,7 +542,12 @@ class message(commands.Cog, name="spawnBoss"):
         #await self.bot.pg_con.execute(sql)
 
         sql ='''ALTER TABLE PETOWNER
-        ADD MIRRORS NUMERIC DEFAULT 0;
+        ADD PET_ID_ALT1 NUMERIC DEFAULT 0;
+        '''
+        await self.bot.pg_con.execute(sql)
+
+        sql ='''ALTER TABLE PETOWNER
+        ADD PET_ID_ALT2 NUMERIC DEFAULT 0;
         '''
         await self.bot.pg_con.execute(sql)
 

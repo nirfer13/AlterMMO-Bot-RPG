@@ -301,11 +301,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
     def fRandomBossHp(BOSSRARITY):
         iBOSSRARITY = int(BOSSRARITY)
         if iBOSSRARITY == 0:
-            minHp = 2
-            maxHp = 4
+            minHp = 4
+            maxHp = 6
         elif iBOSSRARITY == 1:
-            minHp = 5
-            maxHp = 8
+            minHp = 6
+            maxHp = 9
         elif iBOSSRARITY == 2:
             minHp = 9
             maxHp = 12
