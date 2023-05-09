@@ -475,6 +475,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 else:
                     polish_type = ""
 
+                if pet0[0][1] == 0:
+                    polish_type = "Jajko"
+
                 pet1_desc = f"Obecnie posiadany pet: {polish_type} {pet0[0][0]} ({pet0[0][1]} LVL).\n"
             else:
                 pet1_desc = "Obecnie posiadany pet: Brak.\n"
@@ -505,6 +508,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 else:
                     polish_type = ""
 
+                if pet0[0][1] == 0:
+                    polish_type = "Jajko"
+
                 pet2_desc = f"Pet w stajni 1: {polish_type} {pet0[0][0]} ({pet0[0][1]} LVL).\n"
             else:
                 pet2_desc = "Pet w stajni 1: Brak.\n"
@@ -534,6 +540,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Jednorożec"
                 else:
                     polish_type = ""
+
+                if pet0[0][1] == 0:
+                    polish_type = "Jajko"
 
                 pet3_desc = f"Pet w stajni 2: {polish_type} {pet0[0][0]} ({pet0[0][1]} LVL).\n"
             else:
