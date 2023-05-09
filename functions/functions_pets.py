@@ -368,11 +368,11 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
                 if stored_pet[0][0] > 0:
                     sql = (f"""UPDATE PETOWNER SET {slot_name} = {pet_exists[0][0]},
-                    PET_ID = {stored_pet[0][0]}""")
+                    PET_ID = {stored_pet[0][0]} WHERE PLAYER_ID = {player_id};""")
                     await self.bot.pg_con.fetch(sql)
                 else:
                     sql = (f"""UPDATE PETOWNER SET {slot_name} = {pet_exists[0][0]},
-                    PET_ID = {0}""")
+                    PET_ID = {0} WHERE PLAYER_ID = {player_id};""")
                     await self.bot.pg_con.fetch(sql)
 
                 await ctx.channel.send("Towarzysz został ulokowany w stajni <:peepoBlush:984769061340737586>")
@@ -417,13 +417,13 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
                 if current_pet[0][0] > 0:
                     sql = (f"""UPDATE PETOWNER SET {slot_name} = {current_pet[0][0]},
-                    PET_ID = {stored_pet[0][0]}""")
+                    PET_ID = {stored_pet[0][0]} WHERE PLAYER_ID = {player_id};""")
                     await self.bot.pg_con.fetch(sql)
                     await ctx.channel.send("Nowy towarzysz został wyciągnięty ze stajni, a stary został w niej schowany <:peepoBlush:984769061340737586>")
                     return True
                 else:
                     sql = (f"""UPDATE PETOWNER SET {slot_name} = {0},
-                    PET_ID = {stored_pet[0][0]}""")
+                    PET_ID = {stored_pet[0][0]} WHERE PLAYER_ID = {player_id};""")
                     await self.bot.pg_con.fetch(sql)
                     await ctx.channel.send("Towarzysz został wyciągnięty ze stajni <:peepoBlush:984769061340737586>")
                     return True
