@@ -376,12 +376,16 @@ class message(commands.Cog, name="spawnBoss"):
 
     @commands.command(name="towarzysz", brief="Shows author's pet.")
     async def show_pet(self, ctx):
-        await functions_pets.show_pet(self, ctx)
+        await functions_pets.show_pet(self, ctx, ctx.author)
 
     @commands.command(name="porzucam", brief="Discards author's pet.")
     async def discard_pet(self, ctx):
         print("Discarding author's pet")
         await functions_pets.discard_pet(self, ctx)
+
+    @commands.command(name="odrodzenie", brief="Reroll the pet.")
+    async def reroll_pet(self, ctx):
+        await functions_pets.reroll_pet(self, ctx, ctx.author)
 
     @commands.command(name="schowajtowarzysza", brief="Stores author's pet.")
     async def store_pet(self, ctx, slot):
