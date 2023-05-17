@@ -359,7 +359,6 @@ class functions_boss(commands.Cog, name="functions_boss"):
     global singleInit
     async def singleInit(self, ctx, BOSSALIVE, BOSSRARITY):
         global respawnResume
-        await ctx.message.add_reaction("⚔️")
 
         #Load pet skills
         pet_skills = await functions_pets.get_pet_skills(self, ctx.author.id)
@@ -367,8 +366,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         # Check if init skill is active
         if not random.random()*100 < pet_skills["INIT_PERC"]:
 
-            async with ctx.typing():
-                await ctx.channel.send('Jesteś sam?... 120... *Inny gracz może wpisać **$zaatakuj**, jeśli chce zawalczyć o bossa!*')
+            await ctx.channel.send('Jesteś sam?... 120... *Inny gracz może wpisać **$zaatakuj**, jeśli chce zawalczyć o bossa!*')
             respawnResume = False
             pre_fight = False
             mainUser = ctx.author
