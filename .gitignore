@@ -6,3 +6,4 @@ init.py
 bossModifier.json
 daily_player_cd.txt
 expSummary.json
+*.pyc

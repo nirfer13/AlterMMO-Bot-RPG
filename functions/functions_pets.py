@@ -23,6 +23,7 @@ class PetType(str, Enum):
     PHOENIX = 'Phoenix'
     UNICORN = 'Unicorn'
     SNAKE = 'Snake'
+    ANIME_GIRL = 'AnimeGirl'
 
 class FunctionsPets(commands.Cog, name="FunctionsPets"):
     """Class with all functions used for pets."""
@@ -179,6 +180,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         polish_type = "Jednorożec"
                     elif pet_data[0][6] == "Snake":
                         polish_type = "Wąż"
+                    elif pet_data[0][6] == "AnimeGirl":
+                        polish_type = "Dziewczynka Anime"
                     else:
                         polish_type = ""
                     if pet_data[0][1] != "Towarzysz":
@@ -262,7 +265,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         if crafter in player.roles:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
-                         PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE]
+                         PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
+                         PetType.ANIME_GIRL]
         else:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP]
@@ -274,7 +278,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         percentage = random.randint(0,100)
         shiny = percentage >= 95
 
-        if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE]:
+        if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
+                   PetType.ANIME_GIRL]:
             quality = "Premium"
             variant = random.randint(0,1)
         else:
@@ -594,6 +599,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Jednorożec"
                 elif pet0[0][2] == "Snake":
                     polish_type = "Wąż"
+                elif pet0[0][2] == "AnimeGirl":
+                    polish_type = "Dziewczynka Anime"
                 else:
                     polish_type = ""
 
@@ -629,6 +636,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Jednorożec"
                 elif pet0[0][2] == "Snake":
                     polish_type = "Wąż"
+                elif pet0[0][2] == "AnimeGirl":
+                    polish_type = "Dziewczynka Anime"
                 else:
                     polish_type = ""
 
@@ -664,6 +673,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Jednorożec"
                 elif pet0[0][2] == "Snake":
                     polish_type = "Wąż"
+                elif pet0[0][2] == "AnimeGirl":
+                    polish_type = "Dziewczynka Anime"
                 else:
                     polish_type = ""
 

@@ -2,7 +2,7 @@
 	"loot_details_Normal": [
 	{
 		"id": 9,
-		"descr": "Fragment zwoju. Na ten moment nie wiesz do czego jest potrzebny.",
+		"descr": "Fragment zwoju. Zbierz 10, żeby zdobyć pełny zwój.",
 		"weight": 100
 	},
 	{
@@ -12,7 +12,7 @@
 	},
 	{
 		"id": 11,
-		"descr": "Dostałeś zwój... Na ten moment nie wiesz do czego jest potrzebny.",
+		"descr": "Dostałeś zwój. Możesz zresetować statystyki towarzysza wpisując **$odrodzenie**.",
 		"weight": 1
 	},
 	{
@@ -23,7 +23,7 @@
 	],"loot_details_Rare": [
 	{
 		"id": 9,
-		"descr": "Fragment zwoju. Na ten moment nie wiesz do czego jest potrzebny.",
+		"descr": "Fragment zwoju. Zbierz 10, żeby zdobyć pełny zwój.",
 		"weight": 100
 	},
 	{
@@ -33,7 +33,7 @@
 	},
 	{
 		"id": 11,
-		"descr": "Dostałeś zwój... Na ten moment nie wiesz do czego jest potrzebny.",
+		"descr": "Dostałeś zwój. Możesz zresetować statystyki towarzysza wpisując **$odrodzenie**.",
 		"weight": 25
 	},
 	{
@@ -54,7 +54,7 @@
 	},
 	{
 		"id": 11,
-		"descr": "Dostałeś zwój... Na ten moment nie wiesz do czego jest potrzebny.",
+		"descr": "Dostałeś zwój. Możesz zresetować statystyki towarzysza wpisując **$odrodzenie**.",
 		"weight": 100
 	},
 	{
