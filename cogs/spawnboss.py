@@ -387,7 +387,12 @@ class message(commands.Cog, name="spawnBoss"):
     async def reroll_pet(self, ctx):
         await functions_pets.reroll_pet(self, ctx, ctx.author)
 
-    @commands.command(name="schowajtowarzysza", brief="Stores author's pet.")
+    @commands.command(name="oswiecenie", aliases=['oświecenie'], brief="Enlight the pet.")
+    async def enlight_pet(self, ctx):
+        await functions_pets.enlight_pet(self, ctx, ctx.author)
+
+    @commands.command(name="schowajtowarzysza",
+                      aliases=["schowaj"], brief="Stores author's pet.")
     async def store_pet(self, ctx, slot):
         await functions_pets.store_pet(self, ctx, slot)
 
@@ -397,7 +402,9 @@ class message(commands.Cog, name="spawnBoss"):
             await ctx.send("Po spacji podaj numer miejsca w stajni, do którego chcesz schować " +
                            "towarzysza (1 lub 2) np. **$schowajtowarzysza 1**.")
     
-    @commands.command(name="wyciagnijtowarzysza", brief="Stores author's pet.")
+    @commands.command(name="wyciagnijtowarzysza",
+                      aliases=['wyciągnijtowarzysza', "wyciągnij", "wyciagnij"],
+                      brief="Stores author's pet.")
     async def unstore_pet(self, ctx, slot):
         await functions_pets.unstore_pet(self, ctx, slot)
 

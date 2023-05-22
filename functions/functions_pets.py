@@ -224,7 +224,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     elif pet_data[0][3] == 9:
                         talent = "Boski"
                     else:
-                        talent = "Transcendentny"
+                        talent = "Boski"
                     skill_desc += f"Talent: {talent}\n"
                     skill_desc += f"Wygląd: {pet_data[0][4]}\n\n"
                     if pet_data[0][9] > 0:
@@ -378,7 +378,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         skill_list = {"CRIT_PERC": pet_crit_perc, "REPLACE_PERC": pet_replace_perc,
                                     "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
                                     "LOWHP_PERC": pet_lowhp_perc, "SLOW_PERC": pet_slow_perc,
-                                    "INIT_PERC": pet_init_perc, "DETECTION": pet_detection}
+                                    "DETECTION": pet_detection}
 
                         pet_skills = int(pet_skills)
                         for i in range(pet_skills):
@@ -418,7 +418,6 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         DROP_PERC={skill_list["DROP_PERC"]},
                         LOWHP_PERC={skill_list["LOWHP_PERC"]},
                         SLOW_PERC={skill_list["SLOW_PERC"]},
-                        INIT_PERC={skill_list["INIT_PERC"]},
                         DETECTION={skill_list["DETECTION"]} WHERE PET_ID = {pet_id};""")
 
                         sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {reroll_scroll-1}
@@ -432,6 +431,146 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         await ctx.channel.send("*Twój towarzysz spogląda na Ciebie niepewnie.*")
                 else:
                     await ctx.channel.send("Nie masz żadnych zwojów odrodzenia <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Wpisz **$towarzysz**, żeby sprawdzić ich ilość. Zwoje możesz zdobyć na polowaniu lub po zabiciu bossów.")
+                    return False
+            else:
+                await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
+                return False
+        else:
+            await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
+            return False
+        
+    global enlight_pet
+    async def enlight_pet(self, ctx, player):
+        """Enlighting pet (try to increase talent)."""
+
+        print("Checking if user has a pet...")
+        sql = f"SELECT PET_ID, REBIRTH_STONES FROM PETOWNER WHERE PLAYER_ID = {player.id};"
+        pet_exists = await self.bot.pg_con.fetch(sql)
+        pet_id = pet_exists[0][0]
+        rebirth_stones = pet_exists[0][1]
+
+        if pet_exists:
+            if pet_exists[0][0] > 0:
+                print("Pet exists, so we can try to reroll.")
+                if rebirth_stones > 0:
+
+                    sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC, REPLACE_PERC,
+                            DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION
+                            FROM PETS WHERE PET_ID = {pet_id};"""
+                    pet_stats = await self.bot.pg_con.fetch(sql)
+
+                    pet_lvl = pet_stats[0][0]
+                    pet_skills = pet_stats[0][1]
+                    pet_shiny = pet_stats[0][2]
+                    pet_type = pet_stats[0][3]
+                    pet_variant = int(pet_stats[0][4])
+                    pet_crit_perc = pet_stats[0][5]
+                    pet_replace_perc = pet_stats[0][6]
+                    pet_def_perc = pet_stats[0][7]
+                    pet_drop_perc = pet_stats[0][8]
+                    pet_lowhp_perc = pet_stats[0][9]
+                    pet_slow_perc = pet_stats[0][10]
+                    pet_init_perc = pet_stats[0][11]
+                    pet_detection = pet_stats[0][12]
+
+                    if pet_skills <= 6 and pet_lvl == 3:
+
+                        # Check if reroll pet is confirmed
+                        def check_reroll(author):
+                            def inner_check(message):
+                                if message.author == author: #and message.author not in confirmPlayerList:
+                                    if message.content.lower() == "$potwierdzam":
+                                        print("Reroll accepted: player exists!")
+                                        return True
+                                else:
+                                    print("Wrong person or wrong message!")
+                                    return False
+                            return inner_check
+
+                        await ctx.channel.send("Czy jesteś pewien, że chcesz zwiększyć talent swojego towarzysza <@" + str(player.id) + ">? <:Hmm:984767035617730620> Wpisz **$potwierdzam**.")
+                        try:
+                            confirm_cmd = await self.bot.wait_for('message', timeout=15,
+                                                                check=check_reroll(player))
+                            await confirm_cmd.add_reaction("<:PepoG:790963160528977980>")
+
+                            print("Player exists in PETOWNER database, it already has pet.")
+
+                            
+
+                            skill_list = {"CRIT_PERC": pet_crit_perc, "REPLACE_PERC": pet_replace_perc,
+                                        "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
+                                        "LOWHP_PERC": pet_lowhp_perc, "SLOW_PERC": pet_slow_perc,
+                                        "DETECTION": pet_detection}
+
+                            # Check if pet is possible to talent up...
+                            
+
+                            add_skill = random.randint(1,3)
+                            pet_skills += add_skill
+
+                            for i in range(add_skill):
+                                while True:
+                                    skill_name, skill_value = random.choice(list(skill_list.items()))
+                                    if skill_name == "DETECTION" and pet_detection:
+                                        pass
+                                    else:
+                                        if skill_name == "INIT_PERC":
+                                            if pet_shiny:
+                                                add_skill_value = random.randint(5, 10)
+                                            else:
+                                                add_skill_value = random.randint(5, 8)
+                                        elif skill_name == "SLOW_PERC":
+                                            if pet_shiny:
+                                                add_skill_value = random.randint(5, 10)
+                                            else:
+                                                add_skill_value = random.randint(5, 8)
+                                        else:
+                                            if pet_shiny:
+                                                add_skill_value = random.randint(3, 7)
+                                            else:
+                                                add_skill_value = random.randint(3, 5)
+
+                                        if skill_name == "DETECTION":
+                                            skill_list[skill_name] = True
+                                        else:
+                                            skill_list[skill_name] += add_skill_value
+
+                                        if skill_name == "INIT_PERC":
+                                            add_skill_value = random.randint(3, 7)
+
+                                        break
+
+                            await self.bot.pg_con.execute(f"""UPDATE PETS SET
+                            PET_LVL={pet_lvl}, PET_SKILLS={pet_skills},
+                            VARIANT={pet_variant},
+                            CRIT_PERC={skill_list["CRIT_PERC"]},
+                            REPLACE_PERC={skill_list["REPLACE_PERC"]},
+                            DEF_PERC={skill_list["DEF_PERC"]},
+                            DROP_PERC={skill_list["DROP_PERC"]},
+                            LOWHP_PERC={skill_list["LOWHP_PERC"]},
+                            SLOW_PERC={skill_list["SLOW_PERC"]},
+                            DETECTION={skill_list["DETECTION"]} WHERE PET_ID = {pet_id};""")
+
+                            sql = f"""UPDATE PETOWNER SET REBIRTH_STONES = {rebirth_stones-1}
+                                        WHERE PLAYER_ID = {player.id};"""
+                            await self.bot.pg_con.fetch(sql)
+
+                            await show_pet(self, ctx, player)
+                            return True
+                        except asyncio.TimeoutError:
+                            await ctx.channel.send("*Twój towarzysz spogląda na Ciebie niepewnie.*")
+                    elif pet_lvl < 3:
+                        await ctx.channel.send("Niestety Twój towarzysz nie jest godny dostąpić oświecenia <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Wpisz **$towarzysz**, żeby sprawdzić jego poziom.")
+                        return False
+                    elif pet_skills > 6:
+                        await ctx.channel.send("Twój towarzysz już dostąpił oświecenia <@" + str(ctx.author.id) + "> <:prayge:1063891597760139304> Wpisz **$towarzysz**, żeby sprawdzić jego talent.")
+                        return False
+                    else:
+                        await ctx.channel.send("Niestety Twój towarzysz nie jest godny dostąpić oświecenia <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Wpisz **$towarzysz**, żeby sprawdzić jego poziom.")
+                        return False
+                    
+                else:
+                    await ctx.channel.send("Nie masz żadnych kamieni olśnienia <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Wpisz **$towarzysz**, żeby sprawdzić ich ilość. Kamienie olśnienia możesz zdobyć na polowaniu lub po zabiciu bossów, jednak są one bardzo rzadkie.")
                     return False
             else:
                 await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
@@ -962,7 +1101,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 skill_list = {"CRIT_PERC": pet_crit_perc, "REPLACE_PERC": pet_replace_perc,
                             "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
                             "LOWHP_PERC": pet_lowhp_perc, "SLOW_PERC": pet_slow_perc,
-                            "INIT_PERC": pet_init_perc, "DETECTION": pet_detection}
+                            "DETECTION": pet_detection}
 
                 # Check if pet is possible to level up...
                 if pet_lvl < 3:
@@ -1014,7 +1153,6 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                 DROP_PERC={skill_list["DROP_PERC"]},
                                 LOWHP_PERC={skill_list["LOWHP_PERC"]},
                                 SLOW_PERC={skill_list["SLOW_PERC"]},
-                                INIT_PERC={skill_list["INIT_PERC"]},
                                 DETECTION={skill_list["DETECTION"]} WHERE PET_ID = {pet_id};""")
 
                                 break
@@ -1107,7 +1245,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         elif boss_rarity == 3:
                             rarity = "legendarny"
                         try:
-                            await user.send("Nadciąga boss! Będzie " + rarity + ".")
+                            await user.send("Nadciąga boss! Będzie " + rarity + " (ewentualny bonus z kapliczki nie jest uwzględniony).")
                             if boss_rarity == 3:
                                 await user.send("Legendarne bossy mogą pojawić się tylko w weekendy albo wieczorem w tygodniu. W innym wypadku zostaną zamienione na epickie.")
                         except:

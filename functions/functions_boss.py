@@ -360,12 +360,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
     async def singleInit(self, ctx, BOSSALIVE, BOSSRARITY):
         global respawnResume
 
-        #Load pet skills
-        pet_skills = await functions_pets.get_pet_skills(self, ctx.author.id)
+        # #Load pet skills
+        # pet_skills = await functions_pets.get_pet_skills(self, ctx.author.id)
 
         # Check if init skill is active
-        if not random.random()*100 < pet_skills["INIT_PERC"]:
-
+        # if not random.random()*100 < pet_skills["INIT_PERC"]:
+        if True:
             await ctx.channel.send('Jesteś sam?... 120... *Inny gracz może wpisać **$zaatakuj**, jeśli chce zawalczyć o bossa!*')
             respawnResume = False
             pre_fight = False
@@ -417,8 +417,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
             respawnResume = False
             pre_fight = False
             mainUser = ctx.author
-            async with ctx.typing():
-                await ctx.channel.send("<@" + str(ctx.author.id) +
+            await ctx.channel.send("<@" + str(ctx.author.id) +
                                        ">, Twój towarzysz sprowokował bossa!")
 
         if pre_fight:
