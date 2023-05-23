@@ -46,7 +46,7 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
         await ctx.send(embed=embed)
 
     global random_modifiers
-    async def random_modifiers(self, ctx):
+    async def random_modifiers(self, ctx, msg: True):
         """Random modifiers and save it to the file."""
 
         modifiers ={
@@ -132,7 +132,8 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
                             description=desc, color=0x609AF7)
         embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Prayge.png')
         embed.set_footer(text='Powodzenia!')
-        await ctx.channel.send(embed=embed)
+        if msg:
+            await ctx.channel.send(embed=embed)
 
 
     #function to init modifiers dictionaries

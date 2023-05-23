@@ -49,12 +49,12 @@
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
+		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
 		"weight": 1
 	},
 	{
 		"id": 14,
-		"descr": "Otrzymałeś lustro wizualiów... Na ten moment nie wiesz do czego jest potrzebne.",
+		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
 		"weight": 1
 	}
 	],"loot_details_Epic": [
@@ -90,12 +90,12 @@
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
+		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
 		"weight": 3
 	},
 	{
 		"id": 14,
-		"descr": "Otrzymałeś lustro wizualiów... Na ten moment nie wiesz do czego jest potrzebne.",
+		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
 		"weight": 3
 	}
 	],"loot_details_Legend": [
@@ -131,12 +131,12 @@
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
+		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
 		"weight": 3
 	},
 	{
 		"id": 14,
-		"descr": "Otrzymałeś lustro wizualiów... Na ten moment nie wiesz do czego jest potrzebne.",
+		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
 		"weight": 3
 	}
 	]

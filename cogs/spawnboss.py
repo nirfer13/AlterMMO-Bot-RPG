@@ -296,7 +296,7 @@ class message(commands.Cog, name="spawnBoss"):
             crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
             if crafter in ctx.message.author.roles:
                 await ctx.message.add_reaction("<:prayge:1063891597760139304>")
-                await functions_modifiers.random_modifiers(self, ctx)
+                await functions_modifiers.random_modifiers(self, ctx, True)
             else:
                 await ctx.channel.send("Nie umiesz pacierza. Poczekaj na kogoś bardziej wierzącego. <:prayge:1063891597760139304>")
                 EVENT_ALIVE = 1
@@ -391,6 +391,10 @@ class message(commands.Cog, name="spawnBoss"):
     async def enlight_pet(self, ctx):
         await functions_pets.enlight_pet(self, ctx, ctx.author)
 
+    @commands.command(name="transformacja", aliases=['transform'], brief="Transform the pet.")
+    async def transform_pet(self, ctx):
+        await functions_pets.transform_pet(self, ctx, ctx.author)
+
     @commands.command(name="schowajtowarzysza",
                       aliases=["schowaj"], brief="Stores author's pet.")
     async def store_pet(self, ctx, slot):
@@ -417,6 +421,11 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(name="stajnia", brief="Show player's stable.")
     async def check_stable(self, ctx):
         await functions_pets.check_stable(self, ctx)
+
+    @commands.command(name="rankingtowarzyszy", aliases=['towarzysze'],
+                      brief="Shows pets ranking.")
+    async def pet_ranking(self, ctx):
+        await functions_pets.pet_ranking(self, ctx)
 
     @commands.command(name="nazwij", brief="Set the name of author's pet.")
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)

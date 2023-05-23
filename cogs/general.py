@@ -19,7 +19,7 @@ class general(commands.Cog, name="general"):
     async def ping(self, ctx):
         embed = discord.Embed(
             title="🏓 Pong!",
-            description=f"The bot latency is {round(self.bot.latency * 1000)}ms.",
+            description=f"Opóźnienie bota wynosi {round(self.bot.latency * 1000)} ms.",
             color=0x42F34C)
         await ctx.send(embed=embed)
 		
@@ -56,7 +56,6 @@ class general(commands.Cog, name="general"):
                     file=f)
         print("8")
         print("last: ", limit, " were saved to file with name: " + file_name)
-    
 
     # command to clear channel
     @commands.command(name="clear", pass_context = True, brief="Clear channel messages")

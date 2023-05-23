@@ -64,12 +64,12 @@
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia... Na ten moment nie wiesz do czego jest potrzebny.",
+		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
 		"weight": 15
 	},
 	{
 		"id": 14,
-		"descr": "Otrzymałeś lustro wizualiów... Na ten moment nie wiesz do czego jest potrzebne.",
+		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
 		"weight": 15
 	}
 	]

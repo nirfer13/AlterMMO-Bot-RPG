@@ -8,6 +8,8 @@ import asyncio
 from enum import Enum
 from discord.ext import commands
 
+import functions_modifiers
+
 #Import Globals
 from globals.globalvariables import DebugMode
 
@@ -439,6 +441,84 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
             return False
         
+    global transform_pet
+    async def transform_pet(self, ctx, player):
+        """Transform pet appearance"""
+
+        print("Checking if user has a pet...")
+        sql = f"SELECT PET_ID, MIRRORS FROM PETOWNER WHERE PLAYER_ID = {player.id};"
+        pet_exists = await self.bot.pg_con.fetch(sql)
+        pet_id = pet_exists[0][0]
+        mirrors = pet_exists[0][1]
+
+        if pet_exists:
+            if pet_exists[0][0] > 0:
+                print("Pet exists, so we can try to transform.")
+                crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
+                if mirrors > 0 and crafter in player.roles:
+
+                    # Check if transform pet is confirmed
+                    def check_transform(author):
+                        def inner_check(message):
+                            if message.author == author: #and message.author not in confirmPlayerList:
+                                if message.content.lower() == "$potwierdzam":
+                                    print("Transform accepted: player exists!")
+                                    return True
+                            else:
+                                print("Wrong person or wrong message!")
+                                return False
+                        return inner_check
+
+                    await ctx.channel.send("Czy jesteś pewien, że chcesz zmienić wygląd swojego towarzysza <@" + str(player.id) + ">? <:Hmm:984767035617730620> Wpisz **$potwierdzam**.")
+                    try:
+                        confirm_cmd = await self.bot.wait_for('message', timeout=15,
+                                                            check=check_transform(player))
+                        await confirm_cmd.add_reaction("<:PepoG:790963160528977980>")
+
+                        if crafter in player.roles:
+                            pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
+                                        PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
+                                        PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
+                                        PetType.ANIME_GIRL]
+                        else:
+                            pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
+                                        PetType.RABBIT, PetType.SHEEP]
+                            
+                        pet = random.choice(pets_list)
+
+                        if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
+                                PetType.ANIME_GIRL]:
+                            quality = "Premium"
+                        else:
+                            quality = "Standard"
+                        variant = random.randint(0,1)
+
+                        sql = f"""UPDATE PETS SET VARIANT = {variant}, QUALITY = \'{quality}\',
+                        TYPE = \'{pet}\' WHERE PET_ID = {pet_id};"""
+                        await self.bot.pg_con.fetch(sql)
+
+                        sql = f"""UPDATE PETOWNER SET MIRRORS = {mirrors-1}
+                        WHERE PLAYER_ID = {player.id};"""
+                        await self.bot.pg_con.fetch(sql)
+
+                        await show_pet(self, ctx, player)
+
+                        return True
+                    except asyncio.TimeoutError:
+                        await ctx.channel.send("*Twój towarzysz spogląda na Ciebie niepewnie.*")
+                elif crafter not in player.roles:
+                    await ctx.channel.send("Musisz mieć rangę Craftera lub Patrona <@" + str(ctx.author.id) + ">, żeby przetransformować towarzysza <:Sadge:936907659142111273> Rangi do zdobycia możesz zobaczyć na tym kanale <#688296443156365354>.")
+                    return False
+                else:
+                    await ctx.channel.send("Nie masz żadnych lustr wizualiów <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Wpisz **$towarzysz**, żeby sprawdzić ich ilość. Lustra możesz zdobyć na polowaniu lub po zabiciu bossów, jednak są one bardzo rzadkie.")
+                    return False
+            else:
+                await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
+                return False
+        else:
+            await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
+            return False
+        
     global enlight_pet
     async def enlight_pet(self, ctx, player):
         """Enlighting pet (try to increase talent)."""
@@ -475,12 +555,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
                     if pet_skills <= 6 and pet_lvl == 3:
 
-                        # Check if reroll pet is confirmed
-                        def check_reroll(author):
+                        # Check if enlight pet is confirmed
+                        def check_enlight(author):
                             def inner_check(message):
                                 if message.author == author: #and message.author not in confirmPlayerList:
                                     if message.content.lower() == "$potwierdzam":
-                                        print("Reroll accepted: player exists!")
+                                        print("Engligth accepted: player exists!")
                                         return True
                                 else:
                                     print("Wrong person or wrong message!")
@@ -490,7 +570,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         await ctx.channel.send("Czy jesteś pewien, że chcesz zwiększyć talent swojego towarzysza <@" + str(player.id) + ">? <:Hmm:984767035617730620> Wpisz **$potwierdzam**.")
                         try:
                             confirm_cmd = await self.bot.wait_for('message', timeout=15,
-                                                                check=check_reroll(player))
+                                                                check=check_enlight(player))
                             await confirm_cmd.add_reaction("<:PepoG:790963160528977980>")
 
                             print("Player exists in PETOWNER database, it already has pet.")
@@ -831,7 +911,6 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             embed.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png')
             await ctx.send(embed=embed)
 
-            
         else:
             print("Player does not exist in PETOWNER database, so creating new record.")
             await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
@@ -895,6 +974,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 try:
                     confirm_cmd = await self.bot.wait_for('message', timeout=15,
                                                         check=check_discard(ctx.author))
+                    await functions_modifiers.random_modifiers(self, ctx, False)
                     await confirm_cmd.add_reaction("<:MonkaS:882181709100097587>")
                     sql = f"UPDATE PETOWNER SET PET_ID = {0} WHERE PLAYER_ID = {ctx.author.id};"
                     await self.bot.pg_con.fetch(sql)
@@ -1257,6 +1337,76 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                             await chatChannel.send("<@" + str(player_id) + "> - Twój towarzysz: *Nadciąga boss! Odblokuj prywatne wiadomości, jeśli chcesz otrzymywać powiadomienia!*")
                 else:
                     print("Player not exists.")
+
+    #Check pet ranking
+    global pet_ranking
+    async def pet_ranking(self, ctx):
+        #Database Reading
+        db_ranking_pet = await self.bot.pg_con.fetch("SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, TYPE, VARIANT FROM PETS ORDER BY PET_SKILLS DESC LIMIT 10")
+
+        x = 1
+        ranking_string = ""
+        for person in db_ranking_pet:
+            if person[3] == 0:
+                talent = "Miernota"
+            elif person[3] == 1:
+                talent = "Nowicjusz"
+            elif person[3] == 2:
+                talent = "Uczeń"
+            elif person[3] == 3:
+                talent = "Przeciętny"
+            elif person[3] == 4:
+                talent = "Ekspert"
+            elif person[3] == 5:
+                talent = "Mistrz"
+            elif person[3] == 6:
+                talent = "Oświecony"
+            elif person[3] == 7:
+                talent = "Transcendentny"
+            elif person[3] == 8:
+                talent = "Pozaziemski"
+            elif person[3] == 9:
+                talent = "Boski"
+            else:
+                talent = "Boski"
+
+            if person[5] is True:
+                shiny = "Tak"
+            else:
+                shiny = "Nie"
+            
+             #Check if pet has name
+            if person[6] == "Bear":
+                polish_type = "Niedźwiedź"
+            elif person[6] == "Cat":
+                polish_type = "Kot"
+            elif person[6] == "Boar":
+                polish_type = "Dzik"
+            elif person[6] == "Dragon":
+                polish_type = "Smok"
+            elif person[6] == "Phoenix":
+                polish_type = "Feniks"
+            elif person[6] == "Rabbit":
+                polish_type = "Królik"
+            elif person[6] == "Sheep":
+                polish_type = "Owca"
+            elif person[6] == "Unicorn":
+                polish_type = "Jednorożec"
+            elif person[6] == "Snake":
+                polish_type = "Wąż"
+            elif person[6] == "AnimeGirl":
+                polish_type = "Dziewczynka Anime"
+            else:
+                polish_type = ""
+
+            ranking_string += f"{x}. **{person[1]}** ({person[2]} lvl) - Talent: {talent} - Wygląd: {person[4]} - Shiny: {shiny} - Typ: {polish_type}.\n"
+            x+=1
+
+        #Embed create
+        emb=discord.Embed(title='Najbardziej utalentowani towarzysze!', url='https://www.altermmo.pl/wp-content/uploads/Alter_Pet_which_is_really_good_companion_during_fantasy_adventu_03bf7393-988e-4d1e-9d7a-07fe2682746e.png', description=ranking_string, color=0xFF0000)
+        emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Alter_Pet_which_is_really_good_companion_during_fantasy_adventu_03bf7393-988e-4d1e-9d7a-07fe2682746e.png')
+        emb.set_footer(text='Gratulacje dla anonimowych posiadaczy!')
+        await ctx.send(embed=emb)
 
 
 async def new_record_petowners(self, player_id: int, pet_id: int, pet_owned: bool,
