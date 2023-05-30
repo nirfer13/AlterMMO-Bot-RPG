@@ -47,6 +47,7 @@ class EventType(Enum):
     SHRINE = 1
     CHEST = 2
     INVASION = 3
+    PARTY = 4
 
 global EVENT_TYPE
 EVENT_TYPE = EventType.NONE
@@ -132,8 +133,22 @@ class message(commands.Cog, name="spawnBoss"):
                 resp_time = random.randint(10, 15)
 
             await asyncio.sleep(resp_time)
-            event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION]
-            EVENT_TYPE = random.choices(event_list, weights=(2, 3, 1))[0]
+            
+
+            timestamp = (datetime.utcnow() + timedelta(hours=2))
+            hour = timestamp.strftime("%H")
+            day = timestamp.strftime("%a")
+
+            if (hour == "18" or hour == "19" or hour == "20" or hour == "21") and not (day == "Sun" or day == "Sat") and not DebugMode:
+                event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY]
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 2))[0]
+            elif (day == "Sun" or day == "Sat") and not DebugMode:
+                event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY]
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 1, 1))[0]  
+            else:
+                event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY]
+                EVENT_TYPE = random.choices(event_list, weights=(2, 3, 1, 1))[0]
+
             print("Event type: " + str(EVENT_TYPE))
             if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
                 if EVENT_TYPE == EventType.SHRINE:
@@ -149,6 +164,12 @@ class message(commands.Cog, name="spawnBoss"):
                     EVENT_ALIVE = 0
                     BUSY = 0
                     print("Invasion ended.")
+                elif EVENT_TYPE == EventType.PARTY:
+                    EVENT_ALIVE = 1
+                    BUSY = 1
+                    await functions_events.spawn_party(self, ctx)
+                    EVENT_ALIVE = 0
+                    BUSY = 0
             elif BOSSALIVE > 2:
                 print("Boss spawned. Skip.")
             elif BUSY == 1:
@@ -159,9 +180,6 @@ class message(commands.Cog, name="spawnBoss"):
                     await functions_modifiers.spawn_modifier_shrine(self, ctx)
                 elif EVENT_TYPE == EventType.CHEST:
                     await functions_events.spawn_chest(self, ctx)
-                elif EVENT_TYPE == EventType.INVASION:
-                    await functions_events.spawn_invasion(self, ctx)
-                    EVENT_ALIVE = 0
                     print("Invasion ended.")
             else:
                 print("Unknow state of event.")
@@ -216,7 +234,7 @@ class message(commands.Cog, name="spawnBoss"):
                     BOSSALIVE = 2
 
                     wait_loop = 0
-                    while BUSY == 1 and wait_loop <= 5:
+                    while BUSY == 1 and wait_loop <= 11:
                         await asyncio.sleep(70)
                         wait_loop += 1
                         print("Waiting in loop, beacuse bot BUSY")
@@ -570,6 +588,12 @@ class message(commands.Cog, name="spawnBoss"):
         ADD PET_ID_ALT2 NUMERIC DEFAULT 0;
         '''
         await self.bot.pg_con.execute(sql)
+
+    # command to debug
+    @commands.command(pass_context=True, name="SpawnParty", brief="Spawn a party.")
+    @commands.has_permissions(administrator=True)
+    async def spawn_party(self, ctx):
+        await functions_events.spawn_party(self, ctx)
 
     # command to debug
     @commands.command(pass_context=True, name="PetLvlUp", brief="Level up pet of the player id.")
