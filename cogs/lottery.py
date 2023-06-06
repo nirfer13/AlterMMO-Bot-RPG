@@ -47,7 +47,7 @@ class Lottery(commands.Cog, name="Lottery"):
         print(weights)
         print(users)
         winner = random.choices(users, weights)
-        await ctx.channel.send('Loterię wygrał <@' + str(winner[0].id) + '>! Gratulacje!')        
+        await ctx.channel.send('Loterię wygrał <@' + str(winner[0].id) + '>! Gratulacje!')
 
 def setup(bot):
     bot.add_cog(Lottery(bot))

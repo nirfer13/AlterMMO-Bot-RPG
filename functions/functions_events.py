@@ -89,7 +89,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
 
         await msg.add_reaction("⚔️")
         if DebugMode:
-            await asyncio.sleep(10)
+            await asyncio.sleep(5)
         else:
             await asyncio.sleep(600)
 
@@ -127,8 +127,14 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
 
         print("Party spawn.")
 
-        my_role = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-        members = my_role.members
+        crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
+        patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
+        patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
+        patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
+        patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
+        members = crafter.members + patron1.members + patron2.members +\
+        patron3.members + patron4.members
+
         cheerer = random.choice(members)
 
         e_title = f"<:Drink:912798939542061086> Zdrowie {cheerer.name}! <:Drink:912798939542061086>"
@@ -174,7 +180,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
                     active_users += 1
             break
 
-        if active_users > 0:
+        if active_users > 2:
             async with ctx.typing():
                 await asyncio.sleep(2)
                 await ctx.channel.send("No dobra, to zaczynamy imprezę <:Drink:912798939542061086>! Przygotujcie się, zaraz podam toast! Wpiszcie go bez spacji, wielkość liter nie ma znaczenia!")
@@ -244,7 +250,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             image_name = "events/party/1.png"
             file=discord.File(image_name)
             await ctx.send(file=file)
-            await ctx.channel.send(f"Chopaki.. Hic!... Może jusz starczy?... Hic!... Graulasje <@{winner}>, jesteś nje do zdarsia... Hic!")
+            enter_desc = (f"Chopaki.. Hic!... Może jusz starczy?... Hic!... Graulasje <@{winner}>, jesteś nje do zdarsia... Hic!\n\n")
 
             ranking = sorted(ranking.items(), key=lambda x:x[1], reverse=True)
             ranking = dict(ranking)
@@ -256,13 +262,19 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
                 text.append(f"{x}. <@{key}>: {value}")
 
             exp_table = '\n'.join(text)
-            await ctx.send(exp_table)
+
+            description = enter_desc + exp_table
+            #Embed create
+            emb=discord.Embed(title='Ranking pijaków!', url='https://www.altermmo.pl/wp-content/uploads/zapierdol.gif', description=description, color=0xfcba03)
+            emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/zapierdol.gif')
+            emb.set_footer(text='Jutro kac będzie okrutny...')
+            await ctx.send(embed=emb)
 
             rarity = 2
             boost_percent = random.randint(0,50)
             guild = self.bot.get_guild(686137998177206281)
             user = guild.get_member(int(winner))
-            print(user.name)
+
             await functions_daily.randLoot(self, ctx, rarity, user, boost_percent)
 
         else:

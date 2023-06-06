@@ -133,7 +133,8 @@ class message(commands.Cog, name="spawnBoss"):
                 resp_time = random.randint(10, 15)
 
             await asyncio.sleep(resp_time)
-            
+            EVENT_ALIVE = 0
+            EVENT_TYPE = EventType.NONE
 
             timestamp = (datetime.utcnow() + timedelta(hours=2))
             hour = timestamp.strftime("%H")
@@ -144,13 +145,14 @@ class message(commands.Cog, name="spawnBoss"):
                 EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 2))[0]
             elif (day == "Sun" or day == "Sat") and not DebugMode:
                 event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY]
-                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 1, 1))[0]  
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 1, 1))[0]
             else:
                 event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY]
                 EVENT_TYPE = random.choices(event_list, weights=(2, 3, 1, 1))[0]
 
             print("Event type: " + str(EVENT_TYPE))
             if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
+                await functions_general.fClear(self, ctx)
                 if EVENT_TYPE == EventType.SHRINE:
                     await functions_modifiers.spawn_modifier_shrine(self, ctx)
                     EVENT_ALIVE = 1
@@ -174,13 +176,6 @@ class message(commands.Cog, name="spawnBoss"):
                 print("Boss spawned. Skip.")
             elif BUSY == 1:
                 print("Bot busy, skip.")
-            elif EVENT_ALIVE == 1 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
-                print("Event already spawned. Spawn again.")
-                if EVENT_TYPE == EventType.SHRINE:
-                    await functions_modifiers.spawn_modifier_shrine(self, ctx)
-                elif EVENT_TYPE == EventType.CHEST:
-                    await functions_events.spawn_chest(self, ctx)
-                    print("Invasion ended.")
             else:
                 print("Unknow state of event.")
 
@@ -312,7 +307,14 @@ class message(commands.Cog, name="spawnBoss"):
         if EVENT_ALIVE == 1 and EVENT_TYPE == EventType.SHRINE:
             EVENT_ALIVE = 0
             crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-            if crafter in ctx.message.author.roles:
+            patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
+            patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
+            patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
+            patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
+
+            if crafter in ctx.message.author.roles or patron1 in ctx.message.author.roles or\
+            patron2 in ctx.message.author.roles or patron3 in ctx.message.author.roles or\
+            patron4 in ctx.message.author.roles:
                 await ctx.message.add_reaction("<:prayge:1063891597760139304>")
                 await functions_modifiers.random_modifiers(self, ctx, True)
             else:
@@ -593,7 +595,17 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(pass_context=True, name="SpawnParty", brief="Spawn a party.")
     @commands.has_permissions(administrator=True)
     async def spawn_party(self, ctx):
+
         await functions_events.spawn_party(self, ctx)
+
+    # command to debug
+    @commands.command(pass_context=True, name="SpawnShrine", brief="Spawn a shrine.")
+    @commands.has_permissions(administrator=True)
+    async def spawn_shrine(self, ctx):
+        global EVENT_ALIVE, EVENT_TYPE
+        EVENT_TYPE = EventType.SHRINE
+        EVENT_ALIVE = 1
+        await functions_modifiers.spawn_modifier_shrine(self, ctx)
 
     # command to debug
     @commands.command(pass_context=True, name="PetLvlUp", brief="Level up pet of the player id.")

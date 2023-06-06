@@ -26,6 +26,7 @@ class PetType(str, Enum):
     UNICORN = 'Unicorn'
     SNAKE = 'Snake'
     ANIME_GIRL = 'AnimeGirl'
+    ELEMENTAL = 'Elemental'
 
 class FunctionsPets(commands.Cog, name="FunctionsPets"):
     """Class with all functions used for pets."""
@@ -99,13 +100,13 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         print("Checking if user has a pet...")
         sql = f"SELECT PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
         pet_exists = await self.bot.pg_con.fetch(sql)
-        print(pet_exists)
-        reroll_scroll = pet_exists[0][1]
-        reroll_shard = pet_exists[0][2]
-        rebirt_stones = pet_exists[0][3]
-        mirrors = pet_exists[0][4]
 
         if pet_exists:
+            reroll_scroll = pet_exists[0][1]
+            reroll_shard = pet_exists[0][2]
+            rebirt_stones = pet_exists[0][3]
+            mirrors = pet_exists[0][4]
+
             if pet_exists[0][0] > 0:
                 # Convert shards to full scrolls
                 if reroll_shard // 10 > 0:
@@ -184,6 +185,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         polish_type = "Wąż"
                     elif pet_data[0][6] == "AnimeGirl":
                         polish_type = "Dziewczynka Anime"
+                    elif pet_data[0][6] == "Elemental":
+                        polish_type = "Żywiołak"
                     else:
                         polish_type = ""
                     if pet_data[0][1] != "Towarzysz":
@@ -264,11 +267,16 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         """Generate first pet as an egg."""
 
         crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-        if crafter in player.roles:
+        patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
+        patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
+        patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
+        patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
+        if crafter in player.roles or patron1 in player.roles or patron2 in player.roles or\
+        patron3 in player.roles or patron4 in player.roles:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
                          PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
-                         PetType.ANIME_GIRL]
+                         PetType.ANIME_GIRL, PetType.ELEMENTAL]
         else:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP]
@@ -281,7 +289,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         shiny = percentage >= 95
 
         if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
-                   PetType.ANIME_GIRL]:
+                   PetType.ANIME_GIRL, PetType.ELEMENTAL]:
             quality = "Premium"
             variant = random.randint(0,1)
         else:
@@ -337,11 +345,15 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
         print("Checking if user has a pet...")
         sql = f"SELECT PET_ID, REROLL_SCROLL FROM PETOWNER WHERE PLAYER_ID = {player.id};"
-        pet_exists = await self.bot.pg_con.fetch(sql)
-        pet_id = pet_exists[0][0]
-        reroll_scroll = pet_exists[0][1]
+        try:
+            pet_exists = await self.bot.pg_con.fetch(sql)
+        except:
+            await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+            return False
 
         if pet_exists:
+            pet_id = pet_exists[0][0]
+            reroll_scroll = pet_exists[0][1]
             if pet_exists[0][0] > 0:
                 print("Pet exists, so we can try to reroll.")
                 if reroll_scroll > 0:
@@ -455,7 +467,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             if pet_exists[0][0] > 0:
                 print("Pet exists, so we can try to transform.")
                 crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-                if mirrors > 0 and crafter in player.roles:
+                patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
+                patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
+                patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
+                patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
+                if mirrors > 0 and (crafter in player.roles or patron1 in player.roles or\
+                patron2 in player.roles or patron3 in player.roles or patron4 in player.roles):
 
                     # Check if transform pet is confirmed
                     def check_transform(author):
@@ -475,19 +492,16 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                                             check=check_transform(player))
                         await confirm_cmd.add_reaction("<:PepoG:790963160528977980>")
 
-                        if crafter in player.roles:
-                            pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
-                                        PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
-                                        PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
-                                        PetType.ANIME_GIRL]
-                        else:
-                            pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
-                                        PetType.RABBIT, PetType.SHEEP]
-                            
+
+                        pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
+                                    PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
+                                    PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
+                                    PetType.ANIME_GIRL, PetType.ELEMENTAL]
+
                         pet = random.choice(pets_list)
 
                         if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
-                                PetType.ANIME_GIRL]:
+                                PetType.ANIME_GIRL, PetType.ELEMENTAL]:
                             quality = "Premium"
                         else:
                             quality = "Standard"
@@ -506,7 +520,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         return True
                     except asyncio.TimeoutError:
                         await ctx.channel.send("*Twój towarzysz spogląda na Ciebie niepewnie.*")
-                elif crafter not in player.roles:
+                elif crafter not in player.roles and patron1 not in player.roles and\
+                    patron2 not in player.roles and patron3 not in player.roles and\
+                    patron4 not in player.roles:
                     await ctx.channel.send("Musisz mieć rangę Craftera lub Patrona <@" + str(ctx.author.id) + ">, żeby przetransformować towarzysza <:Sadge:936907659142111273> Rangi do zdobycia możesz zobaczyć na tym kanale <#688296443156365354>.")
                     return False
                 else:
@@ -525,11 +541,15 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
         print("Checking if user has a pet...")
         sql = f"SELECT PET_ID, REBIRTH_STONES FROM PETOWNER WHERE PLAYER_ID = {player.id};"
-        pet_exists = await self.bot.pg_con.fetch(sql)
-        pet_id = pet_exists[0][0]
-        rebirth_stones = pet_exists[0][1]
+        try:
+            pet_exists = await self.bot.pg_con.fetch(sql)
+        except:
+            await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+            return False
 
         if pet_exists:
+            pet_id = pet_exists[0][0]
+            rebirth_stones = pet_exists[0][1]
             if pet_exists[0][0] > 0:
                 print("Pet exists, so we can try to reroll.")
                 if rebirth_stones > 0:
@@ -666,7 +686,11 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         player_id = int(player.id)
 
         sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        player_exists = await self.bot.pg_con.fetch(sql)
+        try:
+            player_exists = await self.bot.pg_con.fetch(sql)
+        except:
+            await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+            return False
 
         if player_exists:
             if player_exists[0][0] > 0:
@@ -820,6 +844,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Wąż"
                 elif pet0[0][2] == "AnimeGirl":
                     polish_type = "Dziewczynka Anime"
+                elif pet0[0][2] == "Elemental":
+                    polish_type = "Żywiołak"
                 else:
                     polish_type = ""
 
@@ -857,6 +883,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Wąż"
                 elif pet0[0][2] == "AnimeGirl":
                     polish_type = "Dziewczynka Anime"
+                elif pet0[0][2] == "Elemental":
+                    polish_type = "Żywiołak"
                 else:
                     polish_type = ""
 
@@ -894,6 +922,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Wąż"
                 elif pet0[0][2] == "AnimeGirl":
                     polish_type = "Dziewczynka Anime"
+                elif pet0[0][2] == "Elemental":
+                    polish_type = "Żywiołak"
                 else:
                     polish_type = ""
 
@@ -1089,7 +1119,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         number = int(number)
 
         sql = f"SELECT REBIRTH_STONES FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        rebirth_stones = await self.bot.pg_con.fetch(sql)
+        try:
+            rebirth_stones = await self.bot.pg_con.fetch(sql)
+        except:
+            await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+            return False
+        
 
         if rebirth_stones:
             if rebirth_stones[0][0] is None:
@@ -1212,7 +1247,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                         add_skill_value = random.randint(5, 8)
                                 else:
                                     if pet_shiny:
-                                        add_skill_value = random.randint(3, 7)
+                                        add_skill_value = random.randint(4, 7)
                                     else:
                                         add_skill_value = random.randint(3, 5)
 
@@ -1396,6 +1431,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 polish_type = "Wąż"
             elif person[6] == "AnimeGirl":
                 polish_type = "Dziewczynka Anime"
+            elif person[6] == "Elemental":
+                polish_type = "Żywiołak"
             else:
                 polish_type = ""
 

@@ -166,8 +166,14 @@ class functions_boss(commands.Cog, name="functions_boss"):
         print("Boss player? " + str(is_player_boss) + " " + str(percentage))
 
         if is_player_boss:
-            my_role = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-            members = my_role.members
+            crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
+            patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
+            patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
+            patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
+            patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
+            members = crafter.members + patron1.members + patron2.members +\
+            patron3.members + patron4.members
+
             boss_player = random.choice(members)
             print(boss_player)
             file = boss_player.avatar_url

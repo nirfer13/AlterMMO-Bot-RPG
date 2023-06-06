@@ -43,7 +43,7 @@ Komendy dla <@&983798433590673448>:
 - $flex - Pokaż innym jakim jesteś koxem,
 - $kolor "kolor w kodowaniu hexadecymalnym" - Zmienia kolor rangi <@&983798433590673448> np. $kolor "00FFFF".
 
-Komendy dla <@&687185998550925312>:
+Komendy dla <@&687185998550925312> i patronów:
 - $modlitwa - Gdy pojawi się kapliczka, to za sprawą modlitwy można wpłynąć na statystyki kolejnego bossa.
 
 Więcej informacji w wiadomości https://discord.com/channels/686137998177206281/1093905013480378519/1093905013480378519."""),
