@@ -166,7 +166,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         if DebugMode:
             await asyncio.sleep(3)
         else:
-            await asyncio.sleep(60)
+            await asyncio.sleep(300)
 
         print(message.reactions)
         print(message.reactions[0].users())
