@@ -24,7 +24,7 @@ class Lottery(commands.Cog, name="Lottery"):
             async for user in reaction.users():
                 guild = message.guild
                 if guild.get_member(user.id) is not None:
-                     users.append(user)               
+                     users.append(user)
         for user in users:				#użytkownicy, którzy zareagowali
             print("=====New User=======")
             print(user)

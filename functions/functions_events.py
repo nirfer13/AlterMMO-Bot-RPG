@@ -161,26 +161,22 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
 
         await msg.add_reaction("<:Drink:912798939542061086>")
 
-        message = await ctx.channel.fetch_message(msg.id)
-
         if DebugMode:
-            await asyncio.sleep(3)
+            await asyncio.sleep(15)
         else:
             await asyncio.sleep(300)
 
-        print(message.reactions)
-        print(message.reactions[0].users())
-
-        active_users = 0
+        users = []
+        message = await ctx.channel.fetch_message(msg.id)
         for reaction in message.reactions:
             async for user in reaction.users():
                 guild = message.guild
-                if guild.get_member(user.id) is not None and user.id != 859729615123251200 and user.id != 971322848616525874:
-                    print(user)
-                    active_users += 1
+                if guild.get_member(user.id) is not None:
+                    users.append(user)
             break
-
-        if active_users > 2:
+        print(users)
+        active_users = len(users)
+        if active_users > 3:
             async with ctx.typing():
                 await asyncio.sleep(2)
                 await ctx.channel.send("No dobra, to zaczynamy imprezę <:Drink:912798939542061086>! Przygotujcie się, zaraz podam toast! Wpiszcie go bez spacji, wielkość liter nie ma znaczenia!")
