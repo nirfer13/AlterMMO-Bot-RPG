@@ -142,10 +142,8 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         e_descr = ('Witam <@&985071779787730944>! Tutaj Wasz serwerowy Bard, Stasiek mi na imię.'
                    '\nCzy za kimś chodzi **gorzałka**? Może napilibyśmy się za zdrowie jednego'
                    ' z patronów lub crafterów?\n\n'
-                   f'**To co? Za zdrowie {cheerer.name}! Zapraszam do zabawy.\n'
-                   'Wystarczy, że będziecie wpisywać toasty, które zaraz wykrzyczę.'
-                   ' Zabawa będzie miała kilka rund i najszybszy z Was zgarnie nagrodę, dobra?**'
-                   '\n\n *Zostaw reakcję pod postem, jeśli chcesz wziąć udział.*')
+                   f'**To co? Za zdrowie {cheerer.name}! Zapraszam do zabawy.**'
+                   '\n\n*Zostaw reakcję pod postem, jeśli chcesz wziąć udział.*')
 
         e_color = 0xc9700a
 
@@ -183,7 +181,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
                 await asyncio.sleep(5)
 
             ranking = {}
-            for x in range(1,6):
+            for x in range(1,9):
                 await ctx.channel.send(f"**KOLEJKA {x}!**")
                 cmd_req = random.choice(["Chluśniem, bo uśniem", "Rybka lubi popływać",
                                          "Pierdykniem, bo odwykniem", "No to po maluchu",
@@ -208,7 +206,13 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
                                          "Życie jest krótkie, a pić się chce",
                                          "Pić i jebać, byle z biedy się wygrzebać",
                                          "Za wyruchanych przez Blizzarda",
-                                         "Za zakola Alterowskie"])
+                                         "Za zakola Alterowskie",
+                                         "Żeby Varrakas porzucił anime",
+                                         "Za lambo Szakalakela",
+                                         "Za sugar daddyego Sanczo",
+                                         "Żeby widzowie na Twitchu altermmo_pl dopisali",
+                                         "Za milion za bitcoina",
+                                         "Za zdrowie wszystkich użytkowników tego discorda"])
                 await asyncio.sleep(8)
                 await ctx.channel.send('Uwaga!!! 3...')
                 await asyncio.sleep(1)
@@ -279,9 +283,129 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             await ctx.send(file=file)
             await ctx.send("No cóż... Pozostało napić się w samotności. " +
                            f"Zdrowie {cheerer.name}! <:Drink:912798939542061086>")
+            
+    global spawn_memory
+    async def spawn_memory(self, ctx):
+        """Function to spawn memory game."""
 
-        
+        e_title = f"<:RPGCleric:995577107642073098> Mędrzec potrzebuje pomocy! <:RPGMage:995577415462047765>"
 
+        e_descr = ('Witajcie, mam na imię Sanczo. Potrzebuję Waszej pomocy...'
+                   '\n\nZa cholerę nie mogę spamiętać runicznych emotek, a brakuje mi rąk, żeby wertować kartki w księdze. Pomożecie mi?'
+                   '\n\n*Zostaw reakcję pod postem, jeśli chcesz wziąć udział.*')
+
+        e_color = 0x827b7a
+
+        image_name = "events/memory/0.png"
+        file=discord.File(image_name)
+        await ctx.send(file=file)
+
+        embed = discord.Embed(
+            title=e_title,
+            description=e_descr,
+            color=e_color)
+
+        msg = await ctx.send(embed=embed)
+
+        #Define check function
+        def check(reaction, user):
+            return msg.channel == ctx.channel and str(reaction.emoji) == "<:PepoG:790963160528977980>" and user.id != 971322848616525874 and user.id != 859729615123251200 and msg.id == reaction.message.id
+
+        await msg.add_reaction("<:PepoG:790963160528977980>")
+
+        if DebugMode:
+            timeout = 15
+        else:
+            timeout = 600
+
+        try:
+            reaction, user = await self.bot.wait_for('reaction_add', timeout=timeout, check=check)
+
+            player = user
+            msg = await ctx.send(f"*Doskonale <@{player.id}>!* - z entuzjazmem zareagował Sanczo. - *Teraz pokażę Ci 4 runiczne emotki, które zaraz będziesz musiał podać w odpowiedniej kolejności. Zapamiętaj je!*")
+
+            emotes_list = ["<:MonkaChrist:783992337075929098>", "<:peepoBlush:984769061340737586>",
+                           "<:Susge:973591024322633858>", "<:peepocof:1062666939178160188>",
+                           "<:HYPERS:1080778935966642276>", "<:Pepega:936907616293093377>",
+                           "<:Bedge:970576892874854400>", "<:EZ:720710033645633587>",
+                           "<:gayge:1062110423438078072>", "<:POGGERS:936907543849078844>"]
+            emotes_list_full = ["<:MonkaChrist:783992337075929098>",
+                            "<:peepoBlush:984769061340737586>",
+                           "<:Susge:973591024322633858>", "<:peepocof:1062666939178160188>",
+                           "<:HYPERS:1080778935966642276>", "<:Pepega:936907616293093377>",
+                           "<:Bedge:970576892874854400>", "<:EZ:720710033645633587>",
+                           "<:gayge:1062110423438078072>", "<:POGGERS:936907543849078844>"]
+            sel_emotes_list = []
+            
+            for x in range(0, 4):
+                emote = random.choice(emotes_list)
+                emotes_list.remove(emote)
+                sel_emotes_list.append(emote)
+
+                await msg.add_reaction(emote)
+
+            await ctx.send("... 20...")
+            await asyncio.sleep(10)
+            await ctx.send("... 10...")
+            await asyncio.sleep(5)
+            await ctx.send("... 5...")
+            await asyncio.sleep(5)
+
+            await msg.delete()
+
+            react_msg = await ctx.send(f"*Zaczynam przygotowywać zaklęcie. Zareaguj na tę wiadomości runicznymi emotkami w odpowiedniej kolejności <@{player.id}>!*")
+
+            print(emotes_list_full)
+            for emote in emotes_list_full:
+                await react_msg.add_reaction(emote)
+
+            #Define check function
+            def check_emote(reaction, player):
+                return user == player and react_msg.id == reaction.message.id
+
+            index = 0
+            for emote in sel_emotes_list:
+                try:
+                    print(react_msg.id)
+                    reaction, user = await self.bot.wait_for('reaction_add', timeout=10, check=check_emote)
+                    if str(sel_emotes_list[index]) == str(reaction.emoji):
+                        await ctx.send("*Dobrze!* - Sanczo dopinguje.")
+                        index += 1
+                    else:
+                        await ctx.send("*Całkiem nieźle idz...* - Sanczo nie zdążył dokończyć.")
+                        image_name = "events/memory/1.png"
+                        file=discord.File(image_name)
+                        await ctx.send(file=file)
+                        return False
+                except asyncio.TimeoutError:
+                    await ctx.send("*Ech, za wolno, poradzę sobie sam...* - rzekł Sanczo i zabrał się do pracy.")
+                    await asyncio.sleep(5)
+                    image_name = "events/memory/1.png"
+                    file=discord.File(image_name)
+                    await ctx.send(file=file)
+                    return False
+
+            rarity = random.randint(0,100)
+            if rarity >= 50:
+                rarity = 2
+            else:
+                rarity = 1
+            boost_percent = random.randint(0,25)
+            
+            image_name = "events/memory/2.png"
+            file=discord.File(image_name)
+            await ctx.send(file=file)
+            await ctx.send("*Doskonała robota! Zaklęcie gotowe!* - Twarz Sanczo promienieje z radości.")
+            await functions_daily.randLoot(self, ctx, rarity, player, boost_percent)
+            return True
+
+        except asyncio.TimeoutError:
+            await ctx.send("*Ech, poradzę sobie sam...* - rzekł Sanczo i zabrał się do pracy.")
+            await asyncio.sleep(5)
+            image_name = "events/memory/1.png"
+            file=discord.File(image_name)
+            await ctx.send(file=file)
+            return False
 
 def setup(bot):
     """Load the FunctionsEvents cog."""

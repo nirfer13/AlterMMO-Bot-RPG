@@ -290,14 +290,14 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         print("Group init error: wrong message!")
                         return False
             return inner_check
-        
+
         player_list = [ctx.author]
         timeout = 8
         while True:
             try:
                 another_atk_cmd = await self.bot.wait_for('message',
-                                                                timeout=timeout,
-                                                                check=check(ctx.author, player_list))
+                                                        timeout=timeout,
+                                                        check=check(ctx.author, player_list))
                 player_list.append(another_atk_cmd.author)
                 print(player_list)
                 if len(player_list) >= 3:
@@ -311,11 +311,10 @@ class functions_daily(commands.Cog, name="functions_daily"):
                 player_list_string = player_list_string + ("<@" + str(player.id) + "> ")
             print(player_list)
 
-        async with ctx.typing():
-            if len(player_list) > 1:
-                await ctx.channel.send('Rozpoczęliście polowanie ' + player_list_string + '<:REEeee:790963160495947856>! Wpiszcie **słowa przypisane do Was** tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpiszcie słowa bez spacji! Przygotujcie się!')
-            else:
-                await ctx.channel.send('Polowanie się rozpoczyna ' + player_list_string + '<:REEeee:790963160495947856>! Wpisz pojawiające się słowa tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpisz słowa bez spacji! Przygotuj się!')
+        if len(player_list) > 1:
+            await ctx.channel.send('Rozpoczęliście polowanie ' + player_list_string + '<:REEeee:790963160495947856>! Wpiszcie **słowa przypisane do Was** tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpiszcie słowa bez spacji! Przygotujcie się!')
+        else:
+            await ctx.channel.send('Polowanie się rozpoczyna ' + player_list_string + '<:REEeee:790963160495947856>! Wpisz pojawiające się słowa tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpisz słowa bez spacji! Przygotuj się!')
 
         #Load modifiers
         modifiers = await functions_modifiers.load_modifiers(self, ctx)
@@ -323,8 +322,12 @@ class functions_daily(commands.Cog, name="functions_daily"):
         #Load pet skills
         pet_skills_dict = {}
         for player in player_list:
-            pet_skill = await functions_pets.get_pet_skills(self, player.id)
-            pet_skills_dict[player.id] = pet_skill
+            try:
+                pet_skill = await functions_pets.get_pet_skills(self, player.id)
+                pet_skills_dict[player.id] = pet_skill
+            except:
+                await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+                return False
 
         await asyncio.sleep(5)
 
@@ -386,8 +389,8 @@ class functions_daily(commands.Cog, name="functions_daily"):
                     response = requestedAction[0][choosenAction]
                     
                     #Send proper action request on chat
-                    msg = await ctx.channel.send('~~' + str(iterator) + ". **" +
-                                                str(boss_hunter) + "**: " +
+                    msg = await ctx.channel.send('~~' + str(iterator) + ". " +
+                                                str(boss_hunter) + ": " +
                                             requestedAction[1][choosenAction] +
                                             '~~. Twój towarzysz wyprowadza atak!')
                     msg.author = boss_hunter

@@ -48,6 +48,7 @@ class EventType(Enum):
     CHEST = 2
     INVASION = 3
     PARTY = 4
+    MEMORY = 5
 
 global EVENT_TYPE
 EVENT_TYPE = EventType.NONE
@@ -128,7 +129,7 @@ class message(commands.Cog, name="spawnBoss"):
 
         while True:
             if DebugMode is False:
-                resp_time = random.randint(1000, 5000)
+                resp_time = random.randint(1000, 2500)
             elif DebugMode is True:
                 resp_time = random.randint(70, 75)
 
@@ -140,18 +141,18 @@ class message(commands.Cog, name="spawnBoss"):
             hour = timestamp.strftime("%H")
             day = timestamp.strftime("%a")
 
+            event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY,
+                          EventType.MEMORY]
             if (hour == "18" or hour == "19" or hour == "20" or hour == "21") and not (day == "Sun" or day == "Sat") and not DebugMode:
-                event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY]
-                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 2))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 2, 1))[0]
             elif (day == "Sun" or day == "Sat") and not DebugMode:
-                event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY]
-                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 1, 1))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 1, 1, 1))[0]
             else:
-                event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY]
-                EVENT_TYPE = random.choices(event_list, weights=(2, 3, 1, 0))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(2, 3, 1, 0, 2))[0]
 
             print("Event type: " + str(EVENT_TYPE))
-            if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2):
+            if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2) and\
+                BUSY == 0:
                 await functions_general.fClear(self, ctx)
                 if EVENT_TYPE == EventType.SHRINE:
                     await functions_modifiers.spawn_modifier_shrine(self, ctx)
@@ -159,6 +160,12 @@ class message(commands.Cog, name="spawnBoss"):
                 elif EVENT_TYPE == EventType.CHEST:
                     await functions_events.spawn_chest(self, ctx)
                     EVENT_ALIVE = 1
+                elif EVENT_TYPE == EventType.MEMORY:
+                    EVENT_ALIVE = 1
+                    BUSY = 1
+                    await functions_events.spawn_memory(self, ctx)
+                    EVENT_ALIVE = 0
+                    BUSY = 0
                 elif EVENT_TYPE == EventType.INVASION:
                     EVENT_ALIVE = 1
                     BUSY = 1
@@ -229,10 +236,10 @@ class message(commands.Cog, name="spawnBoss"):
                     BOSSALIVE = 2
 
                     wait_loop = 0
-                    while BUSY == 1 and wait_loop <= 11:
-                        await asyncio.sleep(70)
-                        wait_loop += 1
+                    while BUSY == 1 and wait_loop <= 60:
                         print("Waiting in loop, beacuse bot BUSY")
+                        await asyncio.sleep(15)
+                        wait_loop += 1
                     await functions_general.fClear(self, ctx)
                     print("Channel cleared. BOSSALIVE = 1. Resuming.")
                     print("Resume resp time: " + str(respTime))
@@ -359,7 +366,6 @@ class message(commands.Cog, name="spawnBoss"):
                                                                              BOSSALIVE, playersList,
                                                                              is_player_boss,
                                                                              player_boss)
-
             elif BOSSALIVE == 5:
                 pass
             else:
@@ -597,6 +603,12 @@ class message(commands.Cog, name="spawnBoss"):
     async def spawn_party(self, ctx):
 
         await functions_events.spawn_party(self, ctx)
+
+    # command to debug
+    @commands.command(pass_context=True, name="SpawnMemory", brief="Spawn a memory game.")
+    @commands.has_permissions(administrator=True)
+    async def spawn_memory(self, ctx):
+        await functions_events.spawn_memory(self, ctx)
 
     # command to debug
     @commands.command(pass_context=True, name="SpawnShrine", brief="Spawn a shrine.")
