@@ -25,6 +25,7 @@ import functions_pets
 import functions_daily
 import functions_expsum
 import functions_events
+import functions_skills
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -143,12 +144,10 @@ class message(commands.Cog, name="spawnBoss"):
 
             event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY,
                           EventType.MEMORY]
-            if (hour == "18" or hour == "19" or hour == "20" or hour == "21") and not (day == "Sun" or day == "Sat") and not DebugMode:
+            if (hour == "18" or hour == "19" or hour == "20" or hour == "21") and not DebugMode:
                 EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 2, 1))[0]
-            elif (day == "Sun" or day == "Sat") and not DebugMode:
-                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 1, 1, 1))[0]
             else:
-                EVENT_TYPE = random.choices(event_list, weights=(2, 3, 1, 0, 2))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(2, 3, 0, 0, 2))[0]
 
             print("Event type: " + str(EVENT_TYPE))
             if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2) and\
@@ -252,6 +251,20 @@ class message(commands.Cog, name="spawnBoss"):
             if BOSSALIVE == 2:
                 BOSSALIVE = 3
 
+                # Load all modifiers from file
+                modifiers = await functions_modifiers.load_modifiers(self, ctx)
+                BOSSRARITY += modifiers["rarity_boost"]
+                if BOSSRARITY > 4:
+                    BOSSRARITY = 4
+
+                # If early hour then reduce boss rarity to epic
+                timestamp = (datetime.utcnow() + timedelta(hours=2))
+                hour = timestamp.strftime("%H")
+                day = timestamp.strftime("%a")
+
+                if BOSSRARITY == 3 and not (hour == "16" or hour == "17" or hour == "18" or hour == "19" or hour == "20" or hour == "21" or hour == "22") and not (day == "Sun" or day == "Sat") and not DebugMode:
+                    BOSSRARITY = 4
+
                 # Detection skill
                 await functions_pets.detect_boss(self, BOSSRARITY)
                 print("After dection.")
@@ -271,21 +284,6 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_general.fClear(self, ctx)
                 print("Boss appeared.")
                 #Send info about boss spawn
-
-                # Load all modifiers from file
-                modifiers = await functions_modifiers.load_modifiers(self, ctx)
-                BOSSRARITY += modifiers["rarity_boost"]
-                if BOSSRARITY > 3:
-                    BOSSRARITY = 3
-
-                # If early hour then reduce boss rarity to epic
-                timestamp = (datetime.utcnow() + timedelta(hours=2))
-                hour = timestamp.strftime("%H")
-                day = timestamp.strftime("%a")
-
-                if BOSSRARITY == 3 and not (hour == "15" or hour == "16" or hour == "17" or hour == "18" or hour == "19" or hour == "20" or hour == "21" or hour == "22") and not (day == "Sun" or day == "Sat") and not DebugMode:
-                    BOSSRARITY = 2
-
                 try:
                     await generalSpawnMessage.delete()
                     print("Message deleted.")
@@ -352,7 +350,7 @@ class message(commands.Cog, name="spawnBoss"):
             if BOSSALIVE == 4: #or str(ctx.message.author.id) == '291836779495948288':
                 BOSSALIVE = 5
 
-                if BOSSRARITY in [0,1,2]:
+                if BOSSRARITY in [0,1,2,4]:
                     BOSSALIVE, bossHunterID = await functions_boss.singleInit(self, ctx,
                                                                               BOSSALIVE, BOSSRARITY)
                     BOSSALIVE = await functions_boss.singleFight(self, ctx, BOSSALIVE,
@@ -588,12 +586,12 @@ class message(commands.Cog, name="spawnBoss"):
         #await self.bot.pg_con.execute(sql)
 
         sql ='''ALTER TABLE PETOWNER
-        ADD PET_ID_ALT1 NUMERIC DEFAULT 0;
+        ADD SKILL_GEM NUMERIC DEFAULT 0;
         '''
         await self.bot.pg_con.execute(sql)
 
         sql ='''ALTER TABLE PETOWNER
-        ADD PET_ID_ALT2 NUMERIC DEFAULT 0;
+        ADD SKILL_GEM NUMERIC DEFAULT 0;
         '''
         await self.bot.pg_con.execute(sql)
 
@@ -684,6 +682,13 @@ class message(commands.Cog, name="spawnBoss"):
     async def generate_egg(self, ctx):
         await functions_pets.generate_pet_egg(self, ctx)
 
+    # command to debug
+    @commands.command(pass_context=True, name="GenerateSkill",
+                      brief="Generates skill and print its data.")
+    @commands.has_permissions(administrator=True)
+    async def generate_skill(self, ctx):
+        await functions_skills.generate_skill_gem(self, ctx)
+
     @commands.command(pass_context=True, name="SendPM",
                       brief="Sends private message to user.")
     async def dm(self, ctx):
@@ -743,6 +748,13 @@ class message(commands.Cog, name="spawnBoss"):
     async def create_pets_table(self, ctx):
         await functions_pets.create_pets_table(self)
         await ctx.channel.send("Baza danych PETS utworzona.")
+
+    @commands.command(name="createSkillsDatabase",
+                      brief="Create table SKILLS table with one default record.")
+    @commands.has_permissions(administrator=True)
+    async def create_skills_table(self, ctx):
+        await functions_skills.create_skills_table(self)
+        await ctx.channel.send("Baza danych SKILLS utworzona.")
 
     @commands.command(name="ReassignPet",
                       brief="Assign pet_id to player_id.")

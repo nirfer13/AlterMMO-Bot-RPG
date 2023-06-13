@@ -17,6 +17,7 @@ from globals.globalvariables import DebugMode
 import functions_database
 import functions_modifiers
 import functions_pets
+import functions_skills
 import functions_expsum
 
 class functions_boss(commands.Cog, name="functions_boss"):
@@ -42,6 +43,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
             jsonObject = jsonObject['loot_details_Epic']
         elif rarity == 3:
             jsonObject = jsonObject['loot_details_Legend']
+        elif rarity == 4:
+            jsonObject = jsonObject['loot_details_Mythic']
         else:
             jsonObject = jsonObject['loot_details_Legend']
 
@@ -82,6 +85,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         drop_message += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during mirror assigning.")
+                elif loot['id'] == 15:
+                    check = await functions_skills.assign_skill(self, ctx, BossHunter)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during skill assigning.")
                 # Other drop
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
@@ -137,6 +146,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         drop_message += "👉 " + loot['descr'] + "\n"
                     else:
                         print("Failed to check database during mirror assigning.")
+                elif loot['id'] == 15:
+                    check = await functions_skills.assign_skill(self, ctx, BossHunter)
+                    if check:
+                        drop_message += "👉 " + loot['descr'] + "\n"
+                    else:
+                        print("Failed to check database during skill assigning.")
                 # Other drop
                 else:
                     drop_message += "👉 " + loot['descr'] + "\n"
@@ -220,6 +235,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
             eTitle = f"💀 Epicki {boss_player}! 💀"
         elif rarity == 3:
             eTitle = f"💀 Legendarny {boss_player}! 💀"
+        elif rarity == 4:
+            eTitle = f"💀 Mityczny {boss_player}! 💀"
         else:
             eTitle = f"💀 Legendarny {boss_player}! 💀"
 
@@ -232,6 +249,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
             eDescr = "Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         elif rarity == 3:
             eDescr = "Pojawił się LEGENDARNY boss! Nie dasz rady sam, będziesz potrzebował kompanów spośród <@&985071779787730944>! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
+        elif rarity == 4:
+            eDescr = "Pojawił się mityczny boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         else:
             eDescr = "Pojawił się LEGENDARNY boss! Nie dasz rady sam, będziesz potrzebował kompanów spośród <@&985071779787730944>! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
 
@@ -487,8 +506,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
             await asyncio.sleep(1)
 
             #Random the message and requested action
-            requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **U N I K**", "Boss zawahał się! Teraz! Wpisz **A T A K**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **P A R U J**", 
-            "Boss próbuje ataku w nogi, wpisz **S K O K**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **B I E G**", "Boss atakuje w powietrzu, wpisz **T U R L A J**", "Boss rzuca klątwę, wpisz **C Z A R U J**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **B L O K**","Boss próbuje ataku w nogi, wpisz **S K A C Z**","Boss szarżuje na Ciebie, zrób coś, wpisz **A K C J A**", "Nie masz pojęcia co robić, wpisz **K R Z Y K**", "Musisz zrobić cokolwiek, wpisz **R U C H**", "Boss rzuca głazem w Twoją stronę, wpisz **P O S U W**", "Dostrzegasz szansę na uderzenie, wpisz **I M P E T**", "Pojawiła się chwila zawachania potwora, wpisz **Z R Y W**")]
+            if BOSSRARITY == 4:
+                requestedAction = [("zmykaj", "agresja", "parada", "uskok", "sprint", "kulanie", "zaklęcie", "blokada", "panika", "obrót"), ("Boss szarżuje na Ciebie! Wpisz **Z M Y K A J**", "Boss zawahał się! Teraz! Wpisz **A G R E S J A**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **P A R A D A**",
+                "Boss próbuje ataku w nogi, wpisz **U S K O K**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **S P R I N T**", "Boss atakuje w powietrzu, wpisz **K U L A N I E**", "Boss rzuca klątwę, wpisz **Z A K L Ę C I E**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **B L O K A D A**",  "Nie masz pojęcia co robić, wpisz **P A N I K A**",  "Musisz zrobić cokolwiek, wpisz **O B R Ó T**")]
+            else:
+                requestedAction = [("unik", "atak", "paruj", "skok", "bieg", "turlaj", "czaruj", "blok", "skacz", "akcja", "krzyk", "ruch", "posuw", "impet", "zryw"), ("Boss szarżuje na Ciebie! Wpisz **U N I K**", "Boss zawahał się! Teraz! Wpisz **A T A K**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **P A R U J**",
+                "Boss próbuje ataku w nogi, wpisz **S K O K**", "Boss szykuje potężny atak o szerokim zasięgu, wpisz **B I E G**", "Boss atakuje w powietrzu, wpisz **T U R L A J**", "Boss rzuca klątwę, wpisz **C Z A R U J**", "Boss atakuje, nie masz miejsca na ucieczkę, wpisz **B L O K**","Boss próbuje ataku w nogi, wpisz **S K A C Z**","Boss szarżuje na Ciebie, zrób coś, wpisz **A K C J A**", "Nie masz pojęcia co robić, wpisz **K R Z Y K**", "Musisz zrobić cokolwiek, wpisz **R U C H**", "Boss rzuca głazem w Twoją stronę, wpisz **P O S U W**", "Dostrzegasz szansę na uderzenie, wpisz **I M P E T**", "Pojawiła się chwila zawachania potwora, wpisz **Z R Y W**")]
 
             bossHP = fRandomBossHp(BOSSRARITY)
             bossHP = int(bossHP * (1+(modifiers["hp_boost_perc"] - modifiers["hp_reduced_perc"]
@@ -570,6 +593,10 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             #Send info about loot
                             logChannel = self.bot.get_channel(881090112576962560)
                             await logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " otrzymał: \n" + dropLoot)
+
+                            # Assign achievement if mythic
+                            if BOSSRARITY == 4:
+                                await setMythicSlayer(self, ctx, bossHunterID.id)
 
                             #Reset at the end of the fight.
                             await resetEnd(self, ctx)
@@ -964,7 +991,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                  await member.remove_roles(my_role)
         print("Dead Hunter role removed.")
 
-    #function to add Boss Slayer role
+    #function to add Dead Boss Hunter role
     global setDeadHunters
     async def setDeadHunters(self, ctx, userID):
         my_role = discord.utils.get(ctx.guild.roles, id=1091050836303544402)
@@ -976,6 +1003,21 @@ class functions_boss(commands.Cog, name="functions_boss"):
         print("Dead hunter role granted.")
         chatChannel = self.bot.get_channel(776379796367212594)
         await chatChannel.send("Na kanale <#970684202880204831> poległeś z ręki potwora <@" + str(userID) + ">, a groziło to banem... <:RIP:912797982917816341> Musisz odpocząć od przygód aż do momentu zabicia następnego bossa.")
+
+    #function to add Boss Slayer role
+    global setMythicSlayer
+    async def setMythicSlayer(self, ctx, userID):
+        my_role = discord.utils.get(ctx.guild.roles, id=1118242273772175401)
+        members = my_role.members
+        print(my_role)
+        guild = self.bot.get_guild(686137998177206281)
+        user = guild.get_member(int(userID))
+        await user.add_roles(my_role)
+        print("Mythic Boss Slayer role granted.")
+        if len(members) > 0:
+            await ctx.channel.send(f"<@&985071779787730944>! Łowca <@{userID}> zabił mitycznego bossa! <:POGGERS:936907543849078844> Do tej pory udało się to tylko {str(len(members))} łowcom!")
+        else:
+            await ctx.channel.send(f"<@&985071779787730944>! Łowca <@{userID}> zabił mitycznego bossa! <:POGGERS:936907543849078844> Jest to pierwszy łowca, który tego dokonał!")
 
     #function to add random gif for Boss Slayer
     global flexGif

@@ -296,7 +296,14 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             quality = "Standard"
             variant = random.randint(0,10)
 
-        db_read = await self.bot.pg_con.fetch("SELECT PET_ID FROM PETS ORDER BY PET_ID DESC LIMIT 1")
+        for retries in range(0,3):
+            try:
+                db_read = await self.bot.pg_con.fetch("SELECT PET_ID FROM PETS ORDER BY PET_ID DESC LIMIT 1")
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
+            return False
 
         print(f"Read from databse {db_read}")
 
@@ -338,17 +345,20 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         print(f"Pet egg generated {pet}, shiny: {shiny}.")
 
         return pet_config["PET_ID"]
-    
+
     global reroll_pet
     async def reroll_pet(self, ctx, player):
         """Reroll pet stats"""
 
         print("Checking if user has a pet...")
         sql = f"SELECT PET_ID, REROLL_SCROLL FROM PETOWNER WHERE PLAYER_ID = {player.id};"
-        try:
-            pet_exists = await self.bot.pg_con.fetch(sql)
-        except:
-            await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+        for retries in range(0,3):
+            try:
+                pet_exists = await self.bot.pg_con.fetch(sql)
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
             return False
 
         if pet_exists:
@@ -409,12 +419,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                             add_skill_value = random.randint(5, 8)
                                     elif skill_name == "SLOW_PERC":
                                         if pet_shiny:
-                                            add_skill_value = random.randint(5, 10)
+                                            add_skill_value = random.randint(8, 14)
                                         else:
                                             add_skill_value = random.randint(5, 8)
                                     else:
                                         if pet_shiny:
-                                            add_skill_value = random.randint(3, 7)
+                                            add_skill_value = random.randint(5, 8)
                                         else:
                                             add_skill_value = random.randint(3, 5)
 
@@ -460,6 +470,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         print("Checking if user has a pet...")
         sql = f"SELECT PET_ID, MIRRORS FROM PETOWNER WHERE PLAYER_ID = {player.id};"
         pet_exists = await self.bot.pg_con.fetch(sql)
+        
         pet_id = pet_exists[0][0]
         mirrors = pet_exists[0][1]
 
@@ -534,17 +545,20 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         else:
             await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
             return False
-        
+
     global enlight_pet
     async def enlight_pet(self, ctx, player):
         """Enlighting pet (try to increase talent)."""
 
         print("Checking if user has a pet...")
         sql = f"SELECT PET_ID, REBIRTH_STONES FROM PETOWNER WHERE PLAYER_ID = {player.id};"
-        try:
-            pet_exists = await self.bot.pg_con.fetch(sql)
-        except:
-            await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+        for retries in range(0,3):
+            try:
+                pet_exists = await self.bot.pg_con.fetch(sql)
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
             return False
 
         if pet_exists:
@@ -554,9 +568,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 print("Pet exists, so we can try to reroll.")
                 if rebirth_stones > 0:
 
-                    sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC, REPLACE_PERC,
-                            DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION
-                            FROM PETS WHERE PET_ID = {pet_id};"""
+                    sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC,
+                            REPLACE_PERC, DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC,
+                            DETECTION FROM PETS WHERE PET_ID = {pet_id};"""
                     pet_stats = await self.bot.pg_con.fetch(sql)
 
                     pet_lvl = pet_stats[0][0]
@@ -686,10 +700,14 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         player_id = int(player.id)
 
         sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        try:
-            player_exists = await self.bot.pg_con.fetch(sql)
-        except:
-            await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+        
+        for retries in range(0,3):
+            try:
+                player_exists = await self.bot.pg_con.fetch(sql)
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
             return False
 
         if player_exists:
@@ -705,7 +723,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         else:
             print("Player does not exist in PETOWNER database, so creating new record.")
             pet_id = await generate_pet_egg(self, ctx, player)
-            await new_record_petowners(self, player_id, pet_id, True, 0, 0, 0, 0)
+            await new_record_petowners(self, player_id, pet_id, True, 0, 0, 0, 0, 0)
             return True
 
         # Nothing happened.
@@ -1054,7 +1072,15 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         number = int(number)
 
         sql = f"SELECT REROLL_SCROLL_SHARD FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        scroll_shards = await self.bot.pg_con.fetch(sql)
+
+        for retries in range(0,3):
+            try:
+                scroll_shards = await self.bot.pg_con.fetch(sql)
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
+            return False
 
         if scroll_shards:
             if scroll_shards[0][0] is None:
@@ -1072,7 +1098,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            await new_record_petowners(self, player_id, 0, False, 0, number, 0, 0)
+            await new_record_petowners(self, player_id, 0, False, 0, number, 0, 0, 0)
             return True
 
         # Nothing happened.
@@ -1086,8 +1112,14 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         number = int(number)
 
         sql = f"SELECT REROLL_SCROLL FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        scrolls = await self.bot.pg_con.fetch(sql)
-        print(scrolls)
+        for retries in range(0,3):
+            try:
+                scrolls = await self.bot.pg_con.fetch(sql)
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
+            return False
 
         if scrolls:
             if scrolls[0][0] is None:
@@ -1105,12 +1137,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            await new_record_petowners(self, player_id, 0, False, number, 0, 0, 0)
+            await new_record_petowners(self, player_id, 0, False, number, 0, 0, 0, 0)
             return True
 
         # Nothing happened.
         return False
-    
+
     global assign_rebirth_stone
     async def assign_rebirth_stone(self, ctx, number, player_id):
         """Assigning rebirth stone to the player in database."""
@@ -1119,12 +1151,15 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         number = int(number)
 
         sql = f"SELECT REBIRTH_STONES FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        try:
-            rebirth_stones = await self.bot.pg_con.fetch(sql)
-        except:
-            await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+        for retries in range(0,3):
+            try:
+                rebirth_stones = await self.bot.pg_con.fetch(sql)
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
             return False
-        
+
 
         if rebirth_stones:
             if rebirth_stones[0][0] is None:
@@ -1142,7 +1177,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            await new_record_petowners(self, player_id, 0, False, 0, 0, number, 0)
+            await new_record_petowners(self, player_id, 0, False, 0, 0, number, 0, 0)
             return True
 
         # Nothing happened.
@@ -1156,7 +1191,15 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         number = int(number)
 
         sql = f"SELECT MIRRORS FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        mirrors = await self.bot.pg_con.fetch(sql)
+
+        for retries in range(0,3):
+            try:
+                mirrors = await self.bot.pg_con.fetch(sql)
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
+            return False
 
         if mirrors:
             if mirrors[0][0] is None:
@@ -1174,7 +1217,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return True
         else:
             print("Player doest not exists in PETOWNER database, we can update dabatase..")
-            await new_record_petowners(self, player_id, 0, False, 0, 0, 0, number)
+            await new_record_petowners(self, player_id, 0, False, 0, 0, 0, number, 0)
             return True
 
         # Nothing happened.
@@ -1187,7 +1230,15 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         player_id = int(player_id)
 
         sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        player_exists = await self.bot.pg_con.fetch(sql)
+        
+        for retries in range(0,3):
+            try:
+                player_exists = await self.bot.pg_con.fetch(sql)
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
+            return False
 
         if player_exists:
             if player_exists[0][0] > 0:
@@ -1242,12 +1293,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                         add_skill_value = random.randint(5, 8)
                                 elif skill_name == "SLOW_PERC":
                                     if pet_shiny:
-                                        add_skill_value = random.randint(5, 10)
+                                        add_skill_value = random.randint(8, 14)
                                     else:
                                         add_skill_value = random.randint(5, 8)
                                 else:
                                     if pet_shiny:
-                                        add_skill_value = random.randint(4, 7)
+                                        add_skill_value = random.randint(5, 8)
                                     else:
                                         add_skill_value = random.randint(3, 5)
 
@@ -1278,7 +1329,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return False
         else:
             return False
-        
+
     global get_pet_skills
     async def get_pet_skills(self, player_id):
         """Get all user pet skills"""
@@ -1286,7 +1337,15 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         player_id = int(player_id)
 
         sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        player_exists = await self.bot.pg_con.fetch(sql)
+
+        for retries in range(0,3):
+            try:
+                player_exists = await self.bot.pg_con.fetch(sql)
+                break
+            except:
+                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+        else:
+            return False
 
         skill_list = {"CRIT_PERC": 0, "REPLACE_PERC": 0,
                         "DEF_PERC": 0, "DROP_PERC": 0,
@@ -1326,7 +1385,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 return skill_list
         else:
             return skill_list
-        
+
     global detect_boss
     async def detect_boss(self, boss_rarity):
         """Send PM to everyone who owns the pet with detection."""
@@ -1359,10 +1418,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                             rarity = "epicki"
                         elif boss_rarity == 3:
                             rarity = "legendarny"
+                        elif boss_rarity == 4:
+                            rarity = "mityczny"
                         try:
-                            await user.send("Nadciąga boss! Będzie " + rarity + " (ewentualny bonus z kapliczki nie jest uwzględniony).")
-                            if boss_rarity == 3:
-                                await user.send("Legendarne bossy mogą pojawić się tylko w weekendy albo wieczorem w tygodniu. W innym wypadku zostaną zamienione na epickie.")
+                            await user.send("Nadciąga boss! Będzie " + rarity + ".")
                         except:
                             if DebugMode:
                                 chatChannel = self.bot.get_channel(881090112576962560)
@@ -1445,16 +1504,15 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         emb.set_footer(text='Gratulacje dla anonimowych posiadaczy!')
         await ctx.send(embed=emb)
 
-
 async def new_record_petowners(self, player_id: int, pet_id: int, pet_owned: bool,
                                 reroll_scroll: int, reroll_scroll_shard: int, rebirth_stones: int,
-                                mirrors: int):
+                                mirrors: int, skill_id: int):
     """New record of user in petowners database."""
 
     sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
-    REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS)
+    REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS, SKILL_GEM)
     VALUES ({player_id},{pet_id},{pet_owned},{reroll_scroll},{reroll_scroll_shard},{rebirth_stones},
-    {mirrors});"""
+    {mirrors},{skill_id});"""
     await self.bot.pg_con.fetch(sql)
 
 def setup(bot):

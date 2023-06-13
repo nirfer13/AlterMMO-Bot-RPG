@@ -176,6 +176,8 @@ class functions_database(commands.Cog, name="functions_database"):
             points = 6
         elif bossRarity == 3:
             points = 4
+        elif bossRarity == 4:
+            points = 12
         else:
             points = 4
 

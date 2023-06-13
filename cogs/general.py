@@ -50,7 +50,7 @@ class general(commands.Cog, name="general"):
                     second = splittedString[1]
                 except:
                     pass
-                     
+
                 print(
                     f"{first + second} \n\n",
                     file=f)

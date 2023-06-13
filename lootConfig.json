@@ -139,5 +139,50 @@
 		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
 		"weight": 3
 	}
-	]
+	],"loot_details_Mythic": [
+		{
+			"id": 0,
+			"descr": "10000 doświadczenia na Discordzie",
+			"weight": 100
+		},
+		{
+			"id": 1,
+			"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
+			"weight": 2
+		},
+		{
+			"id": 2,
+			"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
+			"weight": 2.5
+		},
+		{
+			"id": 3,
+			"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
+			"weight": 3
+		},
+		{
+			"id": 10,
+			"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+			"weight": 100
+		},
+		{
+			"id": 12,
+			"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+			"weight": 100
+		},
+		{
+			"id": 13,
+			"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
+			"weight": 100
+		},
+		{
+			"id": 14,
+			"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
+			"weight": 100
+		},
+		{
+			"id": 15,
+			"descr": "Otrzymałeś klejnot zdolności. Póki co nie wiesz do czego jest potrzebny...",
+			"weight": 10
+		}]
 }
