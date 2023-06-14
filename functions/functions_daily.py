@@ -322,11 +322,14 @@ class functions_daily(commands.Cog, name="functions_daily"):
         #Load pet skills
         pet_skills_dict = {}
         for player in player_list:
-            try:
-                pet_skill = await functions_pets.get_pet_skills(self, player.id)
-                pet_skills_dict[player.id] = pet_skill
-            except:
-                await ctx.channel.send("Błąd bazy danych <:Sadge:936907659142111273> Spróbuj jeszcze raz...")
+            for retries in range(0,3):
+                try:
+                    pet_skill = await functions_pets.get_pet_skills(self, player.id)
+                    pet_skills_dict[player.id] = pet_skill
+                    break
+                except:
+                    await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+            else:
                 return False
 
         await asyncio.sleep(5)

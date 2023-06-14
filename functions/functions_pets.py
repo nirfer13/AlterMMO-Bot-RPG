@@ -1343,7 +1343,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 player_exists = await self.bot.pg_con.fetch(sql)
                 break
             except:
-                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                pass
         else:
             return False
 
@@ -1358,7 +1358,15 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC, REPLACE_PERC,
                 DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION
                 FROM PETS WHERE PET_ID = {player_exists[0][0]};"""
-                pet_stats = await self.bot.pg_con.fetch(sql)
+                for retries in range(0,3):
+                    try:
+                        pet_stats = await self.bot.pg_con.fetch(sql)
+                        break
+                    except:
+                        pass
+                else:
+                    return False
+                
 
                 pet_id = player_exists[0][0]
                 pet_lvl = pet_stats[0][0]
