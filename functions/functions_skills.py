@@ -1,13 +1,9 @@
 ﻿"""Class with all functions used for skills."""
 
-import json
-import discord
 import random
-import asyncio
 from enum import Enum
 from discord.ext import commands
 
-import functions_modifiers
 import functions_pets
 
 #Import Globals

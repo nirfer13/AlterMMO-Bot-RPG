@@ -6,9 +6,7 @@ import json
 import os
 import math
 
-from datetime import datetime, timedelta
-from PIL import Image
-from io import BytesIO
+from datetime import datetime
 
 import datetime
 
@@ -19,6 +17,7 @@ import functions_modifiers
 import functions_pets
 import functions_skills
 import functions_expsum
+import functions_patrons
 
 class functions_boss(commands.Cog, name="functions_boss"):
     def __init__(self, bot):
@@ -181,15 +180,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
         print("Boss player? " + str(is_player_boss) + " " + str(percentage))
 
         if is_player_boss:
-            crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-            patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
-            patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
-            patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
-            patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
-            members = crafter.members + patron1.members + patron2.members +\
-            patron3.members + patron4.members
+            boss_player = functions_patrons.get_patron(self, ctx)
 
-            boss_player = random.choice(members)
             print(boss_player)
             file = boss_player.avatar_url
             add_desc = "\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "\
@@ -595,7 +587,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             await logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " otrzymał: \n" + dropLoot)
 
                             # Assign achievement if mythic
-                            if BOSSRARITY == 4:
+                            if BOSSRARITY == 4 and \
+                            functions_patrons.check_if_patron(self, ctx, bossHunterID):
                                 await setMythicSlayer(self, ctx, bossHunterID.id)
 
                             #Reset at the end of the fight.

@@ -118,7 +118,7 @@ class functions_rpg_general(commands.Cog, name="functions_rpg_general"):
                         await ctx.channel.send(embed=embed)
                     except:
                         pass
-                    
+
                 #Check function
                 async def interaction_check (self, interaction: discord.Interaction) -> bool:
                     if interaction.user == ctx_var.author:

@@ -1,17 +1,11 @@
 import asyncio
-import json
 import random
 import sys
-import time
 from datetime import datetime, timedelta
 from logging import DEBUG
 
 import discord
-from discord import Client, channel
-from discord.errors import ClientException
-from discord.ext import commands, tasks
-from discord.message import Message
-from discord.user import ClientUser
+from discord.ext import commands
 from enum import Enum
 
 from functions.functions_boss import fRandomBossHp
@@ -26,6 +20,7 @@ import functions_daily
 import functions_expsum
 import functions_events
 import functions_skills
+import functions_patrons
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -50,6 +45,7 @@ class EventType(Enum):
     INVASION = 3
     PARTY = 4
     MEMORY = 5
+    HUNTING = 6
 
 global EVENT_TYPE
 EVENT_TYPE = EventType.NONE
@@ -111,6 +107,7 @@ class message(commands.Cog, name="spawnBoss"):
                 print("Winner ID: " + str(winnerID))
                 await functions_boss.setBossSlayer(self, ctx, winnerID)
                 await functions_database.resetRankingTable(self)
+                await functions_daily.clear_daily_file(self)
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
                 return
             if timestamp.strftime("%H:%M UTC") == "04:10 UTC":
@@ -130,9 +127,9 @@ class message(commands.Cog, name="spawnBoss"):
 
         while True:
             if DebugMode is False:
-                resp_time = random.randint(1000, 2500)
+                resp_time = random.randint(1200, 2500)
             elif DebugMode is True:
-                resp_time = random.randint(70, 75)
+                resp_time = random.randint(15, 20)
 
             await asyncio.sleep(resp_time)
             EVENT_ALIVE = 0
@@ -143,11 +140,12 @@ class message(commands.Cog, name="spawnBoss"):
             day = timestamp.strftime("%a")
 
             event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY,
-                          EventType.MEMORY]
+                          EventType.MEMORY, EventType.HUNTING]
             if (hour == "18" or hour == "19" or hour == "20" or hour == "21") and not DebugMode:
-                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 2, 1))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1))[0]
             else:
-                EVENT_TYPE = random.choices(event_list, weights=(2, 3, 0, 0, 2))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(2, 2, 1, 0, 2, 2))[0]
+                #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 2))[0]
 
             print("Event type: " + str(EVENT_TYPE))
             if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2) and\
@@ -176,6 +174,12 @@ class message(commands.Cog, name="spawnBoss"):
                     EVENT_ALIVE = 1
                     BUSY = 1
                     await functions_events.spawn_party(self, ctx)
+                    EVENT_ALIVE = 0
+                    BUSY = 0
+                elif EVENT_TYPE == EventType.HUNTING:
+                    EVENT_ALIVE = 1
+                    BUSY = 1
+                    await functions_events.spawn_hunting(self, ctx)
                     EVENT_ALIVE = 0
                     BUSY = 0
             elif BOSSALIVE > 2:
@@ -281,6 +285,7 @@ class message(commands.Cog, name="spawnBoss"):
             if BOSSALIVE == 3:
                 print("Channel cleared.")
                 EVENT_ALIVE = 0
+                BUSY = 0
                 await functions_general.fClear(self, ctx)
                 print("Boss appeared.")
                 #Send info about boss spawn
@@ -311,15 +316,8 @@ class message(commands.Cog, name="spawnBoss"):
 
         if EVENT_ALIVE == 1 and EVENT_TYPE == EventType.SHRINE:
             EVENT_ALIVE = 0
-            crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-            patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
-            patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
-            patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
-            patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
 
-            if crafter in ctx.message.author.roles or patron1 in ctx.message.author.roles or\
-            patron2 in ctx.message.author.roles or patron3 in ctx.message.author.roles or\
-            patron4 in ctx.message.author.roles:
+            if functions_patrons.check_if_patron(self, ctx, ctx.author):
                 await ctx.message.add_reaction("<:prayge:1063891597760139304>")
                 await functions_modifiers.random_modifiers(self, ctx, True)
             else:
@@ -407,9 +405,17 @@ class message(commands.Cog, name="spawnBoss"):
         print("Discarding author's pet")
         await functions_pets.discard_pet(self, ctx)
 
-    @commands.command(name="odrodzenie", brief="Reroll the pet.")
+    @commands.command(name="odrodzenie", aliases=['odr'], brief="Reroll the pet.")
     async def reroll_pet(self, ctx):
         await functions_pets.reroll_pet(self, ctx, ctx.author)
+
+    @commands.command(name="mocneodrodzenie", aliases=["odrodzenie2", "odr2", "mocneodr"],
+                      brief="Advanced reroll the pet.")
+    async def adv_reroll_pet(self, ctx):
+        global BUSY
+        BUSY = 1
+        await functions_pets.adv_reroll_pet(self, ctx)
+        BUSY = 0
 
     @commands.command(name="oswiecenie", aliases=['oświecenie'], brief="Enlight the pet.")
     async def enlight_pet(self, ctx):

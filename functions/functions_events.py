@@ -7,6 +7,7 @@ import asyncio
 from discord.ext import commands
 
 import functions_daily
+import functions_patrons
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -127,15 +128,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
 
         print("Party spawn.")
 
-        crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-        patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
-        patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
-        patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
-        patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
-        members = crafter.members + patron1.members + patron2.members +\
-        patron3.members + patron4.members
-
-        cheerer = random.choice(members)
+        cheerer = functions_patrons.get_patron(self, ctx)
 
         e_title = f"<:Drink:912798939542061086> Zdrowie {cheerer.name}! <:Drink:912798939542061086>"
 
@@ -283,7 +276,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             await ctx.send(file=file)
             await ctx.send("No cóż... Pozostało napić się w samotności. " +
                            f"Zdrowie {cheerer.name}! <:Drink:912798939542061086>")
-            
+
     global spawn_memory
     async def spawn_memory(self, ctx):
         """Function to spawn memory game."""
@@ -336,7 +329,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
                            "<:Bedge:970576892874854400>", "<:EZ:720710033645633587>",
                            "<:gayge:1062110423438078072>", "<:POGGERS:936907543849078844>"]
             sel_emotes_list = []
-            
+
             for x in range(0, 4):
                 emote = random.choice(emotes_list)
                 emotes_list.remove(emote)
@@ -391,7 +384,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             else:
                 rarity = 1
             boost_percent = random.randint(0,25)
-            
+
             image_name = "events/memory/2.png"
             file=discord.File(image_name)
             await ctx.send(file=file)
@@ -403,6 +396,59 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             await ctx.send("*Ech, poradzę sobie sam...* - rzekł Sanczo i zabrał się do pracy.")
             await asyncio.sleep(5)
             image_name = "events/memory/1.png"
+            file=discord.File(image_name)
+            await ctx.send(file=file)
+            return False
+
+    global spawn_hunting
+    async def spawn_hunting(self, ctx):
+        """Spawn a hunt object.
+        """
+        e_title = f"<:MonkaS:882181709100097587> Mroczny las! <a:PeepoRiot:1067317732942565416>"
+
+        e_descr = ('Przed Wami złowrogi las... Czy odwarzycie się do niego wkroczyć?'
+                '\n\n*Zostaw reakcję pod postem, jeśli chcesz wziąć udział.*')
+
+        e_color = 0x003616
+
+        image_name = "events/hunting/0.png"
+        file=discord.File(image_name)
+        await ctx.send(file=file)
+
+        embed = discord.Embed(
+            title=e_title,
+            description=e_descr,
+            color=e_color)
+
+        msg = await ctx.send(embed=embed)
+
+        #Define check function
+        def check(reaction, user):
+            return msg.channel == ctx.channel and str(reaction.emoji) == "⚔️" and user.id != 971322848616525874 and user.id != 859729615123251200 and msg.id == reaction.message.id
+
+        await msg.add_reaction("⚔️")
+
+        if DebugMode:
+            timeout = 15
+        else:
+            timeout = 600
+
+        try:
+            reaction, user = await self.bot.wait_for('reaction_add', timeout=timeout, check=check)
+
+            player = user
+
+            rarity = random.randint(0,100)
+            if 0 <= rarity <= 96:
+                rarity = 1
+            else:
+                rarity = 2
+            is_player_boss, boss_player = await functions_daily.fBossImage(self, ctx, rarity)
+            await functions_daily.hunt_mobs(self, ctx, rarity, is_player_boss, boss_player, player)
+
+        except asyncio.TimeoutError:
+            await ctx.send("*Las pozostaje tajemnicą...*")
+            image_name = "events/hunting/1.png"
             file=discord.File(image_name)
             await ctx.send(file=file)
             return False

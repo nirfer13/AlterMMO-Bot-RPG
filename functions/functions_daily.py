@@ -138,7 +138,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
             image_number = pow(10,rarity)
             if image_number == 1:
                 image_number = 0
-            image_name = "mobs/" + str(random.randint(0,6)+image_number) + ".png"
+            image_name = "mobs/" + str(random.randint(0,9)+image_number) + ".png"
             file=discord.File(image_name)
             boss_player = "mob"
             add_desc = ""
@@ -274,7 +274,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
 
     #function to carry fight by single player with daily boss
     global hunt_mobs
-    async def hunt_mobs(self, ctx, BOSSRARITY, is_player_boss, player_boss):
+    async def hunt_mobs(self, ctx, BOSSRARITY, is_player_boss, player_boss, player=None):
 
         # Cooperative hunting
         #Fight Check Function
@@ -291,7 +291,10 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         return False
             return inner_check
 
-        player_list = [ctx.author]
+        if player:
+            player_list = [player]
+        else:
+            player_list = [ctx.author]
         timeout = 8
         while True:
             try:

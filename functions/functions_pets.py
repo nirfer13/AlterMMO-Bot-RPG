@@ -1,14 +1,14 @@
 ﻿"""Class with all functions used for pets."""
 
-import json
-from symbol import namedexpr_test
 import discord
 import random
 import asyncio
 from enum import Enum
 from discord.ext import commands
+from itertools import islice
 
 import functions_modifiers
+import functions_patrons
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -266,13 +266,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
     async def generate_pet_egg(self, ctx, player):
         """Generate first pet as an egg."""
 
-        crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-        patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
-        patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
-        patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
-        patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
-        if crafter in player.roles or patron1 in player.roles or patron2 in player.roles or\
-        patron3 in player.roles or patron4 in player.roles:
+        if functions_patrons.check_if_patron(self, ctx, player):
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
                          PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
@@ -347,7 +341,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         return pet_config["PET_ID"]
 
     global reroll_pet
-    async def reroll_pet(self, ctx, player):
+    async def reroll_pet(self, ctx, player, remove_list = []):
         """Reroll pet stats"""
 
         print("Checking if user has a pet...")
@@ -361,12 +355,18 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         else:
             return False
 
+        # Calculate cost of the reroll
+        if len(remove_list) == 0:
+            cost = 1
+        else:
+            cost = 10 * len(remove_list)
+
         if pet_exists:
             pet_id = pet_exists[0][0]
             reroll_scroll = pet_exists[0][1]
             if pet_exists[0][0] > 0:
                 print("Pet exists, so we can try to reroll.")
-                if reroll_scroll > 0:
+                if reroll_scroll >= cost:
 
                     # Check if reroll pet is confirmed
                     def check_reroll(author):
@@ -399,17 +399,31 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         pet_init_perc = 0
                         pet_detection = False
 
+                        full_skill_list = {"CRIT_PERC": pet_crit_perc,
+                                           "REPLACE_PERC": pet_replace_perc,
+                                    "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
+                                    "LOWHP_PERC": pet_lowhp_perc, "SLOW_PERC": pet_slow_perc,
+                                    "DETECTION": pet_detection}
+
                         skill_list = {"CRIT_PERC": pet_crit_perc, "REPLACE_PERC": pet_replace_perc,
                                     "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
                                     "LOWHP_PERC": pet_lowhp_perc, "SLOW_PERC": pet_slow_perc,
                                     "DETECTION": pet_detection}
+                        
+                        print(remove_list)
+                        iterator = 0
+                        for element in remove_list:
+                            element -= iterator
+                            del skill_list[next(islice(skill_list, element, None))]
+                            iterator += 1
 
                         pet_skills = int(pet_skills)
                         for i in range(pet_skills):
                             print(i)
                             while True:
                                 skill_name, skill_value = random.choice(list(skill_list.items()))
-                                if skill_name == "DETECTION" and pet_detection:
+                                print(f"Skill: {skill_name}")
+                                if skill_name == "DETECTION" and full_skill_list["DETECTION"]:
                                     pass
                                 else:
                                     if skill_name == "INIT_PERC":
@@ -419,7 +433,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                             add_skill_value = random.randint(5, 8)
                                     elif skill_name == "SLOW_PERC":
                                         if pet_shiny:
-                                            add_skill_value = random.randint(8, 14)
+                                            add_skill_value = random.randint(8, 12)
                                         else:
                                             add_skill_value = random.randint(5, 8)
                                     else:
@@ -429,22 +443,22 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                             add_skill_value = random.randint(3, 5)
 
                                     if skill_name == "DETECTION":
-                                        skill_list[skill_name] = True
+                                        full_skill_list[skill_name] = True
                                     else:
-                                        skill_list[skill_name] += add_skill_value
+                                        full_skill_list[skill_name] += add_skill_value
 
                                     break
 
                         await self.bot.pg_con.execute(f"""UPDATE PETS SET
-                        CRIT_PERC={skill_list["CRIT_PERC"]},
-                        REPLACE_PERC={skill_list["REPLACE_PERC"]},
-                        DEF_PERC={skill_list["DEF_PERC"]},
-                        DROP_PERC={skill_list["DROP_PERC"]},
-                        LOWHP_PERC={skill_list["LOWHP_PERC"]},
-                        SLOW_PERC={skill_list["SLOW_PERC"]},
-                        DETECTION={skill_list["DETECTION"]} WHERE PET_ID = {pet_id};""")
+                        CRIT_PERC={full_skill_list["CRIT_PERC"]},
+                        REPLACE_PERC={full_skill_list["REPLACE_PERC"]},
+                        DEF_PERC={full_skill_list["DEF_PERC"]},
+                        DROP_PERC={full_skill_list["DROP_PERC"]},
+                        LOWHP_PERC={full_skill_list["LOWHP_PERC"]},
+                        SLOW_PERC={full_skill_list["SLOW_PERC"]},
+                        DETECTION={full_skill_list["DETECTION"]} WHERE PET_ID = {pet_id};""")
 
-                        sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {reroll_scroll-1}
+                        sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {reroll_scroll-cost}
                         WHERE PLAYER_ID = {player.id};"""
                         await self.bot.pg_con.fetch(sql)
 
@@ -454,7 +468,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     except asyncio.TimeoutError:
                         await ctx.channel.send("*Twój towarzysz spogląda na Ciebie niepewnie.*")
                 else:
-                    await ctx.channel.send("Nie masz żadnych zwojów odrodzenia <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Wpisz **$towarzysz**, żeby sprawdzić ich ilość. Zwoje możesz zdobyć na polowaniu lub po zabiciu bossów.")
+                    await ctx.channel.send("Nie masz wystarczająco zwojów odrodzenia <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Wpisz **$towarzysz**, żeby sprawdzić ich ilość. Zwoje możesz zdobyć na polowaniu lub po zabiciu bossów.")
                     return False
             else:
                 await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
@@ -463,6 +477,85 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(ctx.author.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
             return False
         
+    global adv_reroll_pet
+    async def adv_reroll_pet(self, ctx):
+        """Advanced reroll."""
+
+        user = ctx.author
+
+        e_descr = ("Wybierz, które umiejętności chcesz pominąć przy przelosowaniu."
+                   "\nKażda wybrana statystyka to koszt 10 zwojów, maksymalnie 3 do wyboru:"
+                   "\n\n1️⃣ - Szansa na krytyczne uderzenie,"
+                   "\n2️⃣ - Szansa na zastąpienie ataku,"
+                   "\n3️⃣ - Szansa na zablokowanie ataku,"
+                   "\n4️⃣ - Rzadszy drop,"
+                   "\n5️⃣ - Zmniejszenie życia przeciwnika,"
+                   "\n6️⃣ - Spowolnienie przeciwnika,"
+                   "\n7️⃣ - Wyczuwanie bossa,"
+                   "\n\n*Potwierdź ✅.*")
+
+        react_msg = await ctx.send(e_descr)
+
+        emotes_list = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "✅"]
+        for emote in emotes_list:
+            await react_msg.add_reaction(emote)
+
+        #Define check function
+        def check_emote(reaction, player):
+            return user == player and react_msg.id == reaction.message.id
+
+        timeout = 15
+
+        index = 0
+        while True:
+            try:
+                print(react_msg.id)
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=20,
+                                                         check=check_emote)
+                if "✅" == reaction.emoji:
+                    ignored_skills = []
+                    await ctx.send("Zobaczmy...")
+                    message = await ctx.channel.fetch_message(react_msg.id)
+                    for reaction in message.reactions:
+                        async for reacter in reaction.users():
+                            if reacter == user:
+                                print("Correct user")
+                                if reaction.emoji == "1️⃣":
+                                    ignored_skills.append(0)
+                                    print("1")
+                                elif reaction.emoji == "2️⃣":
+                                    ignored_skills.append(1)
+                                    print("2")
+                                elif reaction.emoji == "3️⃣":
+                                    ignored_skills.append(2)
+                                    print("3")
+                                elif reaction.emoji == "4️⃣":
+                                    ignored_skills.append(3)
+                                    print("4")
+                                elif reaction.emoji == "5️⃣":
+                                    ignored_skills.append(4)
+                                    print("5")
+                                elif reaction.emoji == "6️⃣":
+                                    ignored_skills.append(5)
+                                    print("6")
+                                elif reaction.emoji == "7️⃣":
+                                    ignored_skills.append(6)
+                                    print("7")
+                    print(ignored_skills)
+                    if len(ignored_skills) > 3:
+                        await ctx.channel.send("Wybrałeś za dużo statystyk. Można pominąć **maksymalnie 3**! <:madge:882184635474386974>")
+                        return False
+                    else:
+                        await reroll_pet(self, ctx, user, ignored_skills)
+                        return True
+            except asyncio.TimeoutError:
+                try:
+                    await react_msg.delete()
+                except:
+                    pass
+                await ctx.channel.send("*Twój towarzysz spogląda na Ciebie niepewnie.*")
+                return False
+
     global transform_pet
     async def transform_pet(self, ctx, player):
         """Transform pet appearance"""
@@ -477,13 +570,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         if pet_exists:
             if pet_exists[0][0] > 0:
                 print("Pet exists, so we can try to transform.")
-                crafter = discord.utils.get(ctx.guild.roles, id=687185998550925312)
-                patron1 = discord.utils.get(ctx.guild.roles, id=1113402734280970331)
-                patron2 = discord.utils.get(ctx.guild.roles, id=1113402836705890355)
-                patron3 = discord.utils.get(ctx.guild.roles, id=1113403087734980608)
-                patron4 = discord.utils.get(ctx.guild.roles, id=1113403223508779068)
-                if mirrors > 0 and (crafter in player.roles or patron1 in player.roles or\
-                patron2 in player.roles or patron3 in player.roles or patron4 in player.roles):
+
+                if mirrors > 0 and functions_patrons.check_if_patron(self, ctx, player):
 
                     # Check if transform pet is confirmed
                     def check_transform(author):
@@ -531,9 +619,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         return True
                     except asyncio.TimeoutError:
                         await ctx.channel.send("*Twój towarzysz spogląda na Ciebie niepewnie.*")
-                elif crafter not in player.roles and patron1 not in player.roles and\
-                    patron2 not in player.roles and patron3 not in player.roles and\
-                    patron4 not in player.roles:
+                elif not functions_patrons.check_if_patron(self, ctx, player):
                     await ctx.channel.send("Musisz mieć rangę Craftera lub Patrona <@" + str(ctx.author.id) + ">, żeby przetransformować towarzysza <:Sadge:936907659142111273> Rangi do zdobycia możesz zobaczyć na tym kanale <#688296443156365354>.")
                     return False
                 else:
@@ -608,8 +694,6 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                             await confirm_cmd.add_reaction("<:PepoG:790963160528977980>")
 
                             print("Player exists in PETOWNER database, it already has pet.")
-
-                            
 
                             skill_list = {"CRIT_PERC": pet_crit_perc, "REPLACE_PERC": pet_replace_perc,
                                         "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
@@ -1160,7 +1244,6 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         else:
             return False
 
-
         if rebirth_stones:
             if rebirth_stones[0][0] is None:
                 print("Player exists and has no rebirth stones, we can update dabatase..")
@@ -1222,7 +1305,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
         # Nothing happened.
         return False
-    
+
     global level_up_pet
     async def level_up_pet(self, ctx, player_id):
         """Level up the pet."""
@@ -1230,7 +1313,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         player_id = int(player_id)
 
         sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {player_id};"
-        
+
         for retries in range(0,3):
             try:
                 player_exists = await self.bot.pg_con.fetch(sql)
