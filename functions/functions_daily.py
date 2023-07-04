@@ -17,6 +17,7 @@ from globals.globalvariables import DebugMode
 import functions_database
 import functions_modifiers
 import functions_pets
+import functions_achievements
 
 class functions_daily(commands.Cog, name="functions_daily"):
     def __init__(self, bot):
@@ -422,6 +423,12 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         for hunter in player_list:
                             #Ranking - add points
                             await functions_database.updateRankingTable(self, ctx, hunter.id, BOSSRARITY, 0)
+
+                            # Achievements - Add hunt
+                            await functions_achievements.add_hunts(self, ctx, hunter)
+                            # Achievements - Unicorn
+                            if BOSSRARITY == 2:
+                                await functions_achievements.unicorn(self, ctx, hunter)
 
                             #Randomize Loot
                             if len(player_list) > 1:

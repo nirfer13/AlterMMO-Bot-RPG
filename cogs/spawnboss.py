@@ -21,6 +21,7 @@ import functions_expsum
 import functions_events
 import functions_skills
 import functions_patrons
+import functions_achievements
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -69,7 +70,7 @@ class message(commands.Cog, name="spawnBoss"):
         #Choose channel to spawn boss
         global ctx
         if DebugMode is True:
-            ctx = await functions_boss.getContext(self, 970571647226642442, 984860815842771024)
+            ctx = await functions_boss.getContext(self, 970571647226642442, 1125837611299254383)
         else:
             ctx = await functions_boss.getContext(self, 970684202880204831, 1028328642436136961)
 
@@ -106,6 +107,12 @@ class message(commands.Cog, name="spawnBoss"):
                 winnerID = await functions_database.readSummaryRankingTable(self, ctx)
                 print("Winner ID: " + str(winnerID))
                 await functions_boss.setBossSlayer(self, ctx, winnerID)
+
+                # Achievements - Butcher
+                guild = self.bot.get_guild(686137998177206281)
+                winner = guild.get_member(int(winnerID))
+                await functions_achievements.add_butcher(self, ctx, winner)
+
                 await functions_database.resetRankingTable(self)
                 await functions_daily.clear_daily_file(self)
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
@@ -733,6 +740,7 @@ class message(commands.Cog, name="spawnBoss"):
         await functions_database.createBossTable(self)
         await functions_database.createRecordTable(self)
         await functions_database.createHistoryTable(self)
+        await functions_achievements.create_database(self)
         await ctx.channel.send("Wszystkie bazy danych utworzone!")
 
     @commands.command(name="createBossDatabase")
@@ -816,6 +824,13 @@ class message(commands.Cog, name="spawnBoss"):
     async def updateRankingDatabase(self, ctx, ID, points):
         print("Starting command...")
         await functions_database.updateRankingTable(self, ctx, ID, points)
+
+    # ====== Achievements Database Commands to Debug
+
+    @commands.command(name="createAchievementsDatabase")
+    @commands.has_permissions(administrator=True)
+    async def create_database(self, ctx):
+        await functions_achievements.create_database(self, ctx)
 
 def setup(bot):
     bot.add_cog(message(bot))

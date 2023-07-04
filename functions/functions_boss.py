@@ -18,6 +18,7 @@ import functions_pets
 import functions_skills
 import functions_expsum
 import functions_patrons
+import functions_achievements
 
 class functions_boss(commands.Cog, name="functions_boss"):
     def __init__(self, bot):
@@ -566,6 +567,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
                             recordTime = endTime - startTime
                             recordTurnTime = recordTime/bossHP
+
+                            # Achievements - Quickness
+                            if int(recordTurnTime.total_seconds()) < 2:
+                                await functions_achievements.quickness(self, ctx, bossHunterID)
+
                             await ctx.channel.send('Zabicie bossa zajęło Ci: ' + str(recordTime).lstrip('0:00:') + ' sekundy! Jedna tura zajęła Ci średnio ' + str(recordTurnTime).lstrip('0:00:') + ' sekundy!')
                             previousRecord, Nick = await functions_database.readRecordTable(self, ctx)
 
@@ -590,6 +596,9 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             if BOSSRARITY == 4 and \
                             functions_patrons.check_if_patron(self, ctx, bossHunterID):
                                 await setMythicSlayer(self, ctx, bossHunterID.id)
+
+                            # Assign achievement if patron
+                            await functions_achievements.add_boss_kill(self, ctx, bossHunterID)
 
                             #Reset at the end of the fight.
                             await resetEnd(self, ctx)
@@ -881,6 +890,9 @@ class functions_boss(commands.Cog, name="functions_boss"):
                                 #Ranking - add points
                                 await functions_database.updateRankingTable(self, ctx,
                                                                             hunter.id, BOSSRARITY, modifiers["points_boost"])
+                                
+                                # Achievements - Legend
+                                await functions_achievements.legend(self, ctx, hunter)
 
                                 #Randomize Loot
                                 drop_boost = (modifiers["drop_boost_perc"] +

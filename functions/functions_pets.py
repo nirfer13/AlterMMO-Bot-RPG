@@ -27,6 +27,7 @@ class PetType(str, Enum):
     SNAKE = 'Snake'
     ANIME_GIRL = 'AnimeGirl'
     ELEMENTAL = 'Elemental'
+    DOG = 'Dog'
 
 class FunctionsPets(commands.Cog, name="FunctionsPets"):
     """Class with all functions used for pets."""
@@ -187,6 +188,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         polish_type = "Dziewczynka Anime"
                     elif pet_data[0][6] == "Elemental":
                         polish_type = "Żywiołak"
+                    elif pet_data[0][6] == "Dog":
+                        polish_type = "Pies"
                     else:
                         polish_type = ""
                     if pet_data[0][1] != "Towarzysz":
@@ -273,7 +276,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                          PetType.ANIME_GIRL, PetType.ELEMENTAL]
         else:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
-                         PetType.RABBIT, PetType.SHEEP]
+                         PetType.RABBIT, PetType.SHEEP, PetType.DOG]
             
         print(pets_list)
 
@@ -295,9 +298,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 db_read = await self.bot.pg_con.fetch("SELECT PET_ID FROM PETS ORDER BY PET_ID DESC LIMIT 1")
                 break
             except:
-                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                pass
         else:
-            return False
+            pass
 
         print(f"Read from databse {db_read}")
 
@@ -790,9 +793,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 player_exists = await self.bot.pg_con.fetch(sql)
                 break
             except:
-                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                player_exists = None
         else:
-            return False
+            pass
 
         if player_exists:
             if player_exists[0][0] > 0:
@@ -948,6 +951,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Dziewczynka Anime"
                 elif pet0[0][2] == "Elemental":
                     polish_type = "Żywiołak"
+                elif pet0[0][2] == "Dog":
+                    polish_type = "Pies"
                 else:
                     polish_type = ""
 
@@ -987,6 +992,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Dziewczynka Anime"
                 elif pet0[0][2] == "Elemental":
                     polish_type = "Żywiołak"
+                elif pet0[0][2] == "Dog":
+                    polish_type = "Pies"
                 else:
                     polish_type = ""
 
@@ -1026,6 +1033,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Dziewczynka Anime"
                 elif pet0[0][2] == "Elemental":
                     polish_type = "Żywiołak"
+                elif pet0[0][2] == "Dog":
+                    polish_type = "Pies"
                 else:
                     polish_type = ""
 
@@ -1162,9 +1171,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 scroll_shards = await self.bot.pg_con.fetch(sql)
                 break
             except:
-                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                scroll_shards = None
         else:
-            return False
+            pass
 
         if scroll_shards:
             if scroll_shards[0][0] is None:
@@ -1201,9 +1210,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 scrolls = await self.bot.pg_con.fetch(sql)
                 break
             except:
-                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                scrolls = None
         else:
-            return False
+            pass
 
         if scrolls:
             if scrolls[0][0] is None:
@@ -1240,9 +1249,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 rebirth_stones = await self.bot.pg_con.fetch(sql)
                 break
             except:
-                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                rebirth_stones = None
         else:
-            return False
+            pass
 
         if rebirth_stones:
             if rebirth_stones[0][0] is None:
@@ -1280,9 +1289,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 mirrors = await self.bot.pg_con.fetch(sql)
                 break
             except:
-                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                mirrors = None
         else:
-            return False
+            pass
 
         if mirrors:
             if mirrors[0][0] is None:
@@ -1319,9 +1328,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 player_exists = await self.bot.pg_con.fetch(sql)
                 break
             except:
-                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                player_exists = None
         else:
-            return False
+            pass
 
         if player_exists:
             if player_exists[0][0] > 0:
@@ -1426,7 +1435,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 player_exists = await self.bot.pg_con.fetch(sql)
                 break
             except:
-                pass
+                player_exists = None
         else:
             return False
 
@@ -1449,7 +1458,6 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         pass
                 else:
                     return False
-                
 
                 pet_id = player_exists[0][0]
                 pet_lvl = pet_stats[0][0]
@@ -1583,6 +1591,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 polish_type = "Dziewczynka Anime"
             elif person[6] == "Elemental":
                 polish_type = "Żywiołak"
+            elif person[6] == "Dog":
+                polish_type = "Pies"
             else:
                 polish_type = ""
 

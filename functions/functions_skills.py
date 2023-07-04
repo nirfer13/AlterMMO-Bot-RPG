@@ -83,9 +83,9 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
                 player_exists = await self.bot.pg_con.fetch(sql)
                 break
             except:
-                await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                pass
         else:
-            return False
+            pass
 
         if player_exists:
             if player_exists[0][0] > 0:

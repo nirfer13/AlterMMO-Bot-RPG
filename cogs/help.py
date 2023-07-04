@@ -35,6 +35,7 @@ Dostępne komendy (dla wszystkich):
 - $wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1 lub 2).
 - $stajnia - Sprawdza stajnie z towarzyszami,
 - $odrodzenie - Przelosowuje wszystkie statystyki aktualnie wybranego towarzysza,
+- $mocneodrodzenie - Bardziej zaawansowany sposób przelosowania statystyk,
 - $oswiecenie - Zwiększa talent towarzysza,
 - $transformacja - Zmienia wygląd towarzysza,
 - $rankingtowarzyszy - Lista najbardziej utalentowanych towarzyszy.
