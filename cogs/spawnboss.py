@@ -717,6 +717,31 @@ class message(commands.Cog, name="spawnBoss"):
     async def context(self, ctx):
         await functions_boss.getContext(self)
 
+    # command to reset boss
+    @commands.command(pass_context=True, name="ResetBoss")
+    @commands.has_permissions(administrator=True)
+    async def reset_boss(self, ctx):
+        global BOSSALIVE, respawnResume, EVENT_ALIVE
+        respawnResume = False
+        BOSSALIVE = 0
+        EVENT_ALIVE = 0
+        await functions_database.updateBossTable(self, ctx, 0, 0, False)
+        try:
+            self.task.cancel()
+        except Exception:
+            pass
+        try:
+            self.task3.cancel()
+        except Exception:
+            pass
+        await functions_modifiers.init_modifiers(self, ctx)
+        await functions_boss.resetDeadHunters(self, ctx)
+
+        self.task = self.bot.loop.create_task(self.spawn_task(ctx))
+        self.task3 = self.bot.loop.create_task(self.spawn_event(ctx))
+        await ctx.channel.send("Boss reset.")
+
+
     # ==================================== COMMANDS FOR DATABASE ===================================
 
     @commands.command(name="updateDatabase")
