@@ -188,11 +188,35 @@ class FunctionsAchievements(commands.Cog, name="FunctionsAchievements"):
         my_role = discord.utils.get(ctx.guild.roles, id=role_id)
         members = my_role.members
 
+        # Boss killing roles
+        if role_id == 1125799392989949973:
+            roles_to_remove = [1125799224966131712]
+        elif role_id == 1125799470509084762:
+            roles_to_remove = [1125799392989949973, 1125799224966131712]\
+
+        # Hunting roles
+        elif role_id == 1125800644826112043:
+            roles_to_remove = [1125799891923374121]
+        elif role_id == 1125800721724489758:
+            roles_to_remove = [1125799891923374121, 1125800644826112043]
+
+        # Butcher roles
+        elif role_id == 1125801161631486033:
+            roles_to_remove = [1125801055758860329]
+        elif role_id == 1125801216375529563:
+            roles_to_remove = [1125801055758860329, 1125801161631486033]
+
         guild = self.bot.get_guild(686137998177206281)
         user = guild.get_member(int(player.id))
         if user not in members:
             await user.add_roles(my_role)
             await ctx.channel.send(f"<@{player.id}> zdobywa osiągnięcie: {my_role}!")
+
+            for remove_role_id in roles_to_remove:
+                role_to_remove = discord.utils.get(ctx.guild.roles, id=remove_role_id)
+                remove_role_members = role_to_remove.members
+                if user in remove_role_members:
+                    await user.remove_roles(role_to_remove)
 
 async def new_record_achievements(self, player_id: int, boss_kills: int, hunts: bool,
                                 butchers: int):
