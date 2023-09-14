@@ -280,14 +280,23 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
         #Database Reading
         db_ranking_tower = await self.bot.pg_con.fetch(f"SELECT PLAYER_ID, TOWER_LEVEL, TIME FROM TOWER WHERE PLAYER_ID = {ctx.author.id}")
 
-        user = self.bot.get_user(int(db_ranking_tower[0][0]))
-        ranking_string = f"<@{user.id}> udało Ci się ukończyć Wieżę Śmierci na poziomie **{db_ranking_tower[0][1]}** w czasie **{db_ranking_tower[0][2]}**.\n"
+        if db_ranking_tower:
+            user = self.bot.get_user(int(db_ranking_tower[0][0]))
+            ranking_string = f"<@{user.id}> udało Ci się ukończyć Wieżę Śmierci na poziomie **{db_ranking_tower[0][1]}** w czasie **{db_ranking_tower[0][2]}**.\n"
 
-        #Embed create
-        emb=discord.Embed(title='Personalny rekord Wieży Śmierci!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png', description=ranking_string, color=0xff0019)
-        emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png')
-        emb.set_footer(text='Gratulacje!')
-        await ctx.send(embed=emb)
+            #Embed create
+            emb=discord.Embed(title='Personalny rekord Wieży Śmierci!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png', description=ranking_string, color=0xff0019)
+            emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png')
+            emb.set_footer(text='Gratulacje!')
+            await ctx.send(embed=emb)
+        else:
+            ranking_string = "Jeszcze nie udało Ci się zeksplorować Wieży Śmierci.\n"
+
+            #Embed create
+            emb=discord.Embed(title='Personalny rekord Wieży Śmierci!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png', description=ranking_string, color=0xff0019)
+            emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png')
+            emb.set_footer(text='Gratulacje!')
+            await ctx.send(embed=emb)
     
     #function to save weekly tower to file
     global save_weekly_tower_to_file
