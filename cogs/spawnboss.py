@@ -22,6 +22,7 @@ import functions_events
 import functions_skills
 import functions_patrons
 import functions_achievements
+import functions_tower
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -115,6 +116,7 @@ class message(commands.Cog, name="spawnBoss"):
 
                 await functions_database.resetRankingTable(self)
                 await functions_daily.clear_daily_file(self)
+                await functions_tower.clear_weekly_tower_file(self)
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
                 return
             if timestamp.strftime("%H:%M UTC") == "04:10 UTC":
@@ -397,13 +399,13 @@ class message(commands.Cog, name="spawnBoss"):
             print ("History database read.")
             await ctx.channel.send('Poprzednio boss walczył z **' + Nick + '** i było to **' + fightTime[:16] + ' UTC+1**.')
 
-    @commands.command(name="ranking")
+    @commands.command(name="ranking", aliases=['r'],)
     async def readRankingDatabase(self, ctx):
         if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
             await functions_database.readRankingTable(self, ctx)
             print ("Ranking database read.")
 
-    @commands.command(name="towarzysz", brief="Shows author's pet.")
+    @commands.command(name="towarzysz", aliases=['t'], brief="Shows author's pet.")
     async def show_pet(self, ctx):
         await functions_pets.show_pet(self, ctx, ctx.author)
 
@@ -412,11 +414,11 @@ class message(commands.Cog, name="spawnBoss"):
         print("Discarding author's pet")
         await functions_pets.discard_pet(self, ctx)
 
-    @commands.command(name="odrodzenie", aliases=['odr'], brief="Reroll the pet.")
+    @commands.command(name="odrodzenie", aliases=['odr', 'o'], brief="Reroll the pet.")
     async def reroll_pet(self, ctx):
         await functions_pets.reroll_pet(self, ctx, ctx.author)
 
-    @commands.command(name="mocneodrodzenie", aliases=["odrodzenie2", "odr2", "mocneodr"],
+    @commands.command(name="mocneodrodzenie", aliases=["odrodzenie2", "odr2", "mocneodr", "mo"],
                       brief="Advanced reroll the pet.")
     async def adv_reroll_pet(self, ctx):
         global BUSY
@@ -433,7 +435,7 @@ class message(commands.Cog, name="spawnBoss"):
         await functions_pets.transform_pet(self, ctx, ctx.author)
 
     @commands.command(name="schowajtowarzysza",
-                      aliases=["schowaj"], brief="Stores author's pet.")
+                      aliases=["schowaj", "st"], brief="Stores author's pet.")
     async def store_pet(self, ctx, slot):
         await functions_pets.store_pet(self, ctx, slot)
 
@@ -444,7 +446,7 @@ class message(commands.Cog, name="spawnBoss"):
                            "towarzysza (1 lub 2) np. **$schowajtowarzysza 1**.")
     
     @commands.command(name="wyciagnijtowarzysza",
-                      aliases=['wyciągnijtowarzysza', "wyciągnij", "wyciagnij"],
+                      aliases=['wyciągnijtowarzysza', "wyciągnij", "wyciagnij", "wt"],
                       brief="Stores author's pet.")
     async def unstore_pet(self, ctx, slot):
         await functions_pets.unstore_pet(self, ctx, slot)
@@ -455,16 +457,16 @@ class message(commands.Cog, name="spawnBoss"):
             await ctx.send("Po spacji podaj numer miejsca w stajni, z którego chcesz wyjąć " +
                            "towarzysza (1 lub 2) np. **$wyciagnijtowarzysza 1**.")
             
-    @commands.command(name="stajnia", brief="Show player's stable.")
+    @commands.command(name="stajnia", aliases=["s"], brief="Show player's stable.")
     async def check_stable(self, ctx):
         await functions_pets.check_stable(self, ctx)
 
-    @commands.command(name="rankingtowarzyszy", aliases=['towarzysze'],
+    @commands.command(name="rankingtowarzyszy", aliases=['towarzysze', 'rt'],
                       brief="Shows pets ranking.")
     async def pet_ranking(self, ctx):
         await functions_pets.pet_ranking(self, ctx)
 
-    @commands.command(name="nazwij", brief="Set the name of author's pet.")
+    @commands.command(name="nazwij", aliases=['n'], brief="Set the name of author's pet.")
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)
     async def name_pet(self, ctx, name):
         await functions_pets.name_pet(self, ctx, name)
@@ -475,7 +477,7 @@ class message(commands.Cog, name="spawnBoss"):
             print("Command on cooldown.")
             await ctx.send('Poczekaj na odnowienie komendy! Zostało ' + str(round(error.retry_after/60/60, 2)) + ' godzin/y <:Bedge:970576892874854400>.')
 
-    @commands.command(name="polowanie", brief="Try to hunt on a mobs.")
+    @commands.command(name="polowanie", aliases=['pol', 'p'], brief="Try to hunt on a mobs.")
     async def hunting(self, ctx):
         global BOSSALIVE, BUSY, DebugMode
         on_cd = functions_daily.load_daily_from_file(ctx.author.id)
@@ -502,6 +504,43 @@ class message(commands.Cog, name="spawnBoss"):
             pass
         elif on_cd:
             await ctx.channel.send("Zregeneruj się i spróbuj zapolować jutro <:Bedge:970576892874854400> Niektóre modlitwy przy kapliczkach również są w stanie zregenerować Twoje siły, więc bądź czujny!")
+
+    @commands.command(name="wieża", aliases=['wieza'],
+                      brief="Try to explor the death tower.")
+    async def explore_tower(self, ctx):
+        global BOSSALIVE, BUSY, DebugMode
+        on_cd = functions_tower.load_weekly_tower_from_file(ctx.author.id)
+        if (BOSSALIVE in [0,1,2] or DebugMode is True) and BUSY == 0 and not on_cd:
+            BUSY = 1
+            functions_tower.save_weekly_tower_to_file(ctx.author.id)
+            iteration = 1
+            success_fight = True
+            while iteration < 11 and success_fight:
+                await functions_tower.tower_image(self, ctx, iteration)
+                success_fight = await functions_tower.tower_fight(self, ctx, iteration, ctx.author)
+                iteration += 1
+            BUSY = 0
+        elif BOSSALIVE == 3:
+            await ctx.channel.send("Zaraz pojawi się prawidzwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, to wpisz **$zaatakuj**, żeby stawić mu czoła.")
+        elif BOSSALIVE == 4:
+            await ctx.channel.send("Nie możesz ruszyć na eksplorację Wieży Śmierci, na Twojej drodze stoi boss <:MonkaS:882181709100097587> Wpusz **$zaatakuj**, żeby stawić mu czoła.")
+        elif BOSSALIVE > 4:
+            pass
+        elif BUSY == 1:
+            pass
+        elif on_cd:
+            await ctx.channel.send("Drzwi Wieży Śmierci ani drgną. Sprawdź w następnym tygodniu <:Bedge:970576892874854400>")
+
+    @commands.command(name="rankingwiezy", aliases=['wieze', 'rankingwieza', 'rankingwieży',
+                                                    'rankingwieża', 'rw'],
+                      brief="Shows death tower ranking.")
+    async def tower_ranking(self, ctx):
+        await functions_tower.tower_ranking(self, ctx)
+
+    @commands.command(name="rekordwiezy", aliases=["rekordwieży", "rekordwieża", "rekordwieza"],
+                      brief="Shows personal death tower record.")
+    async def check_personal_tower(self, ctx):
+        await functions_tower.check_personal_tower(self, ctx)
 
     # command to flex boss slayer
     @commands.command(pass_context=True, name="flex", brief="Boss slayer flex")
@@ -653,7 +692,14 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def clear_cd(self, ctx):
         await functions_daily.clear_daily_file(self)
-        await ctx.channel.send("Zresetowano cd.")
+        await ctx.channel.send("Zresetowano daily cd.")
+
+    # command to debug
+    @commands.command(pass_context=True, name="ClearTowerCD")
+    @commands.has_permissions(administrator=True)
+    async def clear_cd(self, ctx):
+        await functions_tower.clear_weekly_tower_file(self)
+        await ctx.channel.send("Zresetowano tower cd.")
 
     # command to debug
     @commands.command(pass_context=True, name="time")
@@ -766,6 +812,7 @@ class message(commands.Cog, name="spawnBoss"):
         await functions_database.createRecordTable(self)
         await functions_database.createHistoryTable(self)
         await functions_achievements.create_database(self)
+        await functions_tower.create_database(self)
         await ctx.channel.send("Wszystkie bazy danych utworzone!")
 
     @commands.command(name="createBossDatabase")
@@ -794,6 +841,13 @@ class message(commands.Cog, name="spawnBoss"):
     async def create_skills_table(self, ctx):
         await functions_skills.create_skills_table(self)
         await ctx.channel.send("Baza danych SKILLS utworzona.")
+
+    @commands.command(name="createTowerDatabase",
+                      brief="Create empty table TOWER.")
+    @commands.has_permissions(administrator=True)
+    async def create_tower_database(self, ctx):
+        await functions_tower.create_database(self, ctx)
+        await ctx.channel.send("Baza danych TOWER utworzona.")
 
     @commands.command(name="ReassignPet",
                       brief="Assign pet_id to player_id.")

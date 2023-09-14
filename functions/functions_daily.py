@@ -336,7 +336,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
             else:
                 return False
 
-        await asyncio.sleep(5)
+        await asyncio.sleep(9)
 
         #Start time counting
         startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)

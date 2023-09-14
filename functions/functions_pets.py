@@ -137,7 +137,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 #Check if pet is shiny
                 if pet_data[0][5]:
                     color = 0xffdd00
-                    add_desc = "\n\n*Wygląda na bardzo rzadkie. Miałeś niesamowite szczęście.*"
+                    add_desc = "\n\n*Rzadki towarzysz. Miałeś niesamowite szczęście.*"
                 else:
                     color = 0xfffffc
                     add_desc = ""

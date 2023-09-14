@@ -188,6 +188,7 @@ class FunctionsAchievements(commands.Cog, name="FunctionsAchievements"):
         my_role = discord.utils.get(ctx.guild.roles, id=role_id)
         members = my_role.members
 
+        roles_to_remove = []
         # Boss killing roles
         if role_id == 1125799392989949973:
             roles_to_remove = [1125799224966131712]
@@ -205,6 +206,12 @@ class FunctionsAchievements(commands.Cog, name="FunctionsAchievements"):
             roles_to_remove = [1125801055758860329]
         elif role_id == 1125801216375529563:
             roles_to_remove = [1125801055758860329, 1125801161631486033]
+
+        # Death tower roles
+        elif role_id == 1151427619741511710:
+            roles_to_remove = [1151427369886826496]
+        elif role_id == 1151427790973964328:
+            roles_to_remove = [1151427369886826496, 1151427619741511710]
 
         guild = self.bot.get_guild(686137998177206281)
         user = guild.get_member(int(player.id))

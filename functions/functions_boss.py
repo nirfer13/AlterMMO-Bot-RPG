@@ -243,7 +243,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         elif rarity == 3:
             eDescr = "Pojawił się LEGENDARNY boss! Nie dasz rady sam, będziesz potrzebował kompanów spośród <@&985071779787730944>! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         elif rarity == 4:
-            eDescr = "Pojawił się mityczny boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
+            eDescr = "Pojawił się MITYCZNY boss! Zabij go natychmiast, żeby zgarnąć nagrody! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
         else:
             eDescr = "Pojawił się LEGENDARNY boss! Nie dasz rady sam, będziesz potrzebował kompanów spośród <@&985071779787730944>! Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️" + add_desc
 
@@ -538,7 +538,10 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         if iterator == 1:
                             cmdTimeout = 7
                         else:
-                            cmdTimeout = 5 - BOSSRARITY
+                            if BOSSRARITY == 4:
+                                cmdTimeout = 1.5
+                            else:
+                                cmdTimeout = 5 - BOSSRARITY
                             cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"] +
                                                        float(pet_skills["SLOW_PERC"]))/100
 
@@ -859,7 +862,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         #Send proper action request on chat
                         msg = await ctx.channel.send('~~' + str(iterator) + '. ' + str(boss_hunter) +
                                                ':' + requestedAction[1][choosenAction] +
-                                               '~~. Twój towarzysz wyprowadza atak!')
+                                               '~~ Twój towarzysz wyprowadza atak!')
                         msg.author = boss_hunter
 
                     if response.lower() == requestedAction[0][choosenAction] and msg.author == boss_hunter:

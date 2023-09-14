@@ -22,23 +22,28 @@ Jeśli brakuje Wam graczy, to warto zawołać rolę <@&985071779787730944>. Do r
 <@&687185998550925312> oraz Patroni mogą zostać bossami. Jest to losowe. Jednak jeśli taki boss pokona gracza, to użytkownik Discorda, który owym bossem był, zgarnia dodatkowe doświadczenie.
 
 Dostępne komendy (dla wszystkich):
-- **$polowanie - Polujesz na zwykłe stwory, możliwe raz dziennie lub po odpowiedniej modlitwie w kapliczce**. Komenda, od której warto zacząć przygodę.
+- **$polowanie - Polujesz na zwykłe stwory, możliwe raz dziennie lub po odpowiedniej modlitwie w kapliczce**. Komenda, od której warto zacząć przygodę. Skrót $p.
+- **$wieża - Wyruszasz na eksplorację wieży śmierci. Im wyżej, tym trudniej**. Dostępna raz w tygodniu.                               
 
-- $zaatakuj - Atakuje bossa, gdy ten czeka na tym kanale,
-- $kiedy - Podaje kto i kiedy ostatnio walczył z bossem,
-- $rekord - Podaje kto najszybciej i w jakim czasie pokonał bossa,
-- $ranking - Podaje ranking łowców potworów,
-- $towarzysz - Sprawdź swojego towarzysza,
+- $zaatakuj - Atakuje bossa, gdy ten czeka na tym kanale.
+- $kiedy - Podaje kto i kiedy ostatnio walczył z bossem.
+- $rekord - Podaje kto najszybciej i w jakim czasie pokonał bossa.
+- $ranking - Podaje sezonowy (tygodniowy) ranking łowców potworów. Skrót $r.
+
+- $towarzysz - Sprawdź swojego towarzysza. Skrót $t.
 - $porzucam - Porzucasz obecnego towarzysza.
 - $nazwij "Nowe imię" - Nazywasz swojego towarzysza.
-- $schowajtowarzysza numer_slota - Chowa towarzysza do stajni i do podanego slota (1 lub 2).
-- $wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1 lub 2).
-- $stajnia - Sprawdza stajnie z towarzyszami,
+- $schowajtowarzysza numer_slota - Chowa towarzysza do stajni i do podanego slota (1 lub 2). Skrót $st.
+- $wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1 lub 2). Skrót $wt.
+- $stajnia - Sprawdza stajnie z towarzyszami. Skrót $s.
 - $odrodzenie - Przelosowuje wszystkie statystyki aktualnie wybranego towarzysza,
-- $mocneodrodzenie - Bardziej zaawansowany sposób przelosowania statystyk,
-- $oswiecenie - Zwiększa talent towarzysza,
-- $transformacja - Zmienia wygląd towarzysza,
-- $rankingtowarzyszy - Lista najbardziej utalentowanych towarzyszy.
+- $mocneodrodzenie - Bardziej zaawansowany sposób przelosowania statystyk.
+- $oswiecenie - Zwiększa talent towarzysza.
+- $transformacja - Zmienia wygląd towarzysza.
+- $rankingtowarzyszy - Lista najbardziej utalentowanych towarzyszy. Skrót $rt.
+
+- $rankingwieży - Sprawdź ranking najlepszych eksploratorów Wieży Śmierci. Skrót $rw.
+- $rekordwieży - Sprawdź osobisty rekord w eksploracji Wieży Śmierci.
 
 Komendy dla <@&983798433590673448>:
 - $flex - Pokaż innym jakim jesteś koxem,
