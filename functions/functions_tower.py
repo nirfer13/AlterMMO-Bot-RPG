@@ -264,8 +264,11 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
         x = 1
         ranking_string = ""
         for person in db_ranking_tower:
-            user = self.bot.get_user(int(person[0]))
-            ranking_string += f"{x}. **{user.name}** - Poziom Wieży Śmierci: {person[1]} - Czas: {person[2]}.\n"
+            try:
+                user = self.bot.get_user(int(person[0]))
+                ranking_string += f"{x}. **{user.name}** - Poziom Wieży Śmierci: {person[1]} - Czas: {person[2]}.\n"
+            except:
+                ranking_string += f"{x}. **<@{str(person[0])}>** - Poziom Wieży Śmierci: {person[1]} - Czas: {person[2]}.\n"
             x+=1
 
         #Embed create
