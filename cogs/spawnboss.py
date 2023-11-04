@@ -387,36 +387,48 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(name="rekord")
     async def rekord(self, ctx):
         if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
-            recordTime, Nick = await functions_database.readRecordTable(self, ctx)
-            print ("Record database read.")
-            await ctx.channel.send('Poprzedni rekord należy do **' + Nick + '** i wynosi średnio **' + recordTime.lstrip('00:') + ' sekundy na turę walki**.')
+            global BUSY
+            if BUSY == 0:
+                recordTime, Nick = await functions_database.readRecordTable(self, ctx)
+                print ("Record database read.")
+                await ctx.channel.send('Poprzedni rekord należy do **' + Nick + '** i wynosi średnio **' + recordTime.lstrip('00:') + ' sekundy na turę walki**.')
 
     # command to check last boss kill
     @commands.command(pass_context=True, name="kiedy", brief="Check previous boss kill time")
     async def lastKillInfoMessage(self, ctx):
         if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
-            fightTime, Nick = await functions_database.readHistoryTable(self, ctx)
-            print ("History database read.")
-            await ctx.channel.send('Poprzednio boss walczył z **' + Nick + '** i było to **' + fightTime[:16] + ' UTC+1**.')
+            global BUSY
+            if BUSY == 0:
+                fightTime, Nick = await functions_database.readHistoryTable(self, ctx)
+                print ("History database read.")
+                await ctx.channel.send('Poprzednio boss walczył z **' + Nick + '** i było to **' + fightTime[:16] + ' UTC+1**.')
 
     @commands.command(name="ranking", aliases=['r'],)
     async def readRankingDatabase(self, ctx):
         if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
-            await functions_database.readRankingTable(self, ctx)
-            print ("Ranking database read.")
+            global BUSY
+            if BUSY == 0:
+                await functions_database.readRankingTable(self, ctx)
+                print ("Ranking database read.")
 
     @commands.command(name="towarzysz", aliases=['t'], brief="Shows author's pet.")
     async def show_pet(self, ctx):
-        await functions_pets.show_pet(self, ctx, ctx.author)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.show_pet(self, ctx, ctx.author)
 
     @commands.command(name="porzucam", brief="Discards author's pet.")
     async def discard_pet(self, ctx):
         print("Discarding author's pet")
-        await functions_pets.discard_pet(self, ctx)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.discard_pet(self, ctx)
 
     @commands.command(name="odrodzenie", aliases=['odr', 'o'], brief="Reroll the pet.")
     async def reroll_pet(self, ctx):
-        await functions_pets.reroll_pet(self, ctx, ctx.author)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.reroll_pet(self, ctx, ctx.author)
 
     @commands.command(name="mocneodrodzenie", aliases=["odrodzenie2", "odr2", "mocneodr", "mo"],
                       brief="Advanced reroll the pet.")
@@ -428,16 +440,22 @@ class message(commands.Cog, name="spawnBoss"):
 
     @commands.command(name="oswiecenie", aliases=['oświecenie'], brief="Enlight the pet.")
     async def enlight_pet(self, ctx):
-        await functions_pets.enlight_pet(self, ctx, ctx.author)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.enlight_pet(self, ctx, ctx.author)
 
     @commands.command(name="transformacja", aliases=['transform'], brief="Transform the pet.")
     async def transform_pet(self, ctx):
-        await functions_pets.transform_pet(self, ctx, ctx.author)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.transform_pet(self, ctx, ctx.author)
 
     @commands.command(name="schowajtowarzysza",
                       aliases=["schowaj", "st"], brief="Stores author's pet.")
     async def store_pet(self, ctx, slot):
-        await functions_pets.store_pet(self, ctx, slot)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.store_pet(self, ctx, slot)
 
     @store_pet.error
     async def storepet_error(self, ctx, error):
@@ -449,7 +467,9 @@ class message(commands.Cog, name="spawnBoss"):
                       aliases=['wyciągnijtowarzysza', "wyciągnij", "wyciagnij", "wt"],
                       brief="Stores author's pet.")
     async def unstore_pet(self, ctx, slot):
-        await functions_pets.unstore_pet(self, ctx, slot)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.unstore_pet(self, ctx, slot)
 
     @unstore_pet.error
     async def unstorepet_error(self, ctx, error):
@@ -459,17 +479,23 @@ class message(commands.Cog, name="spawnBoss"):
             
     @commands.command(name="stajnia", aliases=["s"], brief="Show player's stable.")
     async def check_stable(self, ctx):
-        await functions_pets.check_stable(self, ctx)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.check_stable(self, ctx)
 
     @commands.command(name="rankingtowarzyszy", aliases=['towarzysze', 'rt'],
                       brief="Shows pets ranking.")
     async def pet_ranking(self, ctx):
-        await functions_pets.pet_ranking(self, ctx)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.pet_ranking(self, ctx)
 
     @commands.command(name="nazwij", aliases=['n'], brief="Set the name of author's pet.")
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)
     async def name_pet(self, ctx, name):
-        await functions_pets.name_pet(self, ctx, name)
+        global BUSY
+        if BUSY == 0:
+            await functions_pets.name_pet(self, ctx, name)
 
     @name_pet.error
     async def addfantasy_cooldown(self, ctx, error):

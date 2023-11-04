@@ -1527,7 +1527,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                             else:
                                 chatChannel = self.bot.get_channel(776379796367212594)
                             print("PM unavailable.")
-                            await chatChannel.send("<@" + str(player_id) + "> - Twój towarzysz: *Nadciąga boss! Odblokuj prywatne wiadomości, jeśli chcesz otrzymywać powiadomienia!*")
+
+                            guild = self.bot.get_guild(686137998177206281)
+                            if guild.get_member(user.id) is not None:
+                                await chatChannel.send("<@" + str(player_id) + "> - Twój towarzysz: *Nadciąga boss! Odblokuj prywatne wiadomości, jeśli chcesz otrzymywać powiadomienia!*")
                 else:
                     print("Player not exists.")
 
