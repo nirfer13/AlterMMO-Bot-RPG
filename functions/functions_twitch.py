@@ -31,7 +31,7 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
 
         #Database Reading
         db_ranking_twitch = await self.bot.pg_con.fetch("SELECT discord_id, chtr_time, chtr_issub" +
-                                        " FROM  chatters_information WHERE chtr_time > 200 " +
+                                        " FROM  chatters_information WHERE chtr_time > 445 000 " +
                                         " AND discord_id IS NOT NULL")
         # 450 000
 
@@ -111,7 +111,7 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
 
         #Database Reading
         db_ranking_twitch = await self.bot.pg_con.fetch("SELECT discord_id, chtr_comments, " +
-                                "chtr_issub FROM chatters_information WHERE chtr_comments > 200 " +
+                                "chtr_issub FROM chatters_information WHERE chtr_comments > 299 " +
                                 " AND discord_id IS NOT NULL")
         # 180 000
 
