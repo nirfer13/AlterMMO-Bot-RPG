@@ -31,19 +31,29 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
 
         #Database Reading
         db_ranking_twitch = await self.bot.pg_con.fetch("SELECT discord_id, chtr_time, chtr_issub" +
-                                        " FROM  chatters_information WHERE chtr_time > 45720 " +
+                                        " FROM  chatters_information WHERE chtr_time > 200 " +
                                         " AND discord_id IS NOT NULL")
-        # 180 000
+        # 450 000
 
+        user_dict = {}
         for user_id, time, is_sub in db_ranking_twitch:
             print(f"Users: {user_id} - time: {time/60/60} - is_sub: {is_sub}")
             if user_id:
+
+                # Check if there is another, same user_id with more messages
+                if user_id in user_dict:
+                    if time < user_dict[user_id]:
+                        continue
+
+                # Add user to dictionary
+                user_dict[user_id] = time
+
                 # Get full user object
                 user = await self.bot.fetch_user(user_id)
                 # Get discord server object
                 guild = self.bot.get_guild(686137998177206281)
 
-                role_id, roles_to_remove = get_twitch_viewer_role(time, is_sub)
+                role_id, roles_to_remove = get_twitch_viewer_role(time)
 
                 # Check if user belongs to server and should receive a role
                 if guild.get_member(user.id) is not None and role_id > 0:
@@ -54,25 +64,46 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
 
                     # Check if user already has role
                     if user not in members:
-                        print(type(user))
-                        user = guild.get_member(user.id)
-                        print(type(user))
-                        await user.add_roles(my_role)
 
-                        # Remove previously added roles
-                        for remove_role_id in roles_to_remove:
-                            role_to_remove = discord.utils.get(guild.roles, id=remove_role_id)
-                            remove_role_members = role_to_remove.members
-                            if user in remove_role_members:
-                                await user.remove_roles(role_to_remove)
+                         # Check if user has better role
+                        role1 = discord.utils.get(guild.roles, id=1044570191239057538)
+                        role2 = discord.utils.get(guild.roles, id=1044570461511622716)
+                        role3 = discord.utils.get(guild.roles, id=1044570672313147442)
+                        role4 = discord.utils.get(guild.roles, id=1044570838365638667)
+                        role5 = discord.utils.get(guild.roles, id=1175454109705441410)
 
-                        # Information about role acquired
-                        if DebugMode:
-                            chat_channel = self.bot.get_channel(881090112576962560)
-                        else:
-                            chat_channel = self.bot.get_channel(776379796367212594)
-                        await chat_channel.send(f"<@{user.id}> zdobywa rolę {my_role} za " +
-                                                "śledzenie streamów na Twitchu!")
+                        roles = [role1, role2, role3, role4, role5]
+
+                        # Role to assign index
+                        new_index = roles.index(my_role)
+
+                        # Current role index
+                        role_index = 0
+                        current_role_index = -1
+                        for role in roles:
+                            if user in role.members:
+                                current_role_index = role_index
+                            role_index += 1
+
+                        if new_index > current_role_index:
+
+                            user = guild.get_member(user.id)
+                            await user.add_roles(my_role)
+
+                            # Remove previously added roles
+                            for remove_role_id in roles_to_remove:
+                                role_to_remove = discord.utils.get(guild.roles, id=remove_role_id)
+                                remove_role_members = role_to_remove.members
+                                if user in remove_role_members:
+                                    await user.remove_roles(role_to_remove)
+
+                            # Information about role acquired
+                            if DebugMode:
+                                chat_channel = self.bot.get_channel(881090112576962560)
+                            else:
+                                chat_channel = self.bot.get_channel(776379796367212594)
+                            await chat_channel.send(f"<@{user.id}> zdobywa rolę {my_role} za " +
+                                                    "śledzenie streamów na Twitchu!")
 
     global assign_roles_messages
     async def assign_roles_messages(self):
@@ -80,20 +111,30 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
 
         #Database Reading
         db_ranking_twitch = await self.bot.pg_con.fetch("SELECT discord_id, chtr_comments, " +
-                                "chtr_issub FROM  chatters_information WHERE chtr_time > 45720 " +
+                                "chtr_issub FROM chatters_information WHERE chtr_comments > 200 " +
                                 " AND discord_id IS NOT NULL")
         # 180 000
 
+        user_dict = {}
         for user_id, messages, is_sub in db_ranking_twitch:
-            print(f"Users: {user_id} - messages: {messages} - is_sub: {is_sub}")
+
             if user_id:
+
+                # Check if there is another, same user_id with more messages
+                if user_id in user_dict:
+                    if messages < user_dict[user_id]:
+                        continue
+
+                print(f"Users: {user_id} - messages: {messages} - is_sub: {is_sub}")
+                # Add user to dictionary
+                user_dict[user_id] = messages
+
                 # Get full user object
                 user = await self.bot.fetch_user(user_id)
                 # Get discord server object
                 guild = self.bot.get_guild(686137998177206281)
 
-                role_id, roles_to_remove = get_twitch_messager_role(messages, is_sub)
-
+                role_id, roles_to_remove = get_twitch_messager_role(messages)
                 # Check if user belongs to server and should receive a role
                 if guild.get_member(user.id) is not None and role_id > 0:
 
@@ -103,9 +144,8 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
 
                     # Check if user already has role
                     if user not in members:
-                        print(type(user))
+
                         user = guild.get_member(user.id)
-                        print(type(user))
                         await user.add_roles(my_role)
 
                         # Remove previously added roles
@@ -123,42 +163,29 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
                         await chat_channel.send(f"<@{user.id}> zdobywa rolę {my_role} za " +
                                                 "pisanie na Twitchu!")
 
-def get_twitch_viewer_role(watchtime: int, is_sub: bool):
+def get_twitch_viewer_role(watchtime: int):
     """Select proper viewer role to assign based on watchtime of the user."""
 
-    # Podgladacz (1044570191239057538) - 125h - 50h (chtr_issub)
-    # Ogladacz (1044570461511622716) - 250h - 100h (chtr_issub)
-    # Widz (1044570672313147442) - 375 - 150 (chtr_issub)
-    # Pasjonata (1044570838365638667) - 500 - 200 (chtr_issub)
-    # Fanboy (1175454109705441410) - 750 - 300 (chtr_issub)
+    # Podgladacz (1044570191239057538) - 125
+    # Ogladacz (1044570461511622716) - 250
+    # Widz (1044570672313147442) - 375
+    # Pasjonata (1044570838365638667) - 500
+    # Fanboy (1175454109705441410) - 750
 
     watchtime_h = watchtime / 60 / 60
-    if is_sub:
-        if watchtime_h >= 50 and watchtime_h < 100:
-            role_id = 1044570191239057538
-        elif watchtime_h >= 100 and watchtime_h < 150:
-            role_id = 1044570461511622716
-        elif watchtime_h >= 150 and watchtime_h < 200:
-            role_id = 1044570672313147442
-        elif watchtime_h >= 200 and watchtime_h < 300:
-            role_id = 1044570838365638667
-        elif watchtime_h >= 300:
-            role_id = 1175454109705441410
-        else:
-            role_id = 0
+
+    if watchtime_h >= 125 and watchtime_h < 250:
+        role_id = 1044570191239057538
+    elif watchtime_h >= 250 and watchtime_h < 375:
+        role_id = 1044570461511622716
+    elif watchtime_h >= 375 and watchtime_h < 500:
+        role_id = 1044570672313147442
+    elif watchtime_h >= 500 and watchtime_h < 750:
+        role_id = 1044570838365638667
+    elif watchtime_h >= 750:
+        role_id = 1175454109705441410
     else:
-        if watchtime_h >= 125 and watchtime_h < 250:
-            role_id = 1044570191239057538
-        elif watchtime_h >= 250 and watchtime_h < 375:
-            role_id = 1044570461511622716
-        elif watchtime_h >= 375 and watchtime_h < 500:
-            role_id = 1044570672313147442
-        elif watchtime_h >= 500 and watchtime_h < 750:
-            role_id = 1044570838365638667
-        elif watchtime_h >= 750:
-            role_id = 1175454109705441410
-        else:
-            role_id = 0
+        role_id = 0
 
     roles_to_remove = [1044570191239057538,
                     1044570461511622716,
@@ -171,7 +198,7 @@ def get_twitch_viewer_role(watchtime: int, is_sub: bool):
 
     return role_id, roles_to_remove
 
-def get_twitch_messager_role(messages: int, is_sub: bool):
+def get_twitch_messager_role(messages: int):
     """Select proper messager role to assign based on messages of the user."""
 
     # Analfabeta (1175474239890010134) - 300 - 200 (chtr_issub)
@@ -180,32 +207,18 @@ def get_twitch_messager_role(messages: int, is_sub: bool):
     # Skryba (1175474928162721833) - 2500 - 1250 (chtr_issub)
     # Spamer (1175475198854709330) - 5000 - 2500 (chtr_issub)
 
-    if is_sub:
-        if messages >= 200 and messages < 250:
-            role_id = 1175474239890010134
-        elif messages >= 280 and messages < 625:
-            role_id = 1175474471637893221
-        elif messages >= 625 and messages < 1250:
-            role_id = 1175474738789875854
-        elif messages >= 1250 and messages < 2500:
-            role_id = 1175474928162721833
-        elif messages >= 2500:
-            role_id = 1175475198854709330
-        else:
-            role_id = 0
+    if messages >= 300 and messages < 600:
+        role_id = 1175474239890010134
+    elif messages >= 600 and messages < 1250:
+        role_id = 1175474471637893221
+    elif messages >= 1250 and messages < 2500:
+        role_id = 1175474738789875854
+    elif messages >= 2500 and messages < 5000:
+        role_id = 1175474928162721833
+    elif messages >= 5000:
+        role_id = 1175475198854709330
     else:
-        if messages >= 300 and messages < 600:
-            role_id = 1175474239890010134
-        elif messages >= 600 and messages < 1250:
-            role_id = 1175474471637893221
-        elif messages >= 1250 and messages < 2500:
-            role_id = 1175474738789875854
-        elif messages >= 2500 and messages < 5000:
-            role_id = 1175474928162721833
-        elif messages >= 5000:
-            role_id = 1175475198854709330
-        else:
-            role_id = 0
+        role_id = 0
 
     roles_to_remove = [1175474239890010134,
                     1175474471637893221,

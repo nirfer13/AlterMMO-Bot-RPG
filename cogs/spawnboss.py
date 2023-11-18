@@ -122,8 +122,12 @@ class message(commands.Cog, name="spawnBoss"):
                 return
             if timestamp.strftime("%H:%M UTC") == "04:10 UTC":
                 await functions_daily.clear_daily_file(self)
-                #await ctx.channel.send("Noc jest piękna i spokojna. Można wyruszyć na polowanie...")
-                await asyncio.sleep(60)
+
+            if timestamp.strftime("%H:%M UTC") == "20:30 UTC" or \
+                timestamp.strftime("%H:%M UTC") == "5:30 UTC":
+                await functions_twitch.assign_roles_messages(self)
+                await functions_twitch.assign_roles_watchtime(self)
+
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(35)
 
@@ -957,7 +961,7 @@ class message(commands.Cog, name="spawnBoss"):
                     brief="Get all users with sufficient watchtime.")
     @commands.has_permissions(administrator=True)
     async def assign_roles_watchtime(self, ctx):
-        await functions_twitch.assign_roles_messages(self)
+        await functions_twitch.assign_roles_watchtime(self)
 
     @commands.command(name="getWriterTwitch",
                     brief="Get all users with sufficient messages count.")
