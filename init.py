@@ -18,7 +18,8 @@ intents.members = True
 bot = commands.Bot(
     command_prefix='$',
     description=description,
-    intents=intents)
+    intents=intents,
+    help_command=None)
 
 # @bot.event
 # async def on_command_error(ctx, error):
@@ -31,13 +32,13 @@ async def create_db_pool():
     if DebugMode == False:
         bot.pg_con = await asyncpg.create_pool(os.environ.get("DATABASE_URL"))
     else:
-        bot.pg_con = await asyncpg.create_pool(os.environ.get("HEROKU_POSTGRESQL_BRONZE_URL"))    
+        bot.pg_con = await asyncpg.create_pool(os.environ.get("HEROKU_POSTGRESQL_BRONZE_URL"))  
 
     print("Connected to database. Pool created.")
 
 #loads cogs as extentions to bot
 if __name__ == '__main__':
-    for file in os.listdir("/usr/local/bin/AlterMMO-Bot-RPG/cogs"):
+    for file in os.listdir("cogs"):
         if file.endswith(".py"):
             extension = file[:-3]
             try:

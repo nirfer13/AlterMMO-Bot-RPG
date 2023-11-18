@@ -23,6 +23,7 @@ import functions_skills
 import functions_patrons
 import functions_achievements
 import functions_tower
+import functions_twitch
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -476,7 +477,7 @@ class message(commands.Cog, name="spawnBoss"):
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send("Po spacji podaj numer miejsca w stajni, z którego chcesz wyjąć " +
                            "towarzysza (1 lub 2) np. **$wyciagnijtowarzysza 1**.")
-            
+
     @commands.command(name="stajnia", aliases=["s"], brief="Show player's stable.")
     async def check_stable(self, ctx):
         global BUSY
@@ -936,6 +937,33 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def create_database(self, ctx):
         await functions_achievements.create_database(self, ctx)
+
+    # ====== Twitch Discord Database Commands to Debug
+
+    @commands.command(name="createTwitchDatabase",
+                    brief="Create empty table twitch_discord.")
+    @commands.has_permissions(administrator=True)
+    async def create_twitch_discord(self, ctx):
+        await functions_twitch.create_ttv_dc_database(self)
+        await ctx.channel.send("Baza danych discord_twitch utworzona.")
+
+    @commands.command(name="checkTwitch",
+                    brief="Check if the user has connected Twitch account.")
+    @commands.has_permissions(administrator=True)
+    async def check_twitch(self, ctx, user_id):
+        await functions_twitch.get_user_twitch_name(self, ctx, user_id)
+
+    @commands.command(name="getActiveTwitch",
+                    brief="Get all users with sufficient watchtime.")
+    @commands.has_permissions(administrator=True)
+    async def assign_roles_watchtime(self, ctx):
+        await functions_twitch.assign_roles_messages(self)
+
+    @commands.command(name="getWriterTwitch",
+                    brief="Get all users with sufficient messages count.")
+    @commands.has_permissions(administrator=True)
+    async def assign_roles_messages(self, ctx):
+        await functions_twitch.assign_roles_messages(self)
 
 def setup(bot):
     bot.add_cog(message(bot))
