@@ -127,6 +127,7 @@ class message(commands.Cog, name="spawnBoss"):
                 timestamp.strftime("%H:%M UTC") == "5:30 UTC":
                 await functions_twitch.assign_roles_messages(self)
                 await functions_twitch.assign_roles_watchtime(self)
+                await functions_twitch.check_treasure(self)
 
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(35)
@@ -968,6 +969,12 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def assign_roles_messages(self, ctx):
         await functions_twitch.assign_roles_messages(self)
+
+    @commands.command(name="checkTreasure",
+                    brief="Get all users who should be rewarded")
+    @commands.has_permissions(administrator=True)
+    async def check_treasure(self, ctx):
+        await functions_twitch.check_treasure(self)
 
 def setup(bot):
     bot.add_cog(message(bot))

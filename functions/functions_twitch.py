@@ -1,10 +1,14 @@
 """File to sum up the experience from drops."""
 
 import json
-import asyncio
 import discord
 from discord.ext import commands
 import asyncio
+import random
+import asyncpg
+
+import functions_daily
+import functions_boss
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -162,6 +166,35 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
                             chat_channel = self.bot.get_channel(776379796367212594)
                         await chat_channel.send(f"<@{user.id}> zdobywa rolę {my_role} za " +
                                                 "pisanie na Twitchu!")
+
+    global check_treasure
+    async def check_treasure(self):
+        """Get list of users who should receive tresure from twitch"""
+
+
+        db_treasure_twitch = await self.bot.pg_con.fetch("SELECT chtr_name" +
+                                " FROM treasure_table ORDER BY chtr_id ASC")
+
+        await self.bot.pg_con.fetch("DELETE FROM treasure_table")
+
+        print(db_treasure_twitch)
+        for user in db_treasure_twitch:
+
+            db_discord_id = await self.bot.pg_con.fetch("SELECT discord_id" +
+                                f" FROM chatters_information WHERE chtr_name=\'{user[0]}\'")
+
+            if DebugMode:
+                chat_channel = self.bot.get_channel(970571647226642442)
+                ctx = await functions_boss.getContext(self, 970571647226642442, 1125837611299254383)
+            else:
+                chat_channel = self.bot.get_channel(970684202880204831)
+                ctx = await functions_boss.getContext(self, 970684202880204831, 1028328642436136961)
+
+
+            print(db_discord_id[0][0])
+            user = await self.bot.fetch_user(db_discord_id[0][0])
+            boost_percent = random.randint(0,25)
+            await functions_daily.randLoot(self, ctx, 2, user, boost_percent)
 
 def get_twitch_viewer_role(watchtime: int):
     """Select proper viewer role to assign based on watchtime of the user."""
