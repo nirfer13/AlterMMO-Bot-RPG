@@ -123,11 +123,14 @@ class message(commands.Cog, name="spawnBoss"):
             if timestamp.strftime("%H:%M UTC") == "04:10 UTC":
                 await functions_daily.clear_daily_file(self)
 
-            if timestamp.strftime("%H:%M UTC") == "21:45 UTC" or \
+            if timestamp.strftime("%H:%M UTC") == "22:08 UTC" or \
                 timestamp.strftime("%H:%M UTC") == "5:30 UTC":
+                print("Twitch check - messages.")
                 await functions_twitch.assign_roles_messages(self)
+                print("Twitch check - watchtime.")
                 await functions_twitch.assign_roles_watchtime(self)
-                await functions_twitch.check_treasure(self)
+                print("Twitch check - treasure.")
+                #await functions_twitch.check_treasure(self)
 
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(35)
