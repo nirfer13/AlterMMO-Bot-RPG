@@ -123,7 +123,7 @@ class message(commands.Cog, name="spawnBoss"):
             if timestamp.strftime("%H:%M UTC") == "04:10 UTC":
                 await functions_daily.clear_daily_file(self)
 
-            if timestamp.strftime("%H:%M UTC") == "22:08 UTC" or \
+            if timestamp.strftime("%H:%M UTC") == "22:30 UTC" or \
                 timestamp.strftime("%H:%M UTC") == "5:30 UTC":
                 print("Twitch check - messages.")
                 await functions_twitch.assign_roles_messages(self)
