@@ -183,7 +183,7 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
             db_discord_id = await self.bot.pg_con.fetch("SELECT discord_id" +
                                 f" FROM chatters_information WHERE chtr_name=\'{user[0]}\'")
 
-            if DebugMode:
+            if DebugMode is True:
                 chat_channel = self.bot.get_channel(970571647226642442)
                 ctx = await functions_boss.getContext(self, 970571647226642442, 1125837611299254383)
             else:
