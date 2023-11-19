@@ -130,7 +130,7 @@ class message(commands.Cog, name="spawnBoss"):
                 print("Twitch check - watchtime.")
                 await functions_twitch.assign_roles_watchtime(self)
                 print("Twitch check - treasure.")
-                #await functions_twitch.check_treasure(self)
+                await functions_twitch.check_treasure(self)
 
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(35)
