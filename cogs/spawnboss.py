@@ -119,7 +119,8 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_daily.clear_daily_file(self)
                 await functions_tower.clear_weekly_tower_file(self)
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
-                return
+                await asyncio.sleep(61)
+
             if timestamp.strftime("%H:%M UTC") == "04:10 UTC":
                 await functions_daily.clear_daily_file(self)
 
@@ -726,9 +727,9 @@ class message(commands.Cog, name="spawnBoss"):
         await functions_pets.assign_shard(self, ctx, number, player_id)
 
     # command to debug
-    @commands.command(pass_context=True, name="ClearCD")
+    @commands.command(pass_context=True, name="ClearDaily")
     @commands.has_permissions(administrator=True)
-    async def clear_cd(self, ctx):
+    async def clear_cd_daily(self, ctx):
         await functions_daily.clear_daily_file(self)
         await ctx.channel.send("Zresetowano daily cd.")
 
