@@ -167,7 +167,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             break
         print(users)
         active_users = len(users)
-        if active_users > 3:
+        if active_users > 2:
             async with ctx.typing():
                 await asyncio.sleep(2)
                 await ctx.channel.send("No dobra, to zaczynamy imprezę <:Drink:912798939542061086>! Przygotujcie się, zaraz podam toast! Wpiszcie go bez spacji, wielkość liter nie ma znaczenia!")

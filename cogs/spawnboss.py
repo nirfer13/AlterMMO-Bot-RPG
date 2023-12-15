@@ -122,7 +122,11 @@ class message(commands.Cog, name="spawnBoss"):
                 await asyncio.sleep(61)
 
             if timestamp.strftime("%H:%M UTC") == "04:10 UTC":
-                await functions_daily.clear_daily_file(self)
+                try:
+                    await functions_daily.clear_daily_file(self)
+                except Exception as e:
+                    logChannel = self.bot.get_channel(881090112576962560)
+                    await logChannel.send(f"Błąd resetu daily cd: {e}")
 
             if timestamp.strftime("%H:%M UTC") == "19:00 UTC" or \
                 timestamp.strftime("%H:%M UTC") == "20:00 UTC" or \

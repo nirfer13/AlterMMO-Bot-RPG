@@ -28,6 +28,7 @@ class PetType(str, Enum):
     ANIME_GIRL = 'AnimeGirl'
     ELEMENTAL = 'Elemental'
     DOG = 'Dog'
+    GUINEA = 'Guinea'
 
 class FunctionsPets(commands.Cog, name="FunctionsPets"):
     """Class with all functions used for pets."""
@@ -190,6 +191,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         polish_type = "Żywiołak"
                     elif pet_data[0][6] == "Dog":
                         polish_type = "Pies"
+                    elif pet_data[0][6] == "Guinea":
+                        polish_type = "Świnka morska"
                     else:
                         polish_type = ""
                     if pet_data[0][1] != "Towarzysz":
@@ -273,7 +276,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
                          PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
-                         PetType.ANIME_GIRL, PetType.ELEMENTAL]
+                         PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.GUINEA]
         else:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP, PetType.DOG]
@@ -953,6 +956,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Żywiołak"
                 elif pet0[0][2] == "Dog":
                     polish_type = "Pies"
+                elif pet0[0][2] == "Guinea":
+                    polish_type = "Świnka morska"
                 else:
                     polish_type = ""
 
@@ -994,6 +999,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Żywiołak"
                 elif pet0[0][2] == "Dog":
                     polish_type = "Pies"
+                elif pet0[0][2] == "Guinea":
+                    polish_type = "Świnka morska"
                 else:
                     polish_type = ""
 
@@ -1035,6 +1042,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Żywiołak"
                 elif pet0[0][2] == "Dog":
                     polish_type = "Pies"
+                elif pet0[0][2] == "Guinea":
+                    polish_type = "Świnka morska"
                 else:
                     polish_type = ""
 
@@ -1596,6 +1605,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 polish_type = "Żywiołak"
             elif person[6] == "Dog":
                 polish_type = "Pies"
+            elif person[6] == "Guinea":
+                polish_type = "Świnka morska"
             else:
                 polish_type = ""
 
