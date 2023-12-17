@@ -507,6 +507,13 @@ class message(commands.Cog, name="spawnBoss"):
         if BUSY == 0:
             await functions_pets.pet_ranking(self, ctx)
 
+    @commands.command(name="skill", aliases=['umiejetnosc', 'umiejętność', 'u'],
+                      brief="Use user's skill.")
+    async def use_skill(self, ctx):
+        global BUSY
+        if BUSY == 0:
+            await functions_skills.use_skill(self, ctx, ctx.author)
+
     @commands.command(name="nazwij", aliases=['n'], brief="Set the name of author's pet.")
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)
     async def name_pet(self, ctx, name):
@@ -898,6 +905,12 @@ class message(commands.Cog, name="spawnBoss"):
     async def reassign_pet(self, ctx, pet_id, player_id):
         await functions_pets.reassing_pet(self, pet_id, player_id)
         await ctx.channel.send(f"Pet {pet_id} przypisany do gracza <@{player_id}>.")
+
+    @commands.command(name="skill_rest",
+                      brief="Show rest image")
+    @commands.has_permissions(administrator=True)
+    async def rest_image(self, ctx):
+        await functions_skills.skill_rest(self, ctx)
 
     # ====== Record Database Commands to Debug
 
