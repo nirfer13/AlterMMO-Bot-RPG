@@ -2,10 +2,12 @@
 
 import random
 import discord
+import asyncio
 from enum import Enum
 from discord.ext import commands
 
 import functions_pets
+import functions_daily
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -162,10 +164,10 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
 
         print("Meal spawn.")
 
-        e_title = f"<:peepofat:1062666941405331507> Wielka uczta zorganizowana przez {ctx.author.name}! <:peepofat:1062666941405331507>"
+        e_title = f"<:peepofat:1062666941405331507> {ctx.author.name} zaprasza na odpoczynek! <:peepofat:1062666941405331507>"
 
         e_descr = ('Wspaniały dzień! Wszyscy bohaterowie zostali zaproszeni na ucztę!\n\n'
-        '**Zostaw reakcję, żeby wypocząć i móc ponownie wyruszyć na polowanie.**')
+        '**Zostaw reakcję, żeby wypocząć i móc ponownie wyruszyć na polowanie. Odpoczynek potrwa maksymalnie 5 minut.**')
 
         e_color = 0xFC0303
 
@@ -180,19 +182,109 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
         await ctx.send(file=file)
         msg = await ctx.send(embed=embed)
 
-        users_list = []
-        #Define check function
-        def check(reaction, user):
-            users_list.append(user)
-            return msg.channel == ctx.channel and str(reaction.emoji) == "<:Bedge:970576892874854400>" and user.id != 971322848616525874 and user.id != 859729615123251200 and msg.id == reaction.message.id and user not in users_list
-
         await msg.add_reaction("<:Bedge:970576892874854400>")
 
         if DebugMode:
-            timeout = 15
+            await asyncio.sleep(15)
         else:
-            timeout = 600
+            await asyncio.sleep(300)
 
+        users = []
+        message = await ctx.channel.fetch_message(msg.id)
+        for reaction in message.reactions:
+            async for user in reaction.users():
+                guild = message.guild
+                if guild.get_member(user.id) is not None:
+                    users.append(str(user.id))
+            break
+        print(users)
+
+        await functions_daily.remove_player_daily_file(self, users)
+        await ctx.send("Wszyscy podróżnicy, którzy skorzystali z zaproszenia, mogą ponownie ruszyć na polowanie! <:Up:912798893304086558>")
+
+        return True
+
+    # DAILY
+    #function to save daily skills user to file
+    global daily_skill_used
+    def daily_skill_used (player_id):
+        player_id = str(player_id)
+
+        with open('skill_daily_player_cd.txt', 'r') as r:
+            read_lines = r.readlines()
+        r.close()
+        new_list = []
+        for line in read_lines:
+            new_list.append(line.strip())
+
+        if player_id not in new_list:
+            with open('skill_daily_player_cd.txt', 'a') as f:
+                f.write(str(player_id) + '\n')
+
+    #function to read daily skill user from file
+    global load_daily_skill
+    def load_daily_skill(player_id):
+        player_id = str(player_id)
+
+        with open('skill_daily_player_cd.txt', 'r') as r:
+            read_lines = r.readlines()
+
+        new_list = []
+        for line in read_lines:
+            new_list.append(line.strip())
+
+        print(new_list)
+
+        return player_id in new_list
+
+    #function to clear all daily skill users from file
+    global clear_daily_skill
+    async def clear_daily_skill(self):
+
+        open('skill_daily_player_cd.txt', 'w').close()
+        logChannel = self.bot.get_channel(881090112576962560)
+        await logChannel.send("Zresetowano cooldown na daily skille.")
+
+    # WEEKLY
+    #function to save weekly skills user to file
+    global weekly_skill_used
+    def weekly_skill_used (player_id):
+        player_id = str(player_id)
+
+        with open('skill_weekly_player_cd.txt', 'r') as r:
+            read_lines = r.readlines()
+        r.close()
+        new_list = []
+        for line in read_lines:
+            new_list.append(line.strip())
+
+        if player_id not in new_list:
+            with open('skill_weekly_player_cd.txt', 'a') as f:
+                f.write(str(player_id) + '\n')
+
+    #function to read weekly skill user from file
+    global load_weekly_skill
+    def load_weekly_skill(player_id):
+        player_id = str(player_id)
+
+        with open('skill_weekly_player_cd.txt', 'r') as r:
+            read_lines = r.readlines()
+
+        new_list = []
+        for line in read_lines:
+            new_list.append(line.strip())
+
+        print(new_list)
+
+        return player_id in new_list
+
+    #function to clear all weekly skill users from file
+    global clear_weekly_skill
+    async def clear_weekly_skill(self):
+
+        open('skill_weekly_player_cd.txt', 'w').close()
+        logChannel = self.bot.get_channel(881090112576962560)
+        await logChannel.send("Zresetowano cooldown na weekly skille.")
 
 
 def setup(bot):

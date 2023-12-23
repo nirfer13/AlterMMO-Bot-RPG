@@ -745,6 +745,15 @@ class message(commands.Cog, name="spawnBoss"):
         await ctx.channel.send("Zresetowano daily cd.")
 
     # command to debug
+    @commands.command(pass_context=True, name="ClearDailyAlter")
+    @commands.has_permissions(administrator=True)
+    async def clear_cd_daily_alter(self, ctx):
+        list = []
+        list.append(str(ctx.author.id))
+        await functions_daily.remove_player_daily_file(self, list)
+        await ctx.channel.send("Zresetowano daily cd Altera.")
+
+    # command to debug
     @commands.command(pass_context=True, name="ClearTowerCD")
     @commands.has_permissions(administrator=True)
     async def clear_cd(self, ctx):
@@ -910,7 +919,10 @@ class message(commands.Cog, name="spawnBoss"):
                       brief="Show rest image")
     @commands.has_permissions(administrator=True)
     async def rest_image(self, ctx):
+        global BUSY
+        BUSY = 1
         await functions_skills.skill_rest(self, ctx)
+        BUSY = 0
 
     # ====== Record Database Commands to Debug
 

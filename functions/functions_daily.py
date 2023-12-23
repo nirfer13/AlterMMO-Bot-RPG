@@ -1,4 +1,5 @@
-﻿from discord.ext import commands
+﻿from typing import List
+from discord.ext import commands
 import discord
 import asyncio
 import random
@@ -519,6 +520,23 @@ class functions_daily(commands.Cog, name="functions_daily"):
         open('daily_player_cd.txt', 'w').close()
         logChannel = self.bot.get_channel(881090112576962560)
         await logChannel.send("Zresetowano cooldown na daily.")
+
+    #Function to remove specified player
+    global remove_player_daily_file
+    async def remove_player_daily_file(self, player_id_list: List):
+
+        original_file = "daily_player_cd.txt"
+        temp_file = "daily_player_cd_temp.txt"
+
+        with open(original_file, "r") as input:
+            with open(temp_file, "w") as output:
+                for line in input:
+                    for word in player_id_list:
+                        line = line.replace(word, "")
+                    output.write(line)
+
+        # replace file with original name
+        os.replace(temp_file, original_file)
 
 def setup(bot):
     bot.add_cog(functions_daily(bot))
