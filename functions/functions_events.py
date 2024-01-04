@@ -406,7 +406,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         """
         e_title = f"<:MonkaS:882181709100097587> Mroczny las! <a:PeepoRiot:1067317732942565416>"
 
-        e_descr = ('Przed Wami złowrogi las... Czy odwarzycie się do niego wkroczyć?'
+        e_descr = ('Przed Wami złowrogi las... Czy odważycie się do niego wkroczyć ?'
                 '\n\n*Zostaw reakcję pod postem, jeśli chcesz wziąć udział.*')
 
         e_color = 0x003616

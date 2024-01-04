@@ -507,12 +507,24 @@ class message(commands.Cog, name="spawnBoss"):
         if BUSY == 0:
             await functions_pets.pet_ranking(self, ctx)
 
-    @commands.command(name="skill", aliases=['umiejetnosc', 'umiejętność', 'u'],
-                      brief="Use user's skill.")
+    @commands.command(name="pokazskill",
+                      aliases=['pokazumiejetnosc', 'pokażumiejętność', 'pu', 'pokazskilla', 'ps'],
+                      brief="Show user's skill.")
+    async def show_skill(self, ctx):
+        global BUSY
+        if BUSY == 0:
+            await functions_skills.show_skill(self, ctx)
+
+    @commands.command(name="uzyjskilla",
+                    aliases=['użyjumiejetnosc', 'użyjumiejętność', 'us',
+                    'uzyj', 'uzyjskill', 'uu', 'skill'],
+                    brief="Use user's skill.")
     async def use_skill(self, ctx):
         global BUSY
         if BUSY == 0:
+            BUSY = 1
             await functions_skills.use_skill(self, ctx, ctx.author)
+            BUSY = 0
 
     @commands.command(name="nazwij", aliases=['n'], brief="Set the name of author's pet.")
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)

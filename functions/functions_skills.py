@@ -39,12 +39,12 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
         await self.bot.pg_con.execute(f"""INSERT INTO SKILLS 
             (SKILL_ID, GEM_NAME, SKILL_VARIANT, SLOW_PERC) 
             VALUES ({0},\'{'Default'}\',{0},{0});""")
-    
+
     global generate_skill_gem
     async def generate_skill_gem(self, ctx):
         """Generate skill."""
 
-        skill_variant = random.randint(1, 6)
+        skill_variant = random.randint(1, 2)
         slow_perc = random.randint(0, 20)
 
         for retries in range(0,3):
@@ -60,7 +60,10 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
 
         skill_config = {}
         skill_config["SKILL_ID"] = 1 + int(db_read[0][0])
-        skill_config["GEM_NAME"] = "Umiejętność"
+
+        if skill_variant == 1:
+            skill_config["GEM_NAME"] = "Klejnot Regeneracji"
+
         skill_config["SKILL_VARIANT"] = skill_variant
         skill_config["SLOW_PERC"] = slow_perc
 
@@ -130,6 +133,54 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
         else:
             await ctx.channel.send("Taki klejnot umiejętności nie istnieje!")
 
+    global show_skill
+    async def show_skill(self, ctx):
+        """Show current skill."""
+
+        player_id = int(ctx.author.id)
+
+        sql = f"SELECT SKILL_GEM FROM petowner WHERE PLAYER_ID = {player_id};"
+        gem_exists = await self.bot.pg_con.fetch(sql)
+
+        if gem_exists:
+            skill_id = gem_exists[0][0]
+
+
+            if skill_id > -1:
+                skill_data = await get_skill_data(self, ctx, skill_id)
+
+                skill_name = skill_data[1]
+                skill_variant = int(skill_data[2])
+                skill_slow_perc = int(skill_data[3])
+
+                print(skill_name)
+                print(skill_variant)
+                print(skill_slow_perc)
+
+                if skill_variant == 0:
+                    await ctx.channel.send("Niestety nie posiadasz umiejętności <@" + str(player_id) + "> <:Sadge:936907659142111273> Klejnoty umiejętności są bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!")
+                    return False
+                elif skill_variant == 1:
+                    skill_desc = "Kamień regeneracji pozwala na odpoczynek wszystkich podróżników, którzy są chętni. Zaraz po nabraniu sił mogą ponownie wyruszyć na polowanie.\n\nMożesz użyć umiejętności przez komendę **$skill**."
+                elif skill_variant == 2:
+                    skill_desc = "Kamień wyjątkowości sprawia, że towarzysz wybranego podróżnika zostaje odmieniony i staje się wyjątkowy.\n\nMożesz użyć umiejętności przez komendę **$skill**."
+
+                title = skill_name
+                path = f"skill_gems/{skill_variant}.png"
+                color = 0xfc7703
+                embed = discord.Embed(title=title,
+                                    description="Oto Twój kamień umiejętności, <@" + str(player_id) + ">.\n\n" + skill_desc,
+                                    color=color)
+                file = discord.File(path, filename=f"{skill_variant}.png")
+                embed.set_footer(text = "Wielcy ludzie nie rodzą się wielkimi, tylko się nimi stają.")
+                embed.set_image(url=f"attachment://{skill_variant}.png")
+                await ctx.send(file=file, embed=embed)
+
+            else:
+                await ctx.channel.send("Niestety nie posiadasz umiejętności <@" + str(player_id) + "> <:Sadge:936907659142111273> Klejnoty umiejętności są bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!")
+        else:
+            await ctx.channel.send("Niestety nie posiadasz umiejętności <@" + str(player_id) + "> <:Sadge:936907659142111273> Klejnoty umiejętności są bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!")
+
     global use_skill
     async def use_skill(self, ctx, player):
         """Use skill based on the type of the skill."""
@@ -144,13 +195,24 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
 
 
             if skill_id > -1:
-                await ctx.channel.send(f"Posiadasz kamień ID: {skill_id}")
-
                 skill_data = await get_skill_data(self, ctx, skill_id)
 
-                skill_name = skill_data[0]
-                skill_variant = skill_data[1]
-                skill_slow_perc = skill_data[2]
+                skill_name = skill_data[1]
+                skill_variant = int(skill_data[2])
+                skill_slow_perc = int(skill_data[3])
+
+                print(skill_name)
+                print(skill_variant)
+                print(skill_slow_perc)
+
+                if skill_variant == 0:
+                    await ctx.channel.send("Niestety nie posiadasz umiejętności <@" + str(player_id) + "> <:Sadge:936907659142111273> Klejnoty umiejętności są bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!")
+                elif skill_variant == 1:
+                    daily_skill_used(ctx.author.id)
+                    await skill_rest(self, ctx)
+                elif skill_variant == 2:
+                    weekly_skill_used(ctx.author.id)
+                    await skill_make_shiny(self, ctx)
         
                 #TODO Add functions related to skill_variant.
             else:
@@ -162,47 +224,113 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
     async def skill_rest(self, ctx):
         """Skill which organizes meal. Everyone who use reaction can go hunting again."""
 
-        print("Meal spawn.")
+        if not load_daily_skill(ctx.author.id):
+            print("Meal spawn.")
 
-        e_title = f"<:peepofat:1062666941405331507> {ctx.author.name} zaprasza na odpoczynek! <:peepofat:1062666941405331507>"
+            e_title = f"<:peepofat:1062666941405331507> {ctx.author.name} zaprasza na odpoczynek! <:peepofat:1062666941405331507>"
 
-        e_descr = ('Wspaniały dzień! Wszyscy bohaterowie zostali zaproszeni na ucztę!\n\n'
-        '**Zostaw reakcję, żeby wypocząć i móc ponownie wyruszyć na polowanie. Odpoczynek potrwa maksymalnie 5 minut.**')
+            e_descr = ('Wspaniały dzień! Wszyscy bohaterowie zostali zaproszeni na ucztę!\n\n'
+            '**Zostaw reakcję, żeby wypocząć i móc ponownie wyruszyć na polowanie. Odpoczynek potrwa maksymalnie 5 minut.**')
 
-        e_color = 0xFC0303
+            e_color = 0xFC0303
 
-        image_name = "events/rest/" + str(random.randint(0,4)) + ".png"
-        file=discord.File(image_name)
+            image_name = "events/rest/" + str(random.randint(0,4)) + ".png"
+            file=discord.File(image_name)
 
-        embed = discord.Embed(
-            title=e_title,
-            description=e_descr,
-            color=e_color)
+            embed = discord.Embed(
+                title=e_title,
+                description=e_descr,
+                color=e_color)
 
-        await ctx.send(file=file)
-        msg = await ctx.send(embed=embed)
+            await ctx.send(file=file)
+            msg = await ctx.send(embed=embed)
 
-        await msg.add_reaction("<:Bedge:970576892874854400>")
+            await msg.add_reaction("<:Bedge:970576892874854400>")
 
-        if DebugMode:
-            await asyncio.sleep(15)
+            if DebugMode:
+                await asyncio.sleep(15)
+            else:
+                await asyncio.sleep(300)
+
+            users = []
+            message = await ctx.channel.fetch_message(msg.id)
+            for reaction in message.reactions:
+                async for user in reaction.users():
+                    guild = message.guild
+                    if guild.get_member(user.id) is not None:
+                        users.append(str(user.id))
+                break
+            print(users)
+
+            await functions_daily.remove_player_daily_file(self, users)
+            await ctx.send("Wszyscy podróżnicy, którzy skorzystali z zaproszenia, mogą ponownie ruszyć na polowanie! <:Up:912798893304086558>")
+
+            return True
         else:
-            await asyncio.sleep(300)
+            await ctx.send("Twój kamień umiejętności regeneruje się! Spróbuj jutro! <:Bedge:970576892874854400>")
+            return False
 
-        users = []
-        message = await ctx.channel.fetch_message(msg.id)
-        for reaction in message.reactions:
-            async for user in reaction.users():
-                guild = message.guild
-                if guild.get_member(user.id) is not None:
-                    users.append(str(user.id))
-            break
-        print(users)
+    global skill_make_shiny
+    async def skill_make_shiny(self, ctx):
+        """Skill that is used to make a pet shiny."""
 
-        await functions_daily.remove_player_daily_file(self, users)
-        await ctx.send("Wszyscy podróżnicy, którzy skorzystali z zaproszenia, mogą ponownie ruszyć na polowanie! <:Up:912798893304086558>")
+        if not load_weekly_skill(ctx.author.id):
 
-        return True
+            # Check if reroll pet is confirmed
+            def check_user(author):
+                def inner_check(message):
+                    if message.author == author:
+                        return True
+                    else:
+                        print("Wrong person or wrong message!")
+                        return False
+                return inner_check
+
+            try:
+                await ctx.channel.send("Oznacz użytkownika, którego towarzysz ma stać się wyjątkowy!")
+                user_to_shiny = await self.bot.wait_for('message', timeout=30, check=check_user(ctx.author))
+                user_string = user_to_shiny.content.strip()
+                user_id = int(user_string[2:-1])
+
+            except asyncio.TimeoutError:
+                await ctx.channel.send("Moc kamienia zanikła...")
+                return False
+            except ValueError:
+                await ctx.channel.send("Niestety podany podróżnik nie istnieje. Moc Twojego kamienia umiejętności została wyczerpana.")
+                return False
+
+            # Check if user exists
+            try:
+                user = self.bot.get_user(user_id)
+                print(user)
+            except:
+                await ctx.channel.send("Niestety podany podróżnik nie istnieje. Moc Twojego kamienia umiejętności została wyczerpana.")
+                return False
+
+            if user:
+                sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {user_id};"
+                pet_exists = await self.bot.pg_con.fetch(sql)
+
+                if pet_exists:
+
+                    if pet_exists[0][0] > 0:
+
+                        sql = f"""UPDATE PETS SET SHINY = \'{True}\'
+                                WHERE PET_ID = {pet_exists[0][0]};"""
+                        await self.bot.pg_con.fetch(sql)
+                        await ctx.channel.send(f"Twój Towarzysz <@{user_id}> wygląda na bardzo wdzięcznego i dostrzegasz" +
+                                                f", że wygląda jakoś inaczej <:Susge:973591024322633858> To sprawka <@{ctx.author.id}>.")
+
+                    else:
+                        await ctx.channel.send("Niestety podany podróżnik nie posiada aktualnie towarzysza <:Sadge:936907659142111273> Moc Twojego kamienia umiejętności została wyczerpana.")
+                else:
+                    await ctx.channel.send("Niestety podany podróżnik nie posiada aktualnie towarzysza <:Sadge:936907659142111273> Moc Twojego kamienia umiejętności została wyczerpana.")
+            else:
+                await ctx.channel.send("Niestety podany podróżnik nie istnieje. Moc Twojego kamienia umiejętności została wyczerpana.")
+                return False
+        else:
+            await ctx.send("Twój kamień umiejętności regeneruje się! Spróbuj w nadchodzącym tygodniu! <:Bedge:970576892874854400>")
+            return False
 
     # DAILY
     #function to save daily skills user to file
