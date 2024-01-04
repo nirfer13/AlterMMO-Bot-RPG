@@ -41,6 +41,9 @@ Dostępne komendy (dla wszystkich):
 - $oswiecenie - Zwiększa talent towarzysza.
 - $transformacja - Zmienia wygląd towarzysza.
 - $rankingtowarzyszy - Lista najbardziej utalentowanych towarzyszy. Skrót $rt.
+                                        
+- $pokażumiejętność - Prezentuje klejnot umiejetności, który aktualnie posiadasz. Skrót $pu.
+- $użyjumiejętność - Powoduje użycie klejnotu umiejętności. Skrót $uu.
 
 - $rankingwieży - Sprawdź ranking najlepszych eksploratorów Wieży Śmierci. Skrót $rw.
 - $rekordwieży - Sprawdź osobisty rekord w eksploracji Wieży Śmierci.
