@@ -86,7 +86,7 @@ class message(commands.Cog, name="spawnBoss"):
         self.task3 = self.bot.loop.create_task(self.spawn_event(ctx))
 
         #Daily clear task create
-        self.task4 = self.bot.loop.create_task(self.spawn_event(ctx))
+        self.task4 = self.bot.loop.create_task(self.daily_reset(ctx))
 
         #Check if it is necessary to resume boss spawn
         print("Resume?: " + str(respawnResume))
@@ -145,8 +145,9 @@ class message(commands.Cog, name="spawnBoss"):
     async def daily_reset(self, ctx):
         while True:
             timestamp = (datetime.utcnow() + timedelta(hours=2))
+            print(timestamp.strftime("%H:%M UTC"))
 
-            if timestamp.strftime("%H:%M UTC") == "04:05 UTC":
+            if timestamp.strftime("%H:%M UTC") == "4:05 UTC":
                 try:
                     await functions_daily.clear_daily_file(self)
                 except Exception as e:
@@ -156,9 +157,9 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_skills.clear_daily_skill(self)
 
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
-            await asyncio.sleep(35)
+            await asyncio.sleep(60)
 
-    async def spawn_event(self, ctx):
+    async def spawn_event(self, ctx):   
         """Spawns an event.."""
 
         print("Spawning event task starting...")
