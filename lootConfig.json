@@ -182,7 +182,7 @@
 		},
 		{
 			"id": 15,
-			"descr": "Otrzymałeś klejnot zdolności. Póki co nie wiesz do czego jest potrzebny...",
-			"weight": 10
+			"descr": "Otrzymałeś klejnot zdolności. Wpisz **$pokazumiejetnosc**, żeby zobaczyć swój klejnot umiejętności.",
+			"weight": 20
 		}]
 }

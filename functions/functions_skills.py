@@ -76,7 +76,6 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
             skill_config["GEM_NAME"] = "Klejnot Obfitości"
         else:
             skill_config["GEM_NAME"] = "Nieznany klejnot"
-        
 
         skill_config["SKILL_VARIANT"] = skill_variant
         skill_config["SLOW_PERC"] = slow_perc

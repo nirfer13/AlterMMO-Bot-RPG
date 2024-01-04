@@ -1346,9 +1346,17 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 print("Player exists in PETOWNER database, it already has pet.")
 
                 sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC, REPLACE_PERC,
-                DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION
-                FROM PETS WHERE PET_ID = {player_exists[0][0]};"""
-                pet_stats = await self.bot.pg_con.fetch(sql)
+                    DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION
+                    FROM PETS WHERE PET_ID = {player_exists[0][0]};"""
+
+                for retries in range(0,3):
+                    try:
+                        pet_stats = await self.bot.pg_con.fetch(sql)
+                        break
+                    except:
+                        pet_stats = None
+                else:
+                    pass
 
                 pet_id = player_exists[0][0]
                 pet_lvl = pet_stats[0][0]

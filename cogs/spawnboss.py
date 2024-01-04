@@ -807,8 +807,8 @@ class message(commands.Cog, name="spawnBoss"):
     # command to debug
     @commands.command(pass_context=True, name="loot")
     @commands.has_permissions(administrator=True)
-    async def randLoot(self, ctx, srarity, BossHunter, boost_percent):
-        await functions_boss.randLoot(self, ctx, srarity, BossHunter, boost_percent)
+    async def randLoot(self, ctx, srarity, boost_percent):
+        await functions_boss.randLoot(self, ctx, srarity, ctx.author, boost_percent)
 
     # command to debug
     @commands.command(pass_context=True, name="rarity")
