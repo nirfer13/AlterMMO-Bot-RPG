@@ -85,6 +85,9 @@ class message(commands.Cog, name="spawnBoss"):
         #Chest spawn task create
         self.task3 = self.bot.loop.create_task(self.spawn_event(ctx))
 
+        #Daily clear task create
+        self.task4 = self.bot.loop.create_task(self.spawn_event(ctx))
+
         #Check if it is necessary to resume boss spawn
         print("Resume?: " + str(respawnResume))
         if respawnResume is True:
@@ -118,15 +121,10 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_database.resetRankingTable(self)
                 await functions_daily.clear_daily_file(self)
                 await functions_tower.clear_weekly_tower_file(self)
+                await functions_skills.clear_weekly_skill(self)
+                await functions_skills.clear_daily_skill(self)
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
                 await asyncio.sleep(61)
-
-            if timestamp.strftime("%H:%M UTC") == "04:10 UTC":
-                try:
-                    await functions_daily.clear_daily_file(self)
-                except Exception as e:
-                    logChannel = self.bot.get_channel(881090112576962560)
-                    await logChannel.send(f"Błąd resetu daily cd: {e}")
 
             if timestamp.strftime("%H:%M UTC") == "19:00 UTC" or \
                 timestamp.strftime("%H:%M UTC") == "20:00 UTC" or \
@@ -139,6 +137,23 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_twitch.assign_roles_watchtime(self)
                 print("Twitch check - treasure.")
                 await functions_twitch.check_treasure(self)
+
+            # wait some time before another loop. Don't make it more than 60 sec or it will skip
+            await asyncio.sleep(35)
+
+    #define every day task
+    async def daily_reset(self, ctx):
+        while True:
+            timestamp = (datetime.utcnow() + timedelta(hours=2))
+
+            if timestamp.strftime("%H:%M UTC") == "04:05 UTC":
+                try:
+                    await functions_daily.clear_daily_file(self)
+                except Exception as e:
+                    logChannel = self.bot.get_channel(881090112576962560)
+                    await logChannel.send(f"Błąd resetu daily cd: {e}")
+
+                await functions_skills.clear_daily_skill(self)
 
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(35)
