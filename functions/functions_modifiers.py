@@ -54,11 +54,12 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
         "hp_boost_perc": 0,
         "drop_boost_perc": 0,
         "time_reduced_perc": 0,
+        "time_increased_perc": 0,
         "rarity_boost": 0,
         "ban_loser": 0,
         "points_boost": 0,
         "player_id": 0,
-        "reset_cd": 0
+        "reset_cd": 0,
         }
 
         repeat = True
@@ -110,6 +111,11 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
                 random_value = random.randint(5, 25)
                 desc = "Modlitwa w kapliczce sprawiła, że "\
                 "podczas walki z następnym bossem i potworami **będzie o " + str(random_value) + "% mniej czasu na reakcję!**"
+            elif modifier == "time_increased_perc":
+                repeat = False
+                random_value = random.randint(5, 25)
+                desc = "Modlitwa w kapliczce sprawiła, że "\
+                "podczas walki z następnym bossem i potworami **będzie o " + str(random_value) + "% więcej czasu na reakcję!**"
             elif modifier == "points_boost":
                 repeat = False
                 random_value = random.randint(1, 5)
@@ -146,6 +152,7 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
         "hp_boost_perc": 0,
         "drop_boost_perc": 0,
         "time_reduced_perc": 0,
+        "time_increased_perc": 0,
         "rarity_boost": 0,
         "ban_loser": 0,
         "points_boost": 0,
@@ -191,6 +198,8 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
                     modifiers_desc+= f"\n🔺 Drop zwiększony o {value} %"
                 elif key == "time_reduced_perc":
                     modifiers_desc+= f"\n🔻 Czas na reakcję zmniejszony o {value} %"
+                elif key == "time_increased_perc":
+                    modifiers_desc+= f"\n🔺 Czas na reakcję zwiększony o {value} %"
                 elif key == "rarity_boost":
                     modifiers_desc+= f"\n🔺 Rzadkość zwiększona o {value} poziom (nie dotyczy potworów)"
                 elif key == "points_boost":

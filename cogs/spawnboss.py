@@ -523,8 +523,33 @@ class message(commands.Cog, name="spawnBoss"):
         global BUSY
         if BUSY == 0:
             BUSY = 1
-            await functions_skills.use_skill(self, ctx, ctx.author)
+            skill_type = await functions_skills.use_skill(self, ctx, ctx.author)
             BUSY = 0
+
+        if skill_type:
+            if skill_type == 3:
+                global BOSSALIVE
+                global BOSSRARITY
+                global EVENT_ALIVE
+
+                BOSSRARITY = random.randint(2,4)
+
+                # Load all modifiers from file
+                modifiers = await functions_modifiers.load_modifiers(self, ctx)
+                BOSSRARITY += modifiers["rarity_boost"]
+                if BOSSRARITY == 3 or BOSSRARITY > 4:
+                    BOSSRARITY = 4
+
+                EVENT_ALIVE = 0
+                BUSY = 0
+                await functions_general.fClear(self, ctx)
+
+                #Send boss image based on rarity
+                global initCommand, is_player_boss, player_boss
+                initCommand = "zaatakuj"
+                is_player_boss, player_boss = await functions_boss.fBossImage(self, ctx, BOSSRARITY)
+                BOSSALIVE = 4
+
 
     @commands.command(name="nazwij", aliases=['n'], brief="Set the name of author's pet.")
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)

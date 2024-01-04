@@ -543,6 +543,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             else:
                                 cmdTimeout = 5 - BOSSRARITY
                             cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"] +
+                                                       modifiers["time_increased_perc"] +
                                                        float(pet_skills["SLOW_PERC"]))/100
 
                         msg = await self.bot.wait_for('message', check=check(ctx),
@@ -852,6 +853,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         else:
                             cmdTimeout = 4
                             cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"] +
+                                                       modifiers["time_increased_perc"] +
                                             float(pet_skills_dict[boss_hunter.id]["SLOW_PERC"]))/100
                             #Timeout depends on boss rarity
                             print("Boss rarity before timeout calc: " + str(cmdTimeout))

@@ -8,6 +8,7 @@ from discord.ext import commands
 
 import functions_pets
 import functions_daily
+import functions_modifiers
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -44,7 +45,7 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
     async def generate_skill_gem(self, ctx):
         """Generate skill."""
 
-        skill_variant = random.randint(1, 2)
+        skill_variant = random.randint(1, 3)
         slow_perc = random.randint(0, 20)
 
         for retries in range(0,3):
@@ -63,6 +64,19 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
 
         if skill_variant == 1:
             skill_config["GEM_NAME"] = "Klejnot Regeneracji"
+        elif skill_variant == 2:
+            skill_config["GEM_NAME"] = "Klejnot Wyjątkowości"
+        elif skill_variant == 3:
+            skill_config["GEM_NAME"] = "Klejnot Przywołania"
+        elif skill_variant == 4:
+            skill_config["GEM_NAME"] = "Klejnot Błogosławieństwa"
+        elif skill_variant == 5:
+            skill_config["GEM_NAME"] = "Klejnot Spowolnienia"
+        elif skill_variant == 6:
+            skill_config["GEM_NAME"] = "Klejnot Obfitości"
+        else:
+            skill_config["GEM_NAME"] = "Nieznany klejnot"
+        
 
         skill_config["SKILL_VARIANT"] = skill_variant
         skill_config["SLOW_PERC"] = slow_perc
@@ -161,15 +175,25 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
                     await ctx.channel.send("Niestety nie posiadasz umiejętności <@" + str(player_id) + "> <:Sadge:936907659142111273> Klejnoty umiejętności są bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!")
                     return False
                 elif skill_variant == 1:
-                    skill_desc = "Kamień regeneracji pozwala na odpoczynek wszystkich podróżników, którzy są chętni. Zaraz po nabraniu sił mogą ponownie wyruszyć na polowanie.\n\nMożesz użyć umiejętności przez komendę **$skill**."
+                    skill_desc = f"Klejnot regeneracji pozwala na odpoczynek wszystkich podróżników, którzy są chętni. Zaraz po nabraniu sił mogą ponownie wyruszyć na polowanie.\n\nDodatkowe spowolnienie: {skill_slow_perc} %.\n\nMożesz użyć umiejętności przez komendę **$skill**."
                 elif skill_variant == 2:
-                    skill_desc = "Kamień wyjątkowości sprawia, że towarzysz wybranego podróżnika zostaje odmieniony i staje się wyjątkowy.\n\nMożesz użyć umiejętności przez komendę **$skill**."
+                    skill_desc = f"Klejnot wyjątkowości sprawia, że towarzysz wybranego podróżnika zostaje odmieniony i staje się wyjątkowy.\n\nDodatkowe spowolnienie: {skill_slow_perc} %.\n\nMożesz użyć umiejętności przez komendę **$skill**."
+                elif skill_variant == 3:
+                    skill_desc = f"Klejnot przywołania uwalnia potężnego bossa. Każdy może go zaatakować.\n\nDodatkowe spowolnienie: {skill_slow_perc} %.\n\nMożesz użyć umiejętności przez komendę **$skill**."
+                elif skill_variant == 4:
+                    skill_desc = f"Klejnot błogosławieństwa sprawia, że na potwory i bossów spływają efekty magiczne.\n\nDodatkowe spowolnienie: {skill_slow_perc} %.\n\nMożesz użyć umiejętności przez komendę **$skill**."
+                elif skill_variant == 5:
+                    skill_desc = f"Klejnot spowolnienia spowalnia nadciągające potwory oraz bossa.\n\nDodatkowe spowolnienie: {skill_slow_perc} %.\n\nMożesz użyć umiejętności przez komendę **$skill**."
+                elif skill_variant == 6:
+                    skill_desc = f"Klejnot obfitości sprawia, że następne potwory oraz boss będą oferowały lepsze nagrody.\n\nDodatkowe spowolnienie: {skill_slow_perc} %.\n\nMożesz użyć umiejętności przez komendę **$skill**."
+                else:
+                    skill_desc = "Nieznany klejnot umiejętności."
 
                 title = skill_name
                 path = f"skill_gems/{skill_variant}.png"
                 color = 0xfc7703
                 embed = discord.Embed(title=title,
-                                    description="Oto Twój kamień umiejętności, <@" + str(player_id) + ">.\n\n" + skill_desc,
+                                    description="Oto Twój klejnot umiejętności, <@" + str(player_id) + ">.\n\n" + skill_desc,
                                     color=color)
                 file = discord.File(path, filename=f"{skill_variant}.png")
                 embed.set_footer(text = "Wielcy ludzie nie rodzą się wielkimi, tylko się nimi stają.")
@@ -208,17 +232,37 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
                 if skill_variant == 0:
                     await ctx.channel.send("Niestety nie posiadasz umiejętności <@" + str(player_id) + "> <:Sadge:936907659142111273> Klejnoty umiejętności są bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!")
                 elif skill_variant == 1:
-                    daily_skill_used(ctx.author.id)
                     await skill_rest(self, ctx)
+                    daily_skill_used(ctx.author.id)
+                    return 1
                 elif skill_variant == 2:
-                    weekly_skill_used(ctx.author.id)
                     await skill_make_shiny(self, ctx)
-        
-                #TODO Add functions related to skill_variant.
+                    weekly_skill_used(ctx.author.id)
+                    return 2
+                elif skill_variant == 3:
+                    if await skill_spawn_boss(self, ctx):
+                        weekly_skill_used(ctx.author.id)
+                        return 3
+                elif skill_variant == 4:
+                    await skill_shrine_festival(self, ctx)
+                    daily_skill_used(ctx.author.id)
+                    return 4
+                elif skill_variant == 5:
+                    await skill_slow(self, ctx)
+                    daily_skill_used(ctx.author.id)
+                    return 5
+                elif skill_variant == 6:
+                    await skill_increase_loot(self, ctx)
+                    daily_skill_used(ctx.author.id)
+                    return 6
+                
+                return 0
             else:
                 await ctx.channel.send("Niestety nie posiadasz umiejętności <@" + str(player_id) + "> <:Sadge:936907659142111273> Klejnoty umiejętności są bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!")
+                return 0
         else:
             await ctx.channel.send("Niestety nie posiadasz umiejętności <@" + str(player_id) + "> <:Sadge:936907659142111273> Klejnoty umiejętności są bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!")
+            return 0
 
     global skill_rest
     async def skill_rest(self, ctx):
@@ -267,7 +311,7 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
 
             return True
         else:
-            await ctx.send("Twój kamień umiejętności regeneruje się! Spróbuj jutro! <:Bedge:970576892874854400>")
+            await ctx.send("Twój klejnot umiejętności regeneruje się! Spróbuj jutro! <:Bedge:970576892874854400>")
             return False
 
     global skill_make_shiny
@@ -329,8 +373,63 @@ class FunctionsSkills(commands.Cog, name="FunctionsSkills"):
                 await ctx.channel.send("Niestety podany podróżnik nie istnieje. Moc Twojego kamienia umiejętności została wyczerpana.")
                 return False
         else:
-            await ctx.send("Twój kamień umiejętności regeneruje się! Spróbuj w nadchodzącym tygodniu! <:Bedge:970576892874854400>")
+            await ctx.send("Twój klejnot umiejętności regeneruje się! Spróbuj w nadchodzącym tygodniu! <:Bedge:970576892874854400>")
             return False
+
+    global skill_spawn_boss
+    async def skill_spawn_boss(self, ctx):
+        """Skill that is used to summon a boss."""
+
+        if not load_weekly_skill(ctx.author.id):
+          return True
+        else:
+            await ctx.send("Twój klejnot umiejętności regeneruje się! Spróbuj w nadchodzącym tygodniu! <:Bedge:970576892874854400>")
+            return False
+        
+    global skill_shrine_festival
+    async def skill_shrine_festival(self, ctx):
+        """Skill that is used to pray to shrine 5x."""
+
+        if not load_daily_skill(ctx.author.id):
+            await ctx.message.add_reaction("<:prayge:1063891597760139304>")
+            for i in range(5):
+                await functions_modifiers.random_modifiers(self, ctx, False)
+
+            await ctx.send("Wygląda na to, że bossowie i potwory odczuwają efekty Twojego kamienia umiejętności <:MonkaChrist:783992337075929098>")
+            return True
+        else:
+            await ctx.send("Twój klejnot umiejętności regeneruje się! Spróbuj jutro! <:Bedge:970576892874854400>")
+            return False
+
+    global skill_slow
+    async def skill_slow(self, ctx):
+        """Skill that is used to add slow during next fight."""
+
+        if not load_daily_skill(ctx.author.id):
+
+            await functions_modifiers.modify_modifiers(self, ctx, "time_increased_perc", 40)
+
+            await ctx.send("Klejnot sprawia, że przeciwnicy lepią się od błota i poruszają się znacznie wolniej.")
+            return True
+        else:
+            await ctx.send("Twój klejnot umiejętności regeneruje się! Spróbuj jutro! <:Bedge:970576892874854400>")
+            return False
+
+    global skill_increase_loot
+    async def skill_increase_loot(self, ctx):
+        """Skill that is used to add additional loot during next fight."""
+
+        if not load_daily_skill(ctx.author.id):
+
+            await functions_modifiers.modify_modifiers(self, ctx, "drop_boost_perc", 40)
+            await functions_modifiers.modify_modifiers(self, ctx, "points_boost", 3)
+
+            await ctx.send("Klejnot sprawia, że przeciwnicy oferują teraz lepsze nagrody.")
+            return True
+        else:
+            await ctx.send("Twój klejnot umiejętności regeneruje się! Spróbuj jutro! <:Bedge:970576892874854400>")
+            return False
+
 
     # DAILY
     #function to save daily skills user to file
