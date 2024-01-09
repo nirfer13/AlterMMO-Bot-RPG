@@ -145,9 +145,8 @@ class message(commands.Cog, name="spawnBoss"):
     async def daily_reset(self, ctx):
         while True:
             timestamp = (datetime.utcnow() + timedelta(hours=2))
-            print(timestamp.strftime("%H:%M UTC"))
 
-            if timestamp.strftime("%H:%M UTC") == "4:05 UTC":
+            if timestamp.strftime("%H:%M UTC") == "2:05 UTC":
                 try:
                     await functions_daily.clear_daily_file(self)
                 except Exception as e:
