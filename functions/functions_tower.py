@@ -131,9 +131,6 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
             try:
                 if not random.random()*100 < pet_skills_dict[boss_hunter.id]["REPLACE_PERC"]:
 
-                    #Send proper action request on chat
-                    await ctx.channel.send(str(iterator) + ". **"  + str(boss_hunter) + "**: " + requestedAction[1][choosenAction])
-
                     #Longer timeout for the first action
                     if iterator == 1:
                         cmdTimeout = 15
@@ -143,6 +140,10 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
                         cmdTimeout = float(8/tower_level)
                         cmdTimeout = cmdTimeout * (100 + float(pet_skills_dict[boss_hunter.id]["SLOW_PERC"]))/100
                         print(cmdTimeout)
+                    
+                    #Send proper action request on chat
+                    await ctx.channel.send(str(iterator) + ". **"  + str(boss_hunter) + "**: " + requestedAction[1][choosenAction])
+
                     msg = await self.bot.wait_for('message', check=check(ctx), timeout=cmdTimeout)
                     response = str(msg.content)
                 else:
