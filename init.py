@@ -32,7 +32,6 @@ async def create_db_pool():
     if DebugMode == False:
         bot.pg_con = await asyncpg.create_pool(os.environ.get("DATABASE_URL"))
     else:
-        bot.pg_con_real = await asyncpg.create_pool(os.environ.get("DATABASE_URL"))
         bot.pg_con = await asyncpg.create_pool(os.environ.get("HEROKU_POSTGRESQL_BRONZE_URL"))  
 
     print("Connected to database. Pool created.")

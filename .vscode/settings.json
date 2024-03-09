@@ -1,6 +1,0 @@
-{
-    "python.analysis.extraPaths": [
-        "./functions"
-    ],
-    "svn.ignoreMissingSvnWarning": true
-}
