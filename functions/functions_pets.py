@@ -303,7 +303,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
         percentage = random.randint(0,100)
         shiny = percentage >= 95
-        ultra_shiny = percentage <= 100
+        ultra_shiny = percentage == 100
 
         if pet in [PetType.DRAGON,
                     PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
