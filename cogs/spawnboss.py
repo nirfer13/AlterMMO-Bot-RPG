@@ -85,9 +85,6 @@ class message(commands.Cog, name="spawnBoss"):
         #Chest spawn task create
         self.task3 = self.bot.loop.create_task(self.spawn_event(ctx))
 
-        #Daily clear task create
-        self.task4 = self.bot.loop.create_task(self.daily_reset(ctx))
-
         #Check if it is necessary to resume boss spawn
         print("Resume?: " + str(respawnResume))
         if respawnResume is True:
@@ -126,9 +123,9 @@ class message(commands.Cog, name="spawnBoss"):
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
                 await asyncio.sleep(61)
 
-            if timestamp.strftime("%H:%M UTC") == "19:00 UTC" or \
+            if timestamp.strftime("%H:%M UTC") == "13:00 UTC" or \
+                timestamp.strftime("%H:%M UTC") == "17:00 UTC" or \
                 timestamp.strftime("%H:%M UTC") == "20:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "21:00 UTC" or \
                 timestamp.strftime("%H:%M UTC") == "22:00 UTC" or \
                 timestamp.strftime("%H:%M UTC") == "5:30 UTC":
                 print("Twitch check - messages.")
@@ -137,14 +134,6 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_twitch.assign_roles_watchtime(self)
                 print("Twitch check - treasure.")
                 await functions_twitch.check_treasure(self)
-
-            # wait some time before another loop. Don't make it more than 60 sec or it will skip
-            await asyncio.sleep(35)
-
-    #define every day task
-    async def daily_reset(self, ctx):
-        while True:
-            timestamp = (datetime.utcnow() + timedelta(hours=2))
 
             if timestamp.strftime("%H:%M UTC") == "2:05 UTC":
                 try:
@@ -156,7 +145,7 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_skills.clear_daily_skill(self)
 
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
-            await asyncio.sleep(60)
+            await asyncio.sleep(35)
 
     async def spawn_event(self, ctx):   
         """Spawns an event.."""
