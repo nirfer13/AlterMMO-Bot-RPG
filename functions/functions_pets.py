@@ -29,6 +29,7 @@ class PetType(str, Enum):
     ELEMENTAL = 'Elemental'
     DOG = 'Dog'
     GUINEA = 'Guinea'
+    SKELETON = 'Skeleton'
 
 class FunctionsPets(commands.Cog, name="FunctionsPets"):
     """Class with all functions used for pets."""
@@ -71,6 +72,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
            PET_SKILLS NUMERIC,
            QUALITY VARCHAR(255),
            SHINY BOOLEAN,
+           ULTRA_SHINY BOOLEAN,
            TYPE VARCHAR(255),
            VARIANT VARCHAR(255),
            CRIT_PERC NUMERIC,
@@ -85,15 +87,17 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         await self.bot.pg_con.execute(sql)
         print("Table PETS created successfully.")
         print(f"""INSERT INTO PETS
-               (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
+               (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, ULTRA_SHINY, 
               TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
               LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION) VALUES ({0},\'{'Default'}\',{0},{0},
-              \'{'Standard'}\',{True},\'{'Type'}\',\'{0}\',{1},{2},{3},{4},{5},{6},{7},{False});""")
+              \'{'Standard'}\',{True},{True},\'{'Type'}\',
+              \'{0}\',{1},{2},{3},{4},{5},{6},{7},{False});""")
         await self.bot.pg_con.execute(f"""INSERT INTO PETS
-               (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
+               (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,ULTRA_SHINY, 
               TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
               LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION) VALUES ({0},\'{'Default'}\',{0},{0},
-              \'{'Standard'}\',{True},\'{'Type'}\',\'{0}\',{1},{2},{3},{4},{5},{6},{7},{False});""")
+              \'{'Standard'}\',{True},{True},\'{'Type'}\',
+              \'{0}\',{1},{2},{3},{4},{5},{6},{7},{False});""")
 
     global show_pet
     async def show_pet(self, ctx, player):
@@ -130,13 +134,16 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
                 sql = f"""SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
                 TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
-                LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION FROM PETS
+                LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION, ULTRA_SHINY FROM PETS
                 WHERE PET_ID = {pet_exists[0][0]};"""
                 pet_data = await self.bot.pg_con.fetch(sql)
                 print(pet_data)
 
                 #Check if pet is shiny
-                if pet_data[0][5]:
+                if pet_data[0][16]:
+                    color = 0xff8d15
+                    add_desc = "\n\n*Absolutnie nadzwyczajny towarzysz.*"
+                elif pet_data[0][5]:
                     color = 0xffdd00
                     add_desc = "\n\n*Rzadki towarzysz. Miałeś niesamowite szczęście.*"
                 else:
@@ -193,6 +200,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         polish_type = "Pies"
                     elif pet_data[0][6] == "Guinea":
                         polish_type = "Świnka morska"
+                    elif pet_data[0][6] == "Skeleton":
+                        polish_type = "Szkielet"
                     else:
                         polish_type = ""
                     if pet_data[0][1] != "Towarzysz":
@@ -269,14 +278,21 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(player.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
 
     global generate_pet_egg
-    async def generate_pet_egg(self, ctx, player):
+    async def generate_pet_egg(self, ctx, player=None):
         """Generate first pet as an egg."""
+
+        if not player:
+            user = await self.bot.fetch_user(291836779495948288)
+            guild = self.bot.get_guild(686137998177206281)
+            player = guild.get_member(user.id)
 
         if functions_patrons.check_if_patron(self, ctx, player):
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
-                         PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
+                         PetType.RABBIT, PetType.SHEEP, PetType.DOG, 
+                         PetType.DRAGON,
                          PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
-                         PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.GUINEA]
+                         PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.GUINEA,
+                         PetType.SKELETON]
         else:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP, PetType.DOG]
@@ -287,9 +303,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
         percentage = random.randint(0,100)
         shiny = percentage >= 95
+        ultra_shiny = percentage <= 100
 
-        if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
-                   PetType.ANIME_GIRL, PetType.ELEMENTAL]:
+        if pet in [PetType.DRAGON,
+                    PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
+                    PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.GUINEA,
+                    PetType.SKELETON]:
             quality = "Premium"
             variant = random.randint(0,1)
         else:
@@ -314,6 +333,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         pet_config["PET_SKILLS"] = 0
         pet_config["QUALITY"] = quality
         pet_config["SHINY"] = shiny
+        pet_config["ULTRA_SHINY"] = ultra_shiny
         pet_config["TYPE"] = pet
         pet_config["VARIANT"] = variant
 
@@ -329,20 +349,21 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         print(pet_config)
 
         await self.bot.pg_con.execute(f"""INSERT INTO PETS
-            (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
+            (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, ULTRA_SHINY,
             TYPE, VARIANT,
             CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
             LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION) VALUES 
             ({pet_config["PET_ID"]},\'{pet_config["PET_NAME"]}\',
             {pet_config["PET_LVL"]},{pet_config["PET_SKILLS"]},
             \'{pet_config["QUALITY"]}\',{pet_config["SHINY"]},
+            {pet_config["ULTRA_SHINY"]},
             \'{pet_config["TYPE"]}\',\'{pet_config["VARIANT"]}\',
             {pet_config["CRIT_PERC"]},{pet_config["REPLACE_PERC"]},
             {pet_config["DEF_PERC"]},{pet_config["DROP_PERC"]},
             {pet_config["LOWHP_PERC"]},{pet_config["SLOW_PERC"]},
             {pet_config["INIT_PERC"]},{pet_config["DETECTION"]});""")
 
-        print(f"Pet egg generated {pet}, shiny: {shiny}.")
+        print(f"Pet egg generated {pet}, shiny: {shiny}, ultra_shiny: {ultra_shiny}.")
 
         return pet_config["PET_ID"]
 
@@ -392,10 +413,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                                             check=check_reroll(player))
                         await confirm_cmd.add_reaction("<:PepoG:790963160528977980>")
 
-                        sql = f"SELECT PET_SKILLS, SHINY FROM PETS WHERE PET_ID = {pet_id};"
+                        sql = (f"SELECT PET_SKILLS, SHINY, ULTRA_SHINY" + 
+                               " FROM PETS WHERE PET_ID = {pet_id};")
                         pet_data = await self.bot.pg_con.fetch(sql)
                         pet_skills = pet_data[0][0]
                         pet_shiny = pet_data[0][1]
+                        pet_ultra_shiny = pet_data[0][2]
                         pet_crit_perc = 0
                         pet_replace_perc = 0
                         pet_def_perc = 0
@@ -433,17 +456,23 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                     pass
                                 else:
                                     if skill_name == "INIT_PERC":
-                                        if pet_shiny:
+                                        if pet_ultra_shiny:
+                                            add_skill_value = random.randint(6, 13)
+                                        elif pet_shiny:
                                             add_skill_value = random.randint(5, 10)
                                         else:
                                             add_skill_value = random.randint(5, 8)
                                     elif skill_name == "SLOW_PERC":
-                                        if pet_shiny:
+                                        if pet_ultra_shiny:
+                                            add_skill_value = random.randint(9, 15)
+                                        elif pet_shiny:
                                             add_skill_value = random.randint(8, 12)
                                         else:
                                             add_skill_value = random.randint(5, 8)
                                     else:
-                                        if pet_shiny:
+                                        if pet_ultra_shiny:
+                                            add_skill_value = random.randint(6, 11)
+                                        elif pet_shiny:
                                             add_skill_value = random.randint(5, 8)
                                         else:
                                             add_skill_value = random.randint(3, 5)
@@ -662,7 +691,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
                     sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC,
                             REPLACE_PERC, DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC,
-                            DETECTION FROM PETS WHERE PET_ID = {pet_id};"""
+                            DETECTION, ULTRA_SHINY FROM PETS WHERE PET_ID = {pet_id};"""
                     pet_stats = await self.bot.pg_con.fetch(sql)
 
                     pet_lvl = pet_stats[0][0]
@@ -678,6 +707,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     pet_slow_perc = pet_stats[0][10]
                     pet_init_perc = pet_stats[0][11]
                     pet_detection = pet_stats[0][12]
+                    pet_ultra_shiny = pet_stats[0][13]
 
                     if pet_skills <= 6 and pet_lvl == 3:
 
@@ -719,18 +749,24 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                         pass
                                     else:
                                         if skill_name == "INIT_PERC":
-                                            if pet_shiny:
+                                            if pet_ultra_shiny:
+                                                add_skill_value = random.randint(6, 13)
+                                            elif pet_shiny:
                                                 add_skill_value = random.randint(5, 10)
                                             else:
                                                 add_skill_value = random.randint(5, 8)
                                         elif skill_name == "SLOW_PERC":
-                                            if pet_shiny:
-                                                add_skill_value = random.randint(5, 10)
+                                            if pet_ultra_shiny:
+                                                add_skill_value = random.randint(9, 15)
+                                            elif pet_shiny:
+                                                add_skill_value = random.randint(8, 12)
                                             else:
                                                 add_skill_value = random.randint(5, 8)
                                         else:
-                                            if pet_shiny:
-                                                add_skill_value = random.randint(3, 7)
+                                            if pet_ultra_shiny:
+                                                add_skill_value = random.randint(6, 11)
+                                            elif pet_shiny:
+                                                add_skill_value = random.randint(5, 8)
                                             else:
                                                 add_skill_value = random.randint(3, 5)
 
@@ -958,6 +994,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Pies"
                 elif pet0[0][2] == "Guinea":
                     polish_type = "Świnka morska"
+                elif pet0[0][2] == "Skeleton":
+                    polish_type = "Szkielet"
                 else:
                     polish_type = ""
 
@@ -1001,6 +1039,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Pies"
                 elif pet0[0][2] == "Guinea":
                     polish_type = "Świnka morska"
+                elif pet0[0][2] == "Skeleton":
+                    polish_type = "Szkielet"
                 else:
                     polish_type = ""
 
@@ -1044,6 +1084,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Pies"
                 elif pet0[0][2] == "Guinea":
                     polish_type = "Świnka morska"
+                elif pet0[0][2] == "Skeleton":
+                    polish_type = "Szkielet"
                 else:
                     polish_type = ""
 
@@ -1346,7 +1388,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 print("Player exists in PETOWNER database, it already has pet.")
 
                 sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC, REPLACE_PERC,
-                    DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION
+                    DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION, ULTRA_SHINY
                     FROM PETS WHERE PET_ID = {player_exists[0][0]};"""
 
                 for retries in range(0,3):
@@ -1372,6 +1414,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 pet_slow_perc = pet_stats[0][10]
                 pet_init_perc = pet_stats[0][11]
                 pet_detection = pet_stats[0][12]
+                pet_ultra_shiny = pet_stats[0][13]
 
                 skill_list = {"CRIT_PERC": pet_crit_perc, "REPLACE_PERC": pet_replace_perc,
                             "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
@@ -1396,17 +1439,23 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                 pass
                             else:
                                 if skill_name == "INIT_PERC":
-                                    if pet_shiny:
+                                    if pet_ultra_shiny:
+                                        add_skill_value = random.randint(6, 13)
+                                    elif pet_shiny:
                                         add_skill_value = random.randint(5, 10)
                                     else:
                                         add_skill_value = random.randint(5, 8)
                                 elif skill_name == "SLOW_PERC":
-                                    if pet_shiny:
-                                        add_skill_value = random.randint(8, 14)
+                                    if pet_ultra_shiny:
+                                        add_skill_value = random.randint(9, 15)
+                                    elif pet_shiny:
+                                        add_skill_value = random.randint(8, 12)
                                     else:
                                         add_skill_value = random.randint(5, 8)
                                 else:
-                                    if pet_shiny:
+                                    if pet_ultra_shiny:
+                                        add_skill_value = random.randint(6, 11)
+                                    elif pet_shiny:
                                         add_skill_value = random.randint(5, 8)
                                     else:
                                         add_skill_value = random.randint(3, 5)
@@ -1615,6 +1664,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 polish_type = "Pies"
             elif person[6] == "Guinea":
                 polish_type = "Świnka morska"
+            elif person[6] == "Skeleton":
+                polish_type = "Szkielet"
             else:
                 polish_type = ""
 

@@ -728,13 +728,8 @@ class message(commands.Cog, name="spawnBoss"):
         # '''
         #await self.bot.pg_con.execute(sql)
 
-        sql ='''ALTER TABLE PETOWNER
-        ADD SKILL_GEM NUMERIC DEFAULT 0;
-        '''
-        await self.bot.pg_con.execute(sql)
-
-        sql ='''ALTER TABLE PETOWNER
-        ADD SKILL_GEM NUMERIC DEFAULT 0;
+        sql ='''ALTER TABLE PETS
+        ADD ULTRA_SHINY BOOL DEFAULT False;
         '''
         await self.bot.pg_con.execute(sql)
 
@@ -953,7 +948,7 @@ class message(commands.Cog, name="spawnBoss"):
                       brief="Assign pet_id to player_id.")
     @commands.has_permissions(administrator=True)
     async def reassign_pet(self, ctx, pet_id, player_id):
-        await functions_pets.reassing_pet(self, pet_id, player_id)
+        await functions_pets.reassign_pet(self, pet_id, player_id)
         await ctx.channel.send(f"Pet {pet_id} przypisany do gracza <@{player_id}>.")
 
     @commands.command(name="skill_rest",
