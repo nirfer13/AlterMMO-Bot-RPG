@@ -690,7 +690,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
         #Fight Check Function
         def checkFight(author, playersList, confirmPlayerList):
             def inner_check(message):
-                if message.author in playersList: #and message.author not in confirmPlayerList:
+                if message.author in playersList and message.author not in confirmPlayerList:
                     if message.content.lower() == "$tak":
                         print("Group fight: player exists!")
                         return True
