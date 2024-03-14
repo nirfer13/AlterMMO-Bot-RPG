@@ -127,7 +127,7 @@ class message(commands.Cog, name="spawnBoss"):
                 timestamp.strftime("%H:%M UTC") == "17:00 UTC" or \
                 timestamp.strftime("%H:%M UTC") == "20:00 UTC" or \
                 timestamp.strftime("%H:%M UTC") == "22:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "5:30 UTC":
+                timestamp.strftime("%H:%M UTC") == "05:30 UTC":
                 print("Twitch check - messages.")
                 await functions_twitch.assign_roles_messages(self)
                 print("Twitch check - watchtime.")
@@ -135,7 +135,7 @@ class message(commands.Cog, name="spawnBoss"):
                 print("Twitch check - treasure.")
                 await functions_twitch.check_treasure(self)
 
-            if timestamp.strftime("%H:%M UTC") == "2:05 UTC":
+            if timestamp.strftime("%H:%M UTC") == "02:30 UTC":
                 try:
                     await functions_daily.clear_daily_file(self)
                 except Exception as e:
