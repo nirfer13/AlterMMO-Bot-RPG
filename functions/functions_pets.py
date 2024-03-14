@@ -413,8 +413,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                                             check=check_reroll(player))
                         await confirm_cmd.add_reaction("<:PepoG:790963160528977980>")
 
-                        sql = (f"SELECT PET_SKILLS, SHINY, ULTRA_SHINY" + 
-                               " FROM PETS WHERE PET_ID = {pet_id};")
+                        sql = ("SELECT PET_SKILLS, SHINY, ULTRA_SHINY" +
+                               f" FROM PETS WHERE PET_ID = {pet_id};")
                         pet_data = await self.bot.pg_con.fetch(sql)
                         pet_skills = pet_data[0][0]
                         pet_shiny = pet_data[0][1]
