@@ -1604,7 +1604,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
     global pet_ranking
     async def pet_ranking(self, ctx):
         #Database Reading
-        db_ranking_pet = await self.bot.pg_con.fetch("SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, TYPE, VARIANT FROM PETS ORDER BY PET_SKILLS DESC LIMIT 10")
+        db_ranking_pet = await self.bot.pg_con.fetch("SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, TYPE, VARIANT FROM PETS ORDER BY PET_SKILLS DESC, SLOW_PERC DESC LIMIT 10")
 
         x = 1
         ranking_string = ""
