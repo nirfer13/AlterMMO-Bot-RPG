@@ -1604,7 +1604,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
     global pet_ranking
     async def pet_ranking(self, ctx):
         #Database Reading
-        db_ranking_pet = await self.bot.pg_con.fetch("SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, TYPE, VARIANT FROM PETS ORDER BY PET_SKILLS DESC, SLOW_PERC DESC LIMIT 10")
+        db_ranking_pet = await self.bot.pg_con.fetch("SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, TYPE, VARIANT, ULTRA_SHINY FROM PETS ORDER BY PET_SKILLS DESC, SLOW_PERC DESC LIMIT 10")
 
         x = 1
         ranking_string = ""
@@ -1669,7 +1669,12 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             else:
                 polish_type = ""
 
-            ranking_string += f"{x}. **{person[1]}** ({person[2]} lvl) - Talent: {talent} - Wygląd: {person[4]} - Shiny: {shiny} - Typ: {polish_type}.\n"
+            if person[8] is True:
+                ultra_shiny = "Tak"
+            else:
+                ultra_shiny = "Nie"
+
+            ranking_string += f"{x}. **{person[1][:20]}** ({person[2]} lvl) - Talent: {talent} - Wygląd: {person[4]} - Shiny: {shiny} - Ultra shiny: {ultra_shiny} - Typ: {polish_type}.\n"
             x+=1
 
         #Embed create

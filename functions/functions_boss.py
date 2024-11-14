@@ -417,13 +417,11 @@ class functions_boss(commands.Cog, name="functions_boss"):
                     async with ctx.typing():
                         await asyncio.sleep(2)
                     await ctx.channel.send('"**SPOKÓJ!!!**" - *słyszyscie głos w swojej głowie.* "Zachowajcie resztki honoru i wystawcie do walki najsilniejszego z Was."')
-                    initCmd = random.choice(["Konstantynopolitańczykówna", "degrengolada", "Antropomorfizacja", "Zjawiskowy", "Opsomaniak", "Egzegeza", "Chasydyzm", "Eksplikacja", "Apoteoza", "Buńczuczny","Konstantynopolitańczykówna", "Degrengolada", "Prokrastynacja", "Wszeteczeństwo", "Melepeta", "Imponderabilia", "Inwariant", "Tromtadracja", "Transcendencja", "Lumpenproletariat", "Dezynwoltura", "Eudajmonizm", "Interlokutor", "Indyferentny", "Promiskuityzm", "Transcendencja", "Tromtadracja", "Eudajmonizm", "Historiozofia", "Partykularny", "Manicheizm", "Retroseksualizm", "Autowaloryzacja", "Aseptyczny", "Tanatologia", "Deratyzacja", "Kontestacja", "Falerystyka", "Tromtadracja", "Dezynwoltura", "Eudajmonizm", "Interlokutor", "Indyferentny", "Efemeryczny"])
+                    initCmd = random.choice(["Zabawowy", "Spolegliwy", "Słonina", "Serownik", "Onegdaj", "Monidło", "Koafiura", "Blurb", "Prodiż", "Wszeteczeństwo", "Frymuśny", "Aha", "Kombinatoryka", "Rzęsiście", "Ancymonek", "Konkurencja", "Eksploracja", "Przepocony", "Śródziemie", "Ofiarny", "Zdelegalizowany", "Zakochany", "Zakłopotany", "Zdematerializowany", "Smoczy", "Zauroczony", "Zawistny", "Zaistniały", "Zorganizowany", "Deminerailizacja"])
                     await asyncio.sleep(6)
                     async with ctx.typing():
                         await ctx.channel.send('"Pierwszy, który PŁYNNIE wypowie zaklęcie, które zaraz zdradzę, będzie godzien walki ze mną!"')
                     await asyncio.sleep(8)
-                    async with ctx.typing():
-                        await ctx.channel.send('"Zaklęcie to **' + " ".join(initCmd.upper()) + '**"')
                     break
                 except asyncio.TimeoutError:
                     if x == maxWait-1:
@@ -442,6 +440,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
             Try = 0
             try:
                 print("Prefight True")
+                await ctx.channel.send('"Zaklęcie to **' + " ".join(initCmd.upper()) + '**"')
                 while True:
                     spellCmd = await self.bot.wait_for('message', timeout=15)
                     response = str(spellCmd.content)
@@ -482,7 +481,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
             modifiers = await functions_modifiers.load_modifiers(self, ctx)
 
             #Load pet skills
-            pet_skills = await functions_pets.get_pet_skills(self, ctx.author.id)
+            pet_skills = await functions_pets.get_pet_skills(self, bossHunterID.id)
 
             await asyncio.sleep(6)
 
@@ -531,9 +530,6 @@ class functions_boss(commands.Cog, name="functions_boss"):
                 try:
                     if not random.random()*100 < pet_skills["REPLACE_PERC"]:
 
-                        #Send proper action request on chat
-                        await ctx.channel.send(str(iterator) + '. ' + requestedAction[1][choosenAction])
-
                         #Longer timeout for the first action
                         if iterator == 1:
                             cmdTimeout = 7
@@ -546,6 +542,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
                                                        modifiers["time_increased_perc"] +
                                                        float(pet_skills["SLOW_PERC"]))/100
 
+                        #Send proper action request on chat
+                        await ctx.channel.send(str(iterator) + '. ' + requestedAction[1][choosenAction])
                         msg = await self.bot.wait_for('message', check=check(ctx),
                                                         timeout=cmdTimeout)
                         response = str(msg.content)
@@ -611,7 +609,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             return BOSSALIVE
 
                         else:
-                            print("Good command.")
+                            pass
+                            #print("Good command.")
                     else:
                         if not random.random()*100 < pet_skills["DEF_PERC"]:
                             await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Boss pojawi się później! <:RIP:912797982917816341>')

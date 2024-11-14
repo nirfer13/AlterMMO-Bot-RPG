@@ -81,6 +81,7 @@ class message(commands.Cog, name="spawnBoss"):
 
         #Weekly ranking task create
         self.task2 = self.bot.loop.create_task(self.weekly_ranking(ctx))
+        self.task22 = self.bot.loop.create_task(self.twitch_sync(ctx))
 
         #Chest spawn task create
         self.task3 = self.bot.loop.create_task(self.spawn_event(ctx))
@@ -104,6 +105,7 @@ class message(commands.Cog, name="spawnBoss"):
     async def weekly_ranking(self, ctx):
         while True:
             timestamp = (datetime.utcnow() + timedelta(hours=2))
+
             if timestamp.strftime("%H:%M UTC %a") == "15:00 UTC Mon":
                 print('Weekly ranking summary!')
                 winnerID = await functions_database.readSummaryRankingTable(self, ctx)
@@ -121,19 +123,7 @@ class message(commands.Cog, name="spawnBoss"):
                 await functions_skills.clear_weekly_skill(self)
                 await functions_skills.clear_daily_skill(self)
                 await ctx.channel.send("<@&985071779787730944>! Ranking za tydzień polowań został zresetowany. Nowa rola <@&983798433590673448> została przydzielona <@" + str(winnerID) + ">! Gratulacje <:GigaChad:970665721321381958>")
-                await asyncio.sleep(61)
-
-            if timestamp.strftime("%H:%M UTC") == "13:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "17:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "20:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "22:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "05:30 UTC":
-                print("Twitch check - messages.")
-                await functions_twitch.assign_roles_messages(self)
-                print("Twitch check - watchtime.")
-                await functions_twitch.assign_roles_watchtime(self)
-                print("Twitch check - treasure.")
-                await functions_twitch.check_treasure(self)
+                await asyncio.sleep(60)
 
             if timestamp.strftime("%H:%M UTC") == "02:30 UTC":
                 try:
@@ -147,6 +137,26 @@ class message(commands.Cog, name="spawnBoss"):
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(35)
 
+    async def twitch_sync(self, ctx):
+        while True:
+            timestamp = (datetime.utcnow() + timedelta(hours=2))
+
+            if timestamp.strftime("%H:%M UTC") == "13:00 UTC" or \
+                timestamp.strftime("%H:%M UTC") == "17:00 UTC" or \
+                timestamp.strftime("%H:%M UTC") == "20:00 UTC" or \
+                timestamp.strftime("%H:%M UTC") == "22:00 UTC" or \
+                timestamp.strftime("%H:%M UTC") == "05:30 UTC":
+                print("Twitch check - messages.")
+                await functions_twitch.assign_roles_messages(self)
+                print("Twitch check - watchtime.")
+                await functions_twitch.assign_roles_watchtime(self)
+                print("Twitch check - treasure.")
+                await functions_twitch.check_treasure(self)
+
+            # wait some time before another loop. Don't make it more than 60 sec or it will skip
+            await asyncio.sleep(35)
+
+
     async def spawn_event(self, ctx):   
         """Spawns an event.."""
 
@@ -156,8 +166,9 @@ class message(commands.Cog, name="spawnBoss"):
         EVENT_TYPE = EventType.NONE
 
         while True:
+            print("Event loop!")
             if DebugMode is False:
-                resp_time = random.randint(1200, 2500)
+                resp_time = random.randint(2000, 3000)
             elif DebugMode is True:
                 resp_time = random.randint(15, 20)
 

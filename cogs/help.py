@@ -39,7 +39,6 @@ Dostępne komendy (dla wszystkich):
 - $odrodzenie - Przelosowuje wszystkie statystyki aktualnie wybranego towarzysza,
 - $mocneodrodzenie - Bardziej zaawansowany sposób przelosowania statystyk.
 - $oswiecenie - Zwiększa talent towarzysza.
-- $transformacja - Zmienia wygląd towarzysza.
 - $rankingtowarzyszy - Lista najbardziej utalentowanych towarzyszy. Skrót $rt.
                                         
 - $pokażumiejętność - Prezentuje klejnot umiejetności, który aktualnie posiadasz. Skrót $pu.
@@ -54,6 +53,7 @@ Komendy dla <@&983798433590673448>:
 
 Komendy dla <@&687185998550925312> i patronów:
 - $modlitwa - Gdy pojawi się kapliczka, to za sprawą modlitwy można wpłynąć na statystyki kolejnego bossa.
+- $transformacja - Zmienia wygląd towarzysza.
 
 Więcej informacji w wiadomości https://discord.com/channels/686137998177206281/1093905013480378519/1093905013480378519."""),
             color=0x42F34C)
