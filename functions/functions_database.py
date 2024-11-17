@@ -246,8 +246,8 @@ class functions_database(commands.Cog, name="functions_database"):
                 x+=1
 
         #Embed create   
-        emb=discord.Embed(title='Ranking łowców potworów!', url='https://www.altermmo.pl/wp-content/uploads/Alter_Brave_human_monster_slayers._Fantasy._be5e9371-cf76-4656-8908-e93fbaad5094.png', description=rankingString, color=0xFF0000)
-        emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Alter_Brave_human_monster_slayers._Fantasy._be5e9371-cf76-4656-8908-e93fbaad5094.png')
+        emb=discord.Embed(title='Ranking łowców potworów!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Ranking_of_monster_slayers._Fantasy._Pixel_art._a79d5468-1397-4c68-af75-378d2946240f.png', description=rankingString, color=0xFF0000)
+        emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Ranking_of_monster_slayers._Fantasy._Pixel_art._a79d5468-1397-4c68-af75-378d2946240f.png')
         emb.set_footer(text='Sezon kończy się w każdy poniedziałek o 15!')
         await ctx.send(embed=emb)
 

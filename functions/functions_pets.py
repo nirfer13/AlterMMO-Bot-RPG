@@ -30,6 +30,8 @@ class PetType(str, Enum):
     DOG = 'Dog'
     GUINEA = 'Guinea'
     SKELETON = 'Skeleton'
+    MONKEY = 'Monkey'
+    EAGLE = 'Eagle'
 
 class FunctionsPets(commands.Cog, name="FunctionsPets"):
     """Class with all functions used for pets."""
@@ -202,6 +204,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         polish_type = "Świnka morska"
                     elif pet_data[0][6] == "Skeleton":
                         polish_type = "Szkielet"
+                    elif pet_data[0][6] == "Monkey":
+                        polish_type = "Małpa"
+                    elif pet_data[0][6] == "Eagle":
+                        polish_type = "Orzeł"
                     else:
                         polish_type = ""
                     if pet_data[0][1] != "Towarzysz":
@@ -288,14 +294,16 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
         if functions_patrons.check_if_patron(self, ctx, player):
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
-                         PetType.RABBIT, PetType.SHEEP, PetType.DOG, 
+                         PetType.RABBIT, PetType.SHEEP, PetType.DOG,
+                         PetType.EAGLE,
                          PetType.DRAGON,
                          PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
                          PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.GUINEA,
-                         PetType.SKELETON]
+                         PetType.SKELETON, PetType.MONKEY]
         else:
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
-                         PetType.RABBIT, PetType.SHEEP, PetType.DOG]
+                         PetType.RABBIT, PetType.SHEEP, PetType.DOG,
+                         PetType.EAGLE]
             
         print(pets_list)
 
@@ -308,7 +316,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         if pet in [PetType.DRAGON,
                     PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
                     PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.GUINEA,
-                    PetType.SKELETON]:
+                    PetType.SKELETON, PetType.MONKEY]:
             quality = "Premium"
             variant = random.randint(0,1)
         else:
@@ -630,12 +638,14 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                                     PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
                                     PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
-                                    PetType.ANIME_GIRL, PetType.ELEMENTAL]
+                                    PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.MONKEY,
+                                    PetType.DOG, PetType.EAGLE, PetType.GUINEA, PetType.SKELETON]
 
                         pet = random.choice(pets_list)
 
                         if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
-                                PetType.ANIME_GIRL, PetType.ELEMENTAL]:
+                                PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.MONKEY,
+                                PetType.SKELETON, PetType.GUINEA]:
                             quality = "Premium"
                         else:
                             quality = "Standard"
@@ -996,6 +1006,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Świnka morska"
                 elif pet0[0][2] == "Skeleton":
                     polish_type = "Szkielet"
+                elif pet0[0][2] == "Eagle":
+                    polish_type = "Orzeł"
+                elif pet0[0][2] == "Monkey":
+                    polish_type = "Małpa"
                 else:
                     polish_type = ""
 
@@ -1041,6 +1055,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Świnka morska"
                 elif pet0[0][2] == "Skeleton":
                     polish_type = "Szkielet"
+                elif pet0[0][2] == "Eagle":
+                    polish_type = "Orzeł"
+                elif pet0[0][2] == "Monkey":
+                    polish_type = "Małpa"
                 else:
                     polish_type = ""
 
@@ -1086,6 +1104,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Świnka morska"
                 elif pet0[0][2] == "Skeleton":
                     polish_type = "Szkielet"
+                elif pet0[0][2] == "Monkey":
+                    polish_type = "Małpa"
+                elif pet0[0][2] == "Eagle":
+                    polish_type = "Orzeł"
                 else:
                     polish_type = ""
 
@@ -1666,6 +1688,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 polish_type = "Świnka morska"
             elif person[6] == "Skeleton":
                 polish_type = "Szkielet"
+            elif person[6] == "Monkey":
+                polish_type = "Małpa"
+            elif person[6] == "Eagle":
+                polish_type = "Orzeł"
             else:
                 polish_type = ""
 
@@ -1678,8 +1704,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             x+=1
 
         #Embed create
-        emb=discord.Embed(title='Najbardziej utalentowani towarzysze!', url='https://www.altermmo.pl/wp-content/uploads/Alter_Pet_which_is_really_good_companion_during_fantasy_adventu_03bf7393-988e-4d1e-9d7a-07fe2682746e.png', description=ranking_string, color=0xFF0000)
-        emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/Alter_Pet_which_is_really_good_companion_during_fantasy_adventu_03bf7393-988e-4d1e-9d7a-07fe2682746e.png')
+        emb=discord.Embed(title='Najbardziej utalentowani towarzysze!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Adventurer_with_a_small_dragon_pet._Fantasy._Pixel_ar_fac9f513-e338-4727-af61-32b79dbfa7e3.png', description=ranking_string, color=0xFF0000)
+        emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Adventurer_with_a_small_dragon_pet._Fantasy._Pixel_ar_fac9f513-e338-4727-af61-32b79dbfa7e3.png')
         emb.set_footer(text='Gratulacje dla anonimowych posiadaczy!')
         await ctx.send(embed=emb)
 

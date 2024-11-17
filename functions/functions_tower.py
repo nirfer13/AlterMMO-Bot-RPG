@@ -273,8 +273,8 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
             x+=1
 
         #Embed create
-        emb=discord.Embed(title='Eksploratorzy Wieży Śmierci!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png', description=ranking_string, color=0xff0019)
-        emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png')
+        emb=discord.Embed(title='Eksploratorzy Wieży Śmierci!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Huge_mystery_gloomy_tower_with_small_lights_inside._F_2fe81cd9-bff9-4bbe-af41-8101162ec6b9.png', description=ranking_string, color=0xff0019)
+        emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Huge_mystery_gloomy_tower_with_small_lights_inside._F_2fe81cd9-bff9-4bbe-af41-8101162ec6b9.png')
         emb.set_footer(text='Gratulacje dla nieustraszonych!')
         await ctx.send(embed=emb)
 
@@ -289,16 +289,16 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
             ranking_string = f"<@{user.id}> udało Ci się ukończyć Wieżę Śmierci na poziomie **{db_ranking_tower[0][1]}** w czasie **{db_ranking_tower[0][2]}**.\n"
 
             #Embed create
-            emb=discord.Embed(title='Personalny rekord Wieży Śmierci!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png', description=ranking_string, color=0xff0019)
-            emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png')
+            emb=discord.Embed(title='Personalny rekord Wieży Śmierci!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Huge_mystery_gloomy_tower_with_small_lights_inside._F_2fe81cd9-bff9-4bbe-af41-8101162ec6b9.png', description=ranking_string, color=0xff0019)
+            emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Huge_mystery_gloomy_tower_with_small_lights_inside._F_2fe81cd9-bff9-4bbe-af41-8101162ec6b9.png')
             emb.set_footer(text='Gratulacje!')
             await ctx.send(embed=emb)
         else:
             ranking_string = "Jeszcze nie udało Ci się zeksplorować Wieży Śmierci.\n"
 
             #Embed create
-            emb=discord.Embed(title='Personalny rekord Wieży Śmierci!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png', description=ranking_string, color=0xff0019)
-            emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Death_tower_grim_dark_very_high._Fantasy_realistic._54471f3c-8193-47c9-aade-d1b38a460922-1.png')
+            emb=discord.Embed(title='Personalny rekord Wieży Śmierci!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Huge_mystery_gloomy_tower_with_small_lights_inside._F_2fe81cd9-bff9-4bbe-af41-8101162ec6b9.png', description=ranking_string, color=0xff0019)
+            emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Huge_mystery_gloomy_tower_with_small_lights_inside._F_2fe81cd9-bff9-4bbe-af41-8101162ec6b9.png')
             emb.set_footer(text='Gratulacje!')
             await ctx.send(embed=emb)
     
