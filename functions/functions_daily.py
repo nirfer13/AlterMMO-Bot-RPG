@@ -474,8 +474,9 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         await functions_pets.assign_scroll(self, ctx, BOSSRARITY+1, player_boss.id)
 
                     if modifiers["ban_loser"] > 0:
-                        print("Hunter " + str(ctx.author.name) + " is dead.")
-                        await setDeadHunters(self, ctx, ctx.author.id)
+                        for hunter in player_list:
+                            print("Hunter " + str(ctx.author.name) + " is dead.")
+                            await setDeadHunters(self, ctx, ctx.author.id)
 
                     return False
                 else:

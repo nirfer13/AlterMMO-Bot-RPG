@@ -1715,9 +1715,9 @@ async def new_record_petowners(self, player_id: int, pet_id: int, pet_owned: boo
     """New record of user in petowners database."""
 
     sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
-    REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS, SKILL_GEM)
+    REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS, SKILL_GEM, PET_ID_ALT1, PET_ID_ALT2)
     VALUES ({player_id},{pet_id},{pet_owned},{reroll_scroll},{reroll_scroll_shard},{rebirth_stones},
-    {mirrors},{skill_id});"""
+    {mirrors},{skill_id},{0},{0});"""
     await self.bot.pg_con.fetch(sql)
 
 def setup(bot):
