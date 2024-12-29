@@ -400,6 +400,98 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             await ctx.send(file=file)
             return False
 
+    global spawn_hazard
+    async def spawn_hazard(self, ctx):
+        """Function to spawn hazard game."""
+
+        e_title = f"<:tf:882182966606966794> Zaryzykuj! <:tf:882182966606966794>"
+
+        e_descr = ('Witaj Wędrowcze, nazywam się Dova. Nie chcesz zgarnąć kilka zwojów?'
+                   '\n\nWybierz jeden z dwóch kubków. Pod jednym z nich będzie się kryła nagroda.'
+                   '\n\n*Zostaw reakcję pod postem, jeśli chcesz wziąć udział. Potrzebujesz 5 zwojów.*')
+
+        e_color = 0x827b7a
+
+        image_name = "events/hazard/0.jpeg"
+        file=discord.File(image_name)
+        await ctx.send(file=file)
+
+        embed = discord.Embed(
+            title=e_title,
+            description=e_descr,
+            color=e_color)
+
+        msg = await ctx.send(embed=embed)
+
+        print("Before")
+        await msg.add_reaction("<:2Head:882184634572627978>")
+        print("1")
+        await msg.add_reaction("<:5head:882184634786521149>")
+        print("After")
+
+        if DebugMode:
+            timeout = 15
+        else:
+            timeout = 600
+
+        emotes_list = ["<:2Head:882184634572627978>",
+                        "<:5head:882184634786521149>"]
+
+        emote = random.choice(emotes_list)
+
+        #Define check function
+        def check_emote(reaction, user):
+            print(user)
+            return msg.id == reaction.message.id and user.id != 971322848616525874 and user.id != 859729615123251200
+
+        try:
+            while 1:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=timeout, check=check_emote)
+
+                # Check if user has enough scrolls
+                print("Checking if user has a pet...")
+                sql = f"SELECT REROLL_SCROLL FROM PETOWNER WHERE PLAYER_ID = {user.id};"
+                for retries in range(0,3):
+                    try:
+                        scrolls = await self.bot.pg_con.fetch(sql)
+                        break
+                    except:
+                        await ctx.channel.send(f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}")
+                else:
+                    return False
+                
+                if scrolls:
+                    reroll_scroll = scrolls[0][0]
+                    if reroll_scroll >= 5:
+            
+                        if str(emote) == str(reaction.emoji):
+                            await ctx.send("*Ech, gratuluje* - Dova rzekł zawiedziony.")
+                            sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {reroll_scroll+5}
+                            WHERE PLAYER_ID = {user.id};"""
+                            await self.bot.pg_con.fetch(sql)
+                            break
+                        else:
+                            sql = f"""UPDATE PETOWNER SET REROLL_SCROLL = {reroll_scroll-5}
+                            WHERE PLAYER_ID = {user.id};"""
+                            await self.bot.pg_con.fetch(sql)
+                            await ctx.send("*Dzięki za zwoje. Kolego* <:2Head:882184634572627978> - Chwilę potem Dova znikł za drzwiami karczmy.")
+                            return False
+                    else:
+                        await ctx.send("Najpierw musisz mieć czym grać. Potrzebujesz co najmniej 5 zwojów...")
+                else:
+                    await ctx.send("Najpierw musisz mieć czym grać. Potrzebujesz co najmniej 5 zwojów...")
+
+        except asyncio.TimeoutError:
+            await ctx.send("*Ech, na tym Discordzie nie ma pracy dla oszustów z moimi talentami...* - rzekł Dova i zniknął w cieniu.")
+            return False
+
+        rarity = 2
+        boost_percent = random.randint(20,55)
+
+        await functions_daily.randLoot(self, ctx, rarity, user, boost_percent)
+        return True
+
+
     global spawn_hunting
     async def spawn_hunting(self, ctx):
         """Spawn a hunt object.
