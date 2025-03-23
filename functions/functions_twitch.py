@@ -238,17 +238,17 @@ def get_twitch_messager_role(messages: int):
     # Niepisaty (1175474471637893221) - 600 - 350 (chtr_issub)
     # Czatownik (1175474738789875854) - 1250 - 625 (chtr_issub)
     # Skryba (1175474928162721833) - 2500 - 1250 (chtr_issub)
-    # Spamer (1175475198854709330) - 5000 - 2500 (chtr_issub)
+    # Wieszcz (1175475198854709330) - 5000 - 2500 (chtr_issub)
 
-    if messages >= 300 and messages < 600:
+    if messages >= 1000 and messages < 3600:
         role_id = 1175474239890010134
-    elif messages >= 600 and messages < 1250:
+    elif messages >= 3600 and messages < 7500:
         role_id = 1175474471637893221
-    elif messages >= 1250 and messages < 2500:
+    elif messages >= 7500 and messages < 15000:
         role_id = 1175474738789875854
-    elif messages >= 2500 and messages < 5000:
+    elif messages >= 15000 and messages < 30000:
         role_id = 1175474928162721833
-    elif messages >= 5000:
+    elif messages >= 30000:
         role_id = 1175475198854709330
     else:
         role_id = 0
