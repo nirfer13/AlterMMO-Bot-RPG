@@ -205,7 +205,11 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
                     if user not in members:
 
                         user = guild.get_member(user.id)
-                        await user.add_roles(my_role)
+                        try:
+                            await user.add_roles(my_role)
+                        except Exception:
+                            print(f"Cannot assign role to {user.id}")
+                            continue
 
                         # Information about role acquired
                         if DebugMode:
