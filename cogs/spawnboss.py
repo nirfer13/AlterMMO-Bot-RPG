@@ -75,7 +75,7 @@ class message(commands.Cog, name="spawnBoss"):
         if DebugMode is True:
             ctx = await functions_boss.getContext(self, 970571647226642442, 1125837611299254383)
         else:
-            ctx = await functions_boss.getContext(self, 970684202880204831, 1316782294660284417)
+            ctx = await functions_boss.getContext(self, 970684202880204831, 1389856418815021146)
 
         global BOSSALIVE, BOSSRARITY, respTime, respawnResume
         bossRar, respawnTime, respawnResume = await functions_database.readBossTable(self, ctx)
@@ -142,15 +142,13 @@ class message(commands.Cog, name="spawnBoss"):
         while True:
             timestamp = (datetime.utcnow() + timedelta(hours=2))
 
-            if timestamp.strftime("%H:%M UTC") == "13:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "17:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "20:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "22:00 UTC" or \
-                timestamp.strftime("%H:%M UTC") == "05:30 UTC":
+            if timestamp.minute % 30 == 0 and timestamp.second == 0:
                 print("Twitch check - messages.")
                 await functions_twitch.assign_roles_messages(self)
                 print("Twitch check - watchtime.")
                 await functions_twitch.assign_roles_watchtime(self)
+                print("Twitch check - VIP and MODs check.")
+                await functions_twitch.assign_roles_vip_mod(self)
                 print("Twitch check - treasure.")
                 await functions_twitch.check_treasure(self)
 
@@ -1053,6 +1051,12 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def assign_roles_watchtime(self, ctx):
         await functions_twitch.assign_roles_watchtime(self)
+
+    @commands.command(name="getVipModTwitch",
+                    brief="Get all users with VIP or Mod Twitch role.")
+    @commands.has_permissions(administrator=True)
+    async def assign_roles_vip_mod(self, ctx):
+        await functions_twitch.assign_roles_vip_mod(self)
 
     @commands.command(name="getWriterTwitch",
                     brief="Get all users with sufficient messages count.")

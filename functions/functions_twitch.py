@@ -115,12 +115,12 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
 
         #Database Reading
         db_ranking_twitch = await self.bot.pg_con.fetch("SELECT discord_id, chtr_comments, " +
-                                "chtr_issub FROM chatters_information WHERE chtr_comments > 299 " +
+                                "chtr_isvip, chtr_ismod FROM chatters_information WHERE chtr_comments > 299 " +
                                 " AND discord_id IS NOT NULL")
         # 180 000
 
         user_dict = {}
-        for user_id, messages, is_sub in db_ranking_twitch:
+        for user_id, messages, is_vip, is_mod in db_ranking_twitch:
 
             if user_id:
 
@@ -129,7 +129,7 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
                     if messages < user_dict[user_id]:
                         continue
 
-                print(f"Users: {user_id} - messages: {messages} - is_sub: {is_sub}")
+                print(f"Users: {user_id} - messages: {messages} - is_vip: {is_vip} - is_mod: {is_mod}")
                 # Add user to dictionary
                 user_dict[user_id] = messages
 
@@ -166,6 +166,59 @@ class FunctionsTwitch(commands.Cog, name="FunctionsTwitch"):
                             chat_channel = self.bot.get_channel(776379796367212594)
                         await chat_channel.send(f"<@{user.id}> zdobywa rolę {my_role} za " +
                                                 "pisanie na Twitchu!")
+                        
+    global assign_roles_vip_mod
+    async def assign_roles_vip_mod(self):
+        """Get list of users who have vip or mod role on Twitch."""
+
+        #Database Reading
+        db_ranking_twitch = await self.bot.pg_con.fetch("SELECT discord_id, chtr_isvip, chtr_ismod" +
+                                        " FROM  chatters_information WHERE (chtr_isvip = TRUE OR chtr_ismod = TRUE) " +
+                                        " AND discord_id IS NOT NULL")
+
+        user_dict = {}
+        for user_id, is_vip, is_mod in db_ranking_twitch:
+            print(f"Users: {user_id} - is_vip: {is_vip} - is_mod: {is_mod}")
+            if user_id:
+
+                # Add user to dictionary
+                user_dict[user_id] = is_vip
+
+                # Get full user object
+                user = await self.bot.fetch_user(user_id)
+                # Get discord server object
+                guild = self.bot.get_guild(686137998177206281)
+
+                if is_vip:
+                    role_id = 964845150213906442
+                elif is_mod:
+                    role_id = 969683014709825627
+
+                # Check if user belongs to server and should receive a role
+                if guild.get_member(user.id) is not None and role_id > 0:
+
+                    # Get specified role object
+                    my_role = discord.utils.get(guild.roles, id=role_id)
+                    members = my_role.members
+
+                    # Check if user already has role
+                    if user not in members:
+
+                        user = guild.get_member(user.id)
+                        await user.add_roles(my_role)
+
+                        # Information about role acquired
+                        if DebugMode:
+                            chat_channel = self.bot.get_channel(881090112576962560)
+                        else:
+                            chat_channel = self.bot.get_channel(776379796367212594)
+
+                        if is_vip:
+                            await chat_channel.send(f"<@{user.id}> zdobywa rolę {my_role} za " +
+                                                    "VIPa na Twitchu!")
+                        elif is_mod:
+                            await chat_channel.send(f"<@{user.id}> zdobywa rolę {my_role} za " +
+                                                    "moderatora na Twitchu!")
 
     global check_treasure
     async def check_treasure(self):
