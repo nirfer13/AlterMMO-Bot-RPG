@@ -142,7 +142,7 @@ class message(commands.Cog, name="spawnBoss"):
         while True:
             timestamp = (datetime.utcnow() + timedelta(hours=2))
 
-            if timestamp.minute % 30 == 0 and timestamp.second == 0:
+            if timestamp.minute % 30 == 0:
                 print("Twitch check - messages.")
                 await functions_twitch.assign_roles_messages(self)
                 print("Twitch check - watchtime.")
