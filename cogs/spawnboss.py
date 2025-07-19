@@ -139,18 +139,15 @@ class message(commands.Cog, name="spawnBoss"):
             await asyncio.sleep(35)
 
     async def twitch_sync(self, ctx):
+        last_checked_date = None
+
         while True:
             timestamp = (datetime.utcnow() + timedelta(hours=2))
 
-            if timestamp.minute % 30 == 0:
-                print("Twitch check - messages.")
-                await functions_twitch.assign_roles_messages(self)
-                print("Twitch check - watchtime.")
-                await functions_twitch.assign_roles_watchtime(self)
-                print("Twitch check - VIP and MODs check.")
-                await functions_twitch.assign_roles_vip_mod(self)
+            if timestamp.hour == 4 and (last_checked_date != timestamp.date()):
                 print("Twitch check - treasure.")
                 await functions_twitch.check_treasure(self)
+                last_checked_date = timestamp.date()
 
             # wait some time before another loop. Don't make it more than 60 sec or it will skip
             await asyncio.sleep(35)
