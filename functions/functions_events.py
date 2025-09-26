@@ -281,7 +281,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
     async def spawn_memory(self, ctx):
         """Function to spawn memory game."""
 
-        e_title = f"<:RPGCleric:995577107642073098> Mędrzec potrzebuje pomocy! <:RPGMage:995577415462047765>"
+        e_title = f"<:PepoG:790963160528977980> Mędrzec potrzebuje pomocy! <:PepoG:790963160528977980>"
 
         e_descr = ('Witajcie, mam na imię Sanczo. Potrzebuję Waszej pomocy...'
                    '\n\nZa cholerę nie mogę spamiętać runicznych emotek, a brakuje mi rąk, żeby wertować kartki w księdze. Pomożecie mi?'

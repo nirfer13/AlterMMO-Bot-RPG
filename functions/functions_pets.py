@@ -130,7 +130,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     print(f"Update reroll scrolls {reroll_scroll} and shards {reroll_shard}")
 
                 # Add info about items
-                scroll_desc = (f"\n**<:RPGWarrior:995576809666134046> PRZEDMIOTY:**\nZwoje odrodzenia: {reroll_scroll}\n" +
+                scroll_desc = (f"\n**<:alterm5RNG:1354470951303123104> PRZEDMIOTY:**\nZwoje odrodzenia: {reroll_scroll}\n" +
                 f"Fragmenty zwojów: {reroll_shard}\nKamienie olśnienia: {rebirt_stones}" +
                 f"\nLustra wizualiów: {mirrors}")
 
@@ -227,7 +227,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     image_number += int(pet_data[0][7])
                     path = f"pets/{pet_data[0][6]}/{image_number}.png"
 
-                    skill_desc = "<:RPGAddStat:995642835531472956> **STATYSTYKI:**\n"
+                    skill_desc = "<:PepoG:790963160528977980> **STATYSTYKI:**\n"
                     skill_desc += f"Poziom: {pet_data[0][2]}\n"
                     if pet_data[0][3] == 0:
                         talent = "Miernota"
