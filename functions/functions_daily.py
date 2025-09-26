@@ -476,7 +476,7 @@ class functions_daily(commands.Cog, name="functions_daily"):
                     if modifiers["ban_loser"] > 0:
                         for hunter in player_list:
                             print("Hunter " + str(ctx.author.name) + " is dead.")
-                            await setDeadHunters(self, ctx, ctx.author.id)
+                            await setDeadHunters(self, ctx, hunter.id)
 
                     return False
                 else:
