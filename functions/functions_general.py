@@ -34,7 +34,7 @@ class functions_general(commands.Cog, name="functions_general"):
         b_len = length - a_len
 
         bar = "🟥" * a_len + "🟦" * b_len  # np. czerwony vs niebieski
-        return f"{bar}|"
+        return f"{bar}"
 
 def setup(bot):
     bot.add_cog(functions_general(bot))

@@ -607,6 +607,8 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
                 await ctx.send(file=file)
                 return False
 
+        global BUSY
+        BUSY = 1
         success = await functions_boss.duelFight(self, ctx, participants)
         return success
 

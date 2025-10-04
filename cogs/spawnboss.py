@@ -185,7 +185,7 @@ class message(commands.Cog, name="spawnBoss"):
                           EventType.MEMORY, EventType.HUNTING, EventType.HAZARD, EventType.DUEL]
 
             if (hour == "18" or hour == "19" or hour == "20" or hour == "21") and not DebugMode:
-                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1, 1))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1, 2))[0]
                 #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
             else:
                 EVENT_TYPE = random.choices(event_list, weights=(2, 2, 1, 0, 2, 2, 2, 0))[0]
@@ -238,7 +238,6 @@ class message(commands.Cog, name="spawnBoss"):
                     BUSY = 0
                 elif EVENT_TYPE == EventType.DUEL:
                     EVENT_ALIVE = 1
-                    BUSY = 1
                     await functions_events.spawn_duel(self, ctx)
                     EVENT_ALIVE = 0
                     BUSY = 0
