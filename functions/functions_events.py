@@ -6,8 +6,10 @@ import random
 import asyncio
 from discord.ext import commands
 
+from functions import functions_boss
 import functions_daily
 import functions_patrons
+import functions_database
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -498,7 +500,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         """
         e_title = f"<:MonkaS:882181709100097587> Mroczny las! <a:PeepoRiot:1067317732942565416>"
 
-        e_descr = ('Przed Wami złowrogi las... Czy odważycie się do niego wkroczyć ?'
+        e_descr = ('Przed Wami złowrogi las... Czy odważycie się do niego wkroczyć?'
                 '\n\n*Zostaw reakcję pod postem, jeśli chcesz wziąć udział.*')
 
         e_color = 0x003616
@@ -544,6 +546,71 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             file=discord.File(image_name)
             await ctx.send(file=file)
             return False
+        
+    global spawn_duel
+    async def spawn_duel(self, ctx):
+        """Spawn a duel object.
+        """
+        e_title = f"<:MonkaS:882181709100097587> Pojedynek! <a:PeepoRiot:1067317732942565416>"
+
+        e_descr = ('Przed Wami rozpościera się arena. Czy odważycie się zawalczyć na śmierć i życie?'
+                '\n\n*Zostaw reakcję pod postem, jeśli chcesz wziąć udział.*')
+
+        e_color = 0x360006
+
+        image_name = "events/pvp/pvp.png"
+        file=discord.File(image_name)
+        await ctx.send(file=file)
+
+        embed = discord.Embed(
+            title=e_title,
+            description=e_descr,
+            color=e_color)
+
+        msg = await ctx.send(embed=embed)
+
+        participants = []
+
+        #Define check function
+        def check(reaction, user):
+            return msg.channel == ctx.channel and str(reaction.emoji) == "⚔️" and user.id != 971322848616525874 and user.id != 859729615123251200 and msg.id == reaction.message.id and user not in participants
+
+        await msg.add_reaction("⚔️")
+
+        if DebugMode:
+            timeout = 15
+        else:
+            timeout = 900
+
+        while 1:
+            try:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=timeout, check=check)
+
+                participants.append(user)
+               
+                if len(participants) >= 2:
+                    break
+                else:
+                    if DebugMode:
+                        await ctx.send(user.name + " wyzywa wszystkich na pojedynek! Jeśli nikt się nie zgłosi, to " + user.name + " otrzyma skarb oraz 6 punktów rankingowych!")
+                    else:
+                        await ctx.send(user.name + " wyzywa <@&985071779787730944> na pojedynek! Jeśli nikt się nie zgłosi, to " + user.name + " otrzyma skarb oraz 6 punktów rankingowych!")
+
+            except asyncio.TimeoutError:
+                if len(participants) > 0:
+                    await functions_database.updateRankingTable(self, ctx,
+                        participants[0].id, 2, 0)
+
+                await ctx.send("*Arena pozostaje pusta...*")
+                image_name = "events/pvp/0.png"
+                file=discord.File(image_name)
+                await ctx.send(file=file)
+                return False
+
+        success = await functions_boss.duelFight(self, ctx, participants)
+        return success
+
+
 
 def setup(bot):
     """Load the FunctionsEvents cog."""

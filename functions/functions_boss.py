@@ -19,6 +19,7 @@ import functions_skills
 import functions_expsum
 import functions_patrons
 import functions_achievements
+import functions_general
 
 class functions_boss(commands.Cog, name="functions_boss"):
     def __init__(self, bot):
@@ -417,7 +418,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                     async with ctx.typing():
                         await asyncio.sleep(2)
                     await ctx.channel.send('"**SPOKÓJ!!!**" - *słyszyscie głos w swojej głowie.* "Zachowajcie resztki honoru i wystawcie do walki najsilniejszego z Was."')
-                    initCmd = random.choice(["Zabawowy", "Spolegliwy", "Słonina", "Serownik", "Onegdaj", "Monidło", "Koafiura", "Blurb", "Prodiż", "Wszeteczeństwo", "Frymuśny", "Aha", "Kombinatoryka", "Rzęsiście", "Ancymonek", "Konkurencja", "Eksploracja", "Przepocony", "Śródziemie", "Ofiarny", "Zdelegalizowany", "Zakochany", "Zakłopotany", "Zdematerializowany", "Smoczy", "Zauroczony", "Zawistny", "Zaistniały", "Zorganizowany", "Deminerailizacja"])
+                    initCmd = random.choice(["Zabawowy", "Spolegliwy", "Słonina", "Serownik", "Onegdaj", "Monidło", "Koafiura", "Blurb", "Prodiż", "Wszeteczeństwo", "Frymuśny", "Aha", "Kombinatoryka", "Rzęsiście", "Ancymonek", "Konkurencja", "Eksploracja", "Przepocony", "Śródziemie", "Ofiarny", "Zdelegalizowany", "Zakochany", "Zakłopotany", "Zdematerializowany", "Smoczy", "Zauroczony", "Zawistny", "Zaistniały", "Zorganizowany", "Demineralizacja"])
                     await asyncio.sleep(6)
                     async with ctx.typing():
                         await ctx.channel.send('"Pierwszy, który PŁYNNIE wypowie zaklęcie, które zaraz zdradzę, będzie godzien walki ze mną!"')
@@ -656,6 +657,251 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         await ctx.channel.send('Nie zdążyłeś, ale Twój towarzysz Cię chroni!')
         else:
             return 0
+
+    #DUEL
+    #fight between two players
+    global duelFight
+    async def duelFight(self, ctx, participiants):
+
+        dueler_1 = participiants[0]
+        dueler_2 = participiants[1]
+        async with ctx.typing():
+            await ctx.channel.send('Rozpoczyna się walka pomiędzy <@' + format(dueler_1.id) + '> oraz <@' + format(dueler_2.id) +'>! <:REEeee:790963160495947856>')
+
+        #Load pet skills
+        pet_skills_1 = await functions_pets.get_pet_skills(self, dueler_1.id)
+        pet_skills_2 = await functions_pets.get_pet_skills(self, dueler_2.id)
+        pet_skills = [pet_skills_1, pet_skills_2]
+
+        #Start time counting
+        startTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+
+        #Random the message and requested action
+        requestedAction = [
+        (
+            "zmykaj", "agresja", "parada", "uskok", "sprint", "kulanie",
+            "zaklęcie", "blokada", "panika", "obrót",
+            "kontra", "barykada", "skok", "cios", "czar",
+            "podstęp", "unik", "okrzyk", "leczenie", "zamach"
+        ),
+        (
+            "Przeciwnik szarżuje na Ciebie! Wpisz **Z M Y K A J**",
+            "Przeciwnik zawahał się! Teraz! Wpisz **A G R E S J A**",
+            "Przeciwnik atakuje, nie masz miejsca na ucieczkę, wpisz **P A R A D A**",
+            "Przeciwnik próbuje ataku w nogi, wpisz **U S K O K**",
+            "Przeciwnik szykuje potężny atak o szerokim zasięgu, wpisz **S P R I N T**",
+            "Przeciwnik atakuje w powietrzu, wpisz **K U L A N I E**",
+            "Przeciwnik rzuca klątwę, wpisz **Z A K L Ę C I E**",
+            "Przeciwnik atakuje, nie masz miejsca na ucieczkę, wpisz **B L O K A D A**",
+            "Nie masz pojęcia co robić, wpisz **P A N I K A**",
+            "Musisz zrobić cokolwiek, wpisz **O B R Ó T**",
+            "Wróg odsłania gardę! Wpisz **K O N T R A**",
+            "Wróg próbuje Cię przycisnąć! Wpisz **B A R Y K A D A**",
+            "Na ziemi pojawia się pułapka! Wpisz **S K O K**",
+            "Masz okazję uderzyć! Wpisz **C I O S**",
+            "Twoja różdżka drży w dłoni – wpisz **C Z A R**",
+            "Wróg daje się nabrać na Twój ruch – wpisz **P O D S T Ę P**",
+            "Strzały lecą prosto w Ciebie – wpisz **U N I K**",
+            "Dodaj sobie odwagi! Wpisz **O K R Z Y K**",
+            "Czujesz słabnięcie – wpisz **L E C Z E N I E**",
+            "Masz szansę na potężny zamach – wpisz **Z A M A C H**"
+        )
+        ]
+
+        pet_skills_reversed = pet_skills[::-1]
+        duelers_hp = [max(1, min(3000, 3000 * (100 - pet["LOWHP_PERC"])/100)) for pet in pet_skills_reversed]
+
+        #Define check function
+        channel = ctx.channel
+        def check(ctx, participiants):
+            def inner(msg):
+                return (msg.channel == channel) and (msg.author in participiants)
+            return inner
+
+        # Fighters stats
+        # Fighter 1
+        member = discord.utils.get(ctx.guild.members, id=participiants[0].id)
+        file = member.avatar_url
+        eDescr = (
+            f"❤️ HP: {duelers_hp[0]}\n\n"
+            f"🔄 Szansa na zastąpienie ataku: {pet_skills_1['REPLACE_PERC']} %\n"
+            f"💥 Szansa na krytyczne uderzenie: {pet_skills_1['CRIT_PERC']} %\n"
+            f"🛡️ Szansa na zablokowanie ataku: {pet_skills_1['DEF_PERC']} %\n"
+            f"⚔️ Zmniejszenie życia przeciwnika: {pet_skills_1['LOWHP_PERC']} %\n"
+            f"🐢 Spowolnienie przeciwnika: {pet_skills_1['SLOW_PERC']} %"
+        )
+
+        embed = discord.Embed(
+            title='🟥 ' + participiants[0].name,
+            description=eDescr,
+            color=0xFF0000)
+        embed.set_thumbnail(url=str(file))
+        await ctx.send(embed=embed)
+
+        # Fighter 2
+        member = discord.utils.get(ctx.guild.members, id=participiants[1].id)
+        file = member.avatar_url
+        eDescr = (
+            f"❤️ HP: {duelers_hp[1]}\n\n"
+            f"🔄 Szansa na zastąpienie ataku: {pet_skills_2['REPLACE_PERC']} %\n"
+            f"💥 Szansa na krytyczne uderzenie: {pet_skills_2['CRIT_PERC']} %\n"
+            f"🛡️ Szansa na zablokowanie ataku: {pet_skills_2['DEF_PERC']} %\n"
+            f"⚔️ Zmniejszenie życia przeciwnika: {pet_skills_2['LOWHP_PERC']} %\n"
+            f"🐢 Spowolnienie przeciwnika: {pet_skills_2['SLOW_PERC']} %"
+        )
+        
+        embed = discord.Embed(
+            title='🟦 ' + participiants[1].name,
+            description=eDescr,
+            color=0x0000FF)
+        embed.set_thumbnail(url=str(file))
+        await ctx.send(embed=embed)
+
+        initCmd = random.choice(["Zabawowy", "Spolegliwy", "Słonina", "Serownik", "Onegdaj", "Monidło", "Koafiura", "Blurb", "Prodiż", "Wszeteczeństwo", "Frymuśny", "Aha", "Kombinatoryka", "Rzęsiście", "Ancymonek", "Konkurencja", "Eksploracja", "Przepocony", "Śródziemie", "Ofiarny", "Zdelegalizowany", "Zakochany", "Zakłopotany", "Zdematerializowany", "Smoczy", "Zauroczony", "Zawistny", "Zaistniały", "Zorganizowany", "Demineralizacja"])
+        await asyncio.sleep(6)
+        async with ctx.typing():
+            await ctx.channel.send('Pierwszy, który PŁYNNIE wypowie zaklęcie, które zaraz się pojawi, będzie rozpoczynał pojedynek!')
+
+        await ctx.channel.send('Uwaga!!! 3...')
+        await asyncio.sleep(1)
+        await ctx.channel.send('... 2...')
+        await asyncio.sleep(1)
+        await ctx.channel.send('... 1...')
+        await asyncio.sleep(1)
+
+        Try = 0
+        try:
+            await ctx.channel.send('"Zaklęcie to **' + " ".join(initCmd.upper()) + '**"')
+            while True:
+                msg = await self.bot.wait_for('message', check=check(ctx, participiants), timeout=30)
+                response = str(msg.content)
+                if  response.lower() == initCmd.lower():
+                    
+                    first_player = participiants.index(msg.author)
+                    break
+                else:
+                    Try+=1
+
+                if Try > 10:
+                    async with ctx.typing():
+                        await ctx.channel.send('Ten, który atakuje pierwszy, będzie wybrany losowo.')
+                    first_player = random.choice([0, 1])
+                    break
+    
+        except asyncio.TimeoutError:
+            async with ctx.typing():
+                await ctx.channel.send('"Ten, który atakuje pierwszy, będzie wybrany losowo."')
+            first_player = random.choice([0, 1])
+            logChannel = self.bot.get_channel(881090112576962560)
+            await  logChannel.send("Timeout podczas rozpoczynania pojedynku.")
+
+        await ctx.channel.send('Zaczyna **' + participiants[first_player].name + '**.')
+        await asyncio.sleep(3)
+
+        await ctx.channel.send('Uwaga!!! 3...')
+        await asyncio.sleep(1)
+        await ctx.channel.send('... 2...')
+        await asyncio.sleep(1)
+        await ctx.channel.send('... 1...')
+        await asyncio.sleep(1)
+
+        #Start whole fight
+        iterator = 0
+        while True: #start boss turn
+            iterator += 1
+
+            if iterator > 40:
+                await ctx.channel.send('Walka trwa zbyt długo. Remis!')
+                return False
+
+            choosenAction = random.randint(0,len(requestedAction[0])-1)
+            fighter_number = (first_player + iterator - 1) % 2
+            current_fighter = participiants[fighter_number]
+
+            try:
+                if not random.random()*100 < pet_skills[fighter_number]["REPLACE_PERC"]:
+
+                    #Send proper action request on chat
+                    await ctx.channel.send(str(iterator) + '. **' + str(current_fighter.name) + "**: " + requestedAction[1][choosenAction])
+
+                    cmdTimeout = 5 * (100 + float(pet_skills[fighter_number]["SLOW_PERC"]))/100
+        
+                    #Timeout depends on boss rarity
+                    print("Duel timeout for player: " + str(cmdTimeout))
+                    start = datetime.datetime.utcnow()
+                    msg = await self.bot.wait_for('message', check=check(ctx, participiants), timeout=cmdTimeout)
+                    response = str(msg.content)
+                else:
+                    cmdTimeout = 5
+                    response = requestedAction[0][choosenAction]
+                    #Send proper action request on chat
+                    start = datetime.datetime.utcnow()
+                    msg = await ctx.channel.send('~~' + str(iterator) + '. ' + str(current_fighter.name) +
+                                            ':' + requestedAction[1][choosenAction] +
+                                            '~~ Twój towarzysz wyprowadza atak!')
+                    msg.author = current_fighter
+
+                if response.lower() == requestedAction[0][choosenAction] and msg.author == current_fighter:
+                        end = datetime.datetime.utcnow()
+                        time = (end - start).total_seconds()
+                        damage = cmdTimeout - time
+
+                        # Crit from pet
+                        if random.random()*100 < pet_skills[fighter_number]["CRIT_PERC"]:
+                            damage *= 2
+                        else:
+                            print("Good command.")
+                elif response.lower() != requestedAction[0][choosenAction] and msg.author == current_fighter:
+                    if not random.random()*100 < pet_skills[fighter_number]["DEF_PERC"]:
+                        damage = 0
+                        await ctx.channel.send('Pomyliłeś się! <:PepeHands:783992337377918986> Nie zadajesz obrażeń!')
+                    else:
+                        end = datetime.datetime.utcnow()
+                        time = (end - start).total_seconds()
+                        damage = (cmdTimeout - time)/3
+                        await ctx.channel.send('Pomyliłeś się, ale Twój towarzysz i tak wyprowadza słaby atak!')
+                elif msg.author != current_fighter:
+                    if not random.random()*100 < pet_skills[fighter_number]["DEF_PERC"]:
+                        damage = cmdTimeout
+                        await ctx.channel.send('Nie Twoja kolej! <:PepeHands:783992337377918986> Przeciwnik zadaje maksymalne obrażenia!')
+                    else:
+                        end = datetime.datetime.utcnow()
+                        time = (end - start).total_seconds()
+                        damage = cmdTimeout/2
+                        await ctx.channel.send('Nie Twoja kolej, ale Twój towarzysz Cię broni!')
+
+            except asyncio.TimeoutError:
+                if not random.random()*100 < pet_skills[fighter_number]["DEF_PERC"]:
+                    damage = 0
+                    await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Nie zadajesz obrażeń!')
+                else:
+                    end = datetime.datetime.utcnow()
+                    time = (end - start).total_seconds()
+                    damage = (cmdTimeout - time)/3
+                    await ctx.channel.send('Nie zdążyłeś, ale Twój towarzysz i tak wyprowadza słaby atak!')
+
+            reduction = (100 - int(pet_skills[1 - fighter_number]["DEF_PERC"]))/100
+            calc_damage = round(damage * 100 * reduction)
+            reduced_dmg = round(damage * 100 - calc_damage)
+            
+            duelers_hp[1-fighter_number] -= calc_damage
+            if duelers_hp[1-fighter_number] > 0:
+                bar = functions_general.victory_bar(duelers_hp[0], duelers_hp[1])
+                await ctx.channel.send(str(current_fighter.name) + " zadał " + f"{calc_damage}" + f" obrażeń (zredukowane o {reduced_dmg}).\n\n{participiants[0]} 🟥 HP: {duelers_hp[0]}\n{participiants[1]} 🟦 HP: {duelers_hp[1]}\n{bar}")
+
+            if duelers_hp[1-fighter_number] <= 0:
+                await ctx.channel.send('**' + str(current_fighter) + "** wygrał walkę z **" + str(participiants[1-fighter_number]) + "**.")
+
+                # Winner
+                await functions_database.updateRankingTable(self, ctx, current_fighter.id, 2, 0)
+                drop_boost = float(pet_skills[fighter_number]["DROP_PERC"])
+                dropLoot = await randLoot(self, ctx, 2, current_fighter, drop_boost)
+
+                # Loser
+                await functions_database.updateRankingTable(self, ctx, participiants[1-fighter_number].id, 2, -12)
+                await setDeadHunters(self, ctx, participiants[1-fighter_number].id)
+
+                return True, current_fighter
 
     #GROUP
     #function to group init fight
