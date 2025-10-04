@@ -8,3 +8,11 @@ daily_player_cd.txt
 expSummary.json
 *.pyc
 globals/globalvariables.py
+.venv/
+venv/
+globalvariables.py
+globals/globalvariables.py
+expSummary.json
+daily_player_cd.txt
+weekly_tower_cd.txt
+skill_weekly_player_cd.txt

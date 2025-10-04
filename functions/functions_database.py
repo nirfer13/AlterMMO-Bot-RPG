@@ -261,7 +261,7 @@ class functions_database(commands.Cog, name="functions_database"):
         for Person in dbRankingRead:
             user = self.bot.get_user(int(Person[0]))
             if user:
-                rankingString += str(x) + ". **" + user.name + "** - " + str(Person[2]) + " pkt.\n"
+                rankingString += str(x) + ". **" + user.name + "** " + str(Person[2]) + " pkt.\n"
                 print("ID: " + Person[0])
                 print("Points: " + str(Person[2]))
                 print("Nick: " + str(Person[1]))

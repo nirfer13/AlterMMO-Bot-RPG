@@ -64,21 +64,6 @@
 		"weight": 100
 	},
 	{
-		"id": 1,
-		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
-		"weight": 0.75
-	},
-	{
-		"id": 2,
-		"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
-		"weight": 0.75
-	},
-	{
-		"id": 3,
-		"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
-		"weight": 1
-	},
-	{
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
 		"weight": 100
@@ -105,21 +90,6 @@
 		"weight": 100
 	},
 	{
-		"id": 1,
-		"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
-		"weight": 1
-	},
-	{
-		"id": 2,
-		"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
-		"weight": 1.25
-	},
-	{
-		"id": 3,
-		"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
-		"weight": 1
-	},
-	{
 		"id": 10,
 		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
 		"weight": 100
@@ -144,21 +114,6 @@
 			"id": 0,
 			"descr": "10000 doświadczenia na Discordzie",
 			"weight": 100
-		},
-		{
-			"id": 1,
-			"descr": "VIP na Twitchu lub 20000 doświadczenia na Discordzie",
-			"weight": 2
-		},
-		{
-			"id": 2,
-			"descr": "Stwórz własną rangę i ustal kolor oraz emotkę",
-			"weight": 2.5
-		},
-		{
-			"id": 3,
-			"descr": "Informacja w filmie na YT o tym, że heroicznie pokonałeś bossa",
-			"weight": 3
 		},
 		{
 			"id": 10,

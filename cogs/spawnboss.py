@@ -50,6 +50,7 @@ class EventType(Enum):
     MEMORY = 5
     HUNTING = 6
     HAZARD = 7
+    DUEL = 8
 
 global EVENT_TYPE
 EVENT_TYPE = EventType.NONE
@@ -177,12 +178,15 @@ class message(commands.Cog, name="spawnBoss"):
             day = timestamp.strftime("%a")
 
             event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY,
-                          EventType.MEMORY, EventType.HUNTING, EventType.HAZARD]
+                          EventType.MEMORY, EventType.HUNTING, EventType.HAZARD, EventType.DUEL]
+
             if (hour == "18" or hour == "19" or hour == "20" or hour == "21") and not DebugMode:
-                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1, 1))[0]
             else:
-                EVENT_TYPE = random.choices(event_list, weights=(2, 2, 1, 0, 2, 2, 2))[0]
-                #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 1))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(2, 2, 1, 0, 2, 2, 2, 0))[0]
+
+            if DebugMode:
+                EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
 
             print("Event type: " + str(EVENT_TYPE))
             if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2) and\
@@ -223,6 +227,12 @@ class message(commands.Cog, name="spawnBoss"):
                     EVENT_ALIVE = 1
                     BUSY = 1
                     await functions_events.spawn_hazard(self, ctx)
+                    EVENT_ALIVE = 0
+                    BUSY = 0
+                elif EVENT_TYPE == EventType.DUEL:
+                    EVENT_ALIVE = 1
+                    BUSY = 1
+                    await functions_events.spawn_duel(self, ctx)
                     EVENT_ALIVE = 0
                     BUSY = 0
             elif BOSSALIVE > 2:
