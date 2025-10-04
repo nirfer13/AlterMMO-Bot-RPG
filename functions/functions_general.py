@@ -14,7 +14,8 @@ class functions_general(commands.Cog, name="functions_general"):
         count = 0
         async for _ in channel.history(limit=None):
             count += 1
-        await channel.purge(limit=count-1)
+        if count > 1:
+            await channel.purge(limit=count-1)
 
     global victory_bar
     def victory_bar(a: int, b: int, length: int = 20) -> str:

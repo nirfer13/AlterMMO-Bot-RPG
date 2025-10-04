@@ -76,7 +76,7 @@ class message(commands.Cog, name="spawnBoss"):
         if DebugMode is True:
             ctx = await functions_boss.getContext(self, 970571647226642442, 1125837611299254383)
         else:
-            ctx = await functions_boss.getContext(self, 970684202880204831, 1389856418815021146)
+            ctx = await functions_boss.getContext(self, 970684202880204831, 1424063015463944364)
 
         global BOSSALIVE, BOSSRARITY, respTime, respawnResume
         bossRar, respawnTime, respawnResume = await functions_database.readBossTable(self, ctx)
@@ -162,6 +162,8 @@ class message(commands.Cog, name="spawnBoss"):
         EVENT_ALIVE = 0
         EVENT_TYPE = EventType.NONE
 
+        x=2
+
         while True:
             print("Event loop!")
             if DebugMode is False:
@@ -169,7 +171,9 @@ class message(commands.Cog, name="spawnBoss"):
             elif DebugMode is True:
                 resp_time = random.randint(15, 20)
 
-            await asyncio.sleep(resp_time)
+            if x != 0:
+                await asyncio.sleep(resp_time)
+            x+=1
             EVENT_ALIVE = 0
             EVENT_TYPE = EventType.NONE
 
@@ -182,8 +186,10 @@ class message(commands.Cog, name="spawnBoss"):
 
             if (hour == "18" or hour == "19" or hour == "20" or hour == "21") and not DebugMode:
                 EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1, 1))[0]
+                #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
             else:
                 EVENT_TYPE = random.choices(event_list, weights=(2, 2, 1, 0, 2, 2, 2, 0))[0]
+                #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
 
             if DebugMode:
                 EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
@@ -191,7 +197,8 @@ class message(commands.Cog, name="spawnBoss"):
             print("Event type: " + str(EVENT_TYPE))
             if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2) and\
                 BUSY == 0:
-                await functions_general.fClear(self, ctx)
+                if x != 1:
+                    await functions_general.fClear(self, ctx)
                 if EVENT_TYPE == EventType.SHRINE:
                     await functions_modifiers.spawn_modifier_shrine(self, ctx)
                     EVENT_ALIVE = 1
