@@ -184,7 +184,7 @@ class message(commands.Cog, name="spawnBoss"):
             event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY,
                           EventType.MEMORY, EventType.HUNTING, EventType.HAZARD, EventType.DUEL]
 
-            if (hour == "18" or hour == "19" or hour == "20" or hour == "21") and not DebugMode:
+            if ((hour in ["18", "19", "20", "21"]) or (day in ["Sun", "Sat"])) and not DebugMode:
                 EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1, 2))[0]
                 #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
             else:
