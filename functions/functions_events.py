@@ -600,6 +600,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
                 if len(participants) > 0:
                     await functions_database.updateRankingTable(self, ctx,
                         participants[0].id, 2, 0)
+                    await functions_daily.randLoot(self, ctx, 2, participants[0], 0)
 
                 await ctx.send("*Arena pozostaje pusta...*")
                 image_name = "events/pvp/0.png"
