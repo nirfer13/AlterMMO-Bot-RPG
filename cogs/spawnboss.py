@@ -76,7 +76,7 @@ class message(commands.Cog, name="spawnBoss"):
         if DebugMode is True:
             ctx = await functions_boss.getContext(self, 970571647226642442, 1125837611299254383)
         else:
-            ctx = await functions_boss.getContext(self, 970684202880204831, 1424063015463944364)
+            ctx = await functions_boss.getContext(self, 970684202880204831, 1437176053842841610)
 
         global BOSSALIVE, BOSSRARITY, respTime, respawnResume
         bossRar, respawnTime, respawnResume = await functions_database.readBossTable(self, ctx)

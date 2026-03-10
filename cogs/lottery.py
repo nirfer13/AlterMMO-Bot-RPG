@@ -7,13 +7,13 @@ class Lottery(commands.Cog, name="Lottery"):
     def __init__(self, bot):
         self.bot = bot
 
-    #Choosing random user from users that reacted on given message, command takes ID
-    #how to get ID of message: Message id is the last part of message link
-    #right click on message copy link
-    #f.e https://discord.com/channels/857296258594635816/857296258594635820/858771394191425577
-    #858771394191425577 is the ID of the message
+    # pass
+    # Choosing random user from users that reacted on given message, command takes ID
+    # how to get ID of message: Message id is the last part of message link
+    # right click on message copy link
+    # f.e https://discord.com/channels/857296258594635816/857296258594635820/858771394191425577
+    # 858771394191425577 is the ID of the message
     @commands.command(name="lotto")
-    
     async def lotto(self, ctx, ID: int):
         with open("ranksConfig.json", encoding='utf-8') as jsonFile:
             jsonObject = json.load(jsonFile)
@@ -42,7 +42,7 @@ class Lottery(commands.Cog, name="Lottery"):
             if temp_weight > 1.0:						#odjecie 1 gdy ktos ma bonus
                 temp_weight -= 1
             weights.append(temp_weight)
-            print(temp_weight)			
+            print(temp_weight)		
 			
         print(weights)
         print(users)
