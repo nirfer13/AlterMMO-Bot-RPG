@@ -10,6 +10,8 @@ from functions import functions_boss
 import functions_daily
 import functions_patrons
 import functions_database
+import functions_general
+import functions_modifiers
 
 #Import Globals
 from globals.globalvariables import DebugMode
@@ -613,6 +615,89 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         success = await functions_boss.duelFight(self, ctx, participants)
         return success
 
+    global spawn_ritual
+    async def spawn_ritual(self, ctx):
+        """Function to spawn ritual."""
+
+        print("Ritual spawn.")
+
+        e_title = "<:MonkaChrist:783992337075929098> Rozpoczął się rytuał przywołania! <:MonkaS:882181709100097587>"
+
+        e_descr = ('Użyczcie swojej energii w rytuale przywołania!\n\n'
+        '**Zaoferujcie swoją pomoc zostawiając reakcję pod tym postem.** Im więcej Was będzie,'
+        'tym potężniejszą istotę przywołacie!')
+
+        e_color = 0xFC0303
+
+        image_name = "events/ritual/" + str(random.randint(0,3)) + ".png"
+        file=discord.File(image_name)
+
+        #image
+        embed = discord.Embed(
+            title=e_title,
+            description=e_descr,
+            color=e_color)
+
+        await ctx.channel.send(file=file)
+        msg = await ctx.send(embed=embed)
+
+        await msg.add_reaction("✨")
+        if DebugMode:
+            await asyncio.sleep(5)
+        else:
+            await asyncio.sleep(600)
+
+        users = []
+        message = await ctx.channel.fetch_message(msg.id)
+        for reaction in message.reactions:
+            async for user in reaction.users():
+                guild = message.guild
+                if guild.get_member(user.id) is not None and user.id != 859729615123251200 and user.id != 971322848616525874 and user not in users:
+                    users.append(user)
+
+        n = len(users)
+
+        def roll_based_on_list(lst):
+            n = len(lst)
+
+            max_n = 12          
+            mu = min(n / max_n, 1) * 4
+
+            sigma = 1.0
+
+            value = round(random.gauss(mu, sigma))
+
+            return max(0, min(4, value))
+
+        if n > 0:
+            global BUSY
+            BUSY = 0
+            global BOSSALIVE
+            global BOSSRARITY
+            global EVENT_ALIVE
+
+            BOSSRARITY = roll_based_on_list(users)
+
+            # Load all modifiers from file
+            modifiers = await functions_modifiers.load_modifiers(self, ctx)
+            BOSSRARITY += modifiers["rarity_boost"]
+            if BOSSRARITY == 3 or BOSSRARITY > 4:
+                BOSSRARITY = 4
+
+            EVENT_ALIVE = 0
+            BUSY = 0
+            await functions_general.fClear(self, ctx)
+
+            #Send boss image based on rarity
+            global initCommand, is_player_boss, player_boss
+            initCommand = "zaatakuj"
+            is_player_boss, player_boss = await functions_boss.fBossImage(self, ctx, BOSSRARITY)
+            BOSSALIVE = 4
+        else:
+            image_name = "events/ritual/4.png"
+            file=discord.File(image_name)
+            await ctx.send(file=file)
+            await ctx.send('Rytuał przywołania nie powiódł się... <:Sadge:936907659142111273>')
 
 
 def setup(bot):

@@ -32,6 +32,7 @@ class PetType(str, Enum):
     SKELETON = 'Skeleton'
     MONKEY = 'Monkey'
     EAGLE = 'Eagle'
+    GHOST = 'Ghost'
 
 class FunctionsPets(commands.Cog, name="FunctionsPets"):
     """Class with all functions used for pets."""
@@ -208,6 +209,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                         polish_type = "Małpa"
                     elif pet_data[0][6] == "Eagle":
                         polish_type = "Orzeł"
+                    elif pet_data[0][6] == "Ghost":
+                        polish_type = "Zjawa"    
                     else:
                         polish_type = ""
                     if pet_data[0][1] != "Towarzysz":
@@ -296,7 +299,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP, PetType.DOG,
                          PetType.EAGLE,
-                         PetType.DRAGON,
+                         PetType.DRAGON, PetType.GHOST,
                          PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
                          PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.GUINEA,
                          PetType.SKELETON, PetType.MONKEY]
@@ -316,7 +319,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         if pet in [PetType.DRAGON,
                     PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
                     PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.GUINEA,
-                    PetType.SKELETON, PetType.MONKEY]:
+                    PetType.SKELETON, PetType.MONKEY, PetType.GHOST]:
             quality = "Premium"
             variant = random.randint(0,1)
         else:
@@ -639,13 +642,14 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                     PetType.RABBIT, PetType.SHEEP, PetType.DRAGON,
                                     PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
                                     PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.MONKEY,
-                                    PetType.DOG, PetType.EAGLE, PetType.GUINEA, PetType.SKELETON]
+                                    PetType.DOG, PetType.EAGLE, PetType.GUINEA, PetType.SKELETON,
+                                    PetType.GHOST]
 
                         pet = random.choice(pets_list)
 
                         if pet in [PetType.DRAGON, PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
                                 PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.MONKEY,
-                                PetType.SKELETON, PetType.GUINEA]:
+                                PetType.SKELETON, PetType.GUINEA, PetType.GHOST]:
                             quality = "Premium"
                         else:
                             quality = "Standard"
@@ -1010,6 +1014,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Orzeł"
                 elif pet0[0][2] == "Monkey":
                     polish_type = "Małpa"
+                elif pet0[0][2] == "Ghost":
+                    polish_type = "Zjawa"
                 else:
                     polish_type = ""
 
@@ -1059,6 +1065,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Orzeł"
                 elif pet0[0][2] == "Monkey":
                     polish_type = "Małpa"
+                elif pet0[0][2] == "Ghost":
+                    polish_type = "Zjawa"
                 else:
                     polish_type = ""
 
@@ -1108,6 +1116,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     polish_type = "Małpa"
                 elif pet0[0][2] == "Eagle":
                     polish_type = "Orzeł"
+                elif pet0[0][2] == "Ghost":
+                    polish_type = "Zjawa"
                 else:
                     polish_type = ""
 
@@ -1692,6 +1702,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 polish_type = "Małpa"
             elif person[6] == "Eagle":
                 polish_type = "Orzeł"
+            elif person[6] == "Ghost":
+                polish_type = "Zjawa"
             else:
                 polish_type = ""
 
