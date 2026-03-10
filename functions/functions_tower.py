@@ -200,6 +200,12 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
                         await ctx.channel.send('Pomyliłeś się, ale Twój towarzysz Cię chroni!')
 
             except asyncio.TimeoutError:
+                # Check if lag and then check last message, maybe its correct
+                last_message = [m async for m in ctx.channel.history(limit=1)][0]
+                if last_message.content.lower() == requestedAction[0][choosenAction] and \
+                last_message.author == boss_hunter:
+                    continue
+
                 if not random.random()*100 < pet_skills_dict[boss_hunter.id]["DEF_PERC"]:
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400>  Spróbuj ponownie w przyszłym tygodniu! <:RIP:912797982917816341> Twój rekord został zapisany!')
                     logChannel = self.bot.get_channel(881090112576962560)

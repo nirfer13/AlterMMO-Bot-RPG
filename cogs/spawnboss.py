@@ -51,6 +51,7 @@ class EventType(Enum):
     HUNTING = 6
     HAZARD = 7
     DUEL = 8
+    RITUAL = 9
 
 global EVENT_TYPE
 EVENT_TYPE = EventType.NONE
@@ -182,17 +183,18 @@ class message(commands.Cog, name="spawnBoss"):
             day = timestamp.strftime("%a")
 
             event_list = [EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY,
-                          EventType.MEMORY, EventType.HUNTING, EventType.HAZARD, EventType.DUEL]
+                          EventType.MEMORY, EventType.HUNTING, EventType.HAZARD, EventType.DUEL,
+                          EventType.RITUAL]
 
             if ((hour in ["18", "19", "20", "21"]) or (day in ["Sun", "Sat"])) and not DebugMode:
-                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1, 2))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1, 2, 2))[0]
                 #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
             else:
-                EVENT_TYPE = random.choices(event_list, weights=(2, 2, 1, 0, 2, 2, 2, 0))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(2, 2, 1, 0, 2, 2, 2, 0, 1))[0]
                 #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
 
             if DebugMode:
-                EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 0, 1))[0]
 
             print("Event type: " + str(EVENT_TYPE))
             if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2) and\
@@ -239,6 +241,11 @@ class message(commands.Cog, name="spawnBoss"):
                 elif EVENT_TYPE == EventType.DUEL:
                     EVENT_ALIVE = 1
                     await functions_events.spawn_duel(self, ctx)
+                    EVENT_ALIVE = 0
+                    BUSY = 0
+                elif EVENT_TYPE == EventType.RITUAL:
+                    EVENT_ALIVE = 1
+                    await functions_events.spawn_ritual(self, ctx)
                     EVENT_ALIVE = 0
                     BUSY = 0
             elif BOSSALIVE > 2:
@@ -886,6 +893,14 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.has_permissions(administrator=True)
     async def context(self, ctx):
         await functions_boss.getContext(self)
+
+    # command to debug
+    @commands.command(name="getlastmsg")
+    @commands.has_permissions(administrator=True)
+    async def lastmsg(self, ctx):
+        last_message = [m async for m in ctx.channel.history(limit=1)][0]
+        await ctx.channel.send(str(last_message.content))
+        await ctx.channel.send(str(last_message.author))
 
     # command to reset boss
     @commands.command(pass_context=True, name="ResetBoss")

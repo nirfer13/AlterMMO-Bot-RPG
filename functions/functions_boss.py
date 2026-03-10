@@ -635,6 +635,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
 
                 except asyncio.TimeoutError:
+                    # Check if lag and then check last message, maybe its correct
+                    last_message = [m async for m in ctx.channel.history(limit=1)][0]
+                    if last_message.content.lower() == requestedAction[0][choosenAction] and \
+                    last_message.author == bossHunterID:
+                        continue
+
                     if not random.random()*100 < pet_skills["DEF_PERC"]:
                         await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
                         logChannel = self.bot.get_channel(881090112576962560)
@@ -1190,6 +1196,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             await ctx.channel.send('Pomyliłeś się, ale Twój towarzysz Cię chroni!')
 
                 except asyncio.TimeoutError:
+                    # Check if lag and then check last message, maybe its correct
+                    last_message = [m async for m in ctx.channel.history(limit=1)][0]
+                    if last_message.content.lower() == requestedAction[0][choosenAction] and \
+                    last_message.author == boss_hunter:
+                        continue
+
                     if not random.random()*100 < pet_skills_dict[boss_hunter.id]["DEF_PERC"]:
                         if chances > 0:
                             chances -= 1
