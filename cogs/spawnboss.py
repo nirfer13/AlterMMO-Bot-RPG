@@ -245,7 +245,9 @@ class message(commands.Cog, name="spawnBoss"):
                     BUSY = 0
                 elif EVENT_TYPE == EventType.RITUAL:
                     EVENT_ALIVE = 1
-                    await functions_events.spawn_ritual(self, ctx)
+                    success = await functions_events.spawn_ritual(self, ctx)
+                    if success:
+                        BOSSALIVE = 4
                     EVENT_ALIVE = 0
                     BUSY = 0
             elif BOSSALIVE > 2:
@@ -410,7 +412,7 @@ class message(commands.Cog, name="spawnBoss"):
         global BOSSALIVE, BOSSRARITY, respawnResume
 
         if ctx.channel.id == 970684202880204831 or ctx.channel.id == 970571647226642442:
-
+            print(BOSSALIVE)
             if BOSSALIVE == 4: #or str(ctx.message.author.id) == '291836779495948288':
                 BOSSALIVE = 5
 

@@ -671,7 +671,6 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
 
         if n > 0:
             global BUSY
-            BUSY = 0
             global BOSSALIVE
             global BOSSRARITY
             global EVENT_ALIVE
@@ -692,12 +691,13 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             global initCommand, is_player_boss, player_boss
             initCommand = "zaatakuj"
             is_player_boss, player_boss = await functions_boss.fBossImage(self, ctx, BOSSRARITY)
-            BOSSALIVE = 4
+            return True
         else:
             image_name = "events/ritual/4.png"
             file=discord.File(image_name)
             await ctx.send(file=file)
             await ctx.send('Rytuał przywołania nie powiódł się... <:Sadge:936907659142111273>')
+            return False
 
 
 def setup(bot):
