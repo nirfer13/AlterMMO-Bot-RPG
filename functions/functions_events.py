@@ -671,7 +671,6 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
 
         if n > 0:
             global BUSY
-            global BOSSALIVE
             global BOSSRARITY
             global EVENT_ALIVE
 
@@ -691,7 +690,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             global initCommand, is_player_boss, player_boss
             initCommand = "zaatakuj"
             is_player_boss, player_boss = await functions_boss.fBossImage(self, ctx, BOSSRARITY)
-            return True
+            return True, BOSSRARITY
         else:
             image_name = "events/ritual/4.png"
             file=discord.File(image_name)

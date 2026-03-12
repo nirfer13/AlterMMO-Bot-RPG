@@ -159,7 +159,7 @@ class message(commands.Cog, name="spawnBoss"):
         """Spawns an event.."""
 
         print("Spawning event task starting...")
-        global EVENT_ALIVE, EVENT_TYPE, BOSSALIVE, BUSY
+        global EVENT_ALIVE, EVENT_TYPE, BOSSALIVE, BUSY, BOSSRARITY
         EVENT_ALIVE = 0
         EVENT_TYPE = EventType.NONE
 
@@ -245,9 +245,10 @@ class message(commands.Cog, name="spawnBoss"):
                     BUSY = 0
                 elif EVENT_TYPE == EventType.RITUAL:
                     EVENT_ALIVE = 1
-                    success = await functions_events.spawn_ritual(self, ctx)
+                    success, k = await functions_events.spawn_ritual(self, ctx)
                     if success:
                         BOSSALIVE = 4
+                        BOSSRARITY = k
                     EVENT_ALIVE = 0
                     BUSY = 0
             elif BOSSALIVE > 2:
