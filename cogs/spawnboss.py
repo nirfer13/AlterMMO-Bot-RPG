@@ -155,11 +155,11 @@ class message(commands.Cog, name="spawnBoss"):
             await asyncio.sleep(35)
 
 
-    async def spawn_event(self, ctx):   
+    async def spawn_event(self, ctx):
         """Spawns an event.."""
 
         print("Spawning event task starting...")
-        global EVENT_ALIVE, EVENT_TYPE, BOSSALIVE, BUSY, BOSSRARITY
+        global EVENT_ALIVE, EVENT_TYPE, BOSSALIVE, BUSY, BOSSRARITY, is_player_boss, player_boss
         EVENT_ALIVE = 0
         EVENT_TYPE = EventType.NONE
 
@@ -245,8 +245,10 @@ class message(commands.Cog, name="spawnBoss"):
                     BUSY = 0
                 elif EVENT_TYPE == EventType.RITUAL:
                     EVENT_ALIVE = 1
-                    success, k = await functions_events.spawn_ritual(self, ctx)
+                    success, k, l, m = await functions_events.spawn_ritual(self, ctx)
                     if success:
+                        is_player_boss = l
+                        player_boss = m
                         BOSSALIVE = 4
                         BOSSRARITY = k
                     EVENT_ALIVE = 0
@@ -281,7 +283,7 @@ class message(commands.Cog, name="spawnBoss"):
                     print("Boss Rarity: " + str(BOSSRARITY))
                     await asyncio.sleep(3600)
                 else:
-                    respTime = random.randint(15,24)
+                    respTime = random.randint(75,84)
 
                     BOSSRARITY = functions_boss.fBOSSRARITY(respTime)
                     print("Updating database...")

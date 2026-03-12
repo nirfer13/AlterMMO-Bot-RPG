@@ -690,13 +690,13 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             global initCommand, is_player_boss, player_boss
             initCommand = "zaatakuj"
             is_player_boss, player_boss = await functions_boss.fBossImage(self, ctx, BOSSRARITY)
-            return True, BOSSRARITY
+            return True, BOSSRARITY, is_player_boss, player_boss
         else:
             image_name = "events/ritual/4.png"
             file=discord.File(image_name)
             await ctx.send(file=file)
             await ctx.send('Rytuał przywołania nie powiódł się... <:Sadge:936907659142111273>')
-            return False
+            return False, 0, False, "Alter"
 
 
 def setup(bot):
