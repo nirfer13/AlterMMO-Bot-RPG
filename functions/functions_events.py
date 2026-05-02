@@ -430,7 +430,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         print("Before")
         await msg.add_reaction("<:2Head:882184634572627978>")
         print("1")
-        await msg.add_reaction("<:5head:882184634786521149>")
+        await msg.add_reaction("<:Nerdge:984770661702578227>")
         print("After")
 
         if DebugMode:
@@ -439,7 +439,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             timeout = 600
 
         emotes_list = ["<:2Head:882184634572627978>",
-                        "<:5head:882184634786521149>"]
+                        "<:Nerdge:984770661702578227>"]
 
         emote = random.choice(emotes_list)
 

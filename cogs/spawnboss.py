@@ -187,10 +187,10 @@ class message(commands.Cog, name="spawnBoss"):
                           EventType.RITUAL]
 
             if ((hour in ["18", "19", "20", "21"]) or (day in ["Sun", "Sat"])) and not DebugMode:
-                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1, 2, 2))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(1, 1, 2, 1, 1, 1, 1, 2, 0))[0]
                 #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
             else:
-                EVENT_TYPE = random.choices(event_list, weights=(2, 2, 1, 0, 2, 2, 2, 0, 1))[0]
+                EVENT_TYPE = random.choices(event_list, weights=(2, 2, 1, 0, 2, 2, 2, 0, 0))[0]
                 #EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 1))[0]
 
             if DebugMode:
@@ -253,12 +253,13 @@ class message(commands.Cog, name="spawnBoss"):
                         BOSSRARITY = k
                     EVENT_ALIVE = 0
                     BUSY = 0
+                print("Event finished properly.")
             elif BOSSALIVE > 2:
-                print("Boss spawned. Skip.")
+                print("Event. Boss spawned. Skip.")
             elif BUSY == 1:
-                print("Bot busy, skip.")
+                print("Event. Bot busy, skip.")
             else:
-                print("Unknow state of event.")
+                print("Event. Unknow state of event.")
 
     #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
