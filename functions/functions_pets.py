@@ -185,7 +185,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     file = discord.File(path, filename=filename)
                     embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
                     embed.set_image(url=f"attachment://{filename}")
-                    await ctx.send(file=file, embed=embed)
+                    async with ctx.typing():
+                        await ctx.send(file=file, embed=embed)
                 else:
                     #Check if pet has name
                     if pet_data[0][6] == "Bear":
@@ -297,7 +298,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     file = discord.File(path, filename=filename)
                     embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
                     embed.set_image(url=f"attachment://{filename}")
-                    await ctx.send(file=file, embed=embed)
+                    async with ctx.typing():
+                        await ctx.send(file=file, embed=embed)
 
             else:
                 await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(player.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
@@ -314,9 +316,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             player = guild.get_member(user.id)
 
         percentage = random.randint(0,1000)
-        shiny = percentage >= 950
-        ultra_shiny = percentage >= 990
-        mythic = percentage == 1000
+        shiny = percentage >= 900
+        ultra_shiny = percentage >= 980
+        mythic = percentage >= 998
 
         if mythic:
             pets_list = [PetType.VOID]

@@ -40,6 +40,7 @@ Dostępne komendy (dla wszystkich):
 - $mocneodrodzenie - Bardziej zaawansowany sposób przelosowania statystyk.
 - $oswiecenie - Zwiększa talent towarzysza.
 - $rankingtowarzyszy - Lista najbardziej utalentowanych towarzyszy. Skrót $rt.
+- $zabojca - Wynajmuje zabójcę na jednego z graczy w rankingu.
                                         
 - $pokażumiejętność - Prezentuje klejnot umiejetności, który aktualnie posiadasz. Skrót $pu.
 - $użyjumiejętność - Powoduje użycie klejnotu umiejętności. Skrót $uu.

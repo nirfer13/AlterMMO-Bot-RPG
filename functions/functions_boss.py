@@ -673,7 +673,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
     #DUEL
     #fight between two players
     global duelFight
-    async def duelFight(self, ctx, participiants):
+    async def duelFight(self, ctx, participiants, ban: bool = True):
 
         dueler_1 = participiants[0]
         dueler_2 = participiants[1]
@@ -911,7 +911,8 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
                 # Loser
                 await functions_database.updateRankingTable(self, ctx, participiants[1-fighter_number].id, 2, -12)
-                await setDeadPlayers(self, ctx, participiants[1-fighter_number].id)
+                if ban:
+                    await setDeadPlayers(self, ctx, participiants[1-fighter_number].id)
 
                 return True, current_fighter
 
@@ -1288,6 +1289,18 @@ class functions_boss(commands.Cog, name="functions_boss"):
         print("Dead hunter role granted.")
         chatChannel = self.bot.get_channel(776379796367212594)
         await chatChannel.send("Na kanale <#970684202880204831> poległeś z ręki drugiego gracza <@" + str(userID) + ">, a groziło to banem... <:RIP:912797982917816341> Musisz odpocząć od przygód aż do momentu zabicia następnego bossa.")
+
+    global setDeadAssassin
+    async def setDeadAssassin(self, ctx, userID):
+        my_role = discord.utils.get(ctx.guild.roles, id=1091050836303544402)
+        members = my_role.members
+        print(my_role)
+        guild = self.bot.get_guild(686137998177206281)
+        user = guild.get_member(int(userID))
+        await user.add_roles(my_role)
+        print("Dead hunter role granted.")
+        chatChannel = self.bot.get_channel(776379796367212594)
+        await chatChannel.send("Na kanale <#970684202880204831> poległeś z ręki zabójcy <@" + str(userID) + ">, a groziło to banem... <:RIP:912797982917816341> Musisz odpocząć od przygód aż do momentu zabicia następnego bossa.")
 
 
     #function to add Boss Slayer role
