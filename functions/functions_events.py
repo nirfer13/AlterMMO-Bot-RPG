@@ -704,7 +704,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         random_player = random.choice(dbRankingRead)
         target_id = random_player["id"] if "id" in random_player else random_player[0]
 
-        await functions_boss.setDeadHunters(self, ctx, target_id)
+        await functions_boss.setDeadAssassin(self, ctx, target_id)
 
         await ctx.channel.send(
             f"Zabójca wykonał zlecenie. Ofiarą został <@{target_id}> "
