@@ -571,11 +571,17 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             recordTime = endTime - startTime
                             recordTurnTime = recordTime/bossHP
 
+                            total_time = round(recordTime.total_seconds(), 2)
+                            avg_turn_time = round(recordTurnTime.total_seconds(), 2)
+
                             # Achievements - Quickness
                             if int(recordTurnTime.total_seconds()) < 2:
                                 await functions_achievements.quickness(self, ctx, bossHunterID)
 
-                            await ctx.channel.send('Zabicie bossa zajęło Ci: ' + str(recordTime).lstrip('0:00:') + ' sekundy! Jedna tura zajęła Ci średnio ' + str(recordTurnTime).lstrip('0:00:') + ' sekundy!')
+                            await ctx.channel.send(
+                                f"Zabicie bossa zajęło Ci: {total_time:.2f} sekundy! "
+                                f"Jedna tura zajęła Ci średnio {avg_turn_time:.2f} sekundy!"
+                            )
                             previousRecord, Nick = await functions_database.readRecordTable(self, ctx)
 
                             if datetime.datetime.strptime(previousRecord, "%H:%M:%S.%f") > datetime.datetime.strptime(str(recordTurnTime), "%H:%M:%S.%f"):

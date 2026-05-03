@@ -46,7 +46,7 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
         await ctx.send(embed=embed)
 
     global random_modifiers
-    async def random_modifiers(self, ctx, msg: True):
+    async def random_modifiers(self, ctx, msg: bool = True, sacrefice: bool = False):
         """Random modifiers and save it to the file."""
 
         modifiers ={
@@ -62,6 +62,13 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
         "reset_cd": 0,
         }
 
+        if sacrefice:
+            title = "Poświęcono towarzysza!"
+            base_desc = "Poświęcenie sprawiło, że "
+        else:
+            title = 'Błogosławieństwo kapliczki!'
+            base_desc = "Modlitwa w kapliczce sprawiła, że "
+
         repeat = True
         while repeat:
             modifier = random.choice(list(modifiers.keys()))
@@ -69,69 +76,75 @@ class FunctionsModifiers(commands.Cog, name="FunctionsModifiers"):
             if modifier == "hp_reduced_perc":
                 repeat = False
                 random_value = random.randint(5, 15)
-                desc = "Modlitwa w kapliczce sprawiła, że "\
+                desc = base_desc + \
                 "następny boss i potwory **będą miały o " + str(random_value) + "% mniej życia!**"
             elif modifier == "hp_boost_perc":
                 repeat = False
                 random_value = random.randint(5, 15)
-                desc = "Modlitwa w kapliczce sprawiła, że "\
+                desc = base_desc + \
                 "następny boss i potwory **będą miały o " + str(random_value) + "% więcej życia!**"
             elif modifier == "rarity_boost":
                 repeat = False
                 random_value = 1
-                desc = "Modlitwa w kapliczce sprawiła, że "\
+                desc = base_desc + \
                 "następny boss **będzie o " + str(random_value) + " poziom rzadszy!**"
             elif modifier == "drop_boost_perc":
                 repeat = False
                 random_value = random.randint(5, 25)
-                desc = "Modlitwa w kapliczce sprawiła, że "\
+                desc = base_desc + \
                 "następny boss **będzie miał o " + str(random_value) + "% rzadsze przedmioty!**"
             elif modifier == "player_id":
                 loaded_modifiers = await load_modifiers(self, ctx)
                 if loaded_modifiers["player_id"] == 0:
                     repeat = False
                     random_value = ctx.author.id
-                    desc = "Modlitwa w kapliczce sprawiła, że "\
+                    desc = base_desc + \
                     "**zostaniesz następnym bossem i potworami <@" + str(ctx.author.id) + ">!**"
                 else:
                     random_value = loaded_modifiers["player_id"]
-                    desc = "Modlitwa nie odnosi żadnego skutku..."
+                    if sacrefice:
+                        desc = "Poświęcenie nic nie dało..."
+                    else:
+                        desc = "Modlitwa nie odnosi żadnego skutku..."
             elif modifier == "ban_loser":
                 loaded_modifiers = await load_modifiers(self, ctx)
                 if loaded_modifiers["ban_loser"] == 0:
                     repeat = False
                     random_value = 1
-                    desc = "Modlitwa w kapliczce sprawiła, że "\
+                    desc = base_desc + \
                     "**następny gracz, który przegra z bossem lub potworami zostanie zbanowany do następnego bossa!**"
                 else:
                     random_value = loaded_modifiers["ban_loser"]
-                    desc = "Modlitwa nie odnosi żadnego skutku..."
+                    if sacrefice:
+                        desc = "Poświęcenie nic nie dało..."
+                    else:
+                        desc = "Modlitwa nie odnosi żadnego skutku..."
             elif modifier == "time_reduced_perc":
                 repeat = False
                 random_value = random.randint(5, 25)
-                desc = "Modlitwa w kapliczce sprawiła, że "\
+                desc = base_desc + \
                 "podczas walki z następnym bossem i potworami **będzie o " + str(random_value) + "% mniej czasu na reakcję!**"
             elif modifier == "time_increased_perc":
                 repeat = False
                 random_value = random.randint(5, 25)
-                desc = "Modlitwa w kapliczce sprawiła, że "\
+                desc = base_desc + \
                 "podczas walki z następnym bossem i potworami **będzie o " + str(random_value) + "% więcej czasu na reakcję!**"
             elif modifier == "points_boost":
                 repeat = False
                 random_value = random.randint(1, 5)
-                desc = "Modlitwa w kapliczce sprawiła, że "\
+                desc = base_desc + \
                 "za wygraną z kolejnym bossem **będzie o " + str(random_value) + " więcej punktów!**"
             elif modifier == "reset_cd":
                 repeat = False
                 random_value = 1
                 await functions_daily.clear_daily_file(self)
-                desc = "Modlitwa w kapliczce sprawiła, że "\
+                desc = base_desc + \
                 "**wszyscy bohaterowie są wypoczęci i mogą wyruszyć na polowanie!**"
 
         if modifier != "reset_cd":
             await modify_modifiers(self, ctx, modifier, random_value)
 
-        title = 'Błogosławieństwo kapliczki!'
+        
         #Embed create
         embed=discord.Embed(title=title,
                             url='https://www.altermmo.pl/wp-content/uploads/Prayge.png',

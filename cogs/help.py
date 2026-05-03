@@ -33,8 +33,8 @@ Dostępne komendy (dla wszystkich):
 - $towarzysz - Sprawdź swojego towarzysza. Skrót $t.
 - $porzucam - Porzucasz obecnego towarzysza.
 - $nazwij "Nowe imię" - Nazywasz swojego towarzysza.
-- $schowajtowarzysza numer_slota - Chowa towarzysza do stajni i do podanego slota (1 lub 2). Skrót $st.
-- $wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1 lub 2). Skrót $wt.
+- $schowajtowarzysza numer_slota - Chowa towarzysza do stajni i do podanego slota (1-4). Skrót $st.
+- $wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1-4). Skrót $wt.
 - $stajnia - Sprawdza stajnie z towarzyszami. Skrót $s.
 - $odrodzenie - Przelosowuje wszystkie statystyki aktualnie wybranego towarzysza,
 - $mocneodrodzenie - Bardziej zaawansowany sposób przelosowania statystyk.

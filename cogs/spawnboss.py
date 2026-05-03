@@ -3,10 +3,12 @@ import random
 import sys
 from datetime import datetime, timedelta
 from logging import DEBUG
+from zoneinfo import ZoneInfo
 
 import discord
 from discord.ext import commands
 from enum import Enum
+
 
 from functions.functions_boss import fRandomBossHp
 
@@ -52,6 +54,7 @@ class EventType(Enum):
     HAZARD = 7
     DUEL = 8
     RITUAL = 9
+    PVPTOURNAMENT = 10
 
 global EVENT_TYPE
 EVENT_TYPE = EventType.NONE
@@ -75,7 +78,7 @@ class message(commands.Cog, name="spawnBoss"):
         #Choose channel to spawn boss
         global ctx
         if DebugMode is True:
-            ctx = await functions_boss.getContext(self, 970571647226642442, 1125837611299254383)
+            ctx = await functions_boss.getContext(self, 970571647226642442, 1500453288527532184)
         else:
             ctx = await functions_boss.getContext(self, 970684202880204831, 1437176053842841610)
 
@@ -260,6 +263,59 @@ class message(commands.Cog, name="spawnBoss"):
                 print("Event. Bot busy, skip.")
             else:
                 print("Event. Unknow state of event.")
+
+    async def pvp_tournament_scheduler(self, ctx):
+        """Runs PvP Tournament every Saturday exactly at 19:00 Europe/Warsaw."""
+
+        global EVENT_ALIVE, EVENT_TYPE, BOSSALIVE, BUSY
+
+        while True:
+            now = datetime.now(ZoneInfo("Europe/Warsaw"))
+
+            # Calculate the next Saturday at 19:00
+            days_until_saturday = (5 - now.weekday()) % 7
+            next_run = now.replace(hour=19, minute=0, second=0, microsecond=0) + timedelta(days=days_until_saturday)
+
+            # If current time is already past this week's event time, schedule next week
+            if next_run <= now:
+                next_run += timedelta(days=7)
+
+            sleep_seconds = (next_run - now).total_seconds()
+
+            print(f"Next PvP Tournament scheduled for: {next_run}")
+            await asyncio.sleep(sleep_seconds)
+
+            print("PvP Tournament time reached. Waiting for free state...")
+
+            # Wait until bot is free
+            while True:
+                if EVENT_ALIVE == 0 and BUSY == 0 and BOSSALIVE in [0, 1, 2]:
+                    break
+
+                print(
+                    f"Waiting... EVENT_ALIVE={EVENT_ALIVE}, BUSY={BUSY}, BOSSALIVE={BOSSALIVE}"
+                )
+                await asyncio.sleep(30)  # Check every 30 seconds
+
+            print("Starting scheduled PvP Tournament.")
+
+            EVENT_ALIVE = 1
+            EVENT_TYPE = EventType.PVPTOURNAMENT
+            BUSY = 1
+
+            try:
+                await functions_general.fClear(self, ctx)
+                await functions_events.spawn_pvp_tournament(self, ctx)
+
+            except Exception as e:
+                print(f"PvP Tournament error: {e}")
+
+            finally:
+                EVENT_ALIVE = 0
+                EVENT_TYPE = EventType.NONE
+                BUSY = 0
+
+            print("Scheduled PvP Tournament finished properly.")
 
     #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
@@ -524,7 +580,7 @@ class message(commands.Cog, name="spawnBoss"):
     async def storepet_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send("Po spacji podaj numer miejsca w stajni, do którego chcesz schować " +
-                           "towarzysza (1 lub 2) np. **$schowajtowarzysza 1**.")
+                           "towarzysza (1-4) np. **$schowajtowarzysza 1**.")
     
     @commands.command(name="wyciagnijtowarzysza",
                       aliases=['wyciągnijtowarzysza', "wyciągnij", "wyciagnij", "wt"],
@@ -538,7 +594,7 @@ class message(commands.Cog, name="spawnBoss"):
     async def unstorepet_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send("Po spacji podaj numer miejsca w stajni, z którego chcesz wyjąć " +
-                           "towarzysza (1 lub 2) np. **$wyciagnijtowarzysza 1**.")
+                           "towarzysza (1-4) np. **$wyciagnijtowarzysza 1**.")
 
     @commands.command(name="stajnia", aliases=["s"], brief="Show player's stable.")
     async def check_stable(self, ctx):
@@ -771,7 +827,7 @@ class message(commands.Cog, name="spawnBoss"):
         #await self.bot.pg_con.execute(sql)
 
         sql ='''ALTER TABLE PETS
-        ADD ULTRA_SHINY BOOL DEFAULT False;
+        ADD MYTHIC BOOL DEFAULT False;
         '''
         await self.bot.pg_con.execute(sql)
 
