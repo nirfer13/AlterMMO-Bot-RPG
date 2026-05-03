@@ -18,22 +18,22 @@ class functions_general(commands.Cog, name="functions_general"):
         #     count += 1
         # if count > 1:
         #     await channel.purge(limit=count-1)
-        channel = ctx.channel
+        try:
+            channel = ctx.channel
 
-        messages = [msg async for msg in channel.history(limit=1000, oldest_first=True)]
+            messages = [msg async for msg in channel.history(limit=1000, oldest_first=True)]
+            if len(messages) <= 1:
+                return
 
-        if len(messages) <= 1:
-            return
+            messages_to_delete = [
+                msg for msg in messages[1:]
+                if not msg.pinned
+            ]
 
-        first_message = messages[0]
-
-        messages_to_delete = [
-            msg for msg in messages[1:]
-            if not msg.pinned
-        ]
-
-        if messages_to_delete:
-            await channel.delete_messages(messages_to_delete)
+            print(len(messages_to_delete))
+            await channel.purge(limit=None, check=lambda m: m in messages_to_delete)
+        except Exception as e:
+            print("Problem with deleting messages %s", e)
 
     global victory_bar
     def victory_bar(a: int, b: int, length: int = 20) -> str:

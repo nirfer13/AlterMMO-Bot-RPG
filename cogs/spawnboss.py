@@ -327,13 +327,13 @@ class message(commands.Cog, name="spawnBoss"):
 
     async def wait_until_not_busy(self):
         """Wait until bot is no longer busy."""
-        global BUSY
-
+        global BUSY, EVENT_ALIVE
         while BUSY == 1 or EVENT_ALIVE == 1:
             print(
                 f"Boss spawn. Waiting... BUSY={BUSY}, EVENT_ALIVE={EVENT_ALIVE}"
             )
             await asyncio.sleep(30)
+        return True
 
     #define Spawn BIG Boss task
     async def task(self, ctx):
@@ -346,7 +346,10 @@ class message(commands.Cog, name="spawnBoss"):
             global BUSY
             global respawnResume
 
-            #=== Episode 0
+            print("global initialized")
+            print(BOSSALIVE)
+
+            # === Episode 0
             if BOSSALIVE == 0:
                 print("Preparing to channel clear. BOSSALIVE = 0")
                 BOSSALIVE = 1
@@ -391,9 +394,7 @@ class message(commands.Cog, name="spawnBoss"):
             else:
                 if BOSSALIVE == 1:
                     BOSSALIVE = 2
-
                     await self.wait_until_not_busy()
-
                     await functions_general.fClear(self, ctx)
                     print("Channel cleared. BOSSALIVE = 1. Resuming.")
                     print("Resume resp time: " + str(respTime))
