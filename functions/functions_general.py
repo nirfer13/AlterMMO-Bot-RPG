@@ -10,12 +10,30 @@ class functions_general(commands.Cog, name="functions_general"):
     #function to clear
     global fClear
     async def fClear(self, ctx):
+
+        # OLD VERSION
+        # channel = ctx.channel
+        # count = 0
+        # async for _ in channel.history(limit=None):
+        #     count += 1
+        # if count > 1:
+        #     await channel.purge(limit=count-1)
         channel = ctx.channel
-        count = 0
-        async for _ in channel.history(limit=None):
-            count += 1
-        if count > 1:
-            await channel.purge(limit=count-1)
+
+        messages = [msg async for msg in channel.history(limit=1000, oldest_first=True)]
+
+        if len(messages) <= 1:
+            return
+
+        first_message = messages[0]
+
+        messages_to_delete = [
+            msg for msg in messages[1:]
+            if not msg.pinned
+        ]
+
+        if messages_to_delete:
+            await channel.delete_messages(messages_to_delete)
 
     global victory_bar
     def victory_bar(a: int, b: int, length: int = 20) -> str:

@@ -3,10 +3,12 @@ import random
 import sys
 from datetime import datetime, timedelta
 from logging import DEBUG
+from zoneinfo import ZoneInfo
 
 import discord
 from discord.ext import commands
 from enum import Enum
+
 
 from functions.functions_boss import fRandomBossHp
 
@@ -52,6 +54,7 @@ class EventType(Enum):
     HAZARD = 7
     DUEL = 8
     RITUAL = 9
+    PVPTOURNAMENT = 10
 
 global EVENT_TYPE
 EVENT_TYPE = EventType.NONE
@@ -75,7 +78,7 @@ class message(commands.Cog, name="spawnBoss"):
         #Choose channel to spawn boss
         global ctx
         if DebugMode is True:
-            ctx = await functions_boss.getContext(self, 970571647226642442, 1125837611299254383)
+            ctx = await functions_boss.getContext(self, 970571647226642442, 1500473201312923799)
         else:
             ctx = await functions_boss.getContext(self, 970684202880204831, 1437176053842841610)
 
@@ -88,6 +91,9 @@ class message(commands.Cog, name="spawnBoss"):
 
         #Chest spawn task create
         self.task3 = self.bot.loop.create_task(self.spawn_event(ctx))
+
+        #PvP tournament task create
+        self.task4 = self.bot.loop.create_task(self.pvp_tournament_scheduler(ctx))
 
         #Check if it is necessary to resume boss spawn
         print("Resume?: " + str(respawnResume))
@@ -261,6 +267,74 @@ class message(commands.Cog, name="spawnBoss"):
             else:
                 print("Event. Unknow state of event.")
 
+    async def pvp_tournament_scheduler(self, ctx):
+        """Runs PvP Tournament every Saturday exactly at 19:00 Europe/Warsaw."""
+
+        global EVENT_ALIVE, EVENT_TYPE, BOSSALIVE, BUSY
+
+        print("PVP Tournament loop started!")
+        while True:
+            now = datetime.now(ZoneInfo("Europe/Warsaw"))
+
+            # Calculate the next Saturday at 19:00
+            if DebugMode:
+                days_until_saturday = (6 - now.weekday()) % 7
+                next_run = now.replace(hour=15, minute=25, second=0, microsecond=0) + timedelta(days=days_until_saturday)
+            else:
+                days_until_saturday = (5 - now.weekday()) % 7
+                next_run = now.replace(hour=19, minute=0, second=0, microsecond=0) + timedelta(days=days_until_saturday)
+
+            # If current time is already past this week's event time, schedule next week
+            if next_run <= now:
+                next_run += timedelta(days=7)
+
+            sleep_seconds = (next_run - now).total_seconds()
+
+            print(f"Next PvP Tournament scheduled for: {next_run}")
+            await asyncio.sleep(sleep_seconds)
+
+            print("PvP Tournament time reached. Waiting for free state...")
+
+            # Wait until bot is free
+            while True:
+                if EVENT_ALIVE == 0 and BUSY == 0 and BOSSALIVE in [0, 1, 2]:
+                    break
+
+                print(
+                    f"Waiting... EVENT_ALIVE={EVENT_ALIVE}, BUSY={BUSY}, BOSSALIVE={BOSSALIVE}"
+                )
+                await asyncio.sleep(30)  # Check every 30 seconds
+
+            print("Starting scheduled PvP Tournament.")
+
+            EVENT_ALIVE = 1
+            EVENT_TYPE = EventType.PVPTOURNAMENT
+            BUSY = 1
+
+            try:
+                await functions_general.fClear(self, ctx)
+                await functions_events.spawn_pvp_tournament(self, ctx)
+
+            except Exception as e:
+                print(f"PvP Tournament error: {e}")
+
+            finally:
+                EVENT_ALIVE = 0
+                EVENT_TYPE = EventType.NONE
+                BUSY = 0
+
+            print("Scheduled PvP Tournament finished properly.")
+
+    async def wait_until_not_busy(self):
+        """Wait until bot is no longer busy."""
+        global BUSY
+
+        while BUSY == 1 or EVENT_ALIVE == 1:
+            print(
+                f"Boss spawn. Waiting... BUSY={BUSY}, EVENT_ALIVE={EVENT_ALIVE}"
+            )
+            await asyncio.sleep(30)
+
     #define Spawn BIG Boss task
     async def spawn_task(self, ctx):
         while True:
@@ -270,6 +344,7 @@ class message(commands.Cog, name="spawnBoss"):
             global EVENT_ALIVE
             global BUSY
             global respawnResume
+
             #=== Episode 0
             if BOSSALIVE == 0:
                 print("Preparing to channel clear. BOSSALIVE = 0")
@@ -298,85 +373,114 @@ class message(commands.Cog, name="spawnBoss"):
             if respawnResume is False:
                 if BOSSALIVE == 1:
                     BOSSALIVE = 2
+
+                    await self.wait_until_not_busy()
+
                     await functions_general.fClear(self, ctx)
                     print("Channel cleared. BOSSALIVE = 1")
-                    async with ctx.typing():
-                        await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
 
-                    await asyncio.sleep(respTime)  # time in seconds
+                    async with ctx.typing():
+                        await ctx.channel.send(
+                            'Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...'
+                        )
+
+                    await asyncio.sleep(respTime)
 
             #Resume Spawn
             else:
                 if BOSSALIVE == 1:
                     BOSSALIVE = 2
 
-                    wait_loop = 0
-                    while BUSY == 1 and wait_loop <= 60:
-                        print("Waiting in loop, beacuse bot BUSY")
-                        await asyncio.sleep(15)
-                        wait_loop += 1
+                    await self.wait_until_not_busy()
+
                     await functions_general.fClear(self, ctx)
                     print("Channel cleared. BOSSALIVE = 1. Resuming.")
                     print("Resume resp time: " + str(respTime))
                     print("Resume boss Rarity: " + str(BOSSRARITY))
+
                     async with ctx.typing():
-                        await ctx.channel.send('Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...')
-                    await asyncio.sleep(respTime)  # time in seconds
+                        await ctx.channel.send(
+                            'Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu...'
+                        )
+
+                    await asyncio.sleep(respTime)
 
             #=== Episode 2 - Before fight
             if BOSSALIVE == 2:
                 BOSSALIVE = 3
 
-                # Load all modifiers from file
+                await self.wait_until_not_busy()
+
                 modifiers = await functions_modifiers.load_modifiers(self, ctx)
                 BOSSRARITY += modifiers["rarity_boost"]
+
                 if BOSSRARITY > 4:
                     BOSSRARITY = 4
 
-                # If early hour then reduce boss rarity to epic
-                timestamp = (datetime.utcnow() + timedelta(hours=2))
+                timestamp = datetime.utcnow() + timedelta(hours=2)
                 hour = timestamp.strftime("%H")
                 day = timestamp.strftime("%a")
 
-                if BOSSRARITY == 3 and not (hour == "16" or hour == "17" or hour == "18" or hour == "19" or hour == "20" or hour == "21" or hour == "22") and not (day == "Sun" or day == "Sat") and not DebugMode:
+                if (
+                    BOSSRARITY == 3
+                    and hour not in ["16", "17", "18", "19", "20", "21", "22"]
+                    and day not in ["Sun", "Sat"]
+                    and not DebugMode
+                ):
                     BOSSRARITY = 4
 
-                # Detection skill
                 await functions_pets.detect_boss(self, BOSSRARITY)
-                print("After dection.")
-                #Channel Clear
-                print("Channel cleared. BOSSALIVE = 2")
-                async with ctx.typing():
-                    await ctx.channel.send('Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>')
-                if DebugMode is False:
-                    await asyncio.sleep(random.randint(4,7)*60)  # time in second
-                else:
-                    await asyncio.sleep(random.randint(3,10))  # time in second
+                print("After detection.")
 
-            #=== Episode 3 - Boss respawn
+                print("Channel cleared. BOSSALIVE = 2")
+
+                async with ctx.typing():
+                    await ctx.channel.send(
+                        'Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, '
+                        'a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>'
+                    )
+
+                if DebugMode is False:
+                    await asyncio.sleep(random.randint(4, 7) * 60)
+                else:
+                    await asyncio.sleep(random.randint(3, 10))
+
+            # === Episode 3 - Boss respawn
             if BOSSALIVE == 3:
+                await self.wait_until_not_busy()
+
                 print("Channel cleared.")
+
                 EVENT_ALIVE = 0
-                BUSY = 0
+                BUSY = 1
+
                 await functions_general.fClear(self, ctx)
+
                 print("Boss appeared.")
-                #Send info about boss spawn
+
                 try:
                     await generalSpawnMessage.delete()
                     print("Message deleted.")
                 except:
                     print("No general message to delete.")
+
                 if DebugMode is False:
                     chatChannel = self.bot.get_channel(696932659833733131)
-                    generalSpawnMessage = await chatChannel.send("Na kanale <#970684202880204831> pojawił się właśnie potwór! Zabijcie go, żeby zgarnąć nagrody!")
                 else:
                     chatChannel = self.bot.get_channel(881090112576962560)
-                    generalSpawnMessage = await chatChannel.send("Na kanale <#970684202880204831> pojawił się właśnie potwór! Zabijcie go, żeby zgarnąć nagrody!")
-                #Send boss image based on rarity
+
+                generalSpawnMessage = await chatChannel.send(
+                    "Na kanale <#970684202880204831> pojawił się właśnie potwór! "
+                    "Zabijcie go, żeby zgarnąć nagrody!"
+                )
+
                 global initCommand, is_player_boss, player_boss
+
                 initCommand = "zaatakuj"
                 is_player_boss, player_boss = await functions_boss.fBossImage(self, ctx, BOSSRARITY)
+
                 BOSSALIVE = 4
+                BUSY = 0
             else:
                 await asyncio.sleep(5) #sleep for a while
 
@@ -487,6 +591,18 @@ class message(commands.Cog, name="spawnBoss"):
         if BUSY == 0:
             await functions_pets.discard_pet(self, ctx)
 
+    @commands.command(name="zabojca", aliases=['asasyn', 'zabójca'], brief="Assinate the ranking player.")
+    @commands.cooldown(1, 60*60*23, commands.BucketType.user)
+    async def assassinate(self, ctx):
+        await functions_events.assasinate(self, ctx)
+
+    @assassinate.error
+    async def assassinatecommand_cooldown(self, ctx, error):
+        if isinstance(error, commands.CommandOnCooldown):
+            print("Command on cooldown.")
+            await ctx.send('Poczekaj na odnowienie komendy! Zostało ' + str(round(error.retry_after/60/60, 2)) + ' godzin/y <:Bedge:970576892874854400>.')
+
+
     @commands.command(name="odrodzenie", aliases=['odr', 'o'], brief="Reroll the pet.")
     async def reroll_pet(self, ctx):
         global BUSY
@@ -524,7 +640,7 @@ class message(commands.Cog, name="spawnBoss"):
     async def storepet_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send("Po spacji podaj numer miejsca w stajni, do którego chcesz schować " +
-                           "towarzysza (1 lub 2) np. **$schowajtowarzysza 1**.")
+                           "towarzysza (1-4) np. **$schowajtowarzysza 1**.")
     
     @commands.command(name="wyciagnijtowarzysza",
                       aliases=['wyciągnijtowarzysza', "wyciągnij", "wyciagnij", "wt"],
@@ -538,7 +654,7 @@ class message(commands.Cog, name="spawnBoss"):
     async def unstorepet_error(self, ctx, error):
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send("Po spacji podaj numer miejsca w stajni, z którego chcesz wyjąć " +
-                           "towarzysza (1 lub 2) np. **$wyciagnijtowarzysza 1**.")
+                           "towarzysza (1-4) np. **$wyciagnijtowarzysza 1**.")
 
     @commands.command(name="stajnia", aliases=["s"], brief="Show player's stable.")
     async def check_stable(self, ctx):
@@ -771,7 +887,7 @@ class message(commands.Cog, name="spawnBoss"):
         #await self.bot.pg_con.execute(sql)
 
         sql ='''ALTER TABLE PETS
-        ADD ULTRA_SHINY BOOL DEFAULT False;
+        ADD MYTHIC BOOL DEFAULT False;
         '''
         await self.bot.pg_con.execute(sql)
 
@@ -923,6 +1039,7 @@ class message(commands.Cog, name="spawnBoss"):
             pass
         try:
             self.task3.cancel()
+            self.task4.cancel()
         except Exception:
             pass
         await functions_modifiers.init_modifiers(self, ctx)
@@ -930,6 +1047,7 @@ class message(commands.Cog, name="spawnBoss"):
 
         self.task = self.bot.loop.create_task(self.spawn_task(ctx))
         self.task3 = self.bot.loop.create_task(self.spawn_event(ctx))
+        self.task4 = self.bot.loop.create_task(self.pvp_tournament_scheduler(ctx))
         await ctx.channel.send("Boss reset.")
 
 

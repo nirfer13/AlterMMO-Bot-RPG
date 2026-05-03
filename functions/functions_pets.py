@@ -33,6 +33,8 @@ class PetType(str, Enum):
     MONKEY = 'Monkey'
     EAGLE = 'Eagle'
     GHOST = 'Ghost'
+    
+    VOID = 'Void'
 
 class FunctionsPets(commands.Cog, name="FunctionsPets"):
     """Class with all functions used for pets."""
@@ -76,6 +78,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
            QUALITY VARCHAR(255),
            SHINY BOOLEAN,
            ULTRA_SHINY BOOLEAN,
+           MYTHIC BOOLEAN,
            TYPE VARCHAR(255),
            VARIANT VARCHAR(255),
            CRIT_PERC NUMERIC,
@@ -90,10 +93,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         await self.bot.pg_con.execute(sql)
         print("Table PETS created successfully.")
         print(f"""INSERT INTO PETS
-               (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, ULTRA_SHINY, 
+               (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, ULTRA_SHINY, MYTHIC,
               TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
               LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION) VALUES ({0},\'{'Default'}\',{0},{0},
-              \'{'Standard'}\',{True},{True},\'{'Type'}\',
+              \'{'Standard'}\',{True},{True},{True},\'{'Type'}\',
               \'{0}\',{1},{2},{3},{4},{5},{6},{7},{False});""")
         await self.bot.pg_con.execute(f"""INSERT INTO PETS
                (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,ULTRA_SHINY, 
@@ -137,13 +140,16 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
                 sql = f"""SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY,
                 TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
-                LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION, ULTRA_SHINY FROM PETS
+                LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION, ULTRA_SHINY, MYTHIC FROM PETS
                 WHERE PET_ID = {pet_exists[0][0]};"""
                 pet_data = await self.bot.pg_con.fetch(sql)
                 print(pet_data)
 
-                #Check if pet is shiny
-                if pet_data[0][16]:
+                #Check if pet is shiny/ultrashiny/mythic
+                if pet_data[0][17]:
+                    color = 0xff4815
+                    add_desc = "\n\n*Mityczny towarzysz.*"
+                elif pet_data[0][16]:
                     color = 0xff8d15
                     add_desc = "\n\n*Absolutnie nadzwyczajny towarzysz.*"
                 elif pet_data[0][5]:
@@ -165,16 +171,22 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     #Check if pet is premium
                     if pet_data[0][4] == "Standard":
                         path = f"eggs/standard/{pet_data[0][7]}.png"
+                        filename = f"{pet_data[0][7]}.png"
                     elif pet_data[0][4] == "Premium":
                         path = f"eggs/premium/{pet_data[0][6]}/{pet_data[0][7]}.png"
+                        filename = f"{pet_data[0][7]}.png"
+                    elif pet_data[0][4] == "Mythic":
+                        path = f"eggs/mythic/{pet_data[0][6]}/{pet_data[0][7]}.gif"
+                        filename = f"{pet_data[0][7]}.gif"
 
                     embed = discord.Embed(title=title,
                                         description="Oto Twój towarzysz, <@" + str(player.id) + ">. Opiekuj się nim, a być może kiedyś coś z niego wyrośnie...\n" + scroll_desc + add_desc,
                                         color=color)
-                    file = discord.File(path, filename=f"{pet_data[0][7]}.png")
+                    file = discord.File(path, filename=filename)
                     embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
-                    embed.set_image(url=f"attachment://{pet_data[0][7]}.png")
-                    await ctx.send(file=file, embed=embed)
+                    embed.set_image(url=f"attachment://{filename}")
+                    async with ctx.typing():
+                        await ctx.send(file=file, embed=embed)
                 else:
                     #Check if pet has name
                     if pet_data[0][6] == "Bear":
@@ -210,7 +222,9 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     elif pet_data[0][6] == "Eagle":
                         polish_type = "Orzeł"
                     elif pet_data[0][6] == "Ghost":
-                        polish_type = "Zjawa"    
+                        polish_type = "Zjawa"
+                    elif pet_data[0][6] == "Void":
+                        polish_type = "Istota pustki"
                     else:
                         polish_type = ""
                     if pet_data[0][1] != "Towarzysz":
@@ -218,17 +232,18 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     else:
                         title = f'{polish_type}'
 
-                    #Check if pet is premium
-                    if pet_data[0][4] == "Standard":
-                        path = f"eggs/standard/{pet_data[0][7]}.png"
-                    elif pet_data[0][4] == "Premium":
-                        path = f"eggs/premium/{pet_data[0][6]}/{pet_data[0][7]}.png"
-
                     image_number = pow(10,(int(pet_data[0][2])-1))
                     if image_number == 1:
                         image_number = 0
                     image_number += int(pet_data[0][7])
-                    path = f"pets/{pet_data[0][6]}/{image_number}.png"
+
+                    #Check if pet is premium
+                    if pet_data[0][4] == "Standard" or pet_data[0][4] == "Premium":
+                        path = f"pets/{pet_data[0][6]}/{image_number}.png"
+                        filename = f"{pet_data[0][7]}.png"
+                    elif pet_data[0][4] == "Mythic":
+                        path = f"pets/{pet_data[0][6]}/{image_number}.gif"
+                        filename = f"{image_number}.gif"
 
                     skill_desc = "📜 **STATYSTYKI:**\n"
                     skill_desc += f"Poziom: {pet_data[0][2]}\n"
@@ -255,7 +270,11 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     else:
                         talent = "Boski"
                     skill_desc += f"Talent: {talent}\n"
-                    skill_desc += f"Wygląd: {pet_data[0][4]}\n\n"
+                    if {pet_data[0][4]} == "Mythic":
+                        look_name = "Mityczny"
+                        skill_desc += f"Wygląd: {look_name}\n\n"
+                    else:
+                        skill_desc += f"Wygląd: {pet_data[0][4]}\n\n"
                     if pet_data[0][9] > 0:
                         skill_desc += f"Szansa na zastąpienie ataku: {pet_data[0][9]} %\n"
                     if pet_data[0][8] > 0:
@@ -276,10 +295,11 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     embed = discord.Embed(title=title,
                                         description="Oto Twój towarzysz, <@" + str(player.id) + ">.\n\n" + skill_desc + scroll_desc + add_desc,
                                         color=color)
-                    file = discord.File(path, filename=f"{image_number}.png")
+                    file = discord.File(path, filename=filename)
                     embed.set_footer(text = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś.")
-                    embed.set_image(url=f"attachment://{image_number}.png")
-                    await ctx.send(file=file, embed=embed)
+                    embed.set_image(url=f"attachment://{filename}")
+                    async with ctx.typing():
+                        await ctx.send(file=file, embed=embed)
 
             else:
                 await ctx.channel.send("Niestety jesteś sam jak palec na tym świecie <@" + str(player.id) + "> <:Sadge:936907659142111273> Spróbuj zawalczyć z potworami, a może i są inne sposoby na zdobycie towarzysza?")
@@ -295,7 +315,19 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             guild = self.bot.get_guild(686137998177206281)
             player = guild.get_member(user.id)
 
-        if functions_patrons.check_if_patron(self, ctx, player):
+        percentage = random.randint(0,1000)
+        shiny = percentage >= 900
+        ultra_shiny = percentage >= 980
+        mythic = percentage >= 998
+
+        if mythic:
+            pets_list = [PetType.VOID]
+            if DebugMode:
+                await ctx.channel.send(f"Łowca <@{player.id}> zdobył mitycznego towarzysza! <:POGGERS:936907543849078844>")
+            else:
+                await ctx.channel.send(f"<@&985071779787730944>! Łowca <@{player.id}> zdobył mitycznego towarzysza! <:POGGERS:936907543849078844>")
+
+        elif functions_patrons.check_if_patron(self, ctx, player):
             pets_list = [PetType.BEAR, PetType.BOAR, PetType.CAT,
                          PetType.RABBIT, PetType.SHEEP, PetType.DOG,
                          PetType.EAGLE,
@@ -312,11 +344,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
         pet = random.choice(pets_list)
 
-        percentage = random.randint(0,100)
-        shiny = percentage >= 95
-        ultra_shiny = percentage == 100
-
-        if pet in [PetType.DRAGON,
+        if pet in [PetType.VOID]:
+            quality = "Mythic"
+            variant = 0
+        elif pet in [PetType.DRAGON,
                     PetType.PHOENIX, PetType.UNICORN, PetType.SNAKE,
                     PetType.ANIME_GIRL, PetType.ELEMENTAL, PetType.GUINEA,
                     PetType.SKELETON, PetType.MONKEY, PetType.GHOST]:
@@ -345,6 +376,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         pet_config["QUALITY"] = quality
         pet_config["SHINY"] = shiny
         pet_config["ULTRA_SHINY"] = ultra_shiny
+        pet_config["MYTHIC"] = mythic
         pet_config["TYPE"] = pet
         pet_config["VARIANT"] = variant
 
@@ -360,21 +392,21 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
         print(pet_config)
 
         await self.bot.pg_con.execute(f"""INSERT INTO PETS
-            (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, ULTRA_SHINY,
+            (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, ULTRA_SHINY, MYTHIC, 
             TYPE, VARIANT,
             CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC,
             LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION) VALUES 
             ({pet_config["PET_ID"]},\'{pet_config["PET_NAME"]}\',
             {pet_config["PET_LVL"]},{pet_config["PET_SKILLS"]},
             \'{pet_config["QUALITY"]}\',{pet_config["SHINY"]},
-            {pet_config["ULTRA_SHINY"]},
+            {pet_config["ULTRA_SHINY"]},{pet_config["MYTHIC"]},
             \'{pet_config["TYPE"]}\',\'{pet_config["VARIANT"]}\',
             {pet_config["CRIT_PERC"]},{pet_config["REPLACE_PERC"]},
             {pet_config["DEF_PERC"]},{pet_config["DROP_PERC"]},
             {pet_config["LOWHP_PERC"]},{pet_config["SLOW_PERC"]},
             {pet_config["INIT_PERC"]},{pet_config["DETECTION"]});""")
 
-        print(f"Pet egg generated {pet}, shiny: {shiny}, ultra_shiny: {ultra_shiny}.")
+        print(f"Pet egg generated {pet}, shiny: {shiny}, ultra_shiny: {ultra_shiny}, mythic: {mythic}")
 
         return pet_config["PET_ID"]
 
@@ -424,12 +456,13 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                                             check=check_reroll(player))
                         await confirm_cmd.add_reaction("<:PepoG:790963160528977980>")
 
-                        sql = ("SELECT PET_SKILLS, SHINY, ULTRA_SHINY" +
+                        sql = ("SELECT PET_SKILLS, SHINY, ULTRA_SHINY, MYTHIC" +
                                f" FROM PETS WHERE PET_ID = {pet_id};")
                         pet_data = await self.bot.pg_con.fetch(sql)
                         pet_skills = pet_data[0][0]
                         pet_shiny = pet_data[0][1]
                         pet_ultra_shiny = pet_data[0][2]
+                        pet_mythic = pet_data[0][3]
                         pet_crit_perc = 0
                         pet_replace_perc = 0
                         pet_def_perc = 0
@@ -465,23 +498,31 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                 print(f"Skill: {skill_name}")
                                 if skill_name == "DETECTION" and full_skill_list["DETECTION"]:
                                     pass
+                                elif skill_name == "SLOW_PERC" and full_skill_list["SLOW_PERC"] >= 80:
+                                    pass
                                 else:
                                     if skill_name == "INIT_PERC":
-                                        if pet_ultra_shiny:
+                                        if pet_mythic:
+                                            add_skill_value = random.randint(8, 14)
+                                        elif pet_ultra_shiny:
                                             add_skill_value = random.randint(6, 13)
                                         elif pet_shiny:
                                             add_skill_value = random.randint(5, 10)
                                         else:
                                             add_skill_value = random.randint(5, 8)
                                     elif skill_name == "SLOW_PERC":
-                                        if pet_ultra_shiny:
+                                        if pet_mythic:
+                                            add_skill_value = random.randint(11, 16)
+                                        elif pet_ultra_shiny:
                                             add_skill_value = random.randint(9, 15)
                                         elif pet_shiny:
                                             add_skill_value = random.randint(8, 12)
                                         else:
                                             add_skill_value = random.randint(5, 8)
                                     else:
-                                        if pet_ultra_shiny:
+                                        if pet_mythic:
+                                            add_skill_value = random.randint(8, 12)
+                                        elif pet_ultra_shiny:
                                             add_skill_value = random.randint(6, 11)
                                         elif pet_shiny:
                                             add_skill_value = random.randint(5, 8)
@@ -608,14 +649,27 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
         print("Checking if user has a pet...")
         sql = f"SELECT PET_ID, MIRRORS FROM PETOWNER WHERE PLAYER_ID = {player.id};"
-        pet_exists = await self.bot.pg_con.fetch(sql)
-        
-        pet_id = pet_exists[0][0]
-        mirrors = pet_exists[0][1]
+        pet_owner = await self.bot.pg_con.fetch(sql)
 
-        if pet_exists:
-            if pet_exists[0][0] > 0:
+        if pet_owner:
+            pet_id = pet_owner[0][0]
+            mirrors = pet_owner[0][1]
+
+            if pet_owner[0][0] > 0:
                 print("Pet exists, so we can try to transform.")
+
+                sql = f"SELECT MYTHIC FROM PETS WHERE PET_ID = {pet_id};"
+                pet_exists = await self.bot.pg_con.fetch(sql)
+
+                if not pet_exists:
+                    await ctx.channel.send("Nie znaleziono danych towarzysza.")
+                    return False
+                else:
+                    mythic = pet_exists[0][0]
+                
+                if mythic:
+                    await ctx.channel.send("Mitycznego towarzysza nie można transformować, <@" + str(ctx.author.id) + ">!")
+                    return False
 
                 if mirrors > 0 and functions_patrons.check_if_patron(self, ctx, player):
 
@@ -705,7 +759,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
                     sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC,
                             REPLACE_PERC, DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC,
-                            DETECTION, ULTRA_SHINY FROM PETS WHERE PET_ID = {pet_id};"""
+                            DETECTION, ULTRA_SHINY, MYTHIC FROM PETS WHERE PET_ID = {pet_id};"""
                     pet_stats = await self.bot.pg_con.fetch(sql)
 
                     pet_lvl = pet_stats[0][0]
@@ -722,6 +776,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                     pet_init_perc = pet_stats[0][11]
                     pet_detection = pet_stats[0][12]
                     pet_ultra_shiny = pet_stats[0][13]
+                    pet_mythic = pet_stats[0][14]
 
                     if pet_skills <= 6 and pet_lvl == 3:
 
@@ -751,33 +806,41 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                                         "DETECTION": pet_detection}
 
                             # Check if pet is possible to talent up...
-                            
 
                             add_skill = random.randint(1,3)
                             pet_skills += add_skill
+                            
 
                             for i in range(add_skill):
                                 while True:
                                     skill_name, skill_value = random.choice(list(skill_list.items()))
                                     if skill_name == "DETECTION" and pet_detection:
                                         pass
+                                    elif skill_name == "SLOW_PERC" and pet_slow_perc >= 80:
+                                        pass
                                     else:
                                         if skill_name == "INIT_PERC":
-                                            if pet_ultra_shiny:
+                                            if pet_mythic:
+                                                add_skill_value = random.randint(8, 14)
+                                            elif pet_ultra_shiny:
                                                 add_skill_value = random.randint(6, 13)
                                             elif pet_shiny:
                                                 add_skill_value = random.randint(5, 10)
                                             else:
                                                 add_skill_value = random.randint(5, 8)
                                         elif skill_name == "SLOW_PERC":
-                                            if pet_ultra_shiny:
+                                            if pet_mythic:
+                                                add_skill_value = random.randint(11, 16)
+                                            elif pet_ultra_shiny:
                                                 add_skill_value = random.randint(9, 15)
                                             elif pet_shiny:
                                                 add_skill_value = random.randint(8, 12)
                                             else:
                                                 add_skill_value = random.randint(5, 8)
                                         else:
-                                            if pet_ultra_shiny:
+                                            if pet_mythic:
+                                                add_skill_value = random.randint(8, 12)
+                                            elif pet_ultra_shiny:
                                                 add_skill_value = random.randint(6, 11)
                                             elif pet_shiny:
                                                 add_skill_value = random.randint(5, 8)
@@ -1013,6 +1076,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             "Eagle": "Orzeł",
             "Monkey": "Małpa",
             "Ghost": "Zjawa",
+            "Void": "Istota pustki"
         }
 
         pet_ids = pets[0]
@@ -1108,40 +1172,62 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
     async def discard_pet(self, ctx):
         """Discarding pet from the author if it is possible."""
 
-        sql = f"SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
-        player_exists = await self.bot.pg_con.fetch(sql)
+        sql = """
+            SELECT PET_ID
+            FROM PETOWNER
+            WHERE PLAYER_ID = $1;
+        """
+        player_exists = await self.bot.pg_con.fetch(sql, ctx.author.id)
 
-        # Check if discard pet is confirmed
         def check_discard(author):
             def inner_check(message):
-                if message.author == author: #and message.author not in confirmPlayerList:
-                    if message.content.lower() == "$potwierdzam":
-                        print("Discard accepted: player exists!")
-                        return True
-                else:
-                    print("Wrong person or wrong message!")
-                    return False
+                return (
+                    message.author == author
+                    and message.channel == ctx.channel
+                    and message.content.lower() == "$potwierdzam"
+                )
             return inner_check
 
-        if player_exists:
-            if player_exists[0][0] > 0:
-                print("Player exists in PETOWNER database, it already has pet.")
-                await ctx.channel.send("Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@" + str(ctx.author.id) + ">? <:MonkaS:882181709100097587> Wpisz **$potwierdzam**.")
-                print("Waiting for confirm command...")
-                try:
-                    confirm_cmd = await self.bot.wait_for('message', timeout=15,
-                                                        check=check_discard(ctx.author))
-                    await functions_modifiers.random_modifiers(self, ctx, False)
-                    await confirm_cmd.add_reaction("<:MonkaS:882181709100097587>")
-                    sql = f"UPDATE PETOWNER SET PET_ID = {0} WHERE PLAYER_ID = {ctx.author.id};"
-                    await self.bot.pg_con.fetch(sql)
-
-                except asyncio.TimeoutError:
-                    await ctx.channel.send("*Twój towarzysz oddycha z ulgą...*")
-            else:
-                await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
-        else:
+        if not player_exists or player_exists[0][0] <= 0:
             await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
+            return False
+
+        pet_id = player_exists[0][0]
+
+        await ctx.channel.send(
+            "Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@"
+            + str(ctx.author.id)
+            + ">? <:MonkaS:882181709100097587> Wpisz **$potwierdzam**."
+        )
+
+        try:
+            confirm_cmd = await self.bot.wait_for(
+                "message",
+                timeout=15,
+                check=check_discard(ctx.author)
+            )
+
+            await functions_modifiers.random_modifiers(self, ctx, True, True)
+            
+
+            sql = """
+                UPDATE PETOWNER
+                SET PET_ID = 0
+                WHERE PLAYER_ID = $1;
+            """
+            await self.bot.pg_con.execute(sql, ctx.author.id)
+
+            sql = """
+                DELETE FROM PETS
+                WHERE PET_ID = $1;
+            """
+            await self.bot.pg_con.execute(sql, pet_id)
+            await confirm_cmd.add_reaction("<:MonkaS:882181709100097587>")
+
+        except asyncio.TimeoutError:
+            await ctx.channel.send("*Twój towarzysz oddycha z ulgą...*")
+
+        return False
 
     global name_pet
     async def name_pet(self, ctx, name):
@@ -1353,7 +1439,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 print("Player exists in PETOWNER database, it already has pet.")
 
                 sql = f"""SELECT PET_LVL, PET_SKILLS, SHINY, TYPE, VARIANT, CRIT_PERC, REPLACE_PERC,
-                    DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION, ULTRA_SHINY
+                    DEF_PERC, DROP_PERC, LOWHP_PERC, SLOW_PERC, INIT_PERC, DETECTION, ULTRA_SHINY,
+                    MYTHIC 
                     FROM PETS WHERE PET_ID = {player_exists[0][0]};"""
 
                 for retries in range(0,3):
@@ -1380,6 +1467,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 pet_init_perc = pet_stats[0][11]
                 pet_detection = pet_stats[0][12]
                 pet_ultra_shiny = pet_stats[0][13]
+                pet_mythic = pet_stats[0][14]
 
                 skill_list = {"CRIT_PERC": pet_crit_perc, "REPLACE_PERC": pet_replace_perc,
                             "DEF_PERC": pet_def_perc, "DROP_PERC": pet_drop_perc,
@@ -1394,7 +1482,10 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
 
                     pet_lvl += 1
 
-                    add_skill = random.randint(1,2)
+                    if pet_mythic:
+                        add_skill = 2
+                    else:
+                        add_skill = random.randint(1,2)
                     pet_skills += add_skill
 
                     for i in range(add_skill):
@@ -1402,23 +1493,31 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                             skill_name, skill_value = random.choice(list(skill_list.items()))
                             if skill_name == "DETECTION" and pet_detection:
                                 pass
+                            elif skill_name == "SLOW_PERC" and pet_slow_perc >= 80:
+                                pass
                             else:
                                 if skill_name == "INIT_PERC":
-                                    if pet_ultra_shiny:
+                                    if pet_mythic:
+                                        add_skill_value = random.randint(8, 14)
+                                    elif pet_ultra_shiny:
                                         add_skill_value = random.randint(6, 13)
                                     elif pet_shiny:
                                         add_skill_value = random.randint(5, 10)
                                     else:
                                         add_skill_value = random.randint(5, 8)
                                 elif skill_name == "SLOW_PERC":
-                                    if pet_ultra_shiny:
+                                    if pet_mythic:
+                                        add_skill_value = random.randint(11, 16)
+                                    elif pet_ultra_shiny:
                                         add_skill_value = random.randint(9, 15)
                                     elif pet_shiny:
                                         add_skill_value = random.randint(8, 12)
                                     else:
                                         add_skill_value = random.randint(5, 8)
                                 else:
-                                    if pet_ultra_shiny:
+                                    if pet_mythic:
+                                        add_skill_value = random.randint(8, 12)
+                                    elif pet_ultra_shiny:
                                         add_skill_value = random.randint(6, 11)
                                     elif pet_shiny:
                                         add_skill_value = random.randint(5, 8)
@@ -1569,7 +1668,7 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
     global pet_ranking
     async def pet_ranking(self, ctx):
         #Database Reading
-        db_ranking_pet = await self.bot.pg_con.fetch("SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, TYPE, VARIANT, ULTRA_SHINY FROM PETS ORDER BY PET_SKILLS DESC, SLOW_PERC DESC LIMIT 10")
+        db_ranking_pet = await self.bot.pg_con.fetch("SELECT PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QUALITY, SHINY, TYPE, VARIANT, ULTRA_SHINY, MYTHIC FROM PETS ORDER BY PET_SKILLS DESC, SLOW_PERC DESC LIMIT 10")
 
         x = 1
         ranking_string = ""
@@ -1637,6 +1736,8 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 polish_type = "Orzeł"
             elif person[6] == "Ghost":
                 polish_type = "Zjawa"
+            elif person[6] == "Void":
+                polish_type = "Istota pustki"
             else:
                 polish_type = ""
 
@@ -1645,13 +1746,18 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
             else:
                 ultra_shiny = "Nie"
 
-            ranking_string += f"{x}. **{person[1][:20]}** ({person[2]} lvl) - Talent: {talent} - Wygląd: {person[4]} - Shiny: {shiny} - Ultra shiny: {ultra_shiny} - Typ: {polish_type}.\n"
+            if person[9] is True:
+                mythic = "Tak"
+            else:
+                mythic = "Nie"
+
+            ranking_string += f"{x}. **{person[1][:20]}** ({person[2]} lvl) - Talent: {talent} - Wygląd: {person[4]} - Shiny: {shiny} - Ultra shiny: {ultra_shiny} - Mityczny: {mythic} - Typ: {polish_type}.\n"
             x+=1
 
         #Embed create
         emb=discord.Embed(title='Najbardziej utalentowani towarzysze!', url='https://www.altermmo.pl/wp-content/uploads/alter0000_Adventurer_with_a_small_dragon_pet._Fantasy._Pixel_ar_fac9f513-e338-4727-af61-32b79dbfa7e3.png', description=ranking_string, color=0xFF0000)
         emb.set_thumbnail(url='https://www.altermmo.pl/wp-content/uploads/alter0000_Adventurer_with_a_small_dragon_pet._Fantasy._Pixel_ar_fac9f513-e338-4727-af61-32b79dbfa7e3.png')
-        emb.set_footer(text='Gratulacje dla anonimowych posiadaczy!')
+        emb.set_footer(text='Gratulacje dla posiadaczy!')
         await ctx.send(embed=emb)
 
 async def new_record_petowners(self, player_id: int, pet_id: int, pet_owned: bool,
@@ -1660,9 +1766,9 @@ async def new_record_petowners(self, player_id: int, pet_id: int, pet_owned: boo
     """New record of user in petowners database."""
 
     sql=f"""INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED,
-    REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS, SKILL_GEM, PET_ID_ALT1, PET_ID_ALT2)
+    REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS, SKILL_GEM, PET_ID_ALT1, PET_ID_ALT2, PET_ID_ALT3, PET_ID_ALT4)
     VALUES ({player_id},{pet_id},{pet_owned},{reroll_scroll},{reroll_scroll_shard},{rebirth_stones},
-    {mirrors},{skill_id},{0},{0});"""
+    {mirrors},{skill_id},{0},{0},{0},{0});"""
     await self.bot.pg_con.fetch(sql)
 
 def setup(bot):

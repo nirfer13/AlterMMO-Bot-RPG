@@ -615,6 +615,228 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         success = await functions_boss.duelFight(self, ctx, participants)
         return success
 
+    global assasinate
+    async def assasinate(self, ctx):
+        sql = f"SELECT REROLL_SCROLL FROM PETOWNER WHERE PLAYER_ID = {ctx.author.id};"
+
+        for retries in range(0, 3):
+            try:
+                pet_exists = await self.bot.pg_con.fetch(sql)
+                break
+            except Exception as e:
+                print(e)
+                await ctx.channel.send(
+                    f"Błąd bazy danych <:Sadge:936907659142111273>... Próbuję ponownie - {retries}"
+                )
+        else:
+            return False
+
+        if not pet_exists:
+            await ctx.channel.send("Nie masz jeszcze peta/konta w systemie.")
+            return False
+
+        reroll_scroll = pet_exists[0][0]
+
+        if reroll_scroll < 30:
+            await ctx.channel.send("Potrzebujesz minimum 30 zwojów odrodzenia.")
+            return False
+
+        def check_assassination(author):
+            def inner_check(message):
+                return (
+                    message.author == author
+                    and message.channel == ctx.channel
+                    and message.content.lower() == "$potwierdzam"
+                )
+            return inner_check
+
+        await ctx.channel.send(
+            f"Czy jesteś pewien, że chcesz zatrudnić zabójcę za 30 zwojów odrodzenia, "
+            f"<@{ctx.author.id}>? <:Hmm:984767035617730620> Wpisz **$potwierdzam**."
+        )
+
+        try:
+            confirm_cmd = await self.bot.wait_for(
+                "message",
+                timeout=15,
+                check=check_assassination(ctx.author)
+            )
+
+            await confirm_cmd.add_reaction("<:RIP:912797982917816341>")
+
+        except asyncio.TimeoutError:
+            await ctx.channel.send("Nie potwierdzono zlecenia zabójstwa.")
+            return False
+
+        # Zabieramy koszt
+        await self.bot.pg_con.execute(
+            f"""
+            UPDATE PETOWNER
+            SET REROLL_SCROLL = REROLL_SCROLL - 30
+            WHERE PLAYER_ID = {ctx.author.id};
+            """
+        )
+
+        # 20% szans, że zabójca zdradzi zleceniodawcę
+        if random.random() < 0.20:
+            await ctx.channel.send(
+                "Zabójca Cię zdradził! Wbija Ci nóż w plecy i zabiera zwoje... "
+                "<:RIP:912797982917816341>"
+            )
+            await functions_boss.setDeadAssassin(self, ctx, ctx.author.id)
+            return True
+
+        dbRankingRead = await self.bot.pg_con.fetch(
+            """
+            SELECT ID
+            FROM RANKING
+            WHERE ID != $1
+            ORDER BY POINTS DESC
+            LIMIT 100;
+            """,
+            str(ctx.author.id)
+        )
+
+        if not dbRankingRead:
+            await ctx.channel.send("Zabójca nie znalazł żadnego celu.")
+            return False
+
+        random_player = random.choice(dbRankingRead)
+        target_id = random_player["id"] if "id" in random_player else random_player[0]
+
+        await functions_boss.setDeadHunters(self, ctx, target_id)
+
+        await ctx.channel.send(
+            f"Zabójca wykonał zlecenie. Ofiarą został <@{target_id}> "
+            "<:RIP:912797982917816341>"
+        )
+
+        return True
+    
+    global spawn_pvp_tournament
+    async def spawn_pvp_tournament(self, ctx):
+        """Collects players for 3 minutes and runs a PvP bracket tournament."""
+
+        if not DebugMode:
+            await ctx.send(f"<@&985071779787730944>")
+
+        participants = []
+        reaction_emoji = "⚔️"
+
+        e_title = f"<:MonkaS:882181709100097587> Tygodniowy turniej PvP! <a:PeepoRiot:1067317732942565416>"
+
+        e_descr = ('Przed Wami rozpościera się arena. Czy odważycie się zawalczyć na śmierć i życie?'
+                '\n\n*Zostaw reakcję pod postem, jeśli chcesz wziąć udział w turnieju.*')
+
+        e_color = 0x360006
+
+        image_name = "events/tournament/0.png"
+        file=discord.File(image_name)
+        await ctx.send(file=file)
+
+        embed = discord.Embed(
+            title=e_title,
+            description=e_descr,
+            color=e_color)
+
+        msg = await ctx.send(embed=embed)
+
+        await msg.add_reaction(reaction_emoji)
+
+        def check(reaction, user):
+            return (
+                reaction.message.id == msg.id
+                and str(reaction.emoji) == reaction_emoji
+                and not user.bot
+            )
+
+        if DebugMode:
+            end_time = asyncio.get_event_loop().time() + 10
+        else:
+            end_time = asyncio.get_event_loop().time() + 180
+
+        while asyncio.get_event_loop().time() < end_time:
+            try:
+                reaction, user = await self.bot.wait_for(
+                    "reaction_add",
+                    timeout=end_time - asyncio.get_event_loop().time(),
+                    check=check
+                )
+
+                if user not in participants:
+                    participants.append(user)
+                    await ctx.send(f"{user.mention} dołączył do turnieju PvP!")
+
+            except asyncio.TimeoutError:
+                break
+
+        if DebugMode:
+            participants.append(participants[0])
+
+        if len(participants) == 1:
+            # await functions_database.updateRankingTable(self, ctx,
+            #             participants[0].id, 4, 18)
+            await functions_daily.randLoot(self, ctx, 2, participants[0], 0)
+        elif len(participants) < 2 and not DebugMode:
+            await ctx.send("PvP turniej anulowany. Za mało uczestników.")
+            return None
+
+        random.shuffle(participants)
+
+        await ctx.send(
+            "**Rejestracja na turniej zakończona!**\n"
+            f"Uczestnicy: {', '.join(user.mention for user in participants)}"
+        )
+
+        round_number = 1
+
+        while len(participants) > 1:
+            await ctx.send(f"**Turniej PvP - Runda {round_number}**")
+
+            next_round = []
+
+            if len(participants) % 2 == 1:
+                lucky_player = participants.pop()
+                next_round.append(lucky_player)
+                await ctx.send(f"{lucky_player.mention} szczęśliwie przechodzi do kolejnej rundy!")
+
+            for i in range(0, len(participants), 2):
+                player_1 = participants[i]
+                player_2 = participants[i + 1]
+
+                # await ctx.send(
+                #     f"**Walka:** {player_1.mention} vs {player_2.mention}"
+                # )
+
+                finish, winner = await functions_boss.duelFight(self, ctx, [player_1, player_2], False)
+
+                if winner is None:
+                    winner = random.choice([player_1, player_2])
+                    await ctx.send(
+                        f"Remis. Losowy zwycięzca: {winner.mention}."
+                    )
+
+                next_round.append(winner)
+
+                await ctx.send(f"**Zwycięzca:** {winner.mention}")
+
+            participants = next_round
+            round_number += 1
+
+        tournament_winner = participants[0]
+
+        image_name = "events/tournament/1.gif"
+        file=discord.File(image_name)
+        await ctx.send(file=file)
+
+        await ctx.send(
+            f"🏆 **Zwycięzca turnieju:** {tournament_winner.mention}! Gratulacje! 🏆"
+        )
+        # await functions_database.updateRankingTable(self, ctx,
+        #                 tournament_winner.id, 4, 18)
+
+        return tournament_winner
+
     global spawn_ritual
     async def spawn_ritual(self, ctx):
         """Function to spawn ritual."""
@@ -648,7 +870,13 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
             await asyncio.sleep(600)
 
         users = []
-        message = await ctx.channel.fetch_message(msg.id)
+
+        try:
+            message = await ctx.channel.fetch_message(msg.id)
+        except discord.NotFound:
+            print("Ritual interrupted.")
+            return False, 0, False, "Alter"
+
         for reaction in message.reactions:
             async for user in reaction.users():
                 guild = message.guild
