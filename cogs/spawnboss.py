@@ -181,8 +181,6 @@ class message(commands.Cog, name="spawnBoss"):
             if x != 0:
                 await asyncio.sleep(resp_time)
             x+=1
-            EVENT_ALIVE = 0
-            EVENT_TYPE = EventType.NONE
 
             timestamp = (datetime.utcnow() + timedelta(hours=2))
             hour = timestamp.strftime("%H")
@@ -203,7 +201,7 @@ class message(commands.Cog, name="spawnBoss"):
                 EVENT_TYPE = random.choices(event_list, weights=(0, 0, 0, 0, 0, 0, 0, 0, 1))[0]
 
             print("Event type: " + str(EVENT_TYPE))
-            if EVENT_ALIVE == 0 and (BOSSALIVE == 0 or BOSSALIVE == 1 or BOSSALIVE == 2) and\
+            if EVENT_ALIVE == 0 and BOSSALIVE in [0, 1, 2] and\
                 BUSY == 0:
                 if x != 1:
                     await functions_general.fClear(self, ctx)
@@ -259,6 +257,7 @@ class message(commands.Cog, name="spawnBoss"):
                         BOSSRARITY = k
                     EVENT_ALIVE = 0
                     BUSY = 0
+                EVENT_TYPE = EventType.NONE
                 print("Event finished properly.")
             elif BOSSALIVE > 2:
                 print("Event. Boss spawned. Skip.")
@@ -345,9 +344,6 @@ class message(commands.Cog, name="spawnBoss"):
             global EVENT_ALIVE
             global BUSY
             global respawnResume
-
-            print("global initialized")
-            print(BOSSALIVE)
 
             # === Episode 0
             if BOSSALIVE == 0:
