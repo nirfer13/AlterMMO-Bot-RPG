@@ -594,7 +594,8 @@ class message(commands.Cog, name="spawnBoss"):
     @commands.command(name="zabojca", aliases=['asasyn', 'zabójca'], brief="Assinate the ranking player.")
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)
     async def assassinate(self, ctx):
-        await functions_events.assasinate(self, ctx)
+        if ctx.channel.id == 970684202880204831:
+            await functions_events.assasinate(self, ctx)
 
     @assassinate.error
     async def assassinatecommand_cooldown(self, ctx, error):
