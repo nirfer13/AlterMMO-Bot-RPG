@@ -106,7 +106,7 @@ class message(commands.Cog, name="spawnBoss"):
                 respTime = 0
             print("Resp time: " + str(respTime))
             print("Task resuming...")
-            self.task = self.bot.loop.create_task(self.spawn_task(ctx))
+            self.task = self.bot.loop.create_task(self.task(ctx))
             print("Task resumed.")
 
     #define every week task
@@ -336,7 +336,8 @@ class message(commands.Cog, name="spawnBoss"):
             await asyncio.sleep(30)
 
     #define Spawn BIG Boss task
-    async def spawn_task(self, ctx):
+    async def task(self, ctx):
+        print("Spawn task started.")
         while True:
             global respTime
             global BOSSALIVE
@@ -859,7 +860,7 @@ class message(commands.Cog, name="spawnBoss"):
         print("Spawning started!")
         global BOSSALIVE
         BOSSALIVE = 0
-        self.task = self.bot.loop.create_task(self.spawn_task(ctx))
+        self.task = self.bot.loop.create_task(self.task(ctx))
 
     # command to stop Spawn Boss task
     @commands.command(pass_context=True, name="stopSpawnBoss", brief="Stops spawning boss")
@@ -1046,7 +1047,7 @@ class message(commands.Cog, name="spawnBoss"):
         await functions_modifiers.init_modifiers(self, ctx)
         await functions_boss.resetDeadHunters(self, ctx)
 
-        self.task = self.bot.loop.create_task(self.spawn_task(ctx))
+        self.task = self.bot.loop.create_task(self.task(ctx))
         self.task3 = self.bot.loop.create_task(self.spawn_event(ctx))
         self.task4 = self.bot.loop.create_task(self.pvp_tournament_scheduler(ctx))
         await ctx.channel.send("Boss reset.")
