@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 
 import datetime
 import sys
+import time
 sys.path.insert(1, './functions/')
 import functions_general
 
@@ -13,15 +14,27 @@ class general(commands.Cog, name="general"):
     def __init__(self, bot):
         self.bot = bot
 
-    # Check if the bot is alive.
     @commands.command(name="ping", brief="Check if bot is alive")
     @commands.has_permissions(administrator=True)
     async def ping(self, ctx):
+        ws_latency = round(self.bot.latency * 1000)
+
+        start = time.perf_counter()
+        message = await ctx.send("Sprawdzam...")
+        end = time.perf_counter()
+
+        api_latency = round((end - start) * 1000)
+
         embed = discord.Embed(
             title="🏓 Pong!",
-            description=f"Opóźnienie bota wynosi {round(self.bot.latency * 1000)} ms.",
-            color=0x42F34C)
-        await ctx.send(embed=embed)
+            description=(
+                f"Gateway: {ws_latency} ms\n"
+                f"API (send message): {api_latency} ms"
+            ),
+            color=0x42F34C
+        )
+
+        await message.edit(content=None, embed=embed)
 		
 	# saving history channel to .txt format, defualt file will be name channelHistory and only 100 messages will be saved
     # both parameters can be changed in commands params

@@ -582,7 +582,7 @@ class FunctionsEvents(commands.Cog, name="FunctionsEvents"):
         if DebugMode:
             timeout = 15
         else:
-            timeout = 900
+            timeout = 600
 
         while 1:
             try:

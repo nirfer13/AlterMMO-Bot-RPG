@@ -6,6 +6,7 @@ import random
 import json
 import os
 import math
+import time
 
 from datetime import datetime, timedelta
 from PIL import Image
@@ -391,10 +392,13 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         cmdTimeout = 5 - BOSSRARITY
                         cmdTimeout = cmdTimeout * (100 - modifiers["time_reduced_perc"] +
                                     float(pet_skills_dict[boss_hunter.id]["SLOW_PERC"]))/100
+                        
+                    round_start = time.perf_counter()
                     msg = await self.bot.wait_for('message', check=check(ctx, player_list), timeout=cmdTimeout)
                     response = str(msg.content)
                 else:
                     response = requestedAction[0][choosenAction]
+                    round_start = time.perf_counter()
                     
                     #Send proper action request on chat
                     msg = await ctx.channel.send('~~' + str(iterator) + ". " +
@@ -418,7 +422,13 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
                         recordTime = endTime - startTime
                         recordTurnTime = recordTime/bossHP
-                        await ctx.channel.send('Zabicie potwora zajęło: ' + str(recordTime).lstrip('0:00:') + ' sekundy! Jedna tura zajęła średnio ' + str(recordTurnTime).lstrip('0:00:') + ' sekundy!')
+                        total_time = round(recordTime.total_seconds(), 2)
+                        avg_turn_time = round(recordTurnTime.total_seconds(), 2)
+
+                        await ctx.channel.send(
+                            f"Zabicie potwora zajęło: {total_time:.2f} sekundy! "
+                            f"Jedna tura zajęła średnio {avg_turn_time:.2f} sekundy!"
+                        )
                         previousRecord, Nick = await functions_database.readRecordTable(self, ctx)
 
                         for hunter in player_list:
@@ -463,6 +473,17 @@ class functions_daily(commands.Cog, name="functions_daily"):
                         await ctx.channel.send('Pomyliłeś się, ale Twój towarzysz Cię chroni!')
 
             except asyncio.TimeoutError:
+                # Check if lag and then check last message, maybe its correct
+                round_end = time.perf_counter()
+                elapsed = round_end - round_start
+                lag = abs(elapsed - cmdTimeout)
+                print(f"Hunting. Real round timeout: {elapsed}, cmdTimeout: {cmdTimeout}, difference: {lag}")
+                last_message = [m async for m in ctx.channel.history(limit=1)][0]
+                if (last_message.content.lower() == requestedAction[0][choosenAction] and \
+                last_message.author == boss_hunter) or lag > 0.5:
+                    print("Proper msg after timeout")
+                    continue
+
                 if not random.random()*100 < pet_skills_dict[boss_hunter.id]["DEF_PERC"]:
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Odpocznij i spróbuj jutro! <:RIP:912797982917816341>\n\n*Możesz również dołączyć do polowania innych graczy.*')
                     logChannel = self.bot.get_channel(881090112576962560)
