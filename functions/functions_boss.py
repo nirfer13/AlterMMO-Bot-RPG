@@ -5,6 +5,7 @@ import random
 import json
 import os
 import math
+import time
 
 from datetime import datetime
 
@@ -545,10 +546,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
                         #Send proper action request on chat
                         await ctx.channel.send(str(iterator) + '. ' + requestedAction[1][choosenAction])
+                        round_start = time.perf_counter()
                         msg = await self.bot.wait_for('message', check=check(ctx),
                                                         timeout=cmdTimeout)
                         response = str(msg.content)
                     else:
+                        round_start = time.perf_counter()
                         response = requestedAction[0][choosenAction]
                         #Send proper action request on chat
                         await ctx.channel.send('~~' + str(iterator) + '. ' +
@@ -571,12 +574,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             recordTime = endTime - startTime
                             recordTurnTime = recordTime/bossHP
 
-                            total_time = round(recordTime.total_seconds(), 2)
-                            avg_turn_time = round(recordTurnTime.total_seconds(), 2)
-
                             # Achievements - Quickness
                             if int(recordTurnTime.total_seconds()) < 2:
                                 await functions_achievements.quickness(self, ctx, bossHunterID)
+
+                            total_time = round(recordTime.total_seconds(), 2)
+                            avg_turn_time = round(recordTurnTime.total_seconds(), 2)
 
                             await ctx.channel.send(
                                 f"Zabicie bossa zajęło Ci: {total_time:.2f} sekundy! "
@@ -642,9 +645,14 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
                 except asyncio.TimeoutError:
                     # Check if lag and then check last message, maybe its correct
+                    round_end = time.perf_counter()
+                    elapsed = round_end - round_start
+                    lag = abs(elapsed - cmdTimeout)
+                    print(f"Hunting. Real round timeout: {elapsed}, cmdTimeout: {cmdTimeout}, difference: {lag}")
                     last_message = [m async for m in ctx.channel.history(limit=1)][0]
-                    if last_message.content.lower() == requestedAction[0][choosenAction] and \
-                    last_message.author == bossHunterID:
+                    if (last_message.content.lower() == requestedAction[0][choosenAction] and \
+                    last_message.author == bossHunterID) or lag > 0.5:
+                        print("Proper msg after timeout")
                         continue
 
                     if not random.random()*100 < pet_skills["DEF_PERC"]:
@@ -1115,10 +1123,12 @@ class functions_boss(commands.Cog, name="functions_boss"):
                                             float(pet_skills_dict[boss_hunter.id]["SLOW_PERC"]))/100
                             #Timeout depends on boss rarity
                             print("Boss rarity before timeout calc: " + str(cmdTimeout))
+                        round_start = time.perf_counter()
                         msg = await self.bot.wait_for('message', check=check(ctx, playersList), timeout=cmdTimeout)
                         response = str(msg.content)
                     else:
                         response = requestedAction[0][choosenAction]
+                        round_start = time.perf_counter()
                         #Send proper action request on chat
                         msg = await ctx.channel.send('~~' + str(iterator) + '. ' + str(boss_hunter) +
                                                ':' + requestedAction[1][choosenAction] +
@@ -1126,6 +1136,7 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         msg.author = boss_hunter
 
                     if response.lower() == requestedAction[0][choosenAction] and msg.author == boss_hunter:
+
                         #Boss killed?
                         if iterator >= bossHP:
 
@@ -1139,7 +1150,13 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
                             recordTime = endTime - startTime
                             recordTurnTime = recordTime/bossHP
-                            await ctx.channel.send('Zabicie bossa zajęło Wam: ' + str(recordTime).lstrip('0:00:') + ' sekundy! Jedna tura zajęła Wam średnio ' + str(recordTurnTime).lstrip('0:00:') + ' sekundy!')
+                            total_time = round(recordTime.total_seconds(), 2)
+                            avg_turn_time = round(recordTurnTime.total_seconds(), 2)
+
+                            await ctx.channel.send(
+                                f"Zabicie bossa zajęło Wam: {total_time:.2f} sekundy! "
+                                f"Jedna tura zajęła Wam średnio {avg_turn_time:.2f} sekundy!"
+                            )
                             previousRecord, Nick = await functions_database.readRecordTable(self, ctx)
 
                             if datetime.datetime.strptime(previousRecord, "%H:%M:%S.%f") > datetime.datetime.strptime(str(recordTurnTime), "%H:%M:%S.%f"):
@@ -1204,9 +1221,14 @@ class functions_boss(commands.Cog, name="functions_boss"):
 
                 except asyncio.TimeoutError:
                     # Check if lag and then check last message, maybe its correct
+                    round_end = time.perf_counter()
+                    elapsed = round_end - round_start
+                    lag = abs(elapsed - cmdTimeout)
+                    print(f"Hunting. Real round timeout: {elapsed}, cmdTimeout: {cmdTimeout}, difference: {lag}")
                     last_message = [m async for m in ctx.channel.history(limit=1)][0]
-                    if last_message.content.lower() == requestedAction[0][choosenAction] and \
-                    last_message.author == boss_hunter:
+                    if (last_message.content.lower() == requestedAction[0][choosenAction] and \
+                    last_message.author == boss_hunter) or lag > 0.5:
+                        print("Proper msg after timeout")
                         continue
 
                     if not random.random()*100 < pet_skills_dict[boss_hunter.id]["DEF_PERC"]:

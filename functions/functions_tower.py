@@ -5,6 +5,7 @@ from discord.ext import commands
 import discord
 import random
 import asyncio
+import time
 
 from datetime import datetime
 
@@ -144,11 +145,12 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
                     #Send proper action request on chat
                     await ctx.channel.send(str(iterator) + ". **"  + str(boss_hunter) + "**: " + requestedAction[1][choosenAction])
 
+                    round_start = time.perf_counter()
                     msg = await self.bot.wait_for('message', check=check(ctx), timeout=cmdTimeout)
                     response = str(msg.content)
                 else:
                     response = requestedAction[0][choosenAction]
-                    
+                    round_start = time.perf_counter()
                     #Send proper action request on chat
                     msg = await ctx.channel.send("~~" + str(iterator) + ". " +
                                                 str(boss_hunter) + ": " +
@@ -171,7 +173,13 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
                         endTime = datetime.datetime.utcnow() + datetime.timedelta(hours=2)
                         recordTime = endTime - startTime
                         recordTurnTime = recordTime/bossHP
-                        await ctx.channel.send('Zabicie potwora zajęło: ' + str(recordTime).lstrip('0:00:') + ' sekundy! Jedna tura zajęła średnio ' + str(recordTurnTime).lstrip('0:00:') + ' sekundy!')
+                        total_time = round(recordTime.total_seconds(), 2)
+                        avg_turn_time = round(recordTurnTime.total_seconds(), 2)
+
+                        await ctx.channel.send(
+                            f"Zabicie potwora zajęło: {total_time:.2f} sekundy! "
+                            f"Jedna tura zajęła średnio {avg_turn_time:.2f} sekundy!"
+                        )
 
                         #Randomize Loot
                         drop_boost = float(pet_skills_dict[boss_hunter.id]["DROP_PERC"])
@@ -201,9 +209,14 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
 
             except asyncio.TimeoutError:
                 # Check if lag and then check last message, maybe its correct
+                round_end = time.perf_counter()
+                elapsed = round_end - round_start
+                lag = abs(elapsed - cmdTimeout)
+                print(f"Hunting. Real round timeout: {elapsed}, cmdTimeout: {cmdTimeout}, difference: {lag}")
                 last_message = [m async for m in ctx.channel.history(limit=1)][0]
-                if last_message.content.lower() == requestedAction[0][choosenAction] and \
-                last_message.author == boss_hunter:
+                if (last_message.content.lower() == requestedAction[0][choosenAction] and \
+                last_message.author == boss_hunter) or lag > 0.5:
+                    print("Proper msg after timeout")
                     continue
 
                 if not random.random()*100 < pet_skills_dict[boss_hunter.id]["DEF_PERC"]:
