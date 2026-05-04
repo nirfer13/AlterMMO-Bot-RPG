@@ -38,7 +38,6 @@ respTime = 0
 global BOSSALIVE
 BOSSALIVE = 0
 
-#Shrine alive
 global EVENT_ALIVE
 EVENT_ALIVE = 0
 
@@ -182,6 +181,9 @@ class message(commands.Cog, name="spawnBoss"):
                 await asyncio.sleep(resp_time)
             x+=1
 
+            EVENT_ALIVE = 0
+            EVENT_TYPE = EventType.NONE
+
             timestamp = (datetime.utcnow() + timedelta(hours=2))
             hour = timestamp.strftime("%H")
             day = timestamp.strftime("%a")
@@ -257,7 +259,6 @@ class message(commands.Cog, name="spawnBoss"):
                         BOSSRARITY = k
                     EVENT_ALIVE = 0
                     BUSY = 0
-                EVENT_TYPE = EventType.NONE
                 print("Event finished properly.")
             elif BOSSALIVE > 2:
                 print("Event. Boss spawned. Skip.")
@@ -326,11 +327,14 @@ class message(commands.Cog, name="spawnBoss"):
 
     async def wait_until_not_busy(self):
         """Wait until bot is no longer busy."""
-        global BUSY, EVENT_ALIVE
-        while BUSY == 1 or EVENT_ALIVE == 1:
+        global BUSY, EVENT_ALIVE, EVENT_TYPE
+
+        i=0
+        while (BUSY == 1 or EVENT_ALIVE == 1) and i < 60:
             print(
-                f"Boss spawn. Waiting... BUSY={BUSY}, EVENT_ALIVE={EVENT_ALIVE}"
+                f"Boss spawn. Waiting... BUSY={BUSY}, EVENT_ALIVE={EVENT_ALIVE}, EVENT_TYPE={str(EVENT_TYPE)}, i={i}"
             )
+            i+=1
             await asyncio.sleep(30)
         return True
 
