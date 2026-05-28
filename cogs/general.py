@@ -15,7 +15,6 @@ class general(commands.Cog, name="general"):
         self.bot = bot
 
     @commands.command(name="ping", brief="Check if bot is alive")
-    @commands.has_permissions(administrator=True)
     async def ping(self, ctx):
         ws_latency = round(self.bot.latency * 1000)
 
