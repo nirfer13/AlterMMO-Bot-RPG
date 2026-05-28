@@ -656,7 +656,14 @@ class functions_boss(commands.Cog, name="functions_boss"):
                         continue
 
                     if not random.random()*100 < pet_skills["DEF_PERC"]:
+                        start = time.perf_counter()
                         await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
+                        end = time.perf_counter()
+                        api_latency = round((end - start) * 1000)
+                        if api_latency >= 1500:
+                            await ctx.channel.send(f'Wykryto laga {api_latency} ms po stronie serwera Discorda. Graj dalej.')
+                            await asyncio.sleep(2)
+                            continue
                         logChannel = self.bot.get_channel(881090112576962560)
                         if is_player_boss == False:
                             await  logChannel.send("<@291836779495948288>!   " + bossHunterID.name + " nie zdążył wpisać komend i boss uciekł.")
@@ -1236,7 +1243,15 @@ class functions_boss(commands.Cog, name="functions_boss"):
                             chances -= 1
 
                         else:
+                            start = time.perf_counter()
                             await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400> Boss pojawi się później! <:RIP:912797982917816341>')
+                            end = time.perf_counter()
+                            api_latency = round((end - start) * 1000)
+                            if api_latency >= 1500:
+                                await ctx.channel.send(f'Wykryto laga {api_latency} ms po stronie serwera Discorda. Graj dalej.')
+                                await asyncio.sleep(2)
+                                continue
+                            
                             logChannel = self.bot.get_channel(881090112576962560)
                             if is_player_boss == False:
                                 await  logChannel.send("<@291836779495948288>!   " + "Party " + str(playersList[0].name) + " pomyliło się i nie zabili bossa.")

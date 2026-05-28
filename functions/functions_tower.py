@@ -220,7 +220,14 @@ class FunctionsTower(commands.Cog, name="FunctionsTower"):
                     continue
 
                 if not random.random()*100 < pet_skills_dict[boss_hunter.id]["DEF_PERC"]:
+                    start = time.perf_counter()
                     await ctx.channel.send('Niestety nie zdążyłeś! <:Bedge:970576892874854400>  Spróbuj ponownie w przyszłym tygodniu! <:RIP:912797982917816341> Twój rekord został zapisany!')
+                    end = time.perf_counter()
+                    api_latency = round((end - start) * 1000)
+                    if api_latency >= 1500:
+                        await ctx.channel.send(f'Wykryto laga {api_latency} ms po stronie serwera Discorda. Graj dalej.')
+                        await asyncio.sleep(2)
+                        continue
                     logChannel = self.bot.get_channel(881090112576962560)
 
                     return False
