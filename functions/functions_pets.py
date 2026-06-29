@@ -1172,12 +1172,27 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
     async def discard_pet(self, ctx):
         """Discarding pet from the author if it is possible."""
 
+        
+
         sql = """
             SELECT PET_ID
             FROM PETOWNER
             WHERE PLAYER_ID = $1;
         """
+        if not hasattr(self.bot, "pending_discard_confirmations"):
+            self.bot.pending_discard_confirmations = set()
+
+        key = ("discard_pet", ctx.guild.id, ctx.channel.id, ctx.author.id)
+
+        if key in self.bot.pending_discard_confirmations:
+            await ctx.channel.send(
+                "Już czekam na Twoje potwierdzenie. Wpisz **$potwierdzam** albo poczekaj aż prośba wygaśnie."
+            )
+            return False
+
+        self.bot.pending_discard_confirmations.add(key)
         player_exists = await self.bot.pg_con.fetch(sql, ctx.author.id)
+
 
         def check_discard(author):
             def inner_check(message):
@@ -1207,9 +1222,18 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 check=check_discard(ctx.author)
             )
 
-            await functions_modifiers.random_modifiers(self, ctx, True, True)
+            sql = """
+            SELECT PET_ID
+            FROM PETOWNER
+            WHERE PLAYER_ID = $1;
+            """
+            player_exists = await self.bot.pg_con.fetch(sql, ctx.author.id)
+            print("PET")
+            print(player_exists[0][0])
+            if player_exists[0][0] <= 0:
+                await ctx.channel.send("Przecież jesteś sam... <:madge:882184635474386974>")
+                return False
             
-
             sql = """
                 UPDATE PETOWNER
                 SET PET_ID = 0
@@ -1222,10 +1246,14 @@ class FunctionsPets(commands.Cog, name="FunctionsPets"):
                 WHERE PET_ID = $1;
             """
             await self.bot.pg_con.execute(sql, pet_id)
+            await functions_modifiers.random_modifiers(self, ctx, True, True)
             await confirm_cmd.add_reaction("<:MonkaS:882181709100097587>")
 
         except asyncio.TimeoutError:
             await ctx.channel.send("*Twój towarzysz oddycha z ulgą...*")
+
+        finally:
+            self.bot.pending_discard_confirmations.discard(key)
 
         return False
 
