@@ -1,17 +1,20 @@
-[tool.poetry]
+[project]
 name = "altermmo-rpg-bot"
-version = "0.1.0"
-description = ""
-authors = ["nirfer13 <86719868+nirfer13@users.noreply.github.com>"]
-readme = "README.md"
+version = "2.0.0"
+description = "AlterMMO Discord RPG bot"
+requires-python = ">=3.11"
+dependencies = [
+    "discord.py>=2.4,<3",
+    "asyncpg>=0.29",
+    "python-dotenv>=1.0",
+    "tzdata",
+]
 
-[tool.poetry.dependencies]
-python = "3.9.13"
-discord.py = "1.7.3"
-yarl="1.7.2"
-python-dotenv = "0.18.0"
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
 
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["ignore::DeprecationWarning"]

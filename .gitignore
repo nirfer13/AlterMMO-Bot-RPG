@@ -1,22 +1,15 @@
-*.env
+# secrets
 .env
-init.py
-globals/globalvariables.py
-init.py
-bossModifier.json
-daily_player_cd.txt
-expSummary.json
+*.env
+!.env.example
+
+# runtime state and logs (never committed)
+data/
+logs/
+
+# python
+__pycache__/
 *.pyc
-globals/globalvariables.py
 .venv/
 venv/
-globalvariables.py
-globals/globalvariables.py
-expSummary.json
-daily_player_cd.txt
-weekly_tower_cd.txt
-skill_weekly_player_cd.txt
-daily_player_cd.txt
-daily_player_cd.txt
-bossModifier.json
-expSummary.json
+.pytest_cache/
