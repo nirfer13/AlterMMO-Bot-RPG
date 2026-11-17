@@ -128,9 +128,15 @@ class Database:
         """Run a SELECT and return the first row (or None)."""
         return await self._call("fetchrow", query, args, timeout, idempotent=True)
 
-    async def fetchval(self, query: str, *args: Any, timeout: float | None = None) -> Any:
-        """Run a SELECT and return the first column of the first row (or None)."""
-        return await self._call("fetchval", query, args, timeout, idempotent=True)
+    async def fetchval(self, query: str, *args: Any, timeout: float | None = None,
+                       idempotent: bool = True) -> Any:
+        """Run a SELECT and return the first column of the first row (or None).
+
+        Pass ``idempotent=False`` for a writing statement with ``RETURNING``
+        (e.g. ``SET x = x + 1 RETURNING x``): it is then retried only when it
+        provably never reached the server, like :meth:`execute`.
+        """
+        return await self._call("fetchval", query, args, timeout, idempotent=idempotent)
 
     async def execute(self, query: str, *args: Any, timeout: float | None = None,
                       idempotent: bool = False) -> str:

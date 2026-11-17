@@ -56,18 +56,16 @@ class TowerCog(commands.Cog, name="Tower"):
         elif on_cd:
             await io.send(ctx.channel, MSG_ON_COOLDOWN)
 
-    # -- display only (any channel) -----------------------------------------------
+    # -- display only (any channel; never blocked, exactly as in the old bot) ------
 
     @commands.command(name="rankingwiezy", aliases=['wieze', 'rankingwieza', 'rankingwieży',
                                                     'rankingwieża', 'rw'],
                       brief="Shows death tower ranking.")
-    @guards.unless_busy(read_only=True)
     async def tower_ranking(self, ctx: commands.Context) -> None:
         await tower.tower_ranking(Scene.from_ctx(ctx))
 
     @commands.command(name="rekordwiezy", aliases=["rekordwieży", "rekordwieża", "rekordwieza"],
                       brief="Shows personal death tower record.")
-    @guards.unless_busy(read_only=True)
     async def check_personal_tower(self, ctx: commands.Context) -> None:
         await tower.check_personal_tower(Scene.from_ctx(ctx))
 

@@ -285,7 +285,8 @@ class BossCycle:
         if remaining > 0 and not await state.sleep_while_boss_phase(BossPhase.PRE_SPAWN, remaining):
             return
 
-        await state.wait_until_idle()
+        if not await state.wait_until_idle():
+            return  # still busy after half an hour: the loop comes back here and waits on
         if state.boss_phase is not BossPhase.PRE_SPAWN:
             return
         with state.hold_busy("boss-spawn"):
@@ -395,6 +396,9 @@ class BossCycle:
         if not state.try_engage_boss():
             await io.send(scene.channel, MSG_NOT_ATTACKABLE.format(user_id=scene.author.id))
             return
+        # Wake the cycle loop: it then watches the encounter with its time limit
+        # (try_engage_boss is synchronous and cannot notify the waiters itself).
+        await state.set_boss_phase(BossPhase.ENGAGED)
 
         info = state.boss
         try:
@@ -465,7 +469,10 @@ class BossCycle:
                 quiet_until = clock.utcnow() + timedelta(seconds=bot.timings.post_fight_pause)
                 self.quiet_until = quiet_until
                 self.arrives_at = max(self.arrives_at, quiet_until)
-                bot.store.runtime_set(_KEY_QUIET_UNTIL, quiet_until.isoformat())
+                try:
+                    bot.store.runtime_set(_KEY_QUIET_UNTIL, quiet_until.isoformat())
+                except OSError:  # the phase below must change whatever the disk says
+                    log.exception("Could not persist the quiet period after a summoned boss.")
                 bot.state.boss = BossInfo(rarity=self.base_rarity)
                 await self._guarded("restore boss schedule", self._database.update_boss_table(
                     bot, self.base_rarity, max(clock.seconds_until(self.arrives_at), 0), True))

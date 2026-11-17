@@ -242,6 +242,7 @@ async def update_ranking_table(bot: "AlterBot", user_id: int | str, boss_rarity:
            ON CONFLICT (ID) DO UPDATE SET POINTS = RANKING.POINTS + EXCLUDED.POINTS
            RETURNING POINTS""",
         str(user_id), nick, points,
+        idempotent=False,  # additive: repeating it after a lost reply would add the points twice
     )
     log.info("Ranking: %s (%s) %+d -> %s", nick, user_id, points, total)
     return int(total)

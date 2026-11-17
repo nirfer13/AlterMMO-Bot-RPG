@@ -420,8 +420,9 @@ async def test_single_fight_won(game_db, monkeypatch):
     assert (await database.read_record_table(bot))[1] == "O'Brien"
     assert (await database.read_history_table(bot))[1] == "O'Brien"
     assert await bot.db.fetchval("SELECT BOSS_KILLS FROM ACHIEVEMENTS WHERE PLAYER_ID = $1", hunter.id) == 1
-    # 250 from the loot + 1500 for the record (legacy only announced the record bonus).
-    assert bot.store.exp_summary.load() == {str(hunter.id): 1750}
+    # 250 from the loot; the 1500 for the record only goes to the owner's log, as in legacy
+    # (the owner hands it out from that line - the exp summary would pay it a second time).
+    assert bot.store.exp_summary.load() == {str(hunter.id): 250}
     assert "O'Brien otrzymał: 1500 expa za rekord" in bot.owner_log
     assert "O'Brien otrzymał: \n👉 250 doświadczenia na Discordzie\n" in bot.owner_log
     assert bot.state.boss_phase is BossPhase.IDLE        # fights never touch the phase
@@ -611,7 +612,7 @@ async def test_won_fight_stays_won_when_bookkeeping_fails(game_db, monkeypatch):
     assert any("ogłoszenie zwycięstwa" in line and "RuntimeError" in line for line in bot.owner_log)
     assert any("punkty rankingowe" in line and "ConnectionError" in line for line in bot.owner_log)
     # Everything else was still handed out.
-    assert bot.store.exp_summary.load() == {str(hunter.id): 1750}
+    assert bot.store.exp_summary.load() == {str(hunter.id): 250}
     assert game_db.channel.contains("Boss Drop - Ala")
     assert await bot.db.fetchval("SELECT BOSS_KILLS FROM ACHIEVEMENTS WHERE PLAYER_ID = $1", hunter.id) == 1
 
@@ -741,7 +742,7 @@ async def test_group_fight_won(game_db, monkeypatch):
     assert {(r["id"], r["nick"], int(r["points"])) for r in rows} == {(str(p.id), p.name, 4) for p in players}
     assert (await database.read_record_table(bot))[1] == "Party Ala"
     assert (await database.read_history_table(bot))[1] == "Party Ala"
-    assert bot.store.exp_summary.load() == {str(p.id): 1750 for p in players}
+    assert bot.store.exp_summary.load() == {str(p.id): 250 for p in players}
     assert mentions + " otrzymali: 1500 expa za rekord" in bot.owner_log
     for player in players:
         assert f"{player.name} otrzymał: 👉 250 doświadczenia na Discordzie\n" in bot.owner_log

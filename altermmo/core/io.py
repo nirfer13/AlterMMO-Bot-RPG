@@ -48,6 +48,12 @@ def is_transient(exc: BaseException) -> bool:
     return isinstance(exc, TRANSIENT_ERRORS)
 
 
+#: Longest time one attempt of a Discord call may take.  discord.py itself sets
+#: no limit, so aiohttp's default of 5 minutes would apply: with a black-holed
+#: connection one ``send`` could freeze a fight for a quarter of an hour.
+ATTEMPT_TIMEOUT = 60.0
+
+
 async def retry(
     factory: Callable[[], Awaitable[T]],
     *,
@@ -55,16 +61,19 @@ async def retry(
     first_delay: float = 0.5,
     max_delay: float = 30.0,
     what: str = "Discord call",
+    attempt_timeout: float | None = None,
 ) -> T:
     """Await ``factory()`` and retry it on transient errors with backoff.
 
     ``factory`` must create a *new* awaitable on every call, e.g.
-    ``await retry(lambda: member.add_roles(role))``.
+    ``await retry(lambda: member.add_roles(role))``.  Every attempt is limited
+    to ``attempt_timeout`` seconds (default :data:`ATTEMPT_TIMEOUT`).
     """
+    limit = ATTEMPT_TIMEOUT if attempt_timeout is None else attempt_timeout
     delay = first_delay
     for attempt in range(1, attempts + 1):
         try:
-            return await factory()
+            return await asyncio.wait_for(factory(), limit)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -75,6 +84,76 @@ async def retry(
             await asyncio.sleep(delay)
             delay = min(delay * 3, max_delay)
     raise AssertionError("unreachable")
+
+
+class _MessageRef:
+    """Just the id of a message that is not in discord.py's message cache."""
+
+    __slots__ = ("id",)
+
+    def __init__(self, message_id: int) -> None:
+        self.id = message_id
+
+
+class _RawReaction:
+    """Stand-in for :class:`discord.Reaction` built from a raw gateway event."""
+
+    __slots__ = ("emoji", "message")
+
+    def __init__(self, emoji: Any, message_id: int) -> None:
+        self.emoji = emoji
+        self.message = _MessageRef(message_id)
+
+
+@contextlib.contextmanager
+def reaction_listener(
+    bot: Any,
+    on_add: Callable[[Any, Any], Awaitable[None]],
+    on_remove: Callable[[Any, Any], Awaitable[None]] | None = None,
+):
+    """Call ``on_add(reaction, user)`` / ``on_remove(reaction, user)`` for every click.
+
+    discord.py only dispatches ``reaction_add`` / ``reaction_remove`` for
+    messages in its message cache, and that cache is emptied whenever the bot
+    has to log in again after a longer connection loss - reactions under an
+    event message posted before the outage would then never be heard.  This
+    listens to the raw events as well and forwards the ones the cache missed.
+    For those, ``reaction`` only has ``.emoji`` and ``.message.id`` and ``user``
+    may be a bare object with an ``id`` when the member is unknown.
+    """
+
+    def cached(message_id: int) -> bool:
+        return any(message.id == message_id for message in bot.cached_messages)
+
+    def user_of(payload: Any) -> Any:
+        member = getattr(payload, "member", None)
+        if member is not None:
+            return member
+        guild = bot.get_guild(payload.guild_id) if getattr(payload, "guild_id", None) else None
+        found = guild.get_member(payload.user_id) if guild is not None else None
+        return found or bot.get_user(payload.user_id) or discord.Object(id=payload.user_id)
+
+    def forwarder(callback: Callable[[Any, Any], Awaitable[None]]):
+        async def on_raw(payload: Any) -> None:
+            if cached(payload.message_id):
+                return  # the ordinary event delivers this one
+            if bot.user is not None and payload.user_id == bot.user.id:
+                return
+            await callback(_RawReaction(payload.emoji, payload.message_id), user_of(payload))
+        return on_raw
+
+    listeners: list[tuple[Any, str]] = [(on_add, "on_reaction_add"),
+                                        (forwarder(on_add), "on_raw_reaction_add")]
+    if on_remove is not None:
+        listeners += [(on_remove, "on_reaction_remove"),
+                      (forwarder(on_remove), "on_raw_reaction_remove")]
+    for callback, name in listeners:
+        bot.add_listener(callback, name)
+    try:
+        yield
+    finally:
+        for callback, name in listeners:
+            bot.remove_listener(callback, name)
 
 
 def _build_kwargs(kwargs: dict[str, Any], file_path: str | Path | None,

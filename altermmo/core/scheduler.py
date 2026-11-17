@@ -80,6 +80,12 @@ def pending_occurrence(job: Job, last_run: datetime | None, now: datetime) -> da
     return due
 
 
+#: ``await failure_hook(job_name, error_text, failures_in_a_row)`` - set by the
+#: bot so the owner hears about a scheduled job that keeps failing (first
+#: failure and then every tenth).
+failure_hook: Callable[[str, str, int], Awaitable[None]] | None = None
+
+
 async def run_job(job: Job, memory: _Memory, *, max_sleep: float = 300.0) -> None:
     """Run ``job`` forever (meant to be started under the supervisor).
 
@@ -104,11 +110,18 @@ async def run_job(job: Job, memory: _Memory, *, max_sleep: float = 300.0) -> Non
                 await job.run()
             except asyncio.CancelledError:
                 raise
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 failures += 1
                 delay = min(60.0 * failures, 900.0)
                 log.exception("Scheduled job %s failed (attempt %d); retrying in %.0fs.",
                               job.name, failures, delay)
+                if failure_hook is not None and failures % 10 == 1:
+                    try:
+                        await failure_hook(job.name, f"{type(exc).__name__}: {exc}", failures)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:  # noqa: BLE001 - reporting must never stop the retry
+                        log.exception("Could not report the failure of job %s.", job.name)
                 await asyncio.sleep(delay)
                 continue
             failures = 0

@@ -132,18 +132,20 @@ class IdListFile:
         self._write([])
 
 
-def migrate_legacy_file(name: str, data_dir: Path, legacy_dirs: Iterable[Path]) -> None:
+def migrate_legacy_file(name: str, data_dir: Path, legacy_dirs: Iterable[Path]) -> bool:
     """Copy a legacy state file into ``data_dir`` the first time v2 starts.
 
-    Nothing is ever overwritten: if ``data_dir/name`` exists it wins.
+    Nothing is ever overwritten: if ``data_dir/name`` exists it wins.  The
+    source is only read, never changed.  Returns True when a file was copied.
     """
     target = data_dir / name
     if target.exists():
-        return
+        return False
     for legacy_dir in legacy_dirs:
         source = Path(legacy_dir) / name
         if source.is_file():
             data_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
             log.info("Migrated state file %s -> %s", source, target)
-            return
+            return True
+    return False

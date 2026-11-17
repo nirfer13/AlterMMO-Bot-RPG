@@ -12,6 +12,9 @@ Environment variables (``.env`` file in the project root):
                                   short timers (replaces ``globals/globalvariables.py``)
 ``ALTERMMO_DATA_DIR``             where cooldown/modifier files live (default ``data``)
 ``ALTERMMO_LOG_DIR``              where log files go (default ``logs``)
+``ALTERMMO_LEGACY_DIR``           folder of the old bot; its state files are copied into the
+                                  data folder on the first production start (default: the
+                                  sibling folder ``AlterMMO-Bot-RPG``; ``none`` = do not copy)
 
 Optional gameplay switches (see the policy fields of :class:`Settings`):
 
@@ -110,6 +113,10 @@ class Settings:
     debug: bool
     data_dir: Path
     log_dir: Path
+    #: Folder of the old bot.  On the first production start the state files
+    #: that are still missing in ``data_dir`` (cooldown lists, shrine modifiers,
+    #: exp summary) are copied from there.  None = nothing to take over.
+    legacy_dir: Path | None = None
     ids: Ids = field(default_factory=Ids)
     timings: Timings = field(default_factory=Timings)
 
@@ -151,6 +158,14 @@ def load_settings(*, env_file: Path | None = None) -> Settings:
     data_dir = Path(_env("ALTERMMO_DATA_DIR") or PROJECT_ROOT / "data")
     log_dir = Path(_env("ALTERMMO_LOG_DIR") or PROJECT_ROOT / "logs")
     policies: dict = {}
+    # The old bot's files are production state: never mix them into a debug run.
+    legacy_text = _env("ALTERMMO_LEGACY_DIR")
+    if not debug and legacy_text.lower() not in {"none", "-", "0"}:
+        legacy_dir = Path(legacy_text) if legacy_text else PROJECT_ROOT.parent / "AlterMMO-Bot-RPG"
+        if not legacy_dir.is_absolute():
+            legacy_dir = PROJECT_ROOT / legacy_dir
+        if legacy_dir.is_dir() and legacy_dir.resolve() != PROJECT_ROOT.resolve():
+            policies["legacy_dir"] = legacy_dir
     if _env("ALTERMMO_BUSY_POLICY"):
         policies["busy_policy"] = _env("ALTERMMO_BUSY_POLICY")
     if _env("ALTERMMO_BOSS_VISIBLE_MINUTES"):

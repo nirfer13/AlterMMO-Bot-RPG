@@ -42,7 +42,9 @@ PASSIVE = (EventType.SHRINE, EventType.CHEST)
 MSG_NOT_A_BELIEVER = ("Nie umiesz pacierza. Poczekaj na kogoś bardziej wierzącego. "
                       "<:prayge:1063891597760139304>")
 MSG_NO_SHRINE = "Do kogo Ty chcesz się modlić? Przecież tu nic nie ma..."
-MSG_NO_CHEST = "Powiedz mi... Czy ta skrzynia jest tutaj z nami w pokoju? <:Hmm:984767035617730620>"
+MSG_RITUAL_BOSS_GONE = ("Przywołany potwór rozpłynął się w powietrzu - nadciąga coś innego... "
+                        "<:Hmm:984767035617730620>")
+MSG_NO_CHEST ="Powiedz mi... Czy ta skrzynia jest tutaj z nami w pokoju? <:Hmm:984767035617730620>"
 
 
 def pick_event(now, *, debug: bool) -> EventType:
@@ -134,7 +136,10 @@ class EventsCog(commands.Cog, name="Events"):
             EventType.HAZARD: events.spawn_hazard,
             EventType.DUEL: events.spawn_duel,
         }
-        with state.running_event(event_type):
+        # The duel keeps the channel free while it waits for volunteers (as the old
+        # bot did: hunts, the tower and pet commands work meanwhile); it takes the
+        # busy flag itself for the fight.
+        with state.running_event(event_type, exclusive=event_type is not EventType.DUEL):
             await io.clear_channel(scene.channel)
             if event_type is EventType.RITUAL:
                 success, rarity, is_player_boss, player_boss = await events.spawn_ritual(scene)
@@ -143,27 +148,42 @@ class EventsCog(commands.Cog, name="Events"):
                 return
         # The ritual summons a boss; hand it to the boss cycle once the event flags are free.
         if success:
-            await bot.boss_cycle.summon(scene, rarity, show_image=False,
-                                        is_player_boss=is_player_boss, player_boss=player_boss)
+            summoned = await bot.boss_cycle.summon(scene, rarity, show_image=False,
+                                                   is_player_boss=is_player_boss,
+                                                   player_boss=player_boss)
+            if not summoned:
+                # The scheduled boss started arriving during the ritual: the picture
+                # is on the channel but that boss cannot be attacked.
+                log.warning("Ritual boss could not be summoned (boss phase %s).",
+                            state.boss_phase.name)
+                await io.send(scene.channel, MSG_RITUAL_BOSS_GONE)
 
     # -- weekly tournament --------------------------------------------------------
 
     async def run_tournament(self) -> None:
-        """PvP tournament, Saturdays 19:00 (waits up to 2 h for a free channel)."""
+        """PvP tournament, Saturdays 19:00.
+
+        Like the old bot it waits as long as needed for a free channel (a boss
+        that nobody attacks, a running event); the owner is told once when the
+        wait gets long.
+        """
         from ..features import events
 
         bot = self.bot
         state = bot.state
         log.info("PvP Tournament time reached. Waiting for free state...")
-        deadline = clock.monotonic() + 2 * 3600
+        waiting_since = clock.monotonic()
+        owner_told = False
         while not state.free_for_activity:
             if state.event_type in PASSIVE:
                 state.close_event()
                 continue
-            if clock.monotonic() >= deadline:
-                log.warning("PvP tournament skipped: the channel was never free.")
-                await bot.log_to_owner("Turniej PvP pominięty - kanał był cały czas zajęty.")
-                return
+            if not owner_told and clock.monotonic() - waiting_since >= 2 * 3600:
+                owner_told = True
+                log.warning("PvP tournament still waiting for a free channel (boss phase %s).",
+                            state.boss_phase.name)
+                await bot.log_to_owner("Turniej PvP czeka już 2 godziny na wolny kanał "
+                                       f"(boss: {state.boss_phase.name}). Ruszy, gdy kanał się zwolni.")
             await asyncio.sleep(30)
 
         scene = bot.boss_scene()

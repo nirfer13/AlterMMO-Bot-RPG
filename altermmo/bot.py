@@ -11,7 +11,7 @@ import discord
 from discord.ext import commands
 
 from . import schema
-from .core import io
+from .core import io, scheduler
 from .core.db import Database, DatabaseUnavailable
 from .core.net import ConnectionMonitor
 from .core.scene import Scene
@@ -79,9 +79,10 @@ class Stores:
         #: Unused "steal experience" rights won from bosses (features/xpsteal.py).
         self.xp_thefts = JsonFile(data_dir / "xpThefts.json", dict)
 
-    def migrate_legacy(self, legacy_dirs: list[Path]) -> None:
-        for name in LEGACY_STATE_FILES:
-            migrate_legacy_file(name, self.data_dir, legacy_dirs)
+    def migrate_legacy(self, legacy_dirs: list[Path]) -> list[str]:
+        """Copy missing state files from the old bot; returns the names copied now."""
+        return [name for name in LEGACY_STATE_FILES
+                if migrate_legacy_file(name, self.data_dir, legacy_dirs)]
 
     def runtime_get(self, key: str, default=None):
         return self.runtime.load().get(key, default)
@@ -129,7 +130,19 @@ class AlterBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         self.net.attach(self)
-        self.store.migrate_legacy([PROJECT_ROOT])
+        self.supervisor.on_crash = self._report_loop_crash
+        scheduler.failure_hook = self._report_job_failure
+        legacy_dirs = [PROJECT_ROOT]
+        if self.settings.legacy_dir is not None:
+            legacy_dirs.append(self.settings.legacy_dir)
+        migrated = self.store.migrate_legacy(legacy_dirs)
+        missing = [name for name in LEGACY_STATE_FILES if not (self.store.data_dir / name).exists()]
+        if migrated:
+            log.info("State files taken over from the old bot: %s", ", ".join(migrated))
+        if missing:
+            log.warning("No state file found for: %s - starting them empty (cooldown lists, "
+                        "shrine modifiers and the exp summary of the old bot are NOT carried over). "
+                        "Looked in: %s", ", ".join(missing), ", ".join(str(d) for d in legacy_dirs))
         try:
             await self.db.connect()
             problems = await schema.verify(self.db)
@@ -211,6 +224,16 @@ class AlterBot(commands.Bot):
         except Exception:  # noqa: BLE001
             log.exception("Could not write to the log channel; message was: %s", text)
 
+    async def _report_loop_crash(self, name: str, error: str, crashes: int) -> None:
+        await self.log_to_owner(
+            f"Pętla `{name}` przerwana przez błąd (raz {crashes}. z rzędu): `{error}`. "
+            "Bot sam ją wznawia; szczegóły w pliku logów i w `$status`.", ping=True)
+
+    async def _report_job_failure(self, name: str, error: str, failures: int) -> None:
+        await self.log_to_owner(
+            f"Zaplanowane zadanie `{name}` nie powiodło się (próba {failures}.): `{error}`. "
+            "Bot będzie próbował ponownie.", ping=True)
+
     # -- errors -----------------------------------------------------------------
 
     async def on_command_error(self, ctx: commands.Context, error: commands.CommandError,
@@ -232,8 +255,7 @@ class AlterBot(commands.Bot):
             await self._reply(ctx, f"Poczekaj na odnowienie komendy! Zostało {hours} godzin/y "
                                    "<:Bedge:970576892874854400>.")
             return
-        if isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument,
-                              commands.TooManyArguments)):
+        if isinstance(error, commands.UserInputError):  # missing / bad argument, unbalanced quote...
             usage = f"{COMMAND_PREFIX}{ctx.command.qualified_name} {ctx.command.signature}".strip()
             await self._reply(ctx, f"Niepoprawne użycie komendy. Spróbuj: **{usage}**")
             return
@@ -247,6 +269,8 @@ class AlterBot(commands.Bot):
 
         log.error("Unhandled error in command %s (author %s): %s",
                   ctx.command, ctx.author, "".join(traceback.format_exception(original)))
+        await self._reply(ctx, "Coś poszło nie tak przy tej komendzie. Spróbuj ponownie za chwilę "
+                               "<:Sadge:936907659142111273>")
         await self.log_to_owner(f"Błąd komendy `{ctx.command}` ({ctx.author}): "
                                 f"`{type(original).__name__}: {original}`")
 

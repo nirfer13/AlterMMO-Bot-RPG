@@ -39,6 +39,10 @@ class Supervisor:
         self._min_backoff = min_backoff
         self._max_backoff = max_backoff
         self._healthy_after = healthy_after
+        #: ``await on_crash(name, error_text, crashes_in_a_row)`` - set by the bot
+        #: so the owner hears about a loop that keeps failing (first crash and
+        #: then every tenth), instead of finding out from a silent channel.
+        self.on_crash: Callable[[str, str, int], Awaitable[None]] | None = None
 
     def start(self, name: str, factory: TaskFactory) -> None:
         """Start (or restart) the supervised task ``name``.
@@ -96,8 +100,10 @@ class Supervisor:
 
     async def _run(self, entry: _Entry) -> None:
         delay = self._min_backoff
+        crashes_in_a_row = 0
         while True:
             entry.started_at = time.monotonic()
+            crashed = False
             try:
                 await entry.factory()
                 log.warning("Background task %r returned; restarting it.", entry.name)
@@ -106,11 +112,22 @@ class Supervisor:
                 log.info("Background task %r cancelled.", entry.name)
                 raise
             except Exception as exc:  # noqa: BLE001 - the whole point is to survive anything
+                crashed = True
                 entry.last_error = f"{type(exc).__name__}: {exc}"
                 log.exception("Background task %r crashed; restarting in %.0fs.", entry.name, delay)
 
             entry.restarts += 1
             if time.monotonic() - entry.started_at >= self._healthy_after:
                 delay = self._min_backoff
+                crashes_in_a_row = 0
+            if crashed:
+                crashes_in_a_row += 1
+                if self.on_crash is not None and crashes_in_a_row % 10 == 1:
+                    try:
+                        await self.on_crash(entry.name, entry.last_error or "", crashes_in_a_row)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:  # noqa: BLE001 - reporting must never stop the restart
+                        log.exception("Could not report the crash of %r.", entry.name)
             await asyncio.sleep(delay)
             delay = min(delay * 2, self._max_backoff)

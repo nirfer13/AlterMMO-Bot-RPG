@@ -463,13 +463,33 @@ def _rest_clicks(bot: "AlterBot") -> Iterator[list[tuple[int, Any, bool]]]:
         if _is_rest_emoji(reaction.emoji):
             clicks.append((reaction.message.id, user, False))
 
-    bot.add_listener(on_reaction_add, "on_reaction_add")
-    bot.add_listener(on_reaction_remove, "on_reaction_remove")
-    try:
+    with io.reaction_listener(bot, on_reaction_add, on_reaction_remove):
         yield clicks
-    finally:
-        bot.remove_listener(on_reaction_add, "on_reaction_add")
-        bot.remove_listener(on_reaction_remove, "on_reaction_remove")
+
+
+async def _rest_reactors(scene: "Scene", message: Any) -> list[int] | None:
+    """Ids of the people who have the rest emoji on ``message`` right now, read from Discord.
+
+    None when Discord cannot be asked: the caller then uses the clicks it heard.
+    Reading the final list (as the legacy bot did) also covers clicks made
+    while the connection was down.
+    """
+    try:
+        fresh = await io.retry(lambda: scene.channel.fetch_message(message.id), what="fetch_message")
+        ids: list[int] = []
+        for reaction in fresh.reactions:
+            if not _is_rest_emoji(reaction.emoji):
+                continue
+            async for user in reaction.users():
+                if not getattr(user, "bot", False):
+                    ids.append(user.id)
+        return ids
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the clicks heard live are good enough
+        log.info("Rest reactions could not be read from Discord (%s: %s); using the ones heard live.",
+                 type(exc).__name__, exc)
+        return None
 
 
 async def skill_rest(scene: "Scene") -> bool:
@@ -506,6 +526,9 @@ async def skill_rest(scene: "Scene") -> bool:
             resting[user.id] = None
         else:
             resting.pop(user.id, None)
+    fetched = await _rest_reactors(scene, msg)
+    if fetched is not None:
+        resting.update(dict.fromkeys(fetched))  # clicks made while the connection was down
     guild = scene.guild
     users = [str(user_id) for user_id in resting if guild.get_member(user_id) is not None]
     log.info("Rest of %s is over: %d traveller(s) rested.", author, len(users))

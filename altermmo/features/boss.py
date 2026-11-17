@@ -708,13 +708,16 @@ async def _report_lost_fight(bot: "AlterBot", line: str, fighters: Sequence[Any]
 
 async def _settle_record(scene: "Scene", fighters: Sequence[Any], nick: str, turn_time: timedelta,
                          announcement: str, owner_line: str) -> None:
-    """Store a new kill record and pay the 1500 experience for it."""
+    """Store a new kill record and report the 1500 experience for it to the owner.
+
+    Exactly as in the old bot the record reward is NOT written to the exp
+    summary (``$Exp``): the owner hands it out from the pinged log line, so
+    adding it there as well would pay it twice.
+    """
     bot = scene.bot
     previous, _ = await database.read_record_table(bot)
     if not database.is_new_record(previous, turn_time):
         return
-    for fighter in fighters:
-        expsum.add_file_exp(bot, fighter.id, RECORD_EXP)
     await bot.log_to_owner(owner_line, ping=True)
     await _guarded(bot, "zapis rekordu", database.update_record_table(bot, nick, turn_time))
     await scene.send(announcement)

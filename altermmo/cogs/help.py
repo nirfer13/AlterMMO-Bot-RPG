@@ -34,6 +34,7 @@ Dostępne komendy (dla wszystkich):
 - $oswiecenie - Zwiększa talent towarzysza.
 - $rankingtowarzyszy - Lista najbardziej utalentowanych towarzyszy. Skrót $rt.
 - $zabojca - Wynajmuje zabójcę na jednego z graczy w rankingu.
+- $kradnijxp nick - Kradnie doświadczenie wybranemu graczowi (nagroda z bossa).
                                         
 - $pokażumiejętność - Prezentuje klejnot umiejetności, który aktualnie posiadasz. Skrót $pu.
 - $użyjumiejętność - Powoduje użycie klejnotu umiejętności. Skrót $uu.

@@ -257,11 +257,8 @@ def _reactions(bot: "AlterBot") -> Iterator[asyncio.Queue]:
             return
         queue.put_nowait((reaction, user))
 
-    bot.add_listener(on_reaction_add, "on_reaction_add")
-    try:
+    with io.reaction_listener(bot, on_reaction_add):
         yield queue
-    finally:
-        bot.remove_listener(on_reaction_add, "on_reaction_add")
 
 
 async def _next_reaction(queue: asyncio.Queue, accept: Callable[[Any, Any], bool],
@@ -716,7 +713,13 @@ async def spawn_duel(scene: "Scene") -> bool:
         await _send_image(scene, "pvp", "0.png")
         return False
 
-    finished, _winner = await boss.duel_fight(scene, participants)
+    # The sign-up left the channel free, so a hunt or a tower run may be going on:
+    # let it finish, then keep the channel for the fight.
+    state = bot.state
+    while state.busy:
+        await asyncio.sleep(2)
+    with state.hold_busy("event:DUEL"):
+        finished, _winner = await boss.duel_fight(scene, participants)
     return bool(finished)
 
 

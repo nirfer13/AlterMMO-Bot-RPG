@@ -741,16 +741,14 @@ async def _stored(*args, **kwargs):
     return True
 
 
-async def test_display_commands_follow_the_busy_policy(game):
-    """Owner's policy "notify": while an activity runs even the rankings answer with the notice."""
+async def test_display_commands_are_never_blocked(game):
+    """As in the old bot the tower rankings answer even while an activity runs."""
     bot = game.bot
     cog = tower_cog.TowerCog(bot)
     ala = game.add_member("Ala")
-    assert bot.settings.busy_policy == "notify"
     elsewhere = FakeChannel(555, game.guild, bot.fake_user, name="inny")
     with bot.state.hold_busy("tower"):
         for command in (cog.tower_ranking, cog.check_personal_tower):
-            with pytest.raises(guards.SilentCheckFailure):
-                await run_checks(command, make_ctx(game, ala, "$rw", channel=elsewhere))
-    assert [m.content for m in elsewhere.bot_messages] == [guards.BUSY_NOTICE]     # said once, not twice
+            await run_checks(command, make_ctx(game, ala, "$rw", channel=elsewhere))
+    assert elsewhere.bot_messages == []                                            # no busy notice
 

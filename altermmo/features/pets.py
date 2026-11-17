@@ -34,6 +34,7 @@ import asyncio
 import contextlib
 import logging
 import random
+import time
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -182,6 +183,8 @@ ACCEPT_EMOTE = "✅"
 CONFIRM_WORD = "$potwierdzam"
 CONFIRM_TIMEOUT = 15
 MENU_TIMEOUT = 20
+#: Longest time the advanced reroll menu may stay open altogether (it keeps the channel busy).
+MENU_TOTAL_TIMEOUT = 180
 
 # -- texts (verbatim from the legacy bot) ---------------------------------------------
 
@@ -857,30 +860,33 @@ async def adv_reroll_pet(scene: "Scene") -> bool:
     # (nobody listens between two ``wait_for`` calls), and taking a reaction
     # back has to count as well.  The bot's own reactions are added in the
     # background, so a player who clicks while the menu fills in is heard too.
-    bot.add_listener(on_reaction_add, "on_reaction_add")
-    bot.add_listener(on_reaction_remove, "on_reaction_remove")
-    decorating = asyncio.ensure_future(decorate())
-    try:
-        while True:
-            try:
-                added, emoji = await asyncio.wait_for(clicks.get(), timing.timeout(MENU_TIMEOUT))
-            except asyncio.TimeoutError:
-                await io.safe_delete(react_msg)
-                await scene.send(MSG_UNSURE)
-                return False
-            if emoji == ACCEPT_EMOTE and added:
-                break
-            if emoji in SKILL_EMOTES:
-                index = SKILL_EMOTES.index(emoji)
-                if added:
-                    selected.add(index)
-                else:
-                    selected.discard(index)
-    finally:
-        bot.remove_listener(on_reaction_add, "on_reaction_add")
-        bot.remove_listener(on_reaction_remove, "on_reaction_remove")
-        if not decorating.done():
-            decorating.cancel()
+    # The menu as a whole is limited as well: every click restarts the 20 s, and
+    # the menu keeps the channel busy, so endless clicking must not hold it for ever.
+    menu_deadline = time.monotonic() + timing.timeout(MENU_TOTAL_TIMEOUT)
+    with io.reaction_listener(bot, on_reaction_add, on_reaction_remove):
+        decorating = asyncio.ensure_future(decorate())
+        try:
+            while True:
+                wait = min(timing.timeout(MENU_TIMEOUT), menu_deadline - time.monotonic())
+                try:
+                    if wait <= 0:
+                        raise asyncio.TimeoutError
+                    added, emoji = await asyncio.wait_for(clicks.get(), wait)
+                except asyncio.TimeoutError:
+                    await io.safe_delete(react_msg)
+                    await scene.send(MSG_UNSURE)
+                    return False
+                if emoji == ACCEPT_EMOTE and added:
+                    break
+                if emoji in SKILL_EMOTES:
+                    index = SKILL_EMOTES.index(emoji)
+                    if added:
+                        selected.add(index)
+                    else:
+                        selected.discard(index)
+        finally:
+            if not decorating.done():
+                decorating.cancel()
 
     await scene.send("Zobaczmy...")
     ignored_skills = sorted(selected)
