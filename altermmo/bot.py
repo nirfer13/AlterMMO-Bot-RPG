@@ -10,6 +10,7 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 
+from . import schema
 from .core import io
 from .core.db import Database, DatabaseUnavailable
 from .core.net import ConnectionMonitor
@@ -131,6 +132,11 @@ class AlterBot(commands.Bot):
         self.store.migrate_legacy([PROJECT_ROOT])
         try:
             await self.db.connect()
+            problems = await schema.verify(self.db)
+            for problem in problems:
+                log.error("Database structure differs from what the bot expects: %s", problem)
+            if not problems:
+                log.info("Database structure verified.")
         except Exception as exc:  # noqa: BLE001 - keep starting; queries reconnect lazily
             log.error("Database unreachable at start-up (%s: %s); will keep retrying on use.",
                       type(exc).__name__, exc)

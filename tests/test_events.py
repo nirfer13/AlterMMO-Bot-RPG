@@ -1,0 +1,779 @@
+"""features/events.py: the random events of the boss channel, played through fake Discord."""
+
+from __future__ import annotations
+
+import random
+from types import SimpleNamespace
+
+import discord
+import pytest
+
+from altermmo.core import challenge, timing
+from altermmo.core.db import DatabaseUnavailable
+from altermmo.core.state import EventType
+from altermmo.features import events, patrons
+
+
+# -- helpers -------------------------------------------------------------------------
+
+class FakeReaction:
+    def __init__(self, emoji: str, message) -> None:
+        self.emoji = emoji
+        self.message = message
+
+
+class FetchedReaction:
+    """A reaction as ``fetch_message`` returns it (with its users)."""
+
+    def __init__(self, emoji: str, users) -> None:
+        self.emoji = emoji
+        self._users = list(users)
+
+    async def users(self):
+        for user in self._users:
+            yield user
+
+
+def react(game, message, emoji, user) -> None:
+    game.bot.dispatch("reaction_add", FakeReaction(emoji, message), user)
+
+
+def react_on(game, fragment: str, *reactions) -> None:
+    """When the bot posts a message containing ``fragment``: add ``(emoji, user)`` reactions to it."""
+    def hook(message) -> None:
+        if fragment in message.text:
+            for emoji, user in reactions:
+                react(game, message, emoji, user)
+    game.channel.send_hooks.append(hook)
+
+
+def no_listeners(game) -> bool:
+    return not game.bot.extra_events.get("on_reaction_add") and not game.bot.extra_events.get("on_message")
+
+
+def files(game) -> list[str]:
+    return [name for message in game.channel.sent for name in message.files]
+
+
+@pytest.fixture
+def quick(monkeypatch):
+    """Waiting times 100x shorter (600 s -> 6 s, debug 5 s -> 0.05 s, 15 s -> 0.15 s)."""
+    monkeypatch.setattr(timing, "TIMEOUT_SCALE", 0.01)
+
+
+@pytest.fixture
+def loot(monkeypatch):
+    """Record ``daily.rand_loot`` calls instead of granting loot."""
+    calls: list[tuple] = []
+
+    async def rand_loot(scene, rarity, hunter, boost_percent):
+        calls.append((rarity, hunter, boost_percent))
+        return ""
+
+    monkeypatch.setattr(events.daily, "rand_loot", rand_loot)
+    return calls
+
+
+def low_rolls(monkeypatch) -> None:
+    monkeypatch.setattr(random, "randint", lambda low, high: low)
+
+
+def high_rolls(monkeypatch) -> None:
+    monkeypatch.setattr(random, "randint", lambda low, high: high)
+
+
+def first_choice(monkeypatch) -> None:
+    monkeypatch.setattr(random, "choice", lambda pool: list(pool)[0])
+
+
+async def give_scrolls(game, member, scrolls) -> None:
+    await game.bot.db.execute(
+        "INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED, REROLL_SCROLL) VALUES ($1, 0, FALSE, $2)",
+        member.id, scrolls)
+
+
+async def scrolls_of(game, member):
+    value = await game.bot.db.fetchval("SELECT REROLL_SCROLL FROM PETOWNER WHERE PLAYER_ID = $1", member.id)
+    return None if value is None else int(value)
+
+
+def not_found() -> discord.NotFound:
+    return discord.NotFound(SimpleNamespace(status=404, reason="Not Found"), "Unknown Message")
+
+
+# -- chest ---------------------------------------------------------------------------
+
+async def test_spawn_chest_posts_picture_and_embed(game, monkeypatch):
+    high_rolls(monkeypatch)
+    await events.spawn_chest(game.scene())
+    assert files(game) == ["4.png"]
+    assert game.channel.contains("Skrzynia ze skarbami!")
+    assert game.channel.contains("**$skrzynia**")
+
+
+@pytest.mark.parametrize("roll, rarity", [(89, 1), (90, 2)])
+async def test_open_chest_gives_loot_to_the_author(game, loot, monkeypatch, roll, rarity):
+    rolls = iter([roll, 17])
+    monkeypatch.setattr(random, "randint", lambda low, high: next(rolls))
+    player = game.add_member("Ala")
+    await events.open_chest(game.scene(player, "$skrzynia"))
+    assert loot == [(rarity, player, 17)]
+
+
+async def test_open_chest_with_real_loot(game_db, monkeypatch):
+    monkeypatch.setattr(random, "random", lambda: 1.0)
+    player = game_db.add_member("O'Brien")
+    await events.open_chest(game_db.scene(player, "$skrzynia"))
+    assert game_db.channel.contains("Drop - O'Brien")
+
+
+# -- invasion ------------------------------------------------------------------------
+
+async def test_invasion_repelled_everybody_gets_loot(game, loot, quick, monkeypatch):
+    low_rolls(monkeypatch)  # picture 0, chance 0, rarity roll 0 -> table 1
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    stranger = SimpleNamespace(id=5, bot=False, name="Obcy")
+    react_on(game, "Inwazja na wioskę!", ("⚔️", ala), ("⚔️", game.bot.user), ("🔥", ola), ("⚔️", ala),
+             ("⚔️", stranger))
+    await events.spawn_invasion(game.scene())
+    assert loot == [(1, ala, 20), (1, ola, 20)]
+    assert not game.channel.contains("nie udało się obronić")
+    assert no_listeners(game)
+
+
+async def test_invasion_lost(game, loot, quick, monkeypatch):
+    high_rolls(monkeypatch)  # chance 100 > 1 * 10 + 10
+    ala = game.add_member("Ala")
+    react_on(game, "Inwazja na wioskę!", ("⚔️", ala))
+    await events.spawn_invasion(game.scene())
+    assert loot == []
+    assert game.channel.contains("Niestety nie udało się obronić wioski")
+    assert files(game)[-1] == "5.png"
+
+
+async def test_invasion_without_defenders_is_always_lost(game, loot, quick, monkeypatch):
+    low_rolls(monkeypatch)  # chance 0: the legacy bot "won" silently with nobody
+    await events.spawn_invasion(game.scene())
+    assert loot == []
+    assert game.channel.contains("Niestety nie udało się obronić wioski")
+
+
+async def test_invasion_message_deleted_ends_quietly(game, loot, quick, monkeypatch):
+    low_rolls(monkeypatch)
+    ala = game.add_member("Ala")
+    react_on(game, "Inwazja na wioskę!", ("⚔️", ala))
+
+    async def fetch_message(message_id):
+        raise not_found()
+
+    monkeypatch.setattr(game.channel, "fetch_message", fetch_message)
+    await events.spawn_invasion(game.scene())
+    assert loot == []
+    assert not game.channel.contains("nie udało się obronić")
+    assert no_listeners(game)
+
+
+async def test_invasion_reads_reactions_from_discord_when_possible(game, loot, quick, monkeypatch):
+    low_rolls(monkeypatch)
+    ala, ola, ela = game.add_member("Ala"), game.add_member("Ola"), game.add_member("Ela")
+    react_on(game, "Inwazja na wioskę!", ("⚔️", ela))  # ...who removed the reaction afterwards
+    fetched = SimpleNamespace(id=1, reactions=[FetchedReaction("⚔️", [game.bot.user, ala, ola]),
+                                               FetchedReaction("🔥", [ala])])
+
+    async def fetch_message(message_id):
+        return fetched
+
+    monkeypatch.setattr(game.channel, "fetch_message", fetch_message)
+    await events.spawn_invasion(game.scene())
+    assert [call[1] for call in loot] == [ala, ola]
+
+
+async def test_invasion_survives_a_failed_fetch(game, loot, quick, monkeypatch):
+    low_rolls(monkeypatch)
+    ala = game.add_member("Ala")
+    react_on(game, "Inwazja na wioskę!", ("⚔️", ala))
+
+    async def fetch_message(message_id):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(game.channel, "fetch_message", fetch_message)
+    await events.spawn_invasion(game.scene())
+    assert [call[1] for call in loot] == [ala]
+
+
+# -- party ---------------------------------------------------------------------------
+
+def toast_answers(game, *answers) -> None:
+    """Every time the bot posts a toast, ``(member, text, delay)`` answers are written."""
+    def hook(message) -> None:
+        if message.content.startswith('"**'):
+            for member, text, delay in answers:
+                game.say_later(member, text, delay)
+    game.channel.send_hooks.append(hook)
+
+
+TOAST = events.TOASTS[0]
+
+
+async def test_party_without_patrons_is_skipped(game, loot):
+    await events.spawn_party(game.scene())
+    assert game.channel.sent == []
+
+
+async def test_party_with_too_few_guests(game, loot, quick, monkeypatch):
+    first_choice(monkeypatch)
+    patron = game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
+    ala = game.add_member("Ala")
+    react_on(game, "Zdrowie Mecenas!", (events.DRINK, ala), (events.DRINK, game.bot.user))
+    await events.spawn_party(game.scene())
+    assert game.channel.contains("Pozostało napić się w samotności. Zdrowie Mecenas!")
+    assert game.channel.sent[0].content == patron.display_avatar.url
+    assert files(game) == ["0.png"]
+    assert loot == []
+
+
+async def test_party_full_flow(game, loot, quick, monkeypatch):
+    first_choice(monkeypatch)
+    high_rolls(monkeypatch)
+    game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    react_on(game, "Zdrowie Mecenas!", (events.DRINK, ala), (events.DRINK, ola), ("🔥", game.add_member("Ela")))
+    # Ola is wrong first, somebody chats on another channel, then Ala gets it right (case-insensitive).
+    toast_answers(game, (ola, "na zdrowie", 0), (ala, TOAST.upper(), 0.01))
+    await events.spawn_party(game.scene())
+    assert game.channel.count("Brawo Ala!") == events.PARTY_ROUNDS
+    assert game.channel.contains("**KOLEJKA 8!**")
+    assert game.channel.contains('"**' + " ".join(TOAST.upper()) + '**"')
+    assert game.channel.contains("Ranking pijaków!")
+    assert game.channel.contains(f"Graulasje <@{ala.id}>")
+    assert game.channel.contains(f"1. <@{ala.id}>: 8")
+    assert loot == [(2, ala, 50)]
+    assert no_listeners(game)
+
+
+async def test_party_nobody_types_a_toast(game, loot, short_timeouts, monkeypatch):
+    first_choice(monkeypatch)
+    game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    react_on(game, "Zdrowie Mecenas!", (events.DRINK, ala), (events.DRINK, ola))
+    await events.spawn_party(game.scene())  # legacy: max() of an empty ranking crashed here
+    assert game.channel.count("Pfff... Miernoty.") == events.PARTY_ROUNDS
+    assert not game.channel.contains("Ranking pijaków!")
+    assert loot == []
+
+
+async def test_party_ignores_other_channels_and_the_bot(game, loot, short_timeouts, monkeypatch):
+    first_choice(monkeypatch)
+    game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    react_on(game, "Zdrowie Mecenas!", (events.DRINK, ala), (events.DRINK, ola))
+
+    def hook(message) -> None:
+        if message.content.startswith('"**'):
+            game.say(ala, TOAST, channel=game.notice_channel)
+            game.say(game.bot.user, TOAST)
+
+    game.channel.send_hooks.append(hook)
+    await events.spawn_party(game.scene())
+    assert not game.channel.contains("Brawo")
+
+
+async def test_party_winner_left_the_server(game, loot, quick, monkeypatch):
+    first_choice(monkeypatch)
+    game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    react_on(game, "Zdrowie Mecenas!", (events.DRINK, ala), (events.DRINK, ola))
+    toast_answers(game, (ala, TOAST, 0))
+
+    def leave(message) -> None:
+        if "Ranking pijaków!" in message.text and ala in game.guild.members:
+            game.guild.members.remove(ala)
+
+    game.channel.send_hooks.append(leave)
+    await events.spawn_party(game.scene())
+    assert game.channel.contains("Ranking pijaków!")
+    assert loot == []
+
+
+async def test_party_disrupted_round_is_repeated(game, loot, quick, monkeypatch):
+    first_choice(monkeypatch)
+    game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    react_on(game, "Zdrowie Mecenas!", (events.DRINK, ala), (events.DRINK, ola))
+    prompts = []
+
+    def hook(message) -> None:
+        if message.content.startswith('"**'):
+            prompts.append(message)
+            if len(prompts) == 1:  # the connection drops during the first toast
+                game.bot.net.mark_disconnected()
+                game.bot.net.mark_connected()
+            else:
+                game.say_later(ala, TOAST, 0)
+
+    game.channel.send_hooks.append(hook)
+    await events.spawn_party(game.scene())
+    assert game.channel.count(challenge.MSG_DISRUPTED) == 1
+    assert len(prompts) == events.PARTY_ROUNDS + 1
+    assert game.channel.count("Brawo Ala!") == events.PARTY_ROUNDS
+    assert not game.channel.contains("Pfff... Miernoty.")
+
+
+# -- memory --------------------------------------------------------------------------
+
+CHOSEN = events.MEMORY_EMOTES[:4]
+
+
+async def test_memory_solved(game, loot, monkeypatch):
+    first_choice(monkeypatch)
+    high_rolls(monkeypatch)
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    react_on(game, "Mędrzec potrzebuje pomocy!", ("🔥", ola), (events.PEPOG, game.bot.user), (events.PEPOG, ala),
+             (events.PEPOG, ola))
+    react_on(game, "Zaczynam przygotowywać zaklęcie", (events.MEMORY_EMOTES[9], ola),
+             *[(emote, ala) for emote in CHOSEN])
+    assert await events.spawn_memory(game.scene()) is True
+    shown = next(m for m in game.channel.sent if "Zapamiętaj je!" in m.content)
+    assert shown.reactions == list(CHOSEN) and shown.deleted
+    asked = next(m for m in game.channel.sent if "Zaczynam przygotowywać" in m.content)
+    assert asked.reactions == list(events.MEMORY_EMOTES)
+    assert f"<@{ala.id}>" in asked.content
+    assert game.channel.count("*Dobrze!* - Sanczo dopinguje.") == 4
+    assert game.channel.contains("Zaklęcie gotowe!")
+    assert files(game) == ["0.png", "2.png"]
+    assert loot == [(2, ala, 25)]
+    assert no_listeners(game)
+
+
+async def test_memory_wrong_emote(game, loot, monkeypatch):
+    first_choice(monkeypatch)
+    ala = game.add_member("Ala")
+    react_on(game, "Mędrzec potrzebuje pomocy!", (events.PEPOG, ala))
+    react_on(game, "Zaczynam przygotowywać zaklęcie", (CHOSEN[0], ala), (CHOSEN[2], ala))
+    assert await events.spawn_memory(game.scene()) is False
+    assert game.channel.count("*Dobrze!*") == 1
+    assert game.channel.contains("Sanczo nie zdążył dokończyć.")
+    assert files(game) == ["0.png", "1.png"]
+    assert loot == []
+
+
+async def test_memory_nobody_volunteers(game, loot, short_timeouts):
+    assert await events.spawn_memory(game.scene()) is False
+    assert game.channel.contains("*Ech, poradzę sobie sam...*")
+    assert files(game) == ["0.png", "1.png"]
+    assert no_listeners(game)
+
+
+async def test_memory_too_slow(game, loot, quick, monkeypatch):
+    first_choice(monkeypatch)
+    ala = game.add_member("Ala")
+    react_on(game, "Mędrzec potrzebuje pomocy!", (events.PEPOG, ala))
+    react_on(game, "Zaczynam przygotowywać zaklęcie", (CHOSEN[0], ala))
+    assert await events.spawn_memory(game.scene()) is False
+    assert game.channel.contains("*Ech, za wolno, poradzę sobie sam...*")
+    assert loot == []
+
+
+# -- hazard --------------------------------------------------------------------------
+
+WINNING, LOSING = events.HAZARD_CUPS
+
+
+async def test_hazard_won(game_db, loot, monkeypatch):
+    game = game_db
+    first_choice(monkeypatch)
+    high_rolls(monkeypatch)
+    ala = game.add_member("Ala")
+    await give_scrolls(game, ala, 10)
+    react_on(game, "Zaryzykuj!", (WINNING, game.bot.user), ("🔥", ala), (WINNING, ala))
+    assert await events.spawn_hazard(game.scene()) is True
+    assert await scrolls_of(game, ala) == 15
+    assert game.channel.contains("*Ech, gratuluje* - Dova rzekł zawiedziony.")
+    assert loot == [(2, ala, 55)]
+    assert no_listeners(game)
+
+
+async def test_hazard_lost(game_db, loot, monkeypatch):
+    game = game_db
+    first_choice(monkeypatch)
+    ala = game.add_member("Ala")
+    await give_scrolls(game, ala, 5)
+    react_on(game, "Zaryzykuj!", (LOSING, ala))
+    assert await events.spawn_hazard(game.scene()) is False
+    assert await scrolls_of(game, ala) == 0
+    assert game.channel.contains("*Dzięki za zwoje. Kolego*")
+    assert loot == []
+
+
+async def test_hazard_needs_five_scrolls(game_db, loot, monkeypatch):
+    game = game_db
+    first_choice(monkeypatch)
+    poor, nobody, rich = game.add_member("Biedak"), game.add_member("Nowy"), game.add_member("Bogacz")
+    await give_scrolls(game, poor, 4)
+    await give_scrolls(game, rich, 7)
+    react_on(game, "Zaryzykuj!", (WINNING, poor), (LOSING, nobody), (WINNING, rich))
+    assert await events.spawn_hazard(game.scene()) is True
+    assert game.channel.count("Najpierw musisz mieć czym grać.") == 2
+    assert await scrolls_of(game, poor) == 4
+    assert await scrolls_of(game, nobody) is None
+    assert await scrolls_of(game, rich) == 12
+    assert [call[1] for call in loot] == [rich]
+
+
+async def test_hazard_nobody_plays(game_db, loot, short_timeouts):
+    assert await events.spawn_hazard(game_db.scene()) is False
+    assert game_db.channel.contains("nie ma pracy dla oszustów z moimi talentami")
+
+
+async def test_hazard_database_down_propagates_and_cleans_up(game, loot, monkeypatch):
+    ala = game.add_member("Ala")
+    react_on(game, "Zaryzykuj!", (WINNING, ala))
+
+    def transaction():
+        raise DatabaseUnavailable("down")
+
+    monkeypatch.setattr(game.bot.db, "transaction", transaction)
+    with pytest.raises(DatabaseUnavailable):
+        await events.spawn_hazard(game.scene())
+    assert no_listeners(game)
+
+
+# -- hunting -------------------------------------------------------------------------
+
+@pytest.fixture
+def hunt(monkeypatch):
+    calls: list[tuple] = []
+
+    async def send_mob_image(scene, rarity):
+        calls.append(("image", rarity))
+        return True, "Szef"
+
+    async def hunt_mobs(scene, rarity, is_player_boss, player_boss, player=None):
+        calls.append(("hunt", rarity, is_player_boss, player_boss, player))
+        return True
+
+    monkeypatch.setattr(events.daily, "send_mob_image", send_mob_image)
+    monkeypatch.setattr(events.daily, "hunt_mobs", hunt_mobs)
+    return calls
+
+
+@pytest.mark.parametrize("roll, rarity", [(96, 1), (97, 2)])
+async def test_hunting_first_volunteer_hunts(game, hunt, monkeypatch, roll, rarity):
+    monkeypatch.setattr(random, "randint", lambda low, high: roll)
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    react_on(game, "Mroczny las!", ("⚔️", game.bot.user), ("🔥", ola), ("⚔", ala), ("⚔️", ola))
+    assert await events.spawn_hunting(game.scene()) is True
+    assert hunt == [("image", rarity), ("hunt", rarity, True, "Szef", ala)]
+    assert no_listeners(game)
+
+
+async def test_hunting_nobody_comes(game, hunt, short_timeouts):
+    assert await events.spawn_hunting(game.scene()) is False
+    assert hunt == []
+    assert game.channel.contains("*Las pozostaje tajemnicą...*")
+    assert files(game) == ["0.png", "1.png"]
+
+
+# -- duel ----------------------------------------------------------------------------
+
+@pytest.fixture
+def duels(monkeypatch):
+    """Scripted ``boss.duel_fight``: the first fighter wins unless ``duels.results`` says otherwise."""
+    record = SimpleNamespace(calls=[], results=[])
+
+    async def duel_fight(scene, participants, ban=True):
+        record.calls.append((list(participants), ban))
+        if record.results:
+            return record.results.pop(0)
+        return True, participants[0]
+
+    monkeypatch.setattr(events.boss, "duel_fight", duel_fight)
+    return record
+
+
+async def test_duel_two_volunteers_fight(game, loot, duels):
+    ala, ola, ela = game.add_member("Ala"), game.add_member("Ola"), game.add_member("Ela")
+    react_on(game, "Pojedynek!", ("⚔️", game.bot.user), ("⚔️", ala), ("⚔️", ala), ("⚔️", ola), ("⚔️", ela))
+    assert await events.spawn_duel(game.scene()) is True
+    assert duels.calls == [([ala, ola], True)]
+    assert game.channel.count("wyzywa wszystkich na pojedynek!") == 1
+    assert game.channel.contains("to Ala otrzyma skarb oraz 6 punktów rankingowych!")
+    assert loot == []
+    assert no_listeners(game)
+
+
+async def test_duel_draw_is_reported(game, loot, duels):
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    duels.results.append((False, None))
+    react_on(game, "Pojedynek!", ("⚔️", ala), ("⚔️", ola))
+    assert await events.spawn_duel(game.scene()) is False
+    assert loot == []
+
+
+async def test_duel_lone_challenger_wins_by_walkover(game_db, loot, duels, short_timeouts):
+    game = game_db
+    game.bot.debug = False
+    ala = game.add_member("O'Brien")
+    react_on(game, "Pojedynek!", ("⚔️", ala))
+    assert await events.spawn_duel(game.scene()) is False
+    assert duels.calls == []
+    assert loot == [(2, ala, 0)]
+    assert game.channel.contains(f"O'Brien wyzywa <@&{game.bot.ids.hunters_role}> na pojedynek!")
+    assert game.channel.contains("*Arena pozostaje pusta...*")
+    row = await game.bot.db.fetchrow("SELECT NICK, POINTS FROM RANKING WHERE ID = $1", str(ala.id))
+    assert row["nick"] == "O'Brien" and int(row["points"]) == 6
+
+
+async def test_duel_nobody_comes(game, loot, duels, short_timeouts):
+    assert await events.spawn_duel(game.scene()) is False
+    assert loot == [] and duels.calls == []
+    assert game.channel.contains("*Arena pozostaje pusta...*")
+    assert files(game) == ["pvp.png", "0.png"]
+
+
+# -- assassin ------------------------------------------------------------------------
+
+async def add_ranked(game, member_or_id, points) -> None:
+    user_id = getattr(member_or_id, "id", member_or_id)
+    await game.bot.db.execute("INSERT INTO RANKING (ID, NICK, POINTS) VALUES ($1, $2, $3)",
+                              str(user_id), "O'Nick", points)
+
+
+def confirms(game, member, text="$potwierdzam") -> None:
+    def hook(message) -> None:
+        if "Czy jesteś pewien" in message.content:
+            game.say_later(member, text, 0)
+    game.channel.send_hooks.append(hook)
+
+
+def is_dead(game, member) -> bool:
+    return any(role.id == game.bot.ids.dead_hunter_role for role in member.roles)
+
+
+async def test_assassin_needs_an_account(game_db):
+    game = game_db
+    ala = game.add_member("Ala")
+    assert await events.assasinate(game.scene(ala, "$zabojca")) is False
+    assert game.channel.contains("Nie masz jeszcze peta/konta w systemie.")
+
+
+async def test_assassin_needs_thirty_scrolls(game_db):
+    game = game_db
+    ala = game.add_member("Ala")
+    await give_scrolls(game, ala, 29)
+    assert await events.assasinate(game.scene(ala, "$zabojca")) is False
+    assert game.channel.contains("Potrzebujesz minimum 30 zwojów odrodzenia.")
+    assert await scrolls_of(game, ala) == 29
+
+
+async def test_assassin_not_confirmed(game_db, short_timeouts):
+    game = game_db
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await give_scrolls(game, ala, 40)
+    await add_ranked(game, ola, 10)
+    confirms(game, ola)  # somebody else cannot confirm
+    assert await events.assasinate(game.scene(ala, "$zabojca")) is False
+    assert game.channel.contains("Nie potwierdzono zlecenia zabójstwa.")
+    assert await scrolls_of(game, ala) == 40
+    assert not is_dead(game, ola)
+
+
+async def test_assassin_kills_a_ranked_member(game_db, monkeypatch):
+    game = game_db
+    first_choice(monkeypatch)
+    monkeypatch.setattr(random, "random", lambda: 0.2)  # not below 20 %
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await give_scrolls(game, ala, 40)
+    await add_ranked(game, 123456789, 99)  # top of the ranking, left the server
+    await add_ranked(game, ala, 50)
+    await add_ranked(game, ola, 10)
+    confirms(game, ala, "$POTWIERDZAM")
+    assert await events.assasinate(game.scene(ala, "$zabojca")) is True
+    assert await scrolls_of(game, ala) == 10
+    assert is_dead(game, ola) and not is_dead(game, ala)
+    assert game.channel.contains(f"Zabójca wykonał zlecenie. Ofiarą został <@{ola.id}>")
+    confirmation = next(m for m in game.channel.messages if m.content == "$POTWIERDZAM")
+    assert confirmation.reactions == [events.RIP]
+
+
+async def test_assassin_betrays_the_client(game_db, monkeypatch):
+    game = game_db
+    monkeypatch.setattr(random, "random", lambda: 0.19)
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await give_scrolls(game, ala, 30)
+    await add_ranked(game, ola, 10)
+    confirms(game, ala)
+    assert await events.assasinate(game.scene(ala, "$zabojca")) is True
+    assert await scrolls_of(game, ala) == 0
+    assert is_dead(game, ala) and not is_dead(game, ola)
+    assert game.channel.contains("Zabójca Cię zdradził!")
+
+
+async def test_assassin_without_a_target_costs_nothing(game_db, monkeypatch):
+    game = game_db
+    monkeypatch.setattr(random, "random", lambda: 0.0)
+    ala = game.add_member("Ala")
+    await give_scrolls(game, ala, 30)
+    await add_ranked(game, ala, 50)
+    await add_ranked(game, 123456789, 99)  # left the server
+    confirms(game, ala)
+    assert await events.assasinate(game.scene(ala, "$zabojca")) is False  # legacy: scrolls were gone
+    assert game.channel.contains("Zabójca nie znalazł żadnego celu.")
+    assert await scrolls_of(game, ala) == 30
+    assert not is_dead(game, ala)
+
+
+async def test_assassin_scrolls_spent_while_confirming(game_db, monkeypatch):
+    game = game_db
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await give_scrolls(game, ala, 30)
+    await add_ranked(game, ola, 10)
+    confirms(game, ala)
+    pick = events._pick_victim
+
+    async def spend_then_pick(bot, author_id):
+        await bot.db.execute("UPDATE PETOWNER SET REROLL_SCROLL = 3 WHERE PLAYER_ID = $1", ala.id)
+        return await pick(bot, author_id)
+
+    monkeypatch.setattr(events, "_pick_victim", spend_then_pick)
+    assert await events.assasinate(game.scene(ala, "$zabojca")) is False
+    assert await scrolls_of(game, ala) == 3
+    assert not is_dead(game, ola)
+
+
+async def test_assassin_database_down_propagates(game, monkeypatch):
+    ala = game.add_member("Ala")
+
+    async def fetchrow(*args, **kwargs):
+        raise DatabaseUnavailable("down")
+
+    monkeypatch.setattr(game.bot.db, "fetchrow", fetchrow)
+    with pytest.raises(DatabaseUnavailable):
+        await events.assasinate(game.scene(ala, "$zabojca"))
+
+
+# -- tournament ----------------------------------------------------------------------
+
+async def test_tournament_cancelled_without_players(game, loot, duels, short_timeouts):
+    assert await events.spawn_pvp_tournament(game.scene()) is None
+    assert game.channel.contains("PvP turniej anulowany. Za mało uczestników.")
+    assert loot == [] and duels.calls == []
+    assert no_listeners(game)
+
+
+async def test_tournament_single_player_gets_loot(game, loot, duels, quick):
+    ala = game.add_member("Ala")
+    react_on(game, "Tygodniowy turniej PvP!", ("⚔️", ala), ("⚔️", ala), ("⚔️", game.bot.user))
+    assert await events.spawn_pvp_tournament(game.scene()) == ala
+    assert loot == [(2, ala, 0)]
+    assert duels.calls == []
+    assert game.channel.count("dołączył do turnieju PvP!") == 1
+    assert game.channel.contains(f"🏆 **Zwycięzca turnieju:** {ala.mention}! Gratulacje! 🏆")
+
+
+async def test_tournament_bracket_with_bye_and_draw(game, loot, duels, quick, monkeypatch):
+    monkeypatch.setattr(random, "shuffle", lambda players: None)
+    monkeypatch.setattr(random, "choice", lambda pool: pool[1])
+    game.bot.debug = False
+    ala, ola, ela = game.add_member("Ala"), game.add_member("Ola"), game.add_member("Ela")
+    react_on(game, "Tygodniowy turniej PvP!", ("⚔️", ala), ("⚔️", ola), ("⚔️", ela))
+    duels.results.extend([(False, None), (True, ola)])
+    assert await events.spawn_pvp_tournament(game.scene()) == ola
+    # Round 1: Ela has a bye, Ala - Ola is a draw decided by lot; round 2: Ela - Ola.
+    assert duels.calls == [([ala, ola], False), ([ela, ola], False)]
+    assert game.channel.sent[0].content == f"<@&{game.bot.ids.hunters_role}>"
+    assert game.channel.contains(f"Uczestnicy: {ala.mention}, {ola.mention}, {ela.mention}")
+    assert game.channel.contains(f"{ela.mention} szczęśliwie przechodzi do kolejnej rundy!")
+    assert game.channel.contains(f"Remis. Losowy zwycięzca: {ola.mention}.")
+    assert game.channel.contains("**Turniej PvP - Runda 2**")
+    assert game.channel.count(f"**Zwycięzca:** {ola.mention}") == 2
+    assert files(game) == ["0.png", "1.gif"]
+    assert loot == []
+
+
+# -- ritual --------------------------------------------------------------------------
+
+@pytest.fixture
+def boss_image(monkeypatch):
+    calls: list[int] = []
+
+    async def send_boss_image(scene, rarity):
+        calls.append(rarity)
+        return True, "Szef"
+
+    monkeypatch.setattr(events.boss, "send_boss_image", send_boss_image)
+    return calls
+
+
+@pytest.mark.parametrize("players, expected", [(0, 0), (3, 1), (6, 2), (12, 4), (40, 4)])
+def test_ritual_rarity_grows_with_the_circle(monkeypatch, players, expected):
+    monkeypatch.setattr(random, "gauss", lambda mu, sigma: mu)
+    assert events.ritual_rarity(players) == expected
+
+
+def test_ritual_rarity_is_clamped(monkeypatch):
+    monkeypatch.setattr(random, "gauss", lambda mu, sigma: mu - 3)
+    assert events.ritual_rarity(1) == 0
+    monkeypatch.setattr(random, "gauss", lambda mu, sigma: mu + 9)
+    assert events.ritual_rarity(1) == 4
+
+
+async def test_ritual_without_players_fails(game, boss_image, quick):
+    assert await events.spawn_ritual(game.scene()) == (False, 0, False, None)
+    assert game.channel.contains("Rytuał przywołania nie powiódł się...")
+    assert files(game)[-1] == "4.png"
+    assert boss_image == []
+
+
+@pytest.mark.parametrize("roll, boost, expected", [(2.6, 0, 4), (0.2, 1, 1), (2.0, 0, 2), (4.0, 2, 4)])
+async def test_ritual_summons_a_boss(game, boss_image, quick, monkeypatch, roll, boost, expected):
+    monkeypatch.setattr(random, "gauss", lambda mu, sigma: roll)
+    modifiers = await events.modifiers.load_modifiers(game.bot)
+    game.bot.store.modifiers.save({**modifiers, "rarity_boost": boost})
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    react_on(game, "Rozpoczął się rytuał przywołania!", ("✨", ala), ("✨", ola), ("✨", game.bot.user))
+    assert await events.spawn_ritual(game.scene()) == (True, expected, True, "Szef")
+    assert boss_image == [expected]
+    assert not game.channel.contains("Rozpoczął się rytuał przywołania!")  # channel cleared for the boss
+    assert no_listeners(game)
+
+
+async def test_ritual_message_deleted(game, boss_image, quick, monkeypatch):
+    ala = game.add_member("Ala")
+    react_on(game, "Rozpoczął się rytuał przywołania!", ("✨", ala))
+
+    async def fetch_message(message_id):
+        raise not_found()
+
+    monkeypatch.setattr(game.channel, "fetch_message", fetch_message)
+    assert await events.spawn_ritual(game.scene()) == (False, 0, False, None)
+    assert boss_image == []
+    assert not game.channel.contains("nie powiódł się")
+
+
+# -- through the events cog: flags are always released -------------------------------
+
+async def test_cog_runs_an_event_and_releases_the_flags(game, hunt, short_timeouts):
+    from altermmo.cogs.events import EventsCog
+
+    cog = EventsCog(game.bot)
+    assert await cog.run_one_event(forced=EventType.HUNTING) is EventType.HUNTING
+    assert game.channel.contains("*Las pozostaje tajemnicą...*")
+    assert not game.bot.state.busy and game.bot.state.free_for_activity
+
+
+async def test_cog_survives_a_discord_error_in_the_middle(game, hunt, monkeypatch):
+    from altermmo.cogs.events import EventsCog
+
+    ala = game.add_member("Ala")
+    react_on(game, "Mroczny las!", ("⚔️", ala))
+
+    async def broken(scene, rarity):
+        raise RuntimeError("Discord 503")
+
+    monkeypatch.setattr(events.daily, "send_mob_image", broken)
+    cog = EventsCog(game.bot)
+    assert await cog.run_one_event(forced=EventType.HUNTING) is None
+    assert not game.bot.state.busy and game.bot.state.free_for_activity
+    assert no_listeners(game)
+    assert any("HUNTING" in line for line in game.bot.owner_log)
