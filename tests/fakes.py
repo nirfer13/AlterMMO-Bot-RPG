@@ -227,6 +227,8 @@ class FakeChannel:
         self.guild = guild
         self._bot_user = bot_user
         self.messages: list[FakeMessage] = []
+        #: Everything the bot ever sent here, including messages deleted since.
+        self.sent: list[FakeMessage] = []
         #: Callbacks invoked (synchronously) after every message the *bot* sends.
         self.send_hooks: list[Callable[[FakeMessage], None]] = []
         #: Set to an exception instance to make the next ``fail_sends`` sends raise.
@@ -253,6 +255,7 @@ class FakeChannel:
         message = FakeMessage(self, self._bot_user, None if content is None else str(content),
                               embed=embed, embeds=embeds, files=names)
         self.messages.append(message)
+        self.sent.append(message)
         for hook in list(self.send_hooks):
             hook(message)
         return message
@@ -296,10 +299,18 @@ class FakeChannel:
         return "\n".join(f"{m.author}: {m.text}" for m in self.messages)
 
     def contains(self, fragment: str) -> bool:
+        """True when a message currently on the channel contains ``fragment``."""
         return any(fragment in m.text for m in self.messages)
 
     def count(self, fragment: str) -> int:
         return sum(1 for m in self.messages if fragment in m.text)
+
+    def ever_sent(self, fragment: str) -> bool:
+        """Like :meth:`contains`, but also sees bot messages that were purged since."""
+        return any(fragment in m.text for m in self.sent)
+
+    def sent_count(self, fragment: str) -> int:
+        return sum(1 for m in self.sent if fragment in m.text)
 
 
 class GameBot(AlterBot):
@@ -450,6 +461,7 @@ async def make_game(tmp_path, *, debug: bool = True, database_url: str = "") -> 
     )
     bot = GameBot(settings)
     await bot._async_setup_hook()  # binds the running loop; no network involved
+    bot._ready.set()               # background loops start with wait_until_ready()
     bot.net.attach(bot)
     bot.net.mark_connected()
 

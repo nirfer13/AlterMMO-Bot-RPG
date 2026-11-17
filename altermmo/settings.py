@@ -15,7 +15,7 @@ Environment variables (``.env`` file in the project root):
 
 Optional gameplay switches (see the policy fields of :class:`Settings`):
 
-``ALTERMMO_BUSY_POLICY``              ``read_only_free`` (default) | ``notify`` | ``silent``
+``ALTERMMO_BUSY_POLICY``              ``notify`` (default) | ``read_only_free`` | ``silent``
 ``ALTERMMO_BOSS_VISIBLE_MINUTES``     minutes before an unattacked boss leaves (0/unset = never)
 ``ALTERMMO_BOSS_RETURNS_AFTER_ERROR`` ``1`` (default) boss stays after a technical failure, ``0`` it escapes
 """
@@ -117,7 +117,8 @@ class Settings:
 
     #: What commands do while an event/hunt/tower run is in progress:
     #: "read_only_free" | "notify" | "silent" - see altermmo/core/guards.py.
-    busy_policy: str = "read_only_free"
+    #: Owner's decision: everything is blocked, but the bot says so.
+    busy_policy: str = "notify"
     #: Seconds an unattacked boss stays on the channel before it leaves and a
     #: new respawn is scheduled.  None = it waits forever (legacy behaviour).
     boss_visible_timeout: float | None = None

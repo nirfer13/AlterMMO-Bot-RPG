@@ -34,6 +34,7 @@ from typing import Any, Iterable, Iterator
 import discord
 
 from . import io
+from .timing import pause as _pause
 
 log = logging.getLogger(__name__)
 
@@ -204,11 +205,11 @@ async def countdown(channel: discord.abc.Messageable, *, pause: float = 1.0) -> 
     """
     message = await io.send(channel, "Uwaga!!! 3...")
     for text in ("Uwaga!!! 3... 2...", "Uwaga!!! 3... 2... 1..."):
-        await asyncio.sleep(pause)
+        await _pause(pause)
         try:
             await message.edit(content=text)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - cosmetic; the fight goes on
             log.debug("Could not edit the countdown message.", exc_info=True)
-    await asyncio.sleep(pause)
+    await _pause(pause)

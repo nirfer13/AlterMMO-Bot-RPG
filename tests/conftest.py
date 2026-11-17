@@ -32,10 +32,26 @@ TEST_DATABASE_URL = os.environ.get(
 
 @pytest.fixture(autouse=True)
 def _fast_rounds(monkeypatch):
-    """Keep fight rounds snappy: shrink the post-timeout listening window."""
-    from altermmo.core import challenge
+    """Keep simulated gameplay fast.
+
+    * no dramatic pauses (``timing.pause`` returns immediately),
+    * a short post-timeout listening window in fight rounds.
+
+    Waiting times (``timing.timeout``) stay real; a test that exercises a
+    "nobody answered" path shrinks them with the ``short_timeouts`` fixture.
+    """
+    from altermmo.core import challenge, timing
 
     monkeypatch.setattr(challenge, "MIN_GRACE", 0.05)
+    monkeypatch.setattr(timing, "PAUSE_SCALE", 0.0)
+
+
+@pytest.fixture
+def short_timeouts(monkeypatch):
+    """Scale every ``timing.timeout(...)`` down 1000x (600 s -> 0.6 s)."""
+    from altermmo.core import timing
+
+    monkeypatch.setattr(timing, "TIMEOUT_SCALE", 0.001)
 
 
 @pytest_asyncio.fixture

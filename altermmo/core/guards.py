@@ -18,10 +18,15 @@ Guards are ordinary ``commands.check`` decorators::
 What happens when the bot is busy is decided in one place by
 ``Settings.busy_policy`` (see :mod:`altermmo.settings`):
 
+``"notify"``          everything is blocked while busy, with a short "event in
+                      progress" notice                              (default)
 ``"read_only_free"``  display-only commands always work; the others answer with
-                      a short "event in progress" notice            (default)
-``"notify"``          everything is blocked while busy, with the notice
+                      the notice
 ``"silent"``          everything is blocked while busy, silently    (legacy)
+
+Where commands work (owner's decision): gameplay commands only on the boss
+channel (``boss_channel_only``), display-only commands on any channel of the
+server, nothing at all in private messages (global check in ``AlterBot``).
 """
 
 from __future__ import annotations

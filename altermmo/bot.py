@@ -33,11 +33,13 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.tower",
     "altermmo.cogs.ranking",
     "altermmo.cogs.slayer",
+    "altermmo.cogs.xpsteal",
+    "altermmo.cogs.twitch",
     "altermmo.cogs.schedule",
     "altermmo.cogs.admin",
     "altermmo.cogs.general",
+    "altermmo.cogs.moderation",
     "altermmo.cogs.help",
-    "altermmo.cogs.lottery",
 )
 
 #: State files carried over from the legacy bot (same names, same formats).
@@ -73,6 +75,8 @@ class Stores:
         self.exp_summary = JsonFile(data_dir / "expSummary.json", dict)
         #: v2 bookkeeping: spawn switch, timestamps of the last scheduled resets.
         self.runtime = JsonFile(data_dir / "runtime.json", dict)
+        #: Unused "steal experience" rights won from bosses (features/xpsteal.py).
+        self.xp_thefts = JsonFile(data_dir / "xpThefts.json", dict)
 
     def migrate_legacy(self, legacy_dirs: list[Path]) -> None:
         for name in LEGACY_STATE_FILES:
@@ -111,6 +115,14 @@ class AlterBot(commands.Bot):
         self.supervisor = Supervisor()
         self.store = Stores(settings.data_dir)
         self.boss_cycle = BossCycle(self)
+        self.add_check(self._guild_only)
+
+    @staticmethod
+    async def _guild_only(ctx: commands.Context) -> bool:
+        """No command works in private messages (they bypassed channel permissions)."""
+        if ctx.guild is None:
+            raise commands.NoPrivateMessage()
+        return True
 
     # -- lifecycle --------------------------------------------------------------
 
@@ -195,9 +207,15 @@ class AlterBot(commands.Bot):
 
     # -- errors -----------------------------------------------------------------
 
-    async def on_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
-        """Central command error handling (the legacy bot only printed errors)."""
-        if ctx.command is not None and ctx.command.has_error_handler():
+    async def on_command_error(self, ctx: commands.Context, error: commands.CommandError,
+                               *, force: bool = False) -> None:
+        """Central command error handling (the legacy bot only printed errors).
+
+        Commands with their own ``@command.error`` handler are skipped; such a
+        handler passes everything it does not handle itself back with
+        ``await ctx.bot.on_command_error(ctx, error, force=True)``.
+        """
+        if not force and ctx.command is not None and ctx.command.has_error_handler():
             return
         original = getattr(error, "original", error)
 
