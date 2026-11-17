@@ -25,9 +25,18 @@ from altermmo.core.db import Database  # noqa: E402
 
 import fakes  # noqa: E402
 
+#: Every pytest process gets its own database (``<name>_<pid>``), dropped when
+#: the session ends: the ``db`` fixture recreates the whole schema before each
+#: test, so two runs sharing one database would wipe each other's tables.
 TEST_DATABASE_URL = os.environ.get(
     "ALTERMMO_TEST_DATABASE_URL", "postgresql://tester@127.0.0.1:55432/altermmo_test"
-)
+) + f"_{os.getpid()}"
+
+#: Set ALTERMMO_REQUIRE_TEST_DB=1 to fail (instead of skip) the database tests
+#: when the test server does not answer, so a green run cannot hide them.
+REQUIRE_TEST_DB = os.environ.get("ALTERMMO_REQUIRE_TEST_DB", "") not in ("", "0")
+
+_database_created = False
 
 
 @pytest.fixture(autouse=True)
@@ -71,9 +80,17 @@ async def _ensure_test_database() -> bool:
     base, _, name = TEST_DATABASE_URL.rpartition("/")
     if "test" not in name:
         raise RuntimeError(f"Refusing to run tests against database {name!r} (name must contain 'test').")
-    try:
-        admin = await asyncpg.connect(f"{base}/postgres", timeout=3)
-    except Exception:  # noqa: BLE001
+    global _database_created
+    if _database_created:
+        return True
+    admin = None
+    for _attempt in range(3):  # a busy server may need a moment
+        try:
+            admin = await asyncpg.connect(f"{base}/postgres", timeout=10)
+            break
+        except Exception:  # noqa: BLE001
+            admin = None
+    if admin is None:
         return False
     try:
         exists = await admin.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", name)
@@ -81,12 +98,38 @@ async def _ensure_test_database() -> bool:
             await admin.execute(f'CREATE DATABASE "{name}"')
     finally:
         await admin.close()
+    _database_created = True
     return True
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Drop this process's throw-away database."""
+    if not _database_created:
+        return
+    import asyncio
+
+    import asyncpg
+
+    base, _, name = TEST_DATABASE_URL.rpartition("/")
+
+    async def drop() -> None:
+        admin = await asyncpg.connect(f"{base}/postgres", timeout=10)
+        try:
+            await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        finally:
+            await admin.close()
+
+    try:
+        asyncio.run(drop())
+    except Exception as exc:  # noqa: BLE001 - leaving a test database behind is harmless
+        print(f"\n(could not drop test database {name}: {exc})")
 
 
 @pytest_asyncio.fixture
 async def db():
     if not await _ensure_test_database():
+        if REQUIRE_TEST_DB:
+            pytest.fail("PostgreSQL test server is not reachable (see tests/conftest.py).")
         pytest.skip("PostgreSQL test server is not reachable (see tests/conftest.py).")
     database = Database(TEST_DATABASE_URL, max_size=3)
     await database.connect()
