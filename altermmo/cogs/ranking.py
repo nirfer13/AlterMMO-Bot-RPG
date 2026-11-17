@@ -13,8 +13,10 @@ class RankingCog(commands.Cog, name="Ranking"):
     def __init__(self, bot) -> None:
         self.bot = bot
 
+    # Display-only commands: any channel of the server (owner's decision; the old
+    # bot answered them on the boss channel only).
+
     @commands.command(name="rekord")
-    @guards.boss_channel_only()
     @guards.unless_busy(read_only=True)
     async def record(self, ctx: commands.Context) -> None:
         """Who killed a boss fastest (average time per fight turn)."""
@@ -23,7 +25,6 @@ class RankingCog(commands.Cog, name="Ranking"):
                                    f"**{database.display_record(record_time)} sekundy na turę walki**.")
 
     @commands.command(name="kiedy", brief="Check previous boss kill time")
-    @guards.boss_channel_only()
     @guards.unless_busy(read_only=True)
     async def last_fight(self, ctx: commands.Context) -> None:
         """Who fought the boss last and when."""
@@ -32,7 +33,6 @@ class RankingCog(commands.Cog, name="Ranking"):
                                    f"**{fight_time[:16]}** czasu polskiego.")
 
     @commands.command(name="ranking", aliases=["r"])
-    @guards.boss_channel_only()
     @guards.unless_busy(read_only=True)
     async def ranking(self, ctx: commands.Context) -> None:
         """This season's top 10 monster hunters."""

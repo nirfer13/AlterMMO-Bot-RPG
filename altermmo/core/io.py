@@ -51,7 +51,9 @@ def is_transient(exc: BaseException) -> bool:
 #: Longest time one attempt of a Discord call may take.  discord.py itself sets
 #: no limit, so aiohttp's default of 5 minutes would apply: with a black-holed
 #: connection one ``send`` could freeze a fight for a quarter of an hour.
-ATTEMPT_TIMEOUT = 60.0
+#: Generous on purpose: an attempt that is cut off is repeated, and a slow
+#: upload (boss gifs are up to 10 MB) that did arrive would then be posted twice.
+ATTEMPT_TIMEOUT = 120.0
 
 
 async def retry(

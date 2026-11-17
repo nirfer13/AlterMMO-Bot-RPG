@@ -262,8 +262,14 @@ class GameState:
 
     @property
     def free_for_activity(self) -> bool:
-        """Legacy rule: ``EVENT_ALIVE == 0 and BUSY == 0 and BOSSALIVE in [0, 1, 2]``."""
-        return not self._event_alive and not self.busy and not self.boss_blocks_activities
+        """Legacy rule: ``EVENT_ALIVE == 0 and BUSY == 0 and BOSSALIVE in [0, 1, 2]``.
+
+        A shrine or chest that a player has just claimed (``$modlitwa`` /
+        ``$skrzynia`` still handing out the reward) is not "free" yet: its type
+        stays set until the command closes the event.
+        """
+        return (not self._event_alive and self._event_type is EventType.NONE
+                and not self.busy and not self.boss_blocks_activities)
 
     # -- diagnostics ------------------------------------------------------------
 

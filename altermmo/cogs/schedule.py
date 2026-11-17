@@ -75,15 +75,17 @@ class ScheduleCog(commands.Cog, name="Schedule"):
         log.info("Weekly ranking summary!")
 
         # Until the ranking is emptied a failure aborts the job (it is retried
-        # later with the ranking still intact).  Afterwards every step is best
-        # effort: re-running the whole job would crown the wrong winner.
+        # later with the ranking still intact, and nothing was handed out yet).
+        # Afterwards every step is best effort: re-running the whole job would
+        # crown the wrong winner or count the butcher achievement twice.
         winner_id = await database.read_summary_ranking_table(scene)
         log.info("Season winner: %s", winner_id)
+        await database.reset_ranking_table(bot)
+
         await self._step("rola Rzeźnika Potworów", boss.set_boss_slayer(bot, winner_id))
         winner = await bot.member(winner_id)
         if winner is not None:
             await self._step("osiągnięcie Rzeźnika", achievements.add_butcher(scene, winner))
-        await database.reset_ranking_table(bot)
 
         await self._step("reset dziennych polowań", daily.clear_daily_file(bot))
         await self._step("reset wieży", tower.clear_weekly_tower_file(bot))

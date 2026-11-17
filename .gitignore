@@ -5,6 +5,7 @@
 
 # runtime state and logs (never committed)
 data/
+data-debug/
 logs/
 
 # python

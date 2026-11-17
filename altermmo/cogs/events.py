@@ -90,7 +90,7 @@ class EventsCog(commands.Cog, name="Events"):
         """
         bot = self.bot
         state = bot.state
-        if state.event_type in PASSIVE:
+        if state.event_alive and state.event_type in PASSIVE:
             state.close_event()  # an unclaimed shrine/chest expires now
 
         event_type = forced or pick_event(clock.now(), debug=bot.debug)
@@ -175,7 +175,7 @@ class EventsCog(commands.Cog, name="Events"):
         waiting_since = clock.monotonic()
         owner_told = False
         while not state.free_for_activity:
-            if state.event_type in PASSIVE:
+            if state.event_alive and state.event_type in PASSIVE:
                 state.close_event()
                 continue
             if not owner_told and clock.monotonic() - waiting_since >= 2 * 3600:

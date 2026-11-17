@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import traceback
 from pathlib import Path
 
@@ -52,6 +53,11 @@ LEGACY_STATE_FILES: tuple[str, ...] = (
     "skill_daily_player_cd.txt",
     "skill_weekly_player_cd.txt",
 )
+
+
+#: ``runtime.json`` older than this at start-up = the bot has not been running
+#: (a running bot rewrites it every night at 02:30 and 04:00).
+STALE_STATE_AFTER = 36 * 3600.0
 
 
 class NotReady(RuntimeError):
@@ -117,6 +123,8 @@ class AlterBot(commands.Bot):
         self.supervisor = Supervisor()
         self.store = Stores(settings.data_dir)
         self.boss_cycle = BossCycle(self)
+        #: Things found at start-up that the owner should hear about once connected.
+        self._startup_notes: list[str] = []
         self.add_check(self._guild_only)
 
     @staticmethod
@@ -143,6 +151,7 @@ class AlterBot(commands.Bot):
             log.warning("No state file found for: %s - starting them empty (cooldown lists, "
                         "shrine modifiers and the exp summary of the old bot are NOT carried over). "
                         "Looked in: %s", ", ".join(missing), ", ".join(str(d) for d in legacy_dirs))
+        self._review_saved_state()
         try:
             await self.db.connect()
             problems = await schema.verify(self.db)
@@ -160,11 +169,69 @@ class AlterBot(commands.Bot):
             except Exception:  # noqa: BLE001
                 log.exception("Failed to load extension %s", extension)
 
+    def _review_saved_state(self) -> None:
+        """Start-up checks of the data folder; what the owner should know goes to ``_startup_notes``.
+
+        * Job markers (``runtime.json``) are trusted only when the bot was running
+          recently.  A running bot writes that file every night; when it is older
+          than :data:`STALE_STATE_AFTER`, somebody else (the old bot) may have done
+          the resets meanwhile - re-running a "missed" season end days later would
+          wipe the ranking in the middle of a week.  The markers are dropped, so
+          every job simply waits for its next occurrence.
+        * State files of the old bot that are newer than ours mean it has been
+          running since v2 last wrote them; nothing is overwritten automatically.
+        * Boss spawning that was switched off before the restart stays off.
+        """
+        notes = self._startup_notes
+        runtime = self.store.runtime
+        try:
+            idle_for = time.time() - runtime.path.stat().st_mtime
+        except OSError:
+            idle_for = 0.0  # no runtime file yet: a first start, nothing to distrust
+        if idle_for > STALE_STATE_AFTER:
+            data = runtime.load()
+            stale = [key for key in data if key.startswith("job_last_run:")]
+            if stale:
+                for key in stale:
+                    del data[key]
+                runtime.save(data)
+                days = idle_for / 86400
+                log.warning("The bot last ran %.1f days ago: scheduled jobs missed meanwhile are "
+                            "not caught up (%s).", days, ", ".join(stale))
+                notes.append(f"Bot nie działał przez {days:.1f} dnia - zaległe zaplanowane zadania "
+                             "(koniec sezonu, resety dzienne, skarb z Twitcha) NIE zostaną nadrobione; "
+                             "ruszą w najbliższym zwykłym terminie.")
+
+        legacy_dir = self.settings.legacy_dir
+        if legacy_dir is not None:
+            newer = []
+            for name in LEGACY_STATE_FILES:
+                try:
+                    if ((legacy_dir / name).stat().st_mtime
+                            > (self.store.data_dir / name).stat().st_mtime + 2):
+                        newer.append(name)
+                except OSError:
+                    continue
+            if newer:
+                log.warning("State files in %s are newer than the ones in %s: %s", legacy_dir,
+                            self.store.data_dir, ", ".join(newer))
+                notes.append("Pliki stanu starego bota są nowsze niż pliki nowej wersji ("
+                             + ", ".join(newer) + "). Jeśli stary bot działał po ostatnim uruchomieniu "
+                             "nowej wersji: zatrzymaj bota, usuń folder `" + self.store.data_dir.name
+                             + "` i uruchom go ponownie - stan zostanie przejęty od nowa.")
+
+        if not self.boss_cycle.enabled:
+            notes.append("Respawn bossów jest WYŁĄCZONY (zapamiętane `$stopSpawnBoss`). "
+                         "Włącz go komendą `$startSpawnBoss`.")
+
     async def on_ready(self) -> None:
         # Fires again after every re-identify (e.g. a long internet outage).
         # Nothing is (re)started here on purpose: background loops are owned by
         # the supervisor and started exactly once from each cog's ``cog_load``.
         log.info("Logged in as %s (debug=%s, guilds=%d).", self.user, self.debug, len(self.guilds))
+        if self._startup_notes:
+            notes, self._startup_notes = self._startup_notes, []
+            await self.log_to_owner("Uwagi po starcie bota:\n- " + "\n- ".join(notes), ping=True)
 
     async def close(self) -> None:
         log.info("Shutting down...")

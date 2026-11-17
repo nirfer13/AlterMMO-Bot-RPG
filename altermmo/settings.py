@@ -10,7 +10,8 @@ Environment variables (``.env`` file in the project root):
 ``HEROKU_POSTGRESQL_BRONZE_URL``  test PostgreSQL URL (used in debug mode)
 ``ALTERMMO_DEBUG``                ``1`` -> debug mode: test channel, test database,
                                   short timers (replaces ``globals/globalvariables.py``)
-``ALTERMMO_DATA_DIR``             where cooldown/modifier files live (default ``data``)
+``ALTERMMO_DATA_DIR``             where cooldown/modifier files live (default ``data``,
+                                  in debug mode ``data-debug``)
 ``ALTERMMO_LOG_DIR``              where log files go (default ``logs``)
 ``ALTERMMO_LEGACY_DIR``           folder of the old bot; its state files are copied into the
                                   data folder on the first production start (default: the
@@ -155,7 +156,9 @@ def load_settings(*, env_file: Path | None = None) -> Settings:
     load_dotenv(env_file or PROJECT_ROOT / ".env")
     debug = _flag(os.environ.get("ALTERMMO_DEBUG"))
     database_url = _env("HEROKU_POSTGRESQL_BRONZE_URL") if debug else _env("DATABASE_URL")
-    data_dir = Path(_env("ALTERMMO_DATA_DIR") or PROJECT_ROOT / "data")
+    # Debug runs keep their state apart: test cooldowns, a test exp summary or a
+    # "spawning off" switch must never end up in the production files.
+    data_dir = Path(_env("ALTERMMO_DATA_DIR") or PROJECT_ROOT / ("data-debug" if debug else "data"))
     log_dir = Path(_env("ALTERMMO_LOG_DIR") or PROJECT_ROOT / "logs")
     policies: dict = {}
     # The old bot's files are production state: never mix them into a debug run.

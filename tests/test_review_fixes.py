@@ -162,6 +162,65 @@ async def test_supervisor_reports_the_first_crash():
     assert all(crashes % 10 == 1 for _name, _error, crashes in reports)
 
 
+# -- a claimed shrine / chest is not a free channel ----------------------------------
+
+async def test_channel_is_not_free_while_a_chest_is_being_looted(game):
+    from altermmo.core.state import EventType
+
+    state = game.bot.state
+    state.open_event(EventType.CHEST)
+    assert state.try_claim_event(EventType.CHEST)      # $skrzynia is handing out the loot
+    assert not state.free_for_activity                 # no new event may wipe the channel now
+    state.close_event()
+    assert state.free_for_activity
+
+
+# -- switch-over: job markers and the data folder ------------------------------------
+
+def test_job_markers_of_a_bot_that_was_not_running_are_dropped(game):
+    import os
+    import time
+
+    bot = game.bot
+    bot.store.runtime.save({"job_last_run:weekly-ranking": "2026-11-02T15:00:05+01:00",
+                            "job_last_run:daily-reset": "2026-11-08T02:30:01+01:00",
+                            "boss_spawning_enabled": True})
+
+    bot._review_saved_state()                          # written a moment ago: trusted
+    assert "job_last_run:weekly-ranking" in bot.store.runtime.load()
+    assert bot._startup_notes == []
+
+    three_days_ago = time.time() - 3 * 86400
+    os.utime(bot.store.runtime.path, (three_days_ago, three_days_ago))
+    bot._review_saved_state()
+    # A season end "missed" while the old bot was in charge must not run days later.
+    assert bot.store.runtime.load() == {"boss_spawning_enabled": True}
+    assert len(bot._startup_notes) == 1 and "NIE zostaną nadrobione" in bot._startup_notes[0]
+
+
+def test_owner_is_told_when_spawning_is_switched_off(game):
+    bot = game.bot
+    bot.store.runtime_set("boss_spawning_enabled", False)
+    bot._review_saved_state()
+    assert any("$startSpawnBoss" in note for note in bot._startup_notes)
+
+
+def test_debug_runs_use_their_own_data_folder(monkeypatch, tmp_path):
+    from altermmo import settings
+
+    for name in ("ALTERMMO_DATA_DIR", "ALTERMMO_LEGACY_DIR"):
+        monkeypatch.delenv(name, raising=False)
+    empty_env = tmp_path / "empty.env"
+    empty_env.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("ALTERMMO_DEBUG", "1")
+    debug = settings.load_settings(env_file=empty_env)
+    assert debug.data_dir.name == "data-debug" and debug.legacy_dir is None
+
+    monkeypatch.setenv("ALTERMMO_DEBUG", "0")
+    assert settings.load_settings(env_file=empty_env).data_dir.name == "data"
+
+
 # -- switch-over: state files of the old bot -----------------------------------------
 
 def test_state_files_are_taken_over_from_the_old_folder(tmp_path):

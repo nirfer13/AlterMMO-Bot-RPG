@@ -285,8 +285,11 @@ class BossCycle:
         if remaining > 0 and not await state.sleep_while_boss_phase(BossPhase.PRE_SPAWN, remaining):
             return
 
-        if not await state.wait_until_idle():
-            return  # still busy after half an hour: the loop comes back here and waits on
+        if not await state.wait_until_idle() and state.busy:
+            # An activity still holds the channel after half an hour: the loop comes
+            # back here and waits on.  (An unclaimed shrine/chest does not stop the
+            # boss: as in the old bot it is closed below once the wait is over.)
+            return
         if state.boss_phase is not BossPhase.PRE_SPAWN:
             return
         with state.hold_busy("boss-spawn"):
