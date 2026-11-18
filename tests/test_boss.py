@@ -277,14 +277,18 @@ async def test_loot_normal_drop(game, pets, loot, monkeypatch):
     assert message == ("👉 250 doświadczenia na Discordzie\n👉 Jajko\n👉 Kamień\n👉 Poziom\n"
                        "👉 Figa z makiem\n"
                        "👉 Ukradnij wybranemu użytkownikowi 2500 doświadczenia na Discordzie\n"
-                       + xpsteal.COMMAND_HINT + "\n👉 Klejnot\n")
+                       + xpsteal.COMMAND_HINT + "\n👉 Klejnot\n" + boss.SKILL_GEM_HINT + "\n")
     assert pets.calls == [("assign_pet", player.id), ("assign_rebirth_stone", player.id),
                           ("level_up_pet", player.id), ("assign_skill", player.id)]
     assert game.bot.store.exp_summary.load() == {str(player.id): 250}
     assert xpsteal.pending(game.bot, player.id) == [2500]
-    embed = game.channel.messages[-1].embeds[0]
+    embed = game.channel.messages[-2].embeds[0]
     assert embed.title == "Boss Drop - Ala" and embed.footer.text == "Gratulacje!"
     assert embed.description == "Boss wydropił:\n" + message
+    # Right under the drop: how to use the theft (a ping), and the same privately.
+    how_to = game.channel.messages[-1].content
+    assert how_to == xpsteal.MSG_HOW_TO.format(thief=player.id, amount=2500) and "$kradnijxp nick" in how_to
+    assert player.dms == [xpsteal.DM_HOW_TO.format(amount=2500, channel=game.bot.ids.boss_channel)]
 
 
 async def test_loot_bonus_drops_really_grant_a_second_item(game, pets, loot, monkeypatch):
@@ -302,7 +306,7 @@ async def test_loot_bonus_drops_really_grant_a_second_item(game, pets, loot, mon
         "👉 Ukradnij wybranemu użytkownikowi 2500 doświadczenia na Discordzie\n"
         + xpsteal.COMMAND_HINT + "\n"
         "👉 Ukradnij wybranemu użytkownikowi 2500 doświadczenia na Discordzie (Bonus)\n"
-        "👉 Klejnot\n👉 Klejnot (Bonus)\n"
+        "👉 Klejnot\n" + boss.SKILL_GEM_HINT + "\n👉 Klejnot (Bonus)\n"
         "👉 Lustro\n")                                       # 20 % after the boost, 10 <= 20
     assert pets.count("assign_pet") == 1
     assert pets.count("assign_rebirth_stone") == 2

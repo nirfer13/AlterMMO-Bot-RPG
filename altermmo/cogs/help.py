@@ -33,11 +33,14 @@ Dostępne komendy (dla wszystkich):
 - $mocneodrodzenie - Bardziej zaawansowany sposób przelosowania statystyk.
 - $oswiecenie - Zwiększa talent towarzysza.
 - $rankingtowarzyszy - Lista najbardziej utalentowanych towarzyszy. Skrót $rt.
+- $wyczuwanie - Wyłącza albo włącza powiadomienia towarzysza o nadciągającym bossie.
 - $zabojca - Wynajmuje zabójcę na jednego z graczy w rankingu.
 - $kradnijxp nick - Kradnie doświadczenie wybranemu graczowi (nagroda z bossa).
                                         
-- $pokażumiejętność - Prezentuje klejnot umiejetności, który aktualnie posiadasz. Skrót $pu.
-- $użyjumiejętność - Powoduje użycie klejnotu umiejętności. Skrót $uu.
+- $pokażumiejętność - Prezentuje aktywny klejnot umiejętności. Skrót $pu.
+- $klejnoty - Pokazuje wszystkie zebrane klejnoty umiejętności (działa tylko aktywny).
+- $wybierzklejnot numer - Zmienia aktywny klejnot na wybrany z listy $klejnoty. Skrót $ws.
+- $użyjumiejętność - Powoduje użycie aktywnego klejnotu umiejętności. Skrót $uu.
 
 - $rankingwieży - Sprawdź ranking najlepszych eksploratorów Wieży Śmierci. Skrót $rw.
 - $rekordwieży - Sprawdź osobisty rekord w eksploracji Wieży Śmierci.

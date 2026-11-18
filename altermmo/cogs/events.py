@@ -30,11 +30,15 @@ TOURNAMENT_JOB = "pvp-tournament"
 EVENT_ORDER = (EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY,
                EventType.MEMORY, EventType.HUNTING, EventType.HAZARD, EventType.DUEL,
                EventType.RITUAL)
-#: Evenings (18-21) and weekends: more multiplayer events.
-PEAK_WEIGHTS = (1, 1, 2, 1, 1, 1, 1, 2, 0)
-OFF_PEAK_WEIGHTS = (2, 2, 1, 0, 2, 2, 2, 0, 0)
+#: Evenings (18-21) and weekends: more multiplayer events.  The ritual (last
+#: place) was switched off in the old bot (weight 0); the owner enabled it in v2.
+PEAK_WEIGHTS = (1, 1, 2, 1, 1, 1, 1, 2, 1)
+OFF_PEAK_WEIGHTS = (2, 2, 1, 0, 2, 2, 2, 0, 1)
 DEBUG_WEIGHTS = (0, 0, 0, 0, 0, 0, 0, 0, 1)
 PEAK_HOURS = range(18, 22)
+#: A ritual is not started when the scheduled boss is due sooner than the
+#: ritual lasts plus this margin (seconds): its boss could not be summoned.
+RITUAL_MARGIN, RITUAL_MARGIN_DEBUG = 180.0, 10.0
 
 #: Passive events: posted, then they wait for ``$modlitwa`` / ``$skrzynia``.
 PASSIVE = (EventType.SHRINE, EventType.CHEST)
@@ -47,14 +51,17 @@ MSG_RITUAL_BOSS_GONE = ("Przywołany potwór rozpłynął się w powietrzu - nad
 MSG_NO_CHEST ="Powiedz mi... Czy ta skrzynia jest tutaj z nami w pokoju? <:Hmm:984767035617730620>"
 
 
-def pick_event(now, *, debug: bool) -> EventType:
-    """Draw the next event type (legacy weights)."""
+def pick_event(now, *, debug: bool, exclude: tuple[EventType, ...] = ()) -> EventType | None:
+    """Draw the next event type (legacy weights); None when nothing is left to draw."""
     if debug:
         weights = DEBUG_WEIGHTS
     elif now.hour in PEAK_HOURS or clock.is_weekend(now):
         weights = PEAK_WEIGHTS
     else:
         weights = OFF_PEAK_WEIGHTS
+    weights = tuple(0 if event in exclude else weight for event, weight in zip(EVENT_ORDER, weights))
+    if not any(weights):
+        return None
     return random.choices(EVENT_ORDER, weights=weights)[0]
 
 
@@ -94,6 +101,13 @@ class EventsCog(commands.Cog, name="Events"):
             state.close_event()  # an unclaimed shrine/chest expires now
 
         event_type = forced or pick_event(clock.now(), debug=bot.debug)
+        if forced is None and event_type is EventType.RITUAL and not self.ritual_fits():
+            # The scheduled boss is too close: play something else in this slot.
+            event_type = pick_event(clock.now(), debug=bot.debug, exclude=(EventType.RITUAL,))
+            log.info("Ritual does not fit before the scheduled boss; drawn instead: %s.",
+                     event_type.name if event_type else "nothing")
+        if event_type is None:
+            return None
         if not state.free_for_activity:
             log.info("Event %s skipped (boss phase %s, busy=%s, event=%s).", event_type.name,
                      state.boss_phase.name, state.busy_owner, state.event_type.name)
@@ -110,6 +124,22 @@ class EventsCog(commands.Cog, name="Events"):
                                    f"`{type(exc).__name__}: {exc}`")
             return None
         return event_type
+
+    def ritual_fits(self) -> bool:
+        """True when a whole ritual can be played before the scheduled boss arrives.
+
+        The ritual puts its own boss on the channel; that is only possible while
+        no boss is there or on its way.  A ritual that ends after the "wind"
+        announcement would be wasted, so it is not started that late.
+        """
+        from ..features import events
+
+        cycle = self.bot.boss_cycle
+        if not cycle.enabled or not cycle.can_summon():
+            return False  # ($stopSpawnBoss means no bosses at all, ritual ones included)
+        remaining = cycle.seconds_to_arrival()
+        margin = RITUAL_MARGIN_DEBUG if self.bot.debug else RITUAL_MARGIN
+        return remaining is None or remaining > events.ritual_duration(self.bot) + margin
 
     async def _run(self, event_type: EventType) -> None:
         from ..features import events, modifiers
@@ -136,10 +166,12 @@ class EventsCog(commands.Cog, name="Events"):
             EventType.HAZARD: events.spawn_hazard,
             EventType.DUEL: events.spawn_duel,
         }
-        # The duel keeps the channel free while it waits for volunteers (as the old
-        # bot did: hunts, the tower and pet commands work meanwhile); it takes the
-        # busy flag itself for the fight.
-        with state.running_event(event_type, exclusive=event_type is not EventType.DUEL):
+        # The duel and the ritual keep the channel free while they wait for
+        # volunteers (as the old bot did: hunts, the tower and pet commands work
+        # meanwhile); they take the busy flag themselves for the fight / for
+        # putting the summoned boss on the channel.
+        open_sign_up = event_type in (EventType.DUEL, EventType.RITUAL)
+        with state.running_event(event_type, exclusive=not open_sign_up):
             await io.clear_channel(scene.channel)
             if event_type is EventType.RITUAL:
                 success, rarity, is_player_boss, player_boss = await events.spawn_ritual(scene)
@@ -152,8 +184,8 @@ class EventsCog(commands.Cog, name="Events"):
                                                    is_player_boss=is_player_boss,
                                                    player_boss=player_boss)
             if not summoned:
-                # The scheduled boss started arriving during the ritual: the picture
-                # is on the channel but that boss cannot be attacked.
+                # Cannot happen in practice (spawn_ritual checked a moment ago and
+                # nothing was awaited since); if it does, say that this boss is not real.
                 log.warning("Ritual boss could not be summoned (boss phase %s).",
                             state.boss_phase.name)
                 await io.send(scene.channel, MSG_RITUAL_BOSS_GONE)

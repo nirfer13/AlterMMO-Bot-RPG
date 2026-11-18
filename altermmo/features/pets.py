@@ -44,7 +44,7 @@ import discord
 
 from ..core import io, timing
 from ..settings import ASSETS_DIR
-from . import modifiers, patrons
+from . import bossdetect, modifiers, patrons
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -1214,8 +1214,8 @@ async def _warn_about_boss(bot: "AlterBot", player_id: int, text: str) -> None:
             return  # Discord is having a bad moment, the player's settings are fine
     channel = bot.get_channel(bot.ids.log_channel if bot.debug else bot.ids.notice_channel)
     if channel is not None:
-        await io.send(channel, "<@" + str(player_id) + "> - Twój towarzysz: *Nadciąga boss! Odblokuj "
-                               "prywatne wiadomości, jeśli chcesz otrzymywać powiadomienia!*", attempts=1)
+        # The hint has a button that switches these warnings off for the player.
+        await bossdetect.send_hint(bot, channel, player_id)
 
 
 async def detect_boss(bot: "AlterBot", boss_rarity: int) -> None:
@@ -1231,6 +1231,8 @@ async def detect_boss(bot: "AlterBot", boss_rarity: int) -> None:
     log.info("Boss detection: warning %d player(s) about a boss (%s).", len(rows), rarity)
     for row in rows:
         player_id = _int(row["player_id"])
+        if bossdetect.is_off(bot, player_id):
+            continue  # switched off by the player (button under the hint / $wyczuwanie)
         try:
             await _warn_about_boss(bot, player_id, text)
         except asyncio.CancelledError:

@@ -5,15 +5,22 @@ Port of the legacy ``functions/functions_skills.py``.
 ``SKILLS``            one row per generated gem (no primary key, as in production):
                       id, name, variant (what the gem does) and a "slow" percentage
                       that is only displayed;
-``PETOWNER.SKILL_GEM``  the id of the player's gem (0 / NULL = none).  The table
-                      belongs to features/pets.py.
+``PETOWNER.SKILL_GEM``  the id of the player's ACTIVE gem (0 / NULL = none).  The
+                      table belongs to features/pets.py;
+``SKILLPOUCH``        new in v2: the other gems of a player, one row per gem
+                      (player id, gem id).  A player can collect one gem of
+                      every kind; only the active one works (``$skill``).
+                      ``$klejnoty`` lists them, ``$wybierzklejnot <nr>`` makes
+                      another one active.  The old bot never looks at this
+                      table and still sees the active gem in ``PETOWNER``.
 
 A gem is never used up: after a use it "regenerates" until the next daily
 (variants 1, 4, 5, 6) or weekly (variants 2, 3) reset.  The cooldown lists are
 the legacy files ``skill_daily_player_cd.txt`` / ``skill_weekly_player_cd.txt``
 (``bot.store.skill_daily_cd`` / ``skill_weekly_cd``, one id per line).
 
-Differences from the legacy code (the game rules themselves are unchanged):
+Differences from the legacy code (apart from the gem pouch described above the
+game rules themselves are unchanged):
 
 * every statement is parametrised and a database outage raises
   ``DatabaseUnavailable`` instead of returning False / reading an unbound variable;
@@ -50,6 +57,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, Sequence
 import discord
 
 from ..core import challenge, io, timing
+from ..core.state import EventType
 from ..settings import ASSETS_DIR
 from . import modifiers, pets
 
@@ -69,7 +77,14 @@ SCHEMA: tuple[str, ...] = (
            SKILL_VARIANT NUMERIC,
            SLOW_PERC NUMERIC
        )""",
+    # New in v2 (not in the old bot's database): gems a player owns besides the active one.
+    """CREATE TABLE IF NOT EXISTS SKILLPOUCH (
+           PLAYER_ID NUMERIC,
+           SKILL_ID NUMERIC
+       )""",
 )
+#: Tables the old bot's database does not have yet; created at start-up when missing.
+NEW_TABLES: tuple[str, ...] = (SCHEMA[1],)
 
 #: Advisory lock that serialises the allocation of ``SKILL_ID`` (the table has
 #: no key).  Two-int form, next to the namespaces used by features/pets.py.
@@ -146,7 +161,16 @@ MSG_FESTIVAL_DONE = ("Wygląda na to, że bossowie i potwory odczuwają efekty T
                      "<:MonkaChrist:783992337075929098>")
 MSG_SLOW_DONE = "Klejnot sprawia, że przeciwnicy lepią się od błota i poruszają się znacznie wolniej."
 MSG_LOOT_DONE = "Klejnot sprawia, że przeciwnicy oferują teraz lepsze nagrody."
+MSG_NO_SUCH_NUMBER = ("Nie masz klejnotu o takim numerze, <@{player_id}>. Wpisz **$klejnoty**, żeby zobaczyć "
+                      "swoje klejnoty, a potem np. **$wybierzklejnot 2**.")
+MSG_ALREADY_ACTIVE = "**{name}** jest już Twoim aktywnym klejnotem, <@{player_id}>."
+MSG_GEM_CHOSEN = ("Aktywny klejnot <@{player_id}>: **{name}**. Użyjesz go komendą **$skill**. "
+                  "Pozostałe klejnoty czekają w sakwie (**$klejnoty**).")
+POUCH_TITLE = "Sakwa z klejnotami umiejętności"
+POUCH_FOOTER = "Działa tylko aktywny klejnot. Zmiana: $wybierzklejnot numer. Użycie: $skill."
 # New in v2 (the legacy bot had no such situations, see the module docstring).
+MSG_EVENT_IN_THE_WAY = ("Trwa teraz inne wydarzenie, <@{player_id}>! Klejnot przywołania nie został użyty - "
+                        "spróbuj ponownie, gdy się zakończy <:Bedge:970576892874854400>")
 MSG_BOSS_IN_THE_WAY = ("Boss już jest na kanale albo właśnie nadciąga, <@{player_id}>! Klejnot przywołania "
                        "nie został użyty - spróbuj ponownie później <:Bedge:970576892874854400>")
 MSG_INTERRUPTED = ("Problemy z połączeniem przerwały użycie klejnotu <:Sadge:936907659142111273> "
@@ -258,9 +282,12 @@ async def create_skills_table(bot: "AlterBot") -> None:
             log.info("Table SKILLS seeded with the default row.")
 
 
-async def _insert_gem(con: Any) -> int:
-    """Draw a new gem and store it on ``con`` (inside a transaction); returns its id."""
-    skill_variant = random.randint(*GENERATED_VARIANTS)
+async def _insert_gem(con: Any, variant: int | None = None) -> int:
+    """Draw a new gem and store it on ``con`` (inside a transaction); returns its id.
+
+    ``variant`` fixes what the gem does; by default it is drawn.
+    """
+    skill_variant = random.randint(*GENERATED_VARIANTS) if variant is None else int(variant)
     slow_perc = random.randint(*SLOW_PERC_RANGE)
     await con.execute("SELECT pg_advisory_xact_lock($1::int4, 0)", _LOCK_SKILL_IDS)
     skill_id = _int(await con.fetchval("SELECT COALESCE(MAX(SKILL_ID), 0) + 1 FROM SKILLS"))
@@ -279,7 +306,7 @@ async def generate_skill_gem(scene: "Scene") -> int:
 
 
 async def _gem_of(q: Any, player_id: int) -> int | None:
-    """The id of the player's gem: 0 when there is none, None without a ``PETOWNER`` row.
+    """The id of the player's ACTIVE gem: 0 when there is none, None without a ``PETOWNER`` row.
 
     The table has no unique key; should a player have more rows, the one that
     holds a gem counts.
@@ -290,37 +317,93 @@ async def _gem_of(q: Any, player_id: int) -> int | None:
     return max(_int(row["skill_gem"]) for row in rows)
 
 
-async def assign_skill(scene: "Scene", player: Any) -> bool:
+async def _ensure_pouch(bot: "AlterBot") -> None:
+    """Create ``SKILLPOUCH`` when it is still missing (checked once per run).
+
+    The bot creates it at start-up; this covers a first start during which the
+    database could not be reached.
+    """
+    if getattr(bot, "_skill_pouch_ready", False):
+        return
+    if not await bot.db.fetchval("SELECT to_regclass('skillpouch') IS NOT NULL"):
+        await bot.db.execute(SCHEMA[1], idempotent=True)
+        log.info("Table SKILLPOUCH created.")
+    bot._skill_pouch_ready = True
+
+
+async def _owned_gems(con: Any, player_id: int) -> tuple[int, list[int]] | None:
+    """``(active gem id, ids in the pouch)`` of a player; None without a ``PETOWNER`` row.
+
+    Locks the player's ``PETOWNER`` rows, so everything that changes the gems
+    of one player (a new gem, choosing the active one) runs one after another.
+    """
+    rows = await con.fetch("SELECT SKILL_GEM FROM PETOWNER WHERE PLAYER_ID = $1 FOR UPDATE", player_id)
+    if not rows:
+        return None
+    active = max(max(_int(row["skill_gem"]) for row in rows), 0)
+    stored = await con.fetch("SELECT SKILL_ID FROM SKILLPOUCH WHERE PLAYER_ID = $1 ORDER BY SKILL_ID", player_id)
+    pouch: list[int] = []
+    for row in stored:
+        skill_id = _int(row["skill_id"])
+        if skill_id > 0 and skill_id != active and skill_id not in pouch:
+            pouch.append(skill_id)
+    return active, pouch
+
+
+async def _gem_rows(q: Any, skill_ids: Sequence[int]) -> dict[int, Any]:
+    """``SKILLS`` rows of the given gems by id (gems without a row are left out)."""
+    if not skill_ids:
+        return {}
+    rows = await q.fetch(
+        """SELECT SKILL_ID, GEM_NAME, SKILL_VARIANT, SLOW_PERC FROM SKILLS
+           WHERE SKILL_ID = ANY($1::numeric[])""", [int(skill_id) for skill_id in skill_ids])
+    return {_int(row["skill_id"]): row for row in rows}
+
+
+async def assign_skill(scene: "Scene", player: Any, variant: int | None = None) -> bool:
     """Assigning new skill to player in database, but first check if it is possible.
 
-    True when the player got a new gem, False when they already have one (a
-    player keeps their gem for ever).
+    A player collects one gem of every kind.  The new gem is of a kind the
+    player does not have yet (drawn as before; ``variant`` forces a kind).  The
+    first gem becomes the active one, the next ones go to the pouch
+    (``$klejnoty`` / ``$wybierzklejnot``).  True when the player got a new gem,
+    False when they already have every kind that can drop (or the forced one).
     """
     bot = scene.bot
     player_id = _pid(player)
+    await _ensure_pouch(bot)
 
-    async with bot.db.transaction() as con:
-        rows = await con.fetch("SELECT SKILL_GEM FROM PETOWNER WHERE PLAYER_ID = $1 FOR UPDATE", player_id)
-        if rows:
-            if any(_int(row["skill_gem"]) > 0 for row in rows):
-                log.info("Player %s already has a skill gem.", player_id)
-                return False
-            skill_id = await _insert_gem(con)
-            await con.execute("UPDATE PETOWNER SET SKILL_GEM = $2 WHERE PLAYER_ID = $1", player_id, skill_id)
-            log.info("Skill gem %s assigned to player %s.", skill_id, player_id)
-            return True
-
-    # No PETOWNER row yet: pets.new_record_petowners creates it (or, when another
-    # flow created it a moment ago, puts the gem into the empty place).
-    skill_id = await generate_skill_gem(scene)
-    if await pets.new_record_petowners(bot, player_id, 0, False, 0, 0, 0, 0, skill_id):
-        log.info("Skill gem %s assigned to the new PETOWNER row of player %s.", skill_id, player_id)
-        return True
-    if await _gem_of(bot.db, player_id) == skill_id:
-        return True
-    # The row that appeared meanwhile already held a gem: ours is not needed.
-    await bot.db.execute("DELETE FROM SKILLS WHERE SKILL_ID = $1", skill_id, idempotent=True)
-    log.info("Player %s got a skill gem in the meantime; gem %s discarded.", player_id, skill_id)
+    for attempt in (1, 2):
+        async with bot.db.transaction() as con:
+            owned = await _owned_gems(con, player_id)
+            if owned is not None:
+                active, pouch = owned
+                rows = await _gem_rows(con, [active, *pouch])
+                have = {_int(row["skill_variant"]) for row in rows.values()} - {0}
+                if variant is not None:
+                    missing = [int(variant)] if int(variant) not in have else []
+                else:
+                    missing = [kind for kind in range(GENERATED_VARIANTS[0], GENERATED_VARIANTS[1] + 1)
+                               if kind not in have]
+                if not missing:
+                    log.info("Player %s already has every skill gem that can drop.", player_id)
+                    return False
+                drawn = random.randint(*GENERATED_VARIANTS) if variant is None else int(variant)
+                skill_id = await _insert_gem(con, drawn if drawn in missing else random.choice(missing))
+                if active > 0 and active in rows:
+                    await con.execute("INSERT INTO SKILLPOUCH (PLAYER_ID, SKILL_ID) VALUES ($1, $2)",
+                                      player_id, skill_id)
+                    log.info("Skill gem %s added to the pouch of player %s.", skill_id, player_id)
+                else:
+                    await con.execute("UPDATE PETOWNER SET SKILL_GEM = $2 WHERE PLAYER_ID = $1",
+                                      player_id, skill_id)
+                    log.info("Skill gem %s assigned to player %s (active).", skill_id, player_id)
+                return True
+        if attempt == 1:
+            # No PETOWNER row yet: create an empty one (a parallel flow that was
+            # faster is fine - the row is merged, never duplicated) and try again.
+            await pets.new_record_petowners(bot, player_id, 0, False, 0, 0, 0, 0, 0)
+    log.error("Could not create the PETOWNER row of player %s; no skill gem assigned.", player_id)
     return False
 
 
@@ -354,6 +437,111 @@ async def _player_gem(scene: "Scene", player_id: int) -> tuple[str, int, int] | 
     skill_name = skill_data["gem_name"]
     return (UNKNOWN_GEM_NAME if skill_name is None else str(skill_name),
             skill_variant, _int(skill_data["slow_perc"]))
+
+
+# ==================================== THE POUCH ================================================
+
+async def _numbered_gems(q: Any, active: int, pouch: Sequence[int]) -> list[tuple[int, Any]]:
+    """The player's gems as ``(gem id, SKILLS row)`` in the order of their numbers.
+
+    The number of a gem is its place by gem id, so it does not change when
+    another gem becomes active.  Gems without a usable ``SKILLS`` row are left out.
+    """
+    rows = await _gem_rows(q, [skill_id for skill_id in (active, *pouch) if skill_id > 0])
+    return [(skill_id, rows[skill_id]) for skill_id in sorted(rows)
+            if _int(rows[skill_id]["skill_variant"]) != 0]
+
+
+def _gem_label(row: Any) -> str:
+    name = row["gem_name"]
+    return UNKNOWN_GEM_NAME if name is None else str(name)
+
+
+async def show_skills(scene: "Scene") -> bool:
+    """``$klejnoty``: every gem of the author with its number; False when they have none."""
+    bot = scene.bot
+    player_id = int(scene.author.id)
+    await _ensure_pouch(bot)
+    async with bot.db.transaction() as con:
+        owned = await _owned_gems(con, player_id)
+        gems = await _numbered_gems(con, *owned) if owned is not None else []
+    if not gems:
+        await scene.send(MSG_NO_SKILL.format(player_id=player_id))
+        return False
+    active = owned[0]
+
+    lines = []
+    for number, (skill_id, row) in enumerate(gems, start=1):
+        cooldown = _cooldown_note(bot, player_id, _int(row["skill_variant"]))
+        if skill_id == active:
+            lines.append(f"**{number}. {_gem_label(row)}** ✅ aktywny{cooldown}")
+        else:
+            lines.append(f"{number}. {_gem_label(row)}{cooldown}")
+    description = (f"Oto Twoje klejnoty umiejętności, <@{player_id}>.\n\n" + "\n".join(lines)
+                   + "\n\nZmień aktywny klejnot komendą **$wybierzklejnot numer**, "
+                     "a szczegóły aktywnego zobaczysz przez **$pokazskill**.")
+    embed = discord.Embed(title=POUCH_TITLE, description=description, color=SKILL_EMBED_COLOR)
+    embed.set_footer(text=POUCH_FOOTER)
+    await scene.send(embed=embed)
+    return True
+
+
+def _cooldown_note(bot: "AlterBot", player_id: int, skill_variant: int) -> str:
+    """" (regeneruje się ...)" when a gem of this kind cannot be used right now."""
+    if skill_variant in (SHINY, SUMMON):
+        return " *(regeneruje się do końca tygodnia)*" if load_weekly_skill(bot, player_id) else ""
+    return " *(regeneruje się do jutra)*" if load_daily_skill(bot, player_id) else ""
+
+
+async def choose_skill(scene: "Scene", number: Any) -> bool:
+    """``$wybierzklejnot <nr>``: make gem ``number`` of ``$klejnoty`` the active one.
+
+    The gem that was active goes to the pouch.  True when the active gem changed.
+    """
+    bot = scene.bot
+    player_id = int(scene.author.id)
+    try:
+        wanted = int(str(number).strip())
+    except (TypeError, ValueError):
+        wanted = 0
+
+    status, name = "none", ""
+    await _ensure_pouch(bot)
+    async with bot.db.transaction() as con:
+        owned = await _owned_gems(con, player_id)
+        gems = await _numbered_gems(con, *owned) if owned is not None else []
+        if gems:
+            active = owned[0]
+            if not 1 <= wanted <= len(gems):
+                status = "bad_number"
+            else:
+                skill_id, row = gems[wanted - 1]
+                name = _gem_label(row)
+                if skill_id == active:
+                    status = "already"
+                else:
+                    await con.execute("DELETE FROM SKILLPOUCH WHERE PLAYER_ID = $1 AND SKILL_ID = $2",
+                                      player_id, skill_id)
+                    if active > 0:
+                        await con.execute(
+                            """INSERT INTO SKILLPOUCH (PLAYER_ID, SKILL_ID)
+                               SELECT $1::numeric, $2::numeric WHERE NOT EXISTS
+                                   (SELECT 1 FROM SKILLPOUCH WHERE PLAYER_ID = $1 AND SKILL_ID = $2)""",
+                            player_id, active)
+                    await con.execute("UPDATE PETOWNER SET SKILL_GEM = $2 WHERE PLAYER_ID = $1",
+                                      player_id, skill_id)
+                    status = "chosen"
+                    log.info("Player %s made the skill gem %s active (was %s).", player_id, skill_id, active)
+
+    if status == "none":
+        await scene.send(MSG_NO_SKILL.format(player_id=player_id))
+    elif status == "bad_number":
+        await scene.send(MSG_NO_SUCH_NUMBER.format(player_id=player_id))
+    elif status == "already":
+        await scene.send(MSG_ALREADY_ACTIVE.format(player_id=player_id, name=name))
+    else:
+        await scene.send(MSG_GEM_CHOSEN.format(player_id=player_id, name=name))
+    return status == "chosen"
 
 
 # ==================================== SHOWING AND USING ========================================
@@ -614,6 +802,11 @@ async def skill_spawn_boss(scene: "Scene") -> bool:
         return False
     if not bot.boss_cycle.can_summon():
         await scene.send(MSG_BOSS_IN_THE_WAY.format(player_id=scene.author.id))
+        return False
+    state = bot.state
+    if state.event_alive and state.event_type in (EventType.DUEL, EventType.RITUAL):
+        # Their sign-up leaves the channel free; a boss now would wipe it.
+        await scene.send(MSG_EVENT_IN_THE_WAY.format(player_id=scene.author.id))
         return False
     return True
 

@@ -14,6 +14,7 @@ owner's log channel, exactly like every other experience reward of this bot.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -32,6 +33,15 @@ LOOT_ID = 2
 DEFAULT_AMOUNT = 2500
 COMMAND_HINT = ("Wpisz **$kradnijxp nick**, żeby wskazać ofiarę "
                 "(wiadomość od razu zniknie - nikt nie zobaczy, kogo okradasz).")
+
+#: Posted (with a ping) right under the drop, so the winner cannot miss it.
+MSG_HOW_TO = ("🥷 <@{thief}>, masz do wykorzystania **kradzież {amount} doświadczenia**! Wpisz na tym kanale "
+              "**$kradnijxp nick** (albo oznacz ofiarę). Twoja wiadomość od razu zniknie - nikt nie zobaczy, "
+              "kogo okradasz. Okazja nie przepada: możesz jej użyć, kiedy chcesz.")
+#: The same as a private message: the boss channel is cleared regularly.
+DM_HOW_TO = ("Masz do wykorzystania **kradzież {amount} doświadczenia** na Discordzie (łup z bossa). "
+             "Wejdź na kanał <#{channel}> i wpisz **$kradnijxp nick** albo oznacz ofiarę - wiadomość od razu "
+             "zniknie i nikt nie zobaczy, kogo okradasz. Okazja nie przepada, użyj jej, kiedy chcesz.")
 
 MSG_NOTHING_TO_USE = ("<@{thief}>, nie masz żadnej kradzieży doświadczenia do wykorzystania "
                       "<:Sadge:936907659142111273> Taką okazję można zdobyć na rzadkim bossie.")
@@ -74,8 +84,21 @@ def grant(bot: "AlterBot", player_id: int | str, amount: int = DEFAULT_AMOUNT) -
 
 
 def pending(bot: "AlterBot", player_id: int | str) -> list[int]:
-    """Unused theft rights of the player (amounts, oldest first)."""
-    return [int(amount) for amount in _load(bot).get(str(player_id), [])]
+    """Unused theft rights of the player (amounts, oldest first).  Never raises."""
+    try:
+        raw = _load(bot).get(str(player_id))
+    except Exception:  # noqa: BLE001 - an unreadable file must not cost anybody their loot
+        log.exception("Could not read the XP theft rights of %s.", player_id)
+        return []
+    if not isinstance(raw, list):
+        return []
+    amounts = []
+    for amount in raw:
+        try:
+            amounts.append(int(amount))
+        except (TypeError, ValueError):
+            log.warning("Ignoring a broken XP theft right of %s: %r", player_id, amount)
+    return amounts
 
 
 def _consume(bot: "AlterBot", player_id: int | str) -> int | None:
@@ -90,6 +113,31 @@ def _consume(bot: "AlterBot", player_id: int | str) -> int | None:
         data.pop(str(player_id), None)
     bot.store.xp_thefts.save(data)
     return amount
+
+
+async def remind(scene: "Scene", winner: Any) -> None:
+    """Tell ``winner`` how to use the theft right they have just won.  Never raises.
+
+    A ping under the drop and - because the boss channel is wiped regularly -
+    the same instructions as a private message (closed DMs are simply skipped).
+    """
+    bot = scene.bot
+    amounts = pending(bot, winner.id)
+    if not amounts:
+        return
+    amount = amounts[-1]
+    try:
+        await scene.send(MSG_HOW_TO.format(thief=winner.id, amount=amount))
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the right is stored; the hint is a courtesy
+        log.warning("Could not post the XP theft hint for %s: %s: %s", winner.id, type(exc).__name__, exc)
+    try:
+        await io.send(winner, DM_HOW_TO.format(amount=amount, channel=bot.ids.boss_channel), attempts=1)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - closed private messages are fine
+        log.info("XP theft hint not delivered privately to %s (%s).", winner.id, type(exc).__name__)
 
 
 # -- choosing the victim --------------------------------------------------------------

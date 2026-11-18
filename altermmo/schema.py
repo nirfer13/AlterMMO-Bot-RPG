@@ -45,6 +45,21 @@ async def create_all(db: Database) -> int:
     return len(statements)
 
 
+async def create_new_tables(db: Database) -> int:
+    """Create the tables that are new in v2 (``NEW_TABLES`` of the feature modules).
+
+    Run at every start-up: the old bot's database does not have them.  Only
+    ``CREATE TABLE IF NOT EXISTS`` - nothing existing is touched.
+    """
+    count = 0
+    for module_name in SCHEMA_MODULES:
+        module = importlib.import_module(module_name)
+        for statement in getattr(module, "NEW_TABLES", ()):
+            await db.execute(statement, idempotent=True)
+            count += 1
+    return count
+
+
 #: Structure of the production database (read from its information_schema on
 #: 2026-11-17).  Used by :func:`verify` to warn at start-up when the live
 #: database does not look like the code expects, instead of failing in the
@@ -57,6 +72,7 @@ EXPECTED_COLUMNS: dict[str, dict[str, str]] = {
     "petowner": {"player_id": "numeric", "pet_id": "numeric", "pet_owned": "boolean", "reroll_scroll": "numeric", "reroll_scroll_shard": "numeric", "rebirth_stones": "numeric", "mirrors": "numeric", "pet_id_alt1": "numeric", "pet_id_alt2": "numeric", "skill_gem": "numeric", "pet_id_alt3": "numeric", "pet_id_alt4": "numeric"},
     "pets": {"pet_id": "numeric", "pet_name": "character varying", "pet_lvl": "numeric", "pet_skills": "numeric", "quality": "character varying", "shiny": "boolean", "type": "character varying", "variant": "character varying", "crit_perc": "numeric", "replace_perc": "numeric", "def_perc": "numeric", "drop_perc": "numeric", "lowhp_perc": "numeric", "slow_perc": "numeric", "init_perc": "numeric", "detection": "boolean", "ultra_shiny": "boolean", "mythic": "boolean"},
     "skills": {"skill_id": "numeric", "gem_name": "character varying", "skill_variant": "numeric", "slow_perc": "numeric"},
+    "skillpouch": {"player_id": "numeric", "skill_id": "numeric"},  # new in v2, see create_new_tables
     "achievements": {"player_id": "numeric", "boss_kills": "numeric", "hunts": "numeric", "butchers": "numeric"},
     "tower": {"player_id": "numeric", "tower_level": "numeric", "time": "character varying"},
     "chatters_information": {"chtr_id": "integer", "chtr_name": "text", "chtr_time": "integer", "chtr_comments": "integer", "chtr_isvip": "boolean", "chtr_issub": "boolean", "chtr_ismod": "boolean", "chtr_isbroadcaster": "boolean", "discord_id": "text", "watchstreak": "integer"},

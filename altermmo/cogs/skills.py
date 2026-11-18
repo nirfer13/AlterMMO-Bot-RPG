@@ -1,8 +1,9 @@
-"""Skill gem commands: ``$pokazskill``, ``$uzyjskilla`` and the admin helpers.
+"""Skill gem commands: ``$pokazskill``, ``$klejnoty``, ``$wybierzklejnot``, ``$uzyjskilla``, admin helpers.
 
-``$pokazskill`` only displays something and works on every channel of the
-server; ``$uzyjskilla`` is gameplay and works on the boss channel only.  The
-game itself lives in :mod:`altermmo.features.skills`.
+``$pokazskill`` and ``$klejnoty`` only display something and work on every
+channel of the server; ``$wybierzklejnot`` and ``$uzyjskilla`` are gameplay and
+work on the boss channel only.  The game itself lives in
+:mod:`altermmo.features.skills`.
 """
 
 from __future__ import annotations
@@ -31,7 +32,34 @@ class SkillsCog(commands.Cog, name="Skills"):
     async def show_skill(self, ctx: commands.Context) -> None:
         await skills.show_skill(Scene.from_ctx(ctx))
 
+    # ("klejnoty", not "skille": one letter away from ``$skill``, which USES the gem.)
+    @commands.command(name="klejnoty",
+                      aliases=["sakwa", "skille", "umiejetnosci", "umiejętności"],
+                      brief="Show all skill gems of the user.")
+    @guards.unless_busy(read_only=True)
+    async def show_skills(self, ctx: commands.Context) -> None:
+        await skills.show_skills(Scene.from_ctx(ctx))
+
     # -- gameplay (boss channel only) ---------------------------------------------
+
+    @commands.command(name="wybierzklejnot",
+                      aliases=["wybierzskill", "wybierzumiejetnosc", "wybierzumiejętność", "ws"],
+                      brief="Make another skill gem of the user the active one.")
+    @guards.boss_channel_only()
+    @guards.unless_busy()
+    async def choose_skill(self, ctx: commands.Context, number: str) -> None:
+        await skills.choose_skill(Scene.from_ctx(ctx), number)
+
+    @choose_skill.error
+    async def choose_skill_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
+        if isinstance(error, commands.MissingRequiredArgument):
+            try:
+                await io.send(ctx.channel, "Po spacji podaj numer klejnotu z listy **$klejnoty**, "
+                                           "np. **$wybierzklejnot 2**.")
+            except Exception:  # noqa: BLE001 - a hint is never worth an error
+                log.debug("Could not send the $wybierzklejnot hint.", exc_info=True)
+        else:
+            await ctx.bot.on_command_error(ctx, error, force=True)
 
     @commands.command(name="uzyjskilla",
                       aliases=['użyjumiejetnosc', 'użyjumiejętność', 'us',
@@ -67,11 +95,24 @@ class SkillsCog(commands.Cog, name="Skills"):
         skill_id = await skills.generate_skill_gem(Scene.from_ctx(ctx))
         await io.send(ctx.channel, f"Wygenerowano klejnot umiejętności (SKILL_ID {skill_id}).")
 
+    @commands.command(name="DajKlejnot", brief="Give a member a skill gem (admin); optional kind 1-6.")
+    @guards.owner_or_admin()
+    async def give_gem(self, ctx: commands.Context, player_id: int, variant: int | None = None) -> None:
+        if variant is not None and variant not in skills.GEM_NAMES:
+            await io.send(ctx.channel, "Rodzaj klejnotu: 1-6 (" + ", ".join(
+                f"{kind} = {name}" for kind, name in skills.GEM_NAMES.items()) + ").")
+            return
+        if await skills.assign_skill(Scene.from_ctx(ctx), player_id, variant):
+            await io.send(ctx.channel, f"<@{player_id}> dostaje nowy klejnot umiejętności (**$klejnoty**).")
+        else:
+            await io.send(ctx.channel, f"<@{player_id}> ma już taki klejnot (albo wszystkie, które mogą wypaść).")
+
     @commands.command(name="createSkillsDatabase",
                       brief="Create table SKILLS table with one default record.")
     @guards.owner_or_admin()
     async def create_skills_table(self, ctx: commands.Context) -> None:
         await skills.create_skills_table(self.bot)
+        await self.bot.db.execute(skills.SCHEMA[1], idempotent=True)
         await io.send(ctx.channel, "Baza danych SKILLS utworzona.")
 
     @commands.command(name="skill_rest", brief="Show rest image")

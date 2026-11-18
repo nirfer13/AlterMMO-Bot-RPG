@@ -1,8 +1,11 @@
 """Random events of the boss channel (port of the legacy ``functions/functions_events.py``).
 
 Every function plays one event on ``scene.channel`` and is self-contained: it
-never touches ``bot.state`` (the events cog wraps the calls in
-``state.running_event`` and summons the ritual boss itself).  An event that
+does not touch ``bot.state`` (the events cog wraps the calls in
+``state.running_event`` and summons the ritual boss itself).  The exceptions
+are the duel and the ritual, whose sign-up leaves the channel free: they wait
+for ``state.busy`` to clear and hold it for the fight / for showing the boss,
+and the ritual asks ``bot.boss_cycle.can_summon()``.  An event that
 cannot continue - nobody reacted, its message was deleted, too few players -
 ends with its legacy texts; technical errors propagate to the cog.
 
@@ -212,6 +215,8 @@ RITUAL_DESCR = ('Użyczcie swojej energii w rytuale przywołania!\n\n'
                 '**Zaoferujcie swoją pomoc zostawiając reakcję pod tym postem.** Im więcej Was będzie,'
                 'tym potężniejszą istotę przywołacie!')
 MSG_RITUAL_FAILED = 'Rytuał przywołania nie powiódł się... <:Sadge:936907659142111273>'
+MSG_RITUAL_OVERTAKEN = ('Rytuał został przerwany - z oddali nadciąga już inny potwór... '
+                        '<:MonkaS:882181709100097587>')
 
 
 # -- small helpers -------------------------------------------------------------------
@@ -894,14 +899,26 @@ def ritual_rarity(participants: int) -> int:
     return max(0, min(4, value))
 
 
+def ritual_duration(bot: "AlterBot") -> float:
+    """How long the ritual waits for players (seconds)."""
+    return _wait(bot, RITUAL_WAIT)
+
+
 async def spawn_ritual(scene: "Scene") -> tuple[bool, int, bool, Any]:
     """Summoning ritual: the more players react, the mightier the boss.
 
     Returns ``(success, rarity, is_player_boss, player_boss)``.  On success the
     channel was cleared and the boss picture is already shown; the caller hands
-    the boss to the boss cycle.
+    the boss to the boss cycle at once (nothing may be awaited in between).
+
+    The sign-up leaves the channel free, like the duel.  Before the boss is
+    shown the ritual waits for a running hunt / tower run to end and keeps the
+    busy flag while it clears the channel and posts the picture.  Should the
+    scheduled boss have started to arrive meanwhile, the ritual ends without a
+    boss of its own - the scheduled one is never pushed aside.
     """
     bot = scene.bot
+    state = bot.state
     log.info("Ritual spawn.")
     with _reactions(bot) as queue:
         await _send_image(scene, "ritual", f"{random.randint(0, 3)}.png")
@@ -921,8 +938,21 @@ async def spawn_ritual(scene: "Scene") -> tuple[bool, int, bool, Any]:
     rarity += int((await modifiers.load_modifiers(bot))["rarity_boost"])
     if rarity == 3 or rarity > 4:
         rarity = 4
+    while state.busy:  # a hunt or a tower run started during the sign-up: let it finish
+        await asyncio.sleep(2)
+    if not bot.boss_cycle.can_summon():
+        log.info("Ritual of %d players ends without a boss: the scheduled one is arriving (phase %s).",
+                 len(users), state.boss_phase.name)
+        await scene.send(MSG_RITUAL_OVERTAKEN)
+        return False, 0, False, None
     log.info("Ritual of %d players summons a boss of rarity %d.", len(users), rarity)
 
-    await io.clear_channel(scene.channel)
-    is_player_boss, player_boss = await boss.send_boss_image(scene, rarity)
+    with state.hold_busy("event:RITUAL"):
+        await io.clear_channel(scene.channel)
+        is_player_boss, player_boss = await boss.send_boss_image(scene, rarity)
+    if not bot.boss_cycle.can_summon():
+        # The scheduled boss began to arrive while the picture was being posted.
+        log.info("Ritual boss shown, but the scheduled boss is arriving (phase %s).", state.boss_phase.name)
+        await scene.send(MSG_RITUAL_OVERTAKEN)
+        return False, 0, False, None
     return True, rarity, is_player_boss, player_boss

@@ -137,7 +137,7 @@
 		},
 		{
 			"id": 15,
-			"descr": "Otrzymałeś klejnot zdolności. Wpisz **$pokazumiejetnosc**, żeby zobaczyć swój klejnot umiejętności.",
+			"descr": "Otrzymałeś klejnot zdolności. Wpisz **$klejnoty**, żeby zobaczyć swoje klejnoty umiejętności.",
 			"weight": 20
 		}]
 }

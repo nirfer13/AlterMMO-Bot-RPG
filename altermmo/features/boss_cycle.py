@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..core import clock, io
 from ..core.scene import Scene
-from ..core.state import BossInfo, BossPhase
+from ..core.state import BossInfo, BossPhase, EventType
 from .fight_types import FightInterrupted, FightResult
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -66,6 +66,11 @@ LEGENDARY_HOURS = range(16, 23)
 
 _KEY_ENABLED = "boss_spawning_enabled"
 _KEY_QUIET_UNTIL = "boss_quiet_until"
+#: Rarity of a summoned (ritual / skill gem) boss that is on the channel; kept
+#: so that a restart of the bot does not make that boss vanish.
+_KEY_SUMMONED = "summoned_boss_rarity"
+#: Events that only wait for a command; everything else is an activity in progress.
+_PASSIVE_EVENTS = (EventType.SHRINE, EventType.CHEST)
 
 
 def spawn_notice(boss_channel_id: int) -> str:
@@ -158,6 +163,15 @@ class BossCycle:
         self._wind_sent = False
         self._appears_at = None
         self.bot.store.runtime_set(_KEY_QUIET_UNTIL, None)
+        self._remember_summoned(None)
+
+    def _remember_summoned(self, rarity: int | None) -> None:
+        """Note (or forget) the summoned boss standing on the channel.  Never raises."""
+        try:
+            if self.bot.store.runtime_get(_KEY_SUMMONED) != rarity:
+                self.bot.store.runtime_set(_KEY_SUMMONED, rarity)
+        except OSError:
+            log.exception("Could not persist the summoned boss (%s).", rarity)
 
     def seconds_to_arrival(self) -> float | None:
         return clock.seconds_until(self.arrives_at) if self.arrives_at is not None else None
@@ -191,6 +205,16 @@ class BossCycle:
         """After a (re)start: continue the persisted schedule or begin a new one."""
         bot = self.bot
         row = await self._database.read_boss_table(bot)
+        if bot.state.boss_phase >= BossPhase.VISIBLE:
+            # Spawning was switched on while a summoned boss is on the channel (or
+            # being fought): that boss stays; only the schedule is picked up.
+            if row is not None and row.respawn_started and row.respawn_at is not None:
+                self.base_rarity = row.rarity
+                self.arrives_at = row.respawn_at
+                self._resume_phase = BossPhase.SCHEDULED
+            log.info("Boss loop (re)started during an encounter (phase %s); it goes on.",
+                     bot.state.boss_phase.name)
+            return
         if row is not None and row.respawn_started and row.respawn_at is not None:
             self.base_rarity = row.rarity
             self.arrives_at = row.respawn_at
@@ -206,6 +230,21 @@ class BossCycle:
         else:
             log.info("No boss respawn in progress - starting a new cycle.")
             await bot.state.set_boss_phase(BossPhase.IDLE)
+
+        # A ritual / skill gem boss that was standing there when the bot stopped comes back.
+        summoned = bot.store.runtime_get(_KEY_SUMMONED)
+        if summoned is not None:
+            back = False
+            try:
+                back = await self.summon(bot.boss_scene(), int(summoned))
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - the regular schedule matters more
+                log.exception("Could not bring the summoned boss back after a restart.")
+            if back:
+                log.info("Summoned boss of rarity %s is back on the channel after a restart.", summoned)
+            else:
+                self._remember_summoned(None)
 
     async def _phase_idle(self) -> None:
         """Legacy episode 0: draw the respawn delay, derive the rarity, persist."""
@@ -224,8 +263,13 @@ class BossCycle:
         self.arrives_at = arrives_at
         self._wind_sent = False
         self._appears_at = None
-        bot.state.boss = BossInfo(rarity=rarity)
         log.info("Boss scheduled: delay %s s, rarity %s, arrives at %s.", delay, rarity, arrives_at.isoformat())
+        if bot.state.boss_phase is not BossPhase.IDLE:
+            # A boss was summoned (ritual, skill gem) while the schedule was being
+            # saved: it keeps the channel and the schedule goes on after it.
+            self._resume_phase = BossPhase.SCHEDULED
+            return
+        bot.state.boss = BossInfo(rarity=rarity)
         await bot.state.set_boss_phase(BossPhase.SCHEDULED)
 
     async def _phase_scheduled(self) -> None:
@@ -264,6 +308,8 @@ class BossCycle:
 
         if not self._wind_sent:
             await state.wait_until_idle()
+            if state.boss_phase is not BossPhase.PRE_SPAWN:
+                return
             rarity = self.base_rarity
             try:
                 from . import modifiers
@@ -360,6 +406,15 @@ class BossCycle:
         """A boss may be summoned only while no boss is on (or coming to) the channel."""
         return self.bot.state.boss_phase <= BossPhase.WAITING
 
+    def activity_in_the_way(self) -> bool:
+        """True while a hunt / tower run / interactive event (also its open sign-up) runs.
+
+        A boss that brings its own picture (skill gem) must not barge in: it
+        would wipe the sign-up post of a duel or ritual, or appear twice.
+        """
+        state = self.bot.state
+        return state.busy or (state.event_alive and state.event_type not in _PASSIVE_EVENTS)
+
     async def summon(self, scene: Scene, rarity: int, *, show_image: bool = True,
                      is_player_boss: bool = False, player_boss: Any = None) -> bool:
         """Put an extra boss on the channel right now (skill gem / ritual).
@@ -376,15 +431,23 @@ class BossCycle:
         state = bot.state
         if not self.can_summon():
             return False
-        previous = state.boss_phase
-        state.close_event()
         if show_image:
-            await io.clear_channel(scene.channel)
-            is_player_boss, player_boss = await self._boss.send_boss_image(scene, rarity)
-        if not self.can_summon():
-            return False  # the scheduled boss started arriving while we were posting
-        self._resume_phase = previous
+            if self.activity_in_the_way():
+                return False
+            # Posting the picture takes a moment: the channel is kept meanwhile, so
+            # nothing else (a ritual that has just ended...) can show a second boss.
+            with state.hold_busy("boss-summon"):
+                state.close_event()
+                await io.clear_channel(scene.channel)
+                is_player_boss, player_boss = await self._boss.send_boss_image(scene, rarity)
+            if not self.can_summon():
+                return False  # the scheduled boss started arriving while we were posting
+        else:
+            state.close_event()
+        # Read only now: the phase may have moved on (IDLE -> SCHEDULED) during the upload.
+        self._resume_phase = state.boss_phase
         state.boss = BossInfo(rarity=int(rarity), is_player_boss=is_player_boss, player_boss=player_boss)
+        self._remember_summoned(int(rarity))
         await state.set_boss_phase(BossPhase.VISIBLE)
         return True
 
@@ -464,6 +527,7 @@ class BossCycle:
                 await self._guarded(f"dead hunter role for {loser}", self._boss.set_dead_hunters(bot, loser))
         finally:
             bot.state.boss = BossInfo()
+            self._remember_summoned(None)
             resume, self._resume_phase = self._resume_phase, None
             if (resume in (BossPhase.SCHEDULED, BossPhase.WAITING) and self.arrives_at is not None
                     and self.enabled):

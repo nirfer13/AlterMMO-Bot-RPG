@@ -295,18 +295,51 @@ async def test_assign_skill_fills_the_row_of_a_player_without_a_gem(game_db, sto
     assert (row["skill_gem"], row["pet_id"], row["reroll_scroll"]) == (1, 9, 3)
 
 
-async def test_assign_skill_refuses_a_second_gem(game_db):
+async def pouch(db, player_id: int) -> list[int]:
+    rows = await db.fetch("SELECT SKILL_ID FROM SKILLPOUCH WHERE PLAYER_ID = $1 ORDER BY SKILL_ID", player_id)
+    return [int(row["skill_id"]) for row in rows]
+
+
+async def test_next_gems_are_of_other_kinds_and_go_to_the_pouch(game_db):
+    db = game_db.bot.db
     player = await with_gem(game_db, skills.REST)
+    assert await skills.assign_skill(game_db.scene(), player) is True
+    assert await skills.assign_skill(game_db.scene(), player) is True
+    assert (await owner_rows(db, player.id))[0]["skill_gem"] == 5        # the first gem stays active
+    assert await pouch(db, player.id) == [6, 7]
+    assert sorted(gem[2] for gem in await gems(db)) == [skills.REST, skills.SHINY, skills.SUMMON]
+
+    # One gem of every kind that can drop: there is nothing more to collect.
     assert await skills.assign_skill(game_db.scene(), player) is False
-    assert (await owner_rows(game_db.bot.db, player.id))[0]["skill_gem"] == 5
-    assert len(await gems(game_db.bot.db)) == 1                          # no orphan gem was generated
+    assert len(await gems(db)) == 3 and await pouch(db, player.id) == [6, 7]   # no orphan gem was generated
+
+
+@pytest.mark.parametrize("drawn", [1, 2, 3])
+async def test_a_drawn_kind_the_player_already_has_is_replaced(game_db, monkeypatch, drawn):
+    db = game_db.bot.db
+    player = await with_gem(game_db, skills.SHINY)
+    rig(monkeypatch, {(1, 3): drawn})
+    monkeypatch.setattr(random, "choice", lambda kinds: list(kinds)[-1])
+    assert await skills.assign_skill(game_db.scene(), player) is True
+    new_kind = (await gems(db))[-1][2]
+    assert new_kind == (drawn if drawn != skills.SHINY else skills.SUMMON)
+
+
+async def test_forced_kind_for_the_admin_command(game_db):
+    db = game_db.bot.db
+    player = await with_gem(game_db, skills.REST)
+    assert await skills.assign_skill(game_db.scene(), player, skills.LOOT) is True
+    assert await skills.assign_skill(game_db.scene(), player, skills.LOOT) is False
+    assert await skills.assign_skill(game_db.scene(), player, skills.REST) is False
+    assert [gem[2] for gem in await gems(db)] == [skills.REST, skills.LOOT]
 
 
 async def test_assign_skill_to_a_player_who_left_the_server(game_db):
     gone = FakeMember("Były gracz")                                      # not in the guild any more
     assert await skills.assign_skill(game_db.scene(), gone) is True
     assert (await owner_rows(game_db.bot.db, gone.id))[0]["skill_gem"] == 1
-    assert await skills.assign_skill(game_db.scene(), gone.id) is False  # a bare id works as well
+    assert await skills.assign_skill(game_db.scene(), gone.id) is True   # a bare id works as well
+    assert await pouch(game_db.bot.db, gone.id) == [2]
 
 
 async def test_assign_skill_with_duplicated_owner_rows(game_db):
@@ -321,17 +354,21 @@ async def test_assign_skill_with_duplicated_owner_rows(game_db):
     await add_owner(db, other.id)
     await add_gem(db, 40, skills.SLOW)
     await add_owner(db, other.id, skill_gem=40)
-    assert await skills.assign_skill(game_db.scene(), other) is False    # one of the rows holds a gem
+    assert await skills.assign_skill(game_db.scene(), other) is True     # one of the rows holds a gem:
+    assert sorted(row["skill_gem"] for row in await owner_rows(db, other.id)) == [0, 40]   # it stays active
+    assert await pouch(db, other.id) == [41]
 
 
 async def test_two_gems_for_the_same_new_player_at_once(game_db):
     player = game_db.add_member("Ala")
     scene = game_db.scene()
     results = await asyncio.gather(skills.assign_skill(scene, player), skills.assign_skill(scene, player))
-    assert sorted(results) == [False, True]
+    assert results == [True, True]
     rows = await owner_rows(game_db.bot.db, player.id)
-    assert len(rows) == 1 and len(await gems(game_db.bot.db)) == 1       # no duplicate row, no orphan gem
-    assert rows[0]["skill_gem"] == (await gems(game_db.bot.db))[0][0]
+    made = await gems(game_db.bot.db)
+    assert len(rows) == 1 and len(made) == 2                             # no duplicate row, no orphan gem
+    assert made[0][2] != made[1][2]                                      # two different kinds
+    assert sorted([rows[0]["skill_gem"], *await pouch(game_db.bot.db, player.id)]) == [1, 2]
 
 
 async def test_database_outage_is_an_error_not_a_business_answer(game):
@@ -887,6 +924,9 @@ async def test_cog_registers_the_legacy_commands(cog):
     assert table == {
         "pokazskill": sorted(['pokazumiejetnosc', 'pokażumiejętność', 'pu', 'pokazskilla', 'ps']),
         "uzyjskilla": sorted(['użyjumiejetnosc', 'użyjumiejętność', 'us', 'uzyj', 'uzyjskill', 'uu', 'skill']),
+        "klejnoty": sorted(["sakwa", "skille", "umiejetnosci", "umiejętności"]),
+        "wybierzklejnot": sorted(["wybierzskill", "wybierzumiejetnosc", "wybierzumiejętność", "ws"]),
+        "DajKlejnot": [],
         "ModifiersLoad": [], "GenerateSkill": [], "createSkillsDatabase": [], "skill_rest": []}
     assert all(command._buckets._cooldown is None for command in cog.get_commands())
 

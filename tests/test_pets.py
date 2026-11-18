@@ -1282,7 +1282,7 @@ async def test_unreachable_player_does_not_stop_the_others(game_db):
     await pets.detect_boss(game_db.bot, 2)                              # must not raise
     assert ola.dms == ["Nadciąga boss! Będzie epicki."]
     notice = (f"<@{ala.id}> - Twój towarzysz: *Nadciąga boss! Odblokuj prywatne wiadomości, jeśli chcesz "
-              "otrzymywać powiadomienia!*")
+              "otrzymywać powiadomienia!* Nie chcesz ich wcale? Kliknij przycisk poniżej.")
     assert [m.content for m in game_db.log_channel.messages] == [notice]         # debug mode: the log channel
     assert game_db.notice_channel.messages == []
 
@@ -1345,6 +1345,7 @@ async def test_cog_registers_the_legacy_commands(cog):
         "transformacja": ["transform"], "schowajtowarzysza": ["schowaj", "st"],
         "wyciagnijtowarzysza": ["wt", "wyciagnij", "wyciągnij", "wyciągnijtowarzysza"],
         "stajnia": ["s"], "rankingtowarzyszy": ["rt", "towarzysze"], "nazwij": ["n"],
+        "wyczuwanie": ["powiadomienia", "powiadomieniaboss"],
         "PetLvlUp": [], "AddScroll": [], "AddShard": [], "GenerateEgg": [],
         "createPetOwnersDatabase": [], "createPetsDatabase": [], "ReassignPet": []}
     cooldown = cog.name_pet._buckets._cooldown

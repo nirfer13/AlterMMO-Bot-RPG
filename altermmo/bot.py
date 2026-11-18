@@ -84,6 +84,8 @@ class Stores:
         self.runtime = JsonFile(data_dir / "runtime.json", dict)
         #: Unused "steal experience" rights won from bosses (features/xpsteal.py).
         self.xp_thefts = JsonFile(data_dir / "xpThefts.json", dict)
+        #: Players who switched the "a boss is coming" warnings off (features/bossdetect.py).
+        self.detect_off = IdListFile(data_dir / "boss_detection_off.txt")
 
     def migrate_legacy(self, legacy_dirs: list[Path]) -> list[str]:
         """Copy missing state files from the old bot; returns the names copied now."""
@@ -154,9 +156,17 @@ class AlterBot(commands.Bot):
         self._review_saved_state()
         try:
             await self.db.connect()
+            try:
+                await schema.create_new_tables(self.db)  # tables the old bot's database lacks
+            except Exception as exc:  # noqa: BLE001 - reported by verify() below
+                log.error("Could not create the tables that are new in v2 (%s: %s).",
+                          type(exc).__name__, exc)
             problems = await schema.verify(self.db)
             for problem in problems:
                 log.error("Database structure differs from what the bot expects: %s", problem)
+            if problems:
+                self._startup_notes.append("Baza danych różni się od oczekiwanej: " + "; ".join(problems)
+                                           + ". Część komend może nie działać (spróbuj `$createAllDatabases`).")
             if not problems:
                 log.info("Database structure verified.")
         except Exception as exc:  # noqa: BLE001 - keep starting; queries reconnect lazily
@@ -190,6 +200,8 @@ class AlterBot(commands.Bot):
             idle_for = 0.0  # no runtime file yet: a first start, nothing to distrust
         if idle_for > STALE_STATE_AFTER:
             data = runtime.load()
+            if data.pop("summoned_boss_rarity", None) is not None:
+                runtime.save(data)  # a summoned boss from days ago is not brought back
             stale = [key for key in data if key.startswith("job_last_run:")]
             if stale:
                 for key in stale:

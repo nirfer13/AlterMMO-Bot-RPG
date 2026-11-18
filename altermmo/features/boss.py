@@ -100,6 +100,8 @@ LOOT_PET_LEVEL = 12
 LOOT_REBIRTH_STONE = 13
 LOOT_MIRROR = 14
 LOOT_SKILL_GEM = 15
+#: Appended to the drop line of a new skill gem (a player can collect several).
+SKILL_GEM_HINT = "Działa tylko aktywny klejnot - zmienisz go komendą **$wybierzklejnot numer**."
 
 _LOOT_TABLES: dict[int, str] = {
     0: "loot_details_Normal",
@@ -494,6 +496,8 @@ async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: boo
     line = "👉 " + loot["descr"] + (" (Bonus)\n" if bonus else "\n")
     if loot["id"] == xpsteal.LOOT_ID and not bonus:
         line += xpsteal.COMMAND_HINT + "\n"
+    if loot["id"] == LOOT_SKILL_GEM and not bonus:
+        line += SKILL_GEM_HINT + "\n"
     return line
 
 
@@ -507,6 +511,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     bot = scene.bot
     boost = int(boost_percent)
     drop_message = ""
+    thefts_before = len(xpsteal.pending(bot, hunter.id))
     for loot in _loot_table(int(rarity)):
         weight = (boost / 100 + 1) * loot["weight"]
         if weight > 100:
@@ -529,6 +534,8 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
                     hunter, type(exc).__name__, exc)
         await bot.log_to_owner(f"Nie udało się pokazać łupu gracza {hunter} na kanale "
                                f"(`{type(exc).__name__}`); łup został przyznany.")
+    if len(xpsteal.pending(bot, hunter.id)) > thefts_before:
+        await xpsteal.remind(scene, hunter)  # how to use the theft: ping + private message
     log.info("Loot for %s (rarity %s, boost %s%%): %r", hunter, rarity, boost, drop_message)
     return drop_message
 

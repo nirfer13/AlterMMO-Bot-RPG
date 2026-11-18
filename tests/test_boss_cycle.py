@@ -267,6 +267,38 @@ async def test_summoned_boss_pauses_the_schedule_and_it_resumes(game_db, cycle, 
     assert row.respawn_started and abs((row.respawn_at - planned).total_seconds()) < 5
 
 
+async def test_boss_summoned_while_the_schedule_is_being_saved_keeps_the_channel(game_db, cycle, stub,
+                                                                                 monkeypatch):
+    """A ritual / gem boss summoned during the IDLE phase must not be wiped by the new schedule."""
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN
+    player = game_db.add_member("Ala")
+    gate, saving = asyncio.Event(), asyncio.Event()
+    real_update = database.update_boss_table
+
+    async def slow_update(bot_, rarity, seconds, started):
+        if started and not gate.is_set():
+            saving.set()
+            await gate.wait()                                 # e.g. the database is slow right now
+        return await real_update(bot_, rarity, seconds, started)
+
+    monkeypatch.setattr(database, "update_boss_table", slow_update)
+    cycle.start()
+    await asyncio.wait_for(saving.wait(), 3)
+    assert bot.state.boss_phase is BossPhase.IDLE
+    assert await cycle.summon(game_db.scene(player), 4)
+    gate.set()
+    await asyncio.sleep(0.1)
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss_rarity == 4
+    planned = cycle.arrives_at
+    assert planned is not None
+
+    await cycle.attack(game_db.scene(player))                 # ...and the schedule goes on afterwards
+    await wait_phase(bot, BossPhase.WAITING)
+    assert cycle.arrives_at == planned
+    assert ("single_fight", "Ala", 4) in stub.calls
+
+
 async def test_unattacked_boss_leaves_when_a_limit_is_configured(game_db, cycle, stub):
     bot = game_db.bot
     bot.settings = dataclasses.replace(bot.settings, boss_visible_timeout=0.05)
@@ -317,3 +349,68 @@ def test_final_rarity_rules():
     assert boss_cycle.final_rarity(1, 1, weekday_noon, debug=False) == 2
     assert boss_cycle.final_rarity(2, 1, weekday_evening, debug=False) == 3
     assert boss_cycle.final_rarity(2, 5, weekday_evening, debug=False) == 4
+
+
+async def test_summoned_boss_comes_back_after_a_restart(game_db, cycle, stub):
+    """A ritual / gem boss lives only in memory; the bot remembers it across a restart."""
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN
+    player = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(player), 4)
+    assert bot.store.runtime_get("summoned_boss_rarity") == 4
+
+    # "Restart": a new cycle object reading the same database and data folder.
+    bot.supervisor.stop(boss_cycle.LOOP_NAME)
+    await bot.state.set_boss_phase(BossPhase.IDLE)
+    stub.calls.clear()
+    bot.boss_cycle = boss_cycle.BossCycle(bot)
+    bot.boss_cycle.start()
+    await wait_phase(bot, BossPhase.VISIBLE)
+    assert bot.state.boss_rarity == 4 and ("image", 4) in stub.calls
+    planned = bot.boss_cycle.arrives_at
+
+    await bot.boss_cycle.attack(game_db.scene(player))
+    assert bot.store.runtime_get("summoned_boss_rarity") is None      # dealt with: not brought back again
+    await wait_phase(bot, BossPhase.WAITING)
+    assert bot.boss_cycle.arrives_at == planned                       # ...and the scheduled boss still comes
+
+
+async def test_switching_spawning_on_does_not_wipe_a_summoned_boss(game_db, cycle, stub):
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    await cycle.disable()
+    assert await cycle.summon(game_db.scene(player), 2)               # e.g. a skill gem while spawning is off
+    await cycle.enable()
+    await asyncio.sleep(0.1)
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss_rarity == 2
+    await cycle.attack(game_db.scene(player))
+    assert ("single_fight", "Ala", 2) in stub.calls
+
+
+async def test_gem_boss_never_barges_into_an_activity_or_a_sign_up(game_db, cycle, stub):
+    from altermmo.core.state import EventType
+
+    bot = game_db.bot
+    state = bot.state
+    player = game_db.add_member("Ala")
+    with state.hold_busy("hunt"):
+        assert not await cycle.summon(game_db.scene(player), 4)
+    with state.running_event(EventType.RITUAL, exclusive=False):      # the open sign-up of a ritual
+        assert not await cycle.summon(game_db.scene(player), 4)
+        assert state.event_alive and state.event_type is EventType.RITUAL   # ...which is left alone
+    assert stub.calls == [] and state.boss_phase is BossPhase.IDLE
+
+    state.open_event(EventType.CHEST)                                 # an unclaimed chest is no obstacle
+    busy_while_posting = []
+    real_image = stub.send_boss_image
+
+    async def send_boss_image(scene, rarity):
+        busy_while_posting.append(state.busy_owner)
+        return await real_image(scene, rarity)
+
+    stub.send_boss_image = send_boss_image
+    assert await cycle.summon(game_db.scene(player), 4)
+    assert busy_while_posting == ["boss-summon"] and not state.busy and not state.event_alive
+    assert state.boss_phase is BossPhase.VISIBLE

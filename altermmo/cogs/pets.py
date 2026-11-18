@@ -14,7 +14,7 @@ from discord.ext import commands
 
 from ..core import guards, io
 from ..core.scene import Scene
-from ..features import pets
+from ..features import bossdetect, pets
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +33,17 @@ class PetsCog(commands.Cog, name="Pets"):
     def __init__(self, bot) -> None:
         self.bot = bot
 
+    async def cog_load(self) -> None:
+        # Buttons under "unlock your private messages" hints posted before a restart.
+        bossdetect.register(self.bot)
+
     # -- display only (any channel) -----------------------------------------------
+
+    @commands.command(name="wyczuwanie", aliases=["powiadomienia", "powiadomieniaboss"],
+                      brief="Switch the boss warnings of the pet off / on.")
+    @guards.unless_busy(read_only=True)
+    async def toggle_boss_warnings(self, ctx: commands.Context) -> None:
+        await bossdetect.toggle(Scene.from_ctx(ctx))
 
     @commands.command(name="towarzysz", aliases=['t'], brief="Shows author's pet.")
     @guards.unless_busy(read_only=True)

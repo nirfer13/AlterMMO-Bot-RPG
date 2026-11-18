@@ -178,6 +178,8 @@ class FakeMessage:
         self.reactions: list[str] = []
         self.deleted = False
         self.edits: list[dict[str, Any]] = []
+        #: The ``discord.ui.View`` (buttons) sent with the message, if any.
+        self.view: Any = None
 
     async def add_reaction(self, emoji: Any) -> None:
         self.reactions.append(str(emoji))
@@ -254,6 +256,7 @@ class FakeChannel:
             raise self.fail_with
         message = FakeMessage(self, self._bot_user, None if content is None else str(content),
                               embed=embed, embeds=embeds, files=names)
+        message.view = kwargs.get("view")
         self.messages.append(message)
         self.sent.append(message)
         for hook in list(self.send_hooks):
