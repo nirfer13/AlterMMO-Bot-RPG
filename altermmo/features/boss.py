@@ -15,6 +15,13 @@ Differences from the legacy code (the gameplay itself is unchanged):
   instead of punishing the player).  The legacy "lag compensation" is gone;
 * lobbies queue the players' messages for their whole duration, so a
   ``$zaatakuj`` / ``$tak`` typed while the bot is sending something is not lost;
+* buttons next to the typed commands: "Zaatakuj" under the boss picture (see
+  :mod:`altermmo.features.boss_cycle`) and in the single lobby, "Dołącz" /
+  "Gotowy" in the legendary lobby.  Clicks go into the same queue as the typed
+  messages, so both obey the same rules and timing.  The legendary lobby is
+  one panel (roster, buttons, time left) edited in place instead of a series
+  of messages; it is posted anew only when somebody must be pinged.  The
+  fight rounds themselves stay typed - typing in time is the game;
 * once the boss is dead the fight is won, whatever happens afterwards: each
   piece of bookkeeping (record, ranking, loot, roles) is guarded on its own and
   a failure is reported to the owner's log channel;
@@ -32,20 +39,20 @@ import asyncio
 import contextlib
 import json
 import logging
-import math
 import random
 import re
 import time
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, Sequence
 
 import discord
 
-from ..core import challenge, io, timing
+from ..core import challenge, io, timing, ui
 from ..core.challenge import Outcome
 from ..settings import ASSETS_DIR, CONFIG_DIR
-from . import achievements, database, expsum, fight_types, general, modifiers, patrons, xpsteal
+from . import achievements, boss_cycle, database, expsum, fight_types, general, modifiers, patrons, xpsteal
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -82,6 +89,8 @@ SPELL_TIME = 15
 GROUP_LOBBY_STEP = 300
 GROUP_LOBBY_STEPS = 6
 GROUP_CONFIRM_TIME = 60
+#: A lobby panel is edited at most once per this many seconds (clicks in between are gathered).
+PANEL_EDIT_INTERVAL = 1.0
 
 DUEL_HP = 3000
 DUEL_ROUND_TIME = 5
@@ -198,10 +207,13 @@ _BOSS_COLOUR_FALLBACK = 0x7F5A00
 _BOSS_ADJECTIVES: dict[int, str] = {0: "Zwykły", 1: "Rzadki", 2: "Epicki", 3: "Legendarny", 4: "Mityczny"}
 _BOSS_KINDS: dict[int, str] = {0: "zwykły", 1: "rzadki", 2: "epicki", 4: "MITYCZNY"}
 
-_ATTACK_HINT = "Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
+_ATTACK_HINT = "Kliknij **Zaatakuj** albo wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
 
-MSG_SINGLE_LOBBY = ("Jesteś sam?... 120... *Inny gracz może wpisać **$zaatakuj**, "
-                    "jeśli chce zawalczyć o bossa!*")
+MSG_SINGLE_LOBBY = ("Jesteś sam?... *Inny gracz może kliknąć **Zaatakuj** albo wpisać **$zaatakuj**, "
+                    "jeśli chce zawalczyć o bossa!* Zgłoszenia kończą się {deadline}.")
+MSG_SINGLE_LOBBY_ALONE = "Jesteś sam?... *Nikt inny nie stanął do walki - <@{user_id}> walczy sam!*"
+MSG_SINGLE_LOBBY_RIVAL = "Jesteś sam?... *Nie! <@{user_id}> też chce zawalczyć o bossa!*"
+MSG_ALREADY_FIGHTING = "Już stoisz do walki z tym bossem - czekamy, czy ktoś jeszcze się zgłosi ⚔️"
 MSG_CALM_DOWN = ('"**SPOKÓJ!!!**" - *słyszyscie głos w swojej głowie.* "Zachowajcie resztki honoru '
                  'i wystawcie do walki najsilniejszego z Was."')
 MSG_SPELL_COMING = '"Pierwszy, który PŁYNNIE wypowie zaklęcie, które zaraz zdradzę, będzie godzien walki ze mną!"'
@@ -231,6 +243,39 @@ MSG_GROUP_WON = ("Wow! Świetnie{mentions}! Pokonaliście legendarnego bossa! <:
 MSG_GROUP_RECORD = "Pobiliście rekord i zgarniacie dodatkowe 1500 doświadczenia na discordzie!"
 MSG_GROUP_GAVE_UP = ("**Miernoty... Wiedziałem, że nie jesteście godni walki ze mną.**  - "
                      "*słyszycie głos w swojej głowie.*")
+
+# The legendary lobby panel: the boss's voice, what to do and until when, the party.
+GROUP_PANEL_TITLE = "⚔️ Drużyna na legendarnego bossa"
+VOICE_START = ("**Znajdź więcej chętnych do walki. Chyba nie myślisz, że sam dasz radę?...** - "
+               "*słyszysz głos w swojej głowie*...")
+VOICE_COWARDS = "**Tchórzycie, co? Pff...** - *słyszycie głos w swojej głowie*..."
+VOICE_ALONE = "**Jesteś sam! Zbierz więcej łowców!** - *słyszysz głos w swojej głowie*..."
+VOICE_MORE = ("**Nieźle, jest już Was {count}. Zbierzcie więcej łowców!** - "
+              "*słyszycie głos w swojej głowie*...")
+VOICE_LAST_CHANCE = "**A myślałem, że czas na rozrywkę...** - *słyszycie głos w swojej głowie*..."
+VOICE_READY = "**Jesteście gotowi do ataku?** - *słyszycie głos w swojej głowie*..."
+VOICE_REGROUP = "**Zbierzcie drużynę przed atakiem...** - *słyszycie głos w swojej głowie*..."
+VOICE_SET = "**Wreszcie ktoś godny walki ze mną!** - *słyszycie głos w swojej głowie*..."
+GROUP_HOW_TO_JOIN = ("Kliknij **Dołącz** albo wpisz **$zaatakuj**, jeśli chcesz dołączyć do walki! "
+                     "Potrzeba {size} łowców. Jeśli drużyna się nie zbierze, boss odejdzie {deadline}.")
+GROUP_HOW_TO_CONFIRM = ("Kliknijcie **Gotowy** albo wpiszcie **$tak**. Czas na potwierdzenie mija "
+                        "{deadline} - kto nie zdąży, wypada z drużyny.")
+GROUP_ROSTER = "Drużyna ({count}/{size})"
+GROUP_ROSTER_EMPTY = "*nikogo jeszcze nie ma*"
+#: Posted with a new panel, so that the mentioned players / role get a notification.
+MSG_GROUP_READY_PING = "Jesteście gotowi do ataku?{mentions}"
+MSG_GROUP_REGROUP_PING = "Zbierzcie drużynę przed atakiem...{mentions}"
+MSG_GROUP_LAST_CHANCE = "Ostatnia szansa, <@&{role_id}>! Kliknij **Dołącz** albo wpisz **$zaatakuj**."
+MSG_GROUP_SET = "Do walki z legendarnym bossem stają:{mentions}"
+MSG_GROUP_NOT_GATHERED = "Drużyna się nie zebrała."
+# Private answers to clicks in the legendary lobby.
+MSG_ALREADY_IN_PARTY = "Już jesteś w drużynie! ⚔️"
+MSG_PARTY_FULL = "Drużyna jest już w komplecie - poczekaj, czy wszyscy potwierdzą gotowość."
+MSG_NOT_IN_PARTY = "Ten przycisk jest dla łowców z drużyny."
+MSG_ALREADY_READY = "Już potwierdziłeś gotowość ✅"
+
+JOIN_LABEL = "Dołącz"
+READY_LABEL = "Gotowy"
 
 MSG_DUEL_START = ("Rozpoczyna się walka pomiędzy <@{first}> oraz <@{second}>! "
                   "<:REEeee:790963160495947856>")
@@ -405,6 +450,59 @@ def _forget_queued(queue: asyncio.Queue) -> None:
 
 def _says(message: Any, text: str) -> bool:
     return str(message.content).strip().lower() == text.lower()
+
+
+@dataclass(frozen=True)
+class _Knock:
+    """A click on a lobby button, queued among the typed messages of the lobby."""
+
+    key: str
+    member: Any
+    interaction: Any
+
+
+def _who(item: Any) -> Any:
+    """The player behind a queued lobby item (a typed message or a click)."""
+    return item.member if isinstance(item, _Knock) else item.author
+
+
+def _is(item: Any, command: str, key: str) -> bool:
+    """True when ``item`` is the typed ``command`` or a click on the button ``key``."""
+    if isinstance(item, _Knock):
+        return item.key == key
+    return _says(item, command)
+
+
+async def _knock(inbox: asyncio.Queue, interaction: Any, key: str) -> str:
+    """Queue an accepted click for the lobby and acknowledge it (the panel shows the result)."""
+    inbox.put_nowait(_Knock(key, interaction.user, interaction))
+    await ui.ack(interaction)
+    return ui.DROP
+
+
+@contextlib.contextmanager
+def _lobby_door(bot: "AlterBot", door: Callable[[Any], Awaitable[None]]) -> Iterator[None]:
+    """While the block runs, a click on the boss picture's "Zaatakuj" button goes to ``door``.
+
+    (Like a typed ``$zaatakuj`` goes to the running lobby.)
+    """
+    cycle = getattr(bot, "boss_cycle", None)
+    if cycle is not None:
+        cycle.lobby_door = door
+    try:
+        yield
+    finally:
+        if cycle is not None and cycle.lobby_door is door:
+            cycle.lobby_door = None
+
+
+async def _answer_door(allow: Callable[[Any, str], Awaitable[str | None]], interaction: Any, key: str) -> None:
+    """Handle a click that came through the lobby door like a click on the lobby's own ``key`` button."""
+    reason = await allow(interaction, key)
+    if reason is None:
+        await ui.ack(interaction)
+    elif reason != ui.DROP:
+        await ui.reply(interaction, reason)
 
 
 async def _ask(bot: "AlterBot", channel: Any, prompt: str, *, players: Sequence[Any],
@@ -588,8 +686,10 @@ def _boss_picture(rarity: int):
 async def send_boss_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
     """Show the boss: its picture (or the avatar of the player posing as it) and the embed.
 
-    Returns ``(is_player_boss, player_boss)``; ``player_boss`` is the member
-    who earns experience when the boss is not beaten, or None.
+    The embed carries the permanent "Zaatakuj" button; the boss cycle takes it
+    off when the boss is engaged or leaves.  Returns ``(is_player_boss,
+    player_boss)``; ``player_boss`` is the member who earns experience when the
+    boss is not beaten, or None.
     """
     bot = scene.bot
     rarity = int(rarity)
@@ -632,7 +732,10 @@ async def send_boss_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
         await scene.send(file_path=picture)
     else:
         log.warning("Boss picture %s is missing; showing the boss without it.", picture)
-    await scene.send(embed=embed)
+    message = await boss_cycle.with_attack_button(lambda view: scene.send(embed=embed, view=view))
+    cycle = getattr(bot, "boss_cycle", None)
+    if cycle is not None:
+        cycle.note_attack_button(message)
     log.info("Boss shown: rarity %s, player boss: %s.", rarity, player_boss)
     return is_player_boss, player_boss
 
@@ -642,32 +745,42 @@ async def send_boss_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
 async def single_init(scene: "Scene", rarity: int) -> Any:
     """Decide who fights the boss alone.
 
-    Two minutes for another player to object with ``$zaatakuj``; when somebody
-    does, the first one to type the spell fights.  Returns the fighter, or None
-    when nobody typed the spell in time (the boss leaves).
+    Two minutes for another player to object - with ``$zaatakuj`` or the
+    "Zaatakuj" button under the lobby message (whose deadline Discord counts
+    down); when somebody does, the first one to type the spell fights.
+    Returns the fighter, or None when nobody typed the spell in time (the boss
+    leaves).
     """
     bot = scene.bot
     channel = scene.channel
     attacker = scene.author
     step = LOBBY_STEP_DEBUG if bot.debug else LOBBY_STEP
+    window = timing.timeout(step) * LOBBY_STEPS
 
-    def objects(message: Any) -> bool:
-        return message.author.id != attacker.id and _says(message, "$zaatakuj")
+    def objects(item: Any) -> bool:
+        return _who(item).id != attacker.id and _is(item, "$zaatakuj", "object")
 
     with _listening(bot, channel) as inbox:
-        await scene.send(MSG_SINGLE_LOBBY)
-        rival = None
-        for waited in range(LOBBY_STEPS):
-            rival = await _next_message(inbox, objects, timing.timeout(step))
-            if rival is not None:
-                break
-            if waited < LOBBY_STEPS - 1:
-                await scene.send("... " + str(15 * LOBBY_STEPS - (waited + 1) * 15) + "...")
-        if rival is None:
-            log.info("Boss fight: %s fights alone, nobody objected.", attacker)
-            return attacker
+        async def allow(interaction: Any, key: str) -> str | None:
+            if interaction.user.id == attacker.id:
+                return MSG_ALREADY_FIGHTING
+            return await _knock(inbox, interaction, key)
 
-        log.info("Boss fight: %s also wants the boss; the spell decides.", rival.author)
+        async def door(interaction: Any) -> None:
+            await _answer_door(allow, interaction, "object")
+
+        async with ui.ClickView([ui.Choice("object", boss_cycle.ATTACK_LABEL, emoji=boss_cycle.ATTACK_EMOJI,
+                                           style=discord.ButtonStyle.primary)], allow=allow) as view:
+            with _lobby_door(bot, door):
+                await view.send(channel, MSG_SINGLE_LOBBY.format(deadline=ui.when(window)))
+                rival = await _next_message(inbox, objects, window)
+            if rival is None:
+                await view.close(content=MSG_SINGLE_LOBBY_ALONE.format(user_id=attacker.id))
+                log.info("Boss fight: %s fights alone, nobody objected.", attacker)
+                return attacker
+            await view.close(content=MSG_SINGLE_LOBBY_RIVAL.format(user_id=_who(rival).id))
+
+        log.info("Boss fight: %s also wants the boss; the spell decides.", _who(rival))
         async with io.safe_typing(channel):
             await timing.pause(2)
         await scene.send(MSG_CALM_DOWN)
@@ -970,88 +1083,277 @@ async def duel_fight(scene: "Scene", participants: Sequence[Any], ban: bool = Tr
 
 # -- group fight ---------------------------------------------------------------------
 
-def _group_minutes(waited: int) -> str:
-    """The number the legendary boss "counts down" with while the party gathers."""
-    return str(math.trunc((GROUP_LOBBY_STEP * GROUP_LOBBY_STEPS) / 60
-                          - ((waited + 1) * GROUP_LOBBY_STEP) / 60))
+class _GroupLobby:
+    """The lobby of a legendary boss: one panel with the party, the buttons and the time left.
+
+    The rules and the timing are those of the typed protocol (and typing keeps
+    working): players join with ``$zaatakuj`` / "Dołącz"; a silent step of
+    :data:`GROUP_LOBBY_STEP` s counts towards the boss leaving (a join starts
+    the step anew); when four are there, each has :data:`GROUP_CONFIRM_TIME` s
+    (anew after every confirmation) to confirm with ``$tak`` / "Gotowy";
+    those who do not are dropped and the gathering goes on.
+
+    The panel is edited in place - at most once per :data:`PANEL_EDIT_INTERVAL`
+    s, clicks in between are gathered into one edit - and posted anew only to
+    ping somebody (the ready check, the last call to the hunters, a regroup).
+    A panel deleted meanwhile is posted again at the next change.
+    """
+
+    GATHER = "gather"
+    CONFIRM = "confirm"
+    DONE = "done"
+
+    def __init__(self, scene: "Scene") -> None:
+        self.scene = scene
+        self.bot = scene.bot
+        self.channel = scene.channel
+        self.players: list[Any] = [scene.author]
+        self.confirmed: list[Any] = []
+        self.stage = self.GATHER
+        self.voice = VOICE_START
+        #: Wall-clock time (``time.time()``) shown with ``ui.when``.
+        self.deadline = time.time()
+        self.inbox: asyncio.Queue = asyncio.Queue()
+        self.view: ui.ClickView | None = None
+        self.content: str | None = None
+        #: (button key, member id) of clicks queued but not processed yet.
+        self._queued: set[tuple[str, int]] = set()
+        self._dirty = asyncio.Event()
+        self._painter: asyncio.Future | None = None
+        self._last_edit = 0.0
+        self._lock = asyncio.Lock()
+
+    # -- the flow -------------------------------------------------------------------
+
+    async def run(self) -> list[Any] | None:
+        bot = self.bot
+        await io.safe_react(self.scene.message, "⚔️")
+        step = timing.timeout(GROUP_LOBBY_STEP)
+        confirm_time = timing.timeout(GROUP_CONFIRM_TIME)
+        waited = 0
+        with _listening(bot, self.channel) as inbox, _lobby_door(bot, self._door):
+            self.inbox = inbox
+            try:
+                self._set_deadline(step * (GROUP_LOBBY_STEPS - 1 - waited))
+                await self._post(None)
+                while True:
+                    self._set_deadline(step * (GROUP_LOBBY_STEPS - 1 - waited))
+                    joined = await _next_message(inbox, self._joins, step)
+                    if joined is None:
+                        waited += 1
+                        if waited == 1:
+                            self.voice = VOICE_COWARDS
+                            self._touch()
+                        elif waited == GROUP_LOBBY_STEPS - 2:
+                            self.voice = VOICE_LAST_CHANCE
+                            await self._post(MSG_GROUP_LAST_CHANCE.format(role_id=bot.ids.hunters_role))
+                        elif waited == GROUP_LOBBY_STEPS - 1:
+                            self.voice = MSG_GROUP_GAVE_UP
+                            await self._close(MSG_GROUP_NOT_GATHERED)
+                            await self.scene.send(MSG_GROUP_GAVE_UP)
+                            log.info("Group boss fight: the party did not gather.")
+                            return None
+                        continue
+
+                    self.players.append(_who(joined))
+                    if len(self.players) < GROUP_SIZE:
+                        count = len(self.players)
+                        self.voice = VOICE_ALONE if count == 1 else VOICE_MORE.format(count=count)
+                        self._touch()
+                        continue
+
+                    # Four players: everybody has to confirm.
+                    self.stage = self.CONFIRM
+                    self.confirmed = []
+                    self.voice = VOICE_READY
+                    self._set_deadline(confirm_time)
+                    await self._post(MSG_GROUP_READY_PING.format(mentions=_mentions(self.players)))
+                    while len(self.confirmed) < GROUP_SIZE:
+                        self._set_deadline(confirm_time)
+                        confirmation = await _next_message(inbox, self._confirms, confirm_time)
+                        if confirmation is None:
+                            break
+                        if not isinstance(confirmation, _Knock):
+                            await io.safe_react(confirmation, "⚔️")
+                        self.confirmed.append(_who(confirmation))
+                        self._touch()
+                    if len(self.confirmed) == GROUP_SIZE:
+                        log.info("Group boss fight: party %s.", ", ".join(str(p) for p in self.players))
+                        self.voice = VOICE_SET
+                        await self._close(MSG_GROUP_SET.format(mentions=_mentions(self.players)))
+                        return self.players
+
+                    # Somebody did not confirm: keep those who did and go on gathering.
+                    self.players = list(self.confirmed)
+                    self.confirmed = []
+                    waited = 0
+                    self.stage = self.GATHER
+                    self.voice = VOICE_REGROUP
+                    self._set_deadline(step * (GROUP_LOBBY_STEPS - 1 - waited))
+                    await self._post(MSG_GROUP_REGROUP_PING.format(mentions=_mentions(self.players)))
+            finally:
+                await self._stop_painter()
+                if self.view is not None:
+                    await self.view.close()  # an error: at least no buttons stay behind
+
+    def _set_deadline(self, seconds: float) -> None:
+        self.deadline = time.time() + max(float(seconds), 0.0)
+
+    # -- typed messages and clicks ----------------------------------------------------
+
+    def _taken(self, item: Any) -> None:
+        if isinstance(item, _Knock):
+            self._queued.discard((item.key, item.member.id))
+
+    def _joins(self, item: Any) -> bool:
+        self._taken(item)
+        return (_is(item, "$zaatakuj", "join")
+                and all(_who(item).id != player.id for player in self.players))
+
+    def _confirms(self, item: Any) -> bool:
+        self._taken(item)
+        member_id = _who(item).id
+        return (_is(item, "$tak", "ready")
+                and any(member_id == player.id for player in self.players)
+                and all(member_id != player.id for player in self.confirmed))
+
+    async def _allow(self, interaction: Any, key: str) -> str | None:
+        """Who may click what - answered privately; an accepted click is queued like a typed command."""
+        member_id = interaction.user.id
+        in_party = any(member_id == player.id for player in self.players)
+        if key == "join":
+            if self.stage != self.GATHER:
+                return MSG_PARTY_FULL
+            if in_party or (key, member_id) in self._queued:
+                return MSG_ALREADY_IN_PARTY
+        elif key == "ready":
+            if self.stage != self.CONFIRM or not in_party:
+                return MSG_NOT_IN_PARTY
+            if any(member_id == player.id for player in self.confirmed) or (key, member_id) in self._queued:
+                return MSG_ALREADY_READY
+        else:
+            return ui.MSG_STALE
+        self._queued.add((key, member_id))
+        return await _knock(self.inbox, interaction, key)
+
+    async def _door(self, interaction: Any) -> None:
+        """A click on the boss picture's "Zaatakuj" during the lobby: like "Dołącz"."""
+        await _answer_door(self._allow, interaction, "join")
+
+    # -- the panel ------------------------------------------------------------------------
+
+    def _choices(self) -> list[ui.Choice]:
+        if self.stage == self.CONFIRM:
+            return [ui.Choice("ready", READY_LABEL, emoji="✅", style=discord.ButtonStyle.success)]
+        return [ui.Choice("join", JOIN_LABEL, emoji=boss_cycle.ATTACK_EMOJI,
+                          style=discord.ButtonStyle.primary)]
+
+    def _embed(self) -> discord.Embed:
+        lines = [self.voice]
+        deadline = ui.when(max(self.deadline - time.time(), 0.0))
+        if self.stage == self.GATHER:
+            lines.append(GROUP_HOW_TO_JOIN.format(size=GROUP_SIZE, deadline=deadline))
+        elif self.stage == self.CONFIRM:
+            lines.append(GROUP_HOW_TO_CONFIRM.format(deadline=deadline))
+        confirmed = {player.id for player in self.confirmed}
+        roster = []
+        for player in self.players:
+            if self.stage == self.GATHER:
+                mark = "⚔️"
+            elif self.stage == self.CONFIRM:
+                mark = "✅" if player.id in confirmed else "⏳"
+            else:
+                mark = "✅"
+            roster.append(f"{mark} <@{player.id}>")
+        embed = discord.Embed(title=GROUP_PANEL_TITLE, description="\n\n".join(lines),
+                              color=_BOSS_COLOUR_FALLBACK)
+        embed.add_field(name=GROUP_ROSTER.format(count=len(self.players), size=GROUP_SIZE),
+                        value="\n".join(roster) or GROUP_ROSTER_EMPTY, inline=False)
+        return embed
+
+    async def _post(self, content: str | None) -> None:
+        """Post the panel anew (``content`` pings whoever it mentions); the old one goes away.
+
+        Raises like :func:`io.send` - the encounter treats it as a technical problem.
+        """
+        async with self._lock:
+            old = self.view
+            view = ui.ClickView(self._choices(), allow=self._allow)
+            await view.send(self.channel, content, embed=self._embed())
+            self.view = view
+            self.content = content
+            self._last_edit = time.monotonic()
+        if old is not None:
+            await old.close()
+            await io.safe_delete(old.message)
+
+    def _touch(self) -> None:
+        """The panel shows something old: edit it soon (see :meth:`_paint`)."""
+        self._dirty.set()
+        if self._painter is None or self._painter.done():
+            self._painter = asyncio.ensure_future(self._paint())
+
+    async def _paint(self) -> None:
+        """Edit the panel whenever it is out of date, at most once per ``PANEL_EDIT_INTERVAL``."""
+        while True:
+            await self._dirty.wait()
+            delay = self._last_edit + PANEL_EDIT_INTERVAL - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            self._dirty.clear()
+            await self._refresh()
+
+    async def _refresh(self) -> None:
+        """One edit of the panel.  Never raises; a deleted panel is posted again."""
+        async with self._lock:
+            view = self.view
+            if view is None or view.closed or view.message is None:
+                return
+            try:
+                await view.message.edit(embed=self._embed(), view=view)
+                self._last_edit = time.monotonic()
+                return
+            except asyncio.CancelledError:
+                raise
+            except discord.NotFound:
+                pass
+            except Exception as exc:  # noqa: BLE001 - cosmetic: the next change edits it again
+                log.info("Could not update the legendary lobby panel (%s: %s).", type(exc).__name__, exc)
+                return
+        log.info("The legendary lobby panel was deleted; posting it again.")
+        try:
+            await self._post(self.content)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - typing $zaatakuj / $tak still works
+            log.warning("Could not post the legendary lobby panel again (%s: %s).", type(exc).__name__, exc)
+
+    async def _stop_painter(self) -> None:
+        painter, self._painter = self._painter, None
+        if painter is not None and not painter.done():
+            painter.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await painter
+
+    async def _close(self, content: str) -> None:
+        """The lobby is over: the panel shows the outcome, its buttons go away."""
+        await self._stop_painter()
+        self.stage = self.DONE
+        async with self._lock:
+            if self.view is not None:
+                await self.view.close(content=content, embed=self._embed())
 
 
 async def group_init(scene: "Scene", rarity: int) -> list[Any] | None:
-    """Gather a party of four for a legendary boss.
+    """Gather a party of four for a legendary boss (see :class:`_GroupLobby`).
 
-    Players join with ``$zaatakuj``; when four are there, every one of them has
-    60 s to confirm with ``$tak`` (those who do not are dropped and the
-    gathering goes on).  Returns the four players in the order they joined, or
-    None when the party did not gather in time (the boss leaves).
+    Players join with ``$zaatakuj`` or the "Dołącz" button; when four are
+    there, every one of them has 60 s to confirm with ``$tak`` or "Gotowy"
+    (those who do not are dropped and the gathering goes on).  Returns the
+    four players in the order they joined, or None when the party did not
+    gather in time (the boss leaves).
     """
-    bot = scene.bot
-    channel = scene.channel
-    await io.safe_react(scene.message, "⚔️")
-    players: list[Any] = [scene.author]
-    waited = 0
-
-    def joins(message: Any) -> bool:
-        return _says(message, "$zaatakuj") and all(message.author.id != player.id for player in players)
-
-    with _listening(bot, channel) as inbox:
-        await scene.send(MSG_GROUP_LOBBY)
-        while True:
-            joined = await _next_message(inbox, joins, timing.timeout(GROUP_LOBBY_STEP))
-            if joined is None:
-                waited += 1
-                if waited == 1:
-                    await scene.send("**Tchórzycie, co? Pff...** - *Wpisz $zaatakuj, jeśli chcesz dołączyć "
-                                     "do walki!* " + _group_minutes(waited) + "...")
-                elif waited == GROUP_LOBBY_STEPS - 2:
-                    await scene.send("**A myślałem, że czas na rozrywkę...** - *Wpisz $zaatakuj, jeśli chcesz "
-                                     f"dołączyć do walki! Ostatnia szansa <@&{bot.ids.hunters_role}>!* "
-                                     + _group_minutes(waited) + "...")
-                elif waited == GROUP_LOBBY_STEPS - 1:
-                    await scene.send(MSG_GROUP_GAVE_UP)
-                    log.info("Group boss fight: the party did not gather.")
-                    return None
-                else:
-                    await scene.send("... " + _group_minutes(waited) + "...")
-                continue
-
-            players.append(joined.author)
-            mentions = _mentions(players)
-            if len(players) < GROUP_SIZE:
-                if len(players) == 1:
-                    await scene.send("**Jesteś sam! Zbierz więcej łowców!**" + mentions
-                                     + "...**  - *słyszycie głos w swojej głowie*... "
-                                     + _group_minutes(waited) + "...")
-                else:
-                    await scene.send("**Nieźle, jest już Was " + str(len(players))
-                                     + ". Zbierzcie więcej łowców!" + mentions
-                                     + "...**  - *słyszycie głos w swojej głowie*... "
-                                     + _group_minutes(waited) + "...")
-                continue
-
-            # Four players: everybody has to confirm.
-            await scene.send("Jesteście gotowi do ataku? Wpiszcie **$tak**." + mentions + "... 60...")
-            confirmed: list[Any] = []
-
-            def confirms(message: Any) -> bool:
-                return (_says(message, "$tak")
-                        and any(message.author.id == player.id for player in players)
-                        and all(message.author.id != player.id for player in confirmed))
-
-            while len(confirmed) < GROUP_SIZE:
-                confirmation = await _next_message(inbox, confirms, timing.timeout(GROUP_CONFIRM_TIME))
-                if confirmation is None:
-                    break
-                await io.safe_react(confirmation, "⚔️")
-                confirmed.append(confirmation.author)
-            if len(confirmed) == GROUP_SIZE:
-                log.info("Group boss fight: party %s.", ", ".join(str(player) for player in players))
-                return players
-
-            # Somebody did not confirm: keep those who did and go on gathering.
-            players = confirmed
-            waited = 0
-            await scene.send("Zbierzcie drużynę przed atakiem..." + _mentions(players)
-                             + "Jeśli ktoś chce dołączyć do drużyny, to powinien wpisać **$zaatakuj**.")
+    return await _GroupLobby(scene).run()
 
 
 async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bool,

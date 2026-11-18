@@ -26,15 +26,30 @@ Differences from the legacy code (the game rules themselves are unchanged):
 * NULL counters, a missing ``PETS`` row or a missing picture are handled
   instead of crashing the command;
 * the ``create_*`` helpers never drop anything.
+
+Buttons and menus (the rules behind them are the commands' own):
+
+* every "are you sure?" question has **Potwierdzam / Anuluj** buttons that only
+  the asking player can use; typing ``$potwierdzam`` keeps working;
+* ``$mocneodrodzenie`` is a multi-choice list (up to three stats to leave out)
+  with **Przelosuj / Anuluj** buttons instead of eight reactions;
+* the pet shown by ``$towarzysz`` carries a panel (:class:`PetPanel`) for its
+  owner: rename in a pop-up window, the stable, and the pet commands.  Showing
+  works on every channel; the gameplay buttons, like the commands, only on the
+  boss channel, not while the channel is busy and not for dead hunters;
+* the stable (``$stajnia``) has a list that makes a stabled pet the active one,
+  exactly as ``$wyciagnijtowarzysza <slot>`` does.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import random
 import time
+import types
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -42,7 +57,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, Sequence
 
 import discord
 
-from ..core import io, timing
+from ..core import io, timing, ui
 from ..settings import ASSETS_DIR
 from . import bossdetect, modifiers, patrons
 
@@ -177,21 +192,33 @@ _RARITY_NAMES: tuple[str, ...] = ("zwykły", "rzadki", "epicki", "legendarny", "
 
 _STABLE_SLOTS: dict[int, str] = {1: "PET_ID_ALT1", 2: "PET_ID_ALT2", 3: "PET_ID_ALT3", 4: "PET_ID_ALT4"}
 
-#: ``$mocneodrodzenie``: 1️⃣ .. 7️⃣ (one per entry of SKILL_POOL) and the confirmation.
+#: ``$mocneodrodzenie``: 1️⃣ .. 7️⃣ (one per entry of SKILL_POOL), shown in the list.
 SKILL_EMOTES: tuple[str, ...] = tuple(f"{digit}️⃣" for digit in range(1, 8))
+#: What the entries of SKILL_POOL are called in the ``$mocneodrodzenie`` list.
+SKILL_LABELS: tuple[str, ...] = (
+    "Szansa na krytyczne uderzenie", "Szansa na zastąpienie ataku", "Szansa na zablokowanie ataku",
+    "Rzadszy drop", "Zmniejszenie życia przeciwnika", "Spowolnienie przeciwnika", "Wyczuwanie bossa")
+#: At most this many stats can be left out of a reroll (10 scrolls each).
+MAX_SKIPPED = 3
 ACCEPT_EMOTE = "✅"
 CONFIRM_WORD = "$potwierdzam"
 CONFIRM_TIMEOUT = 15
 MENU_TIMEOUT = 20
 #: Longest time the advanced reroll menu may stay open altogether (it keeps the channel busy).
 MENU_TOTAL_TIMEOUT = 180
+#: How long the buttons under a shown pet / the stable stay (seconds without a click).
+PANEL_TIMEOUT = 180
+#: How long the rename pop-up window may stay open.
+RENAME_WINDOW_TIMEOUT = 300
 
 # -- texts (verbatim from the legacy bot) ---------------------------------------------
 
 MSG_UNSURE = "*Twój towarzysz spogląda na Ciebie niepewnie.*"
 MSG_ALONE_MAD = "Przecież jesteś sam... <:madge:882184635474386974>"
-MSG_ALREADY_WAITING = ("Już czekam na Twoje potwierdzenie. Wpisz **$potwierdzam** albo poczekaj "
-                       "aż prośba wygaśnie.")
+#: Ends every "are you sure?" question (the buttons sit under it).
+CONFIRM_HINT = "Kliknij **Potwierdzam** albo wpisz **$potwierdzam**."
+MSG_ALREADY_WAITING = ("Już czekam na Twoje potwierdzenie. Kliknij **Potwierdzam** (albo wpisz "
+                       "**$potwierdzam**) albo poczekaj, aż prośba wygaśnie.")
 MSG_NO_PET_DATA = "Nie znaleziono danych towarzysza."
 MSG_STORED = "Towarzysz został ulokowany w stajni <:peepoBlush:984769061340737586>"
 MSG_UNSTORED = "Towarzysz został wyciągnięty ze stajni <:peepoBlush:984769061340737586>"
@@ -201,16 +228,13 @@ MSG_EMPTY_SLOT = "W stajni nie ma towarzysza na podanym miejscu. Sprawdź stajni
 MSG_TOO_MANY_SKILLS = ("Wybrałeś za dużo statystyk. Można pominąć **maksymalnie 3**! "
                        "<:madge:882184635474386974>")
 MSG_ADV_REROLL_MENU = (
-    "Wybierz, które umiejętności chcesz pominąć przy przelosowaniu."
-    "\nKażda wybrana statystyka to koszt 10 zwojów, maksymalnie 3 do wyboru:"
-    f"\n\n{SKILL_EMOTES[0]} - Szansa na krytyczne uderzenie,"
-    f"\n{SKILL_EMOTES[1]} - Szansa na zastąpienie ataku,"
-    f"\n{SKILL_EMOTES[2]} - Szansa na zablokowanie ataku,"
-    f"\n{SKILL_EMOTES[3]} - Rzadszy drop,"
-    f"\n{SKILL_EMOTES[4]} - Zmniejszenie życia przeciwnika,"
-    f"\n{SKILL_EMOTES[5]} - Spowolnienie przeciwnika,"
-    f"\n{SKILL_EMOTES[6]} - Wyczuwanie bossa,"
-    f"\n\n*Potwierdź {ACCEPT_EMOTE}.*")
+    "Wybierz z listy, które umiejętności chcesz pominąć przy przelosowaniu."
+    "\nKażda wybrana statystyka to koszt 10 zwojów, maksymalnie 3 do wyboru."
+    "\n\n*Potwierdź przyciskiem **Przelosuj**.*")
+MSG_RENAME_DONE = "Twój towarzysz ma teraz na imię **{name}** <:peepoBlush:984769061340737586>"
+MSG_RENAME_EMPTY = "Imię towarzysza nie może być puste <:Hmm:984767035617730620>"
+MSG_RENAME_COOLDOWN = ("Poczekaj na odnowienie komendy! Imię zmienisz ponownie {when} "
+                       "<:Bedge:970576892874854400>")
 PET_FOOTER = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś."
 RANKING_IMAGE = ("https://www.altermmo.pl/wp-content/uploads/alter0000_Adventurer_with_a_small_dragon_"
                  "pet._Fantasy._Pixel_ar_fac9f513-e338-4727-af61-32b79dbfa7e3.png")
@@ -226,6 +250,23 @@ def _msg_alone(player_id: int) -> str:
 def _msg_bad_slot(player_id: int, command: str) -> str:
     return ("Każdy gracz ma tylko cztery miejsca na przechowanie slotów - 1, 2, 3 oraz 4 <@"
             + str(player_id) + ">! Wpisz np. **$" + command + " 1**.")
+
+
+def _scrolls(number: int) -> str:
+    """``1 zwój`` / ``20 zwojów`` (the costs of a reroll are 1, 10, 20 or 30)."""
+    if number == 1:
+        return "1 zwój"
+    if number % 10 in (2, 3, 4) and number % 100 not in (12, 13, 14):
+        return f"{number} zwoje"
+    return f"{number} zwojów"
+
+
+def adv_reroll_text(selected: Sequence[int]) -> str:
+    """The ``$mocneodrodzenie`` menu with what is chosen so far and what it costs."""
+    chosen = [SKILL_LABELS[index] for index in sorted(selected) if 0 <= index < len(SKILL_LABELS)]
+    cost = 10 * len(chosen) if chosen else 1
+    return (MSG_ADV_REROLL_MENU + "\n\nPominięte: " + (", ".join(f"**{name}**" for name in chosen) or "brak")
+            + f" - koszt: **{_scrolls(cost)}**.")
 
 
 # -- small helpers --------------------------------------------------------------------
@@ -485,12 +526,43 @@ def _pet_embed(player_id: int, pet: Any, items: Any) -> discord.Embed:
     return embed
 
 
-async def show_pet(scene: "Scene", player: Any) -> bool:
-    """Show the player's pet and his scrolls; False when he has no pet."""
+_SHOW_COLUMNS = "PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS"
+
+
+async def _load_shown_pet(bot: "AlterBot", player_id: int) -> tuple[str, Any, Any]:
+    """``(status, items, pet)`` of what ``$towarzysz`` shows; status ``alone`` / ``no_data`` / ``_OK``."""
+    owner = await _owner(bot.db, player_id, _SHOW_COLUMNS)
+    pet_id = _int(owner["pet_id"]) if owner is not None else 0
+    if pet_id <= 0:
+        return "alone", owner, None
+    pet = await _pet(bot.db, pet_id)
+    if pet is None:
+        log.warning("Player %s owns pet %s which has no row in PETS.", player_id, pet_id)
+        return "no_data", owner, None
+    return _OK, owner, pet
+
+
+def _shown_embed(player_id: int, pet: Any, items: Any) -> tuple[discord.Embed, Path | None]:
+    """The pet's embed and its picture (None: no picture; the embed then has no image)."""
+    embed = _pet_embed(player_id, pet, items)
+    image = _pet_image(pet)
+    if image is None or not image.is_file():
+        log.warning("Pet %s (%s, %s, level %s, variant %s) has no picture (%s); showing it without one.",
+                    pet["pet_id"], pet["quality"], pet["type"], pet["pet_lvl"], pet["variant"], image)
+        return embed, None
+    embed.set_image(url=f"attachment://{image.name}")
+    return embed, image
+
+
+async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool:
+    """Show the player's pet and his scrolls; False when he has no pet.
+
+    On a channel (not in a private answer, see :func:`ui.whisper_scene`) the
+    pet carries a :class:`PetPanel` for its owner unless ``buttons=False``.
+    """
     bot = scene.bot
     player_id = _pid(player)
-    columns = "PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIRRORS"
-    owner = await _owner(bot.db, player_id, columns)
+    owner = await _owner(bot.db, player_id, _SHOW_COLUMNS)
     pet_id = _int(owner["pet_id"]) if owner is not None else 0
     if pet_id <= 0:
         await scene.send(_msg_alone(player_id))
@@ -503,23 +575,26 @@ async def show_pet(scene: "Scene", player: Any) -> bool:
                    REROLL_SCROLL = COALESCE(REROLL_SCROLL, 0) + FLOOR(REROLL_SCROLL_SHARD / 10),
                    REROLL_SCROLL_SHARD = MOD(REROLL_SCROLL_SHARD, 10)
                WHERE PLAYER_ID = $1 AND REROLL_SCROLL_SHARD >= 10""", player_id, idempotent=True)
-        owner = await _owner(bot.db, player_id, columns) or owner
 
-    pet = await _pet(bot.db, pet_id)
-    if pet is None:
-        log.warning("Player %s owns pet %s which has no row in PETS.", player_id, pet_id)
+    status, owner, pet = await _load_shown_pet(bot, player_id)
+    if status == "alone":  # discarded / stabled in the meantime
+        await scene.send(_msg_alone(player_id))
+        return False
+    if status != _OK:
         await scene.send(MSG_NO_PET_DATA)
         return False
 
-    embed = _pet_embed(player_id, pet, owner)
-    image = _pet_image(pet)
-    if image is None or not image.is_file():
-        log.warning("Pet %s (%s, %s, level %s, variant %s) has no picture (%s); showing it without one.",
-                    pet_id, pet["quality"], pet["type"], pet["pet_lvl"], pet["variant"], image)
-        await scene.send(embed=embed)
-    else:
-        embed.set_image(url=f"attachment://{image.name}")
-        await scene.send(file_path=image, embed=embed)
+    embed, image = _shown_embed(player_id, pet, owner)
+    files = {} if image is None else {"file_path": image}
+    if not buttons or isinstance(scene, ui.WhisperScene):
+        await scene.send(embed=embed, **files)
+        return True
+    panel = PetPanel(player, pet)
+    try:
+        await panel.send(scene.channel, embed=embed, **files)
+    except BaseException:
+        panel.stop()
+        raise
     return True
 
 
@@ -734,21 +809,20 @@ def _confirmation_slot(player_id: int) -> Iterator[bool]:
         _awaiting_confirmation.discard(player_id)
 
 
-async def _confirm(scene: "Scene", player: Any, prompt: str) -> Any:
-    """Ask ``prompt`` and wait 15 s for the player's ``$potwierdzam``; the message or None."""
-    waiter = asyncio.ensure_future(io.wait_for_message(
-        scene.bot, scene.channel, authors=[player],
-        check=lambda message: message.content.strip().lower() == CONFIRM_WORD, timeout=None))
-    try:
-        await asyncio.sleep(0)  # the listener is registered before the question becomes visible
-        await scene.send(prompt)
-        try:
-            return await asyncio.wait_for(waiter, timing.timeout(CONFIRM_TIMEOUT))
-        except asyncio.TimeoutError:
-            return None
-    finally:
-        if not waiter.done():
-            waiter.cancel()
+async def _confirm(scene: "Scene", player: Any, prompt: str) -> ui.Confirmation:
+    """Ask ``prompt`` with Potwierdzam / Anuluj buttons; 15 s for a click or a typed ``$potwierdzam``.
+
+    The bot listens for the typed answer before the question becomes visible
+    (:func:`ui.confirm`); only ``player`` can answer, only on this channel.
+    The result is falsy when the player cancelled or did not answer.
+    """
+    return await ui.confirm(scene.bot, scene.channel, player, prompt,
+                            timeout=timing.timeout(CONFIRM_TIMEOUT), typed=CONFIRM_WORD)
+
+
+async def _thank(answer: ui.Confirmation, emoji: str) -> None:
+    """The legacy "seen" reaction: under a typed answer, or under the question after a click."""
+    await io.safe_react(answer.typed if answer.typed is not None else answer.message, emoji)
 
 
 async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, messages: dict[str, str],
@@ -773,10 +847,10 @@ async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, message
             await scene.send(MSG_ALREADY_WAITING)
             return False
         answer = await _confirm(scene, player, prompt)
-        if answer is None:
+        if not answer:
             await scene.send(MSG_UNSURE)
             return False
-        await io.safe_react(answer, "<:PepoG:790963160528977980>")
+        await _thank(answer, "<:PepoG:790963160528977980>")
         async with bot.db.transaction() as con:
             status, data = await check(con, True)
             if status == _OK:
@@ -820,7 +894,7 @@ async def reroll_pet(scene: "Scene", player: Any, remove_list: Sequence[int] = (
     return await _confirmed_change(
         scene, player, check=check, apply=apply,
         prompt=("Czy jesteś pewien, że chcesz przelosować statystyki swojego towarzysza " + mention
-                + "? <:Hmm:984767035617730620> Wpisz **$potwierdzam**."),
+                + "? <:Hmm:984767035617730620> " + CONFIRM_HINT),
         messages={
             "alone": _msg_alone(player_id),
             "no_data": MSG_NO_PET_DATA,
@@ -830,70 +904,81 @@ async def reroll_pet(scene: "Scene", player: Any, remove_list: Sequence[int] = (
         })
 
 
+class SkillMenu(ui.ClickView):
+    """The ``$mocneodrodzenie`` menu: a multi-choice list of SKILL_POOL, Przelosuj and Anuluj.
+
+    Only ``player`` can use it (dead hunters neither).  A change of the list
+    arrives as a click with the key :attr:`SKIP` whose interaction carries the
+    chosen values; the list shows the current choice as its defaults.
+    """
+
+    SKIP = "pet:skip"
+
+    def __init__(self, player: Any) -> None:
+        super().__init__([ui.Choice("pet:skip-accept", "Przelosuj", emoji="🎲",
+                                    style=discord.ButtonStyle.success, row=1),
+                          ui.Choice("pet:skip-cancel", "Anuluj", emoji="✖️", row=1)], only=[player])
+        self.select: discord.ui.Select = discord.ui.Select(
+            custom_id=ui.FLOW_PREFIX + self.SKIP, placeholder="Umiejętności do pominięcia (0-3)…",
+            min_values=0, max_values=MAX_SKIPPED, options=self._options(()), row=0)
+        self.select.callback = functools.partial(self._clicked, self.SKIP)  # type: ignore[method-assign]
+        self.add_item(self.select)
+
+    @staticmethod
+    def _options(selected: Sequence[int]) -> list[discord.SelectOption]:
+        return [discord.SelectOption(label=label, value=str(index), emoji=SKILL_EMOTES[index],
+                                     default=index in selected)
+                for index, label in enumerate(SKILL_LABELS)]
+
+    def show(self, selected: Sequence[int]) -> None:
+        """Make the list show ``selected`` (call :meth:`refresh` afterwards)."""
+        self.select.options = self._options(selected)
+
+    @staticmethod
+    def chosen(click: ui.Click) -> list[int]:
+        """The stats a list change chose (indexes of SKILL_POOL, unknown values dropped)."""
+        values = (getattr(click.interaction, "data", None) or {}).get("values") or []
+        chosen: set[int] = set()
+        for value in values:
+            with contextlib.suppress(TypeError, ValueError):
+                if 0 <= int(value) < len(SKILL_POOL):
+                    chosen.add(int(value))
+        return sorted(chosen)
+
+
 async def adv_reroll_pet(scene: "Scene") -> bool:
-    """Advanced reroll: the player first picks (reactions) up to 3 stats to leave out."""
-    bot = scene.bot
+    """Advanced reroll: the player first picks (a list) up to 3 stats to leave out.
+
+    Every change of the list restarts the 20 s; the menu as a whole is limited
+    too (it keeps the channel busy, so endless clicking must not hold it for
+    ever).  Then the ordinary reroll question follows (:func:`reroll_pet`).
+    """
     user = scene.author
-    react_msg = await scene.send(MSG_ADV_REROLL_MENU)
-    selected: set[int] = set()
-    clicks: asyncio.Queue[tuple[bool, str]] = asyncio.Queue()
-
-    def mine(reaction: Any, member: Any) -> bool:
-        """The author's own click on the menu (never the bot's reactions)."""
-        return (not getattr(member, "bot", False) and member.id == user.id
-                and reaction.message.id == react_msg.id)
-
-    async def on_reaction_add(reaction: Any, member: Any) -> None:
-        if mine(reaction, member):
-            clicks.put_nowait((True, str(reaction.emoji)))
-
-    async def on_reaction_remove(reaction: Any, member: Any) -> None:
-        if mine(reaction, member):
-            clicks.put_nowait((False, str(reaction.emoji)))
-
-    async def decorate() -> None:
-        for emote in (*SKILL_EMOTES, ACCEPT_EMOTE):
-            await io.safe_react(react_msg, emote)
-
-    # Listeners that stay for the whole menu instead of one ``wait_for`` per
-    # click: two clicks delivered together would otherwise lose the second one
-    # (nobody listens between two ``wait_for`` calls), and taking a reaction
-    # back has to count as well.  The bot's own reactions are added in the
-    # background, so a player who clicks while the menu fills in is heard too.
-    # The menu as a whole is limited as well: every click restarts the 20 s, and
-    # the menu keeps the channel busy, so endless clicking must not hold it for ever.
+    selected: list[int] = []
     menu_deadline = time.monotonic() + timing.timeout(MENU_TOTAL_TIMEOUT)
-    with io.reaction_listener(bot, on_reaction_add, on_reaction_remove):
-        decorating = asyncio.ensure_future(decorate())
-        try:
-            while True:
-                wait = min(timing.timeout(MENU_TIMEOUT), menu_deadline - time.monotonic())
-                try:
-                    if wait <= 0:
-                        raise asyncio.TimeoutError
-                    added, emoji = await asyncio.wait_for(clicks.get(), wait)
-                except asyncio.TimeoutError:
-                    await io.safe_delete(react_msg)
-                    await scene.send(MSG_UNSURE)
-                    return False
-                if emoji == ACCEPT_EMOTE and added:
-                    break
-                if emoji in SKILL_EMOTES:
-                    index = SKILL_EMOTES.index(emoji)
-                    if added:
-                        selected.add(index)
-                    else:
-                        selected.discard(index)
-        finally:
-            if not decorating.done():
-                decorating.cancel()
+    async with SkillMenu(user) as menu:
+        menu_msg = await menu.send(scene.channel, adv_reroll_text(selected))
+        while True:
+            wait = min(timing.timeout(MENU_TIMEOUT), menu_deadline - time.monotonic())
+            click = await menu.next(wait)
+            if click is None or click.key == "pet:skip-cancel":
+                await menu.close()
+                await io.safe_delete(menu_msg)
+                await scene.send(MSG_UNSURE)
+                return False
+            if click.key == "pet:skip-accept":
+                break
+            selected = SkillMenu.chosen(click)
+            menu.show(selected)
+            await menu.refresh(content=adv_reroll_text(selected))
+        await menu.close(content=adv_reroll_text(selected))
+        log.info("Advanced reroll of %s: leaving out %s.", _pid(user), [SKILL_POOL[i] for i in selected])
 
     await scene.send("Zobaczmy...")
-    ignored_skills = sorted(selected)
-    if len(ignored_skills) > 3:
+    if len(selected) > MAX_SKIPPED:
         await scene.send(MSG_TOO_MANY_SKILLS)
         return False
-    return await reroll_pet(scene, user, ignored_skills)
+    return await reroll_pet(scene, user, selected)
 
 
 async def transform_pet(scene: "Scene", player: Any) -> bool:
@@ -930,7 +1015,7 @@ async def transform_pet(scene: "Scene", player: Any) -> bool:
     return await _confirmed_change(
         scene, player, check=check, apply=apply,
         prompt=("Czy jesteś pewien, że chcesz zmienić wygląd swojego towarzysza " + mention
-                + "? <:Hmm:984767035617730620> Wpisz **$potwierdzam**."),
+                + "? <:Hmm:984767035617730620> " + CONFIRM_HINT),
         messages={
             "alone": _msg_alone(player_id),
             "no_data": MSG_NO_PET_DATA,
@@ -981,7 +1066,7 @@ async def enlight_pet(scene: "Scene", player: Any) -> bool:
     return await _confirmed_change(
         scene, player, check=check, apply=apply,
         prompt=("Czy jesteś pewien, że chcesz zwiększyć talent swojego towarzysza " + mention
-                + "? <:Hmm:984767035617730620> Wpisz **$potwierdzam**."),
+                + "? <:Hmm:984767035617730620> " + CONFIRM_HINT),
         messages={
             "alone": _msg_alone(player_id),
             "no_data": MSG_NO_PET_DATA,
@@ -1010,8 +1095,8 @@ async def discard_pet(scene: "Scene") -> bool:
         answer = await _confirm(
             scene, player,
             "Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@" + str(player_id)
-            + ">? <:MonkaS:882181709100097587> Wpisz **$potwierdzam**.")
-        if answer is None:
+            + ">? <:MonkaS:882181709100097587> " + CONFIRM_HINT)
+        if not answer:
             await scene.send("*Twój towarzysz oddycha z ulgą...*")
             return False
         # The pet that is active *now* goes, together with its row in PETS.
@@ -1026,7 +1111,7 @@ async def discard_pet(scene: "Scene") -> bool:
             return False
         log.info("Player %s discarded pet %s.", player_id, pet_id)
         await modifiers.random_modifiers(scene, True, True)
-        await io.safe_react(answer, "<:MonkaS:882181709100097587>")
+        await _thank(answer, "<:MonkaS:882181709100097587>")
     return True
 
 
@@ -1126,14 +1211,11 @@ async def unstore_pet(scene: "Scene", slot: Any) -> bool:
     return status in ("swapped", "taken")
 
 
-async def check_stable(scene: "Scene") -> bool:
-    """Show the author's active pet and the four stable slots; False when he has no row."""
-    bot = scene.bot
-    player_id = _pid(scene.author)
+async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, list[ui.Option]] | None:
+    """The stable embed and the stabled pets that can be taken out (None: the player has no row)."""
     owner = await _owner(bot.db, player_id, _STABLE_COLUMNS)
     if owner is None:
-        await scene.send(_msg_alone(player_id))
-        return False
+        return None
 
     pet_ids = [_int(value) for value in owner]
     wanted = [pet_id for pet_id in pet_ids if pet_id > 0]
@@ -1145,6 +1227,7 @@ async def check_stable(scene: "Scene") -> bool:
             pets_by_id.setdefault(_int(row["pet_id"]), row)
 
     descriptions = []
+    options: list[ui.Option] = []
     for index, pet_id in enumerate(pet_ids):
         label = "Obecnie posiadany pet" if index == 0 else f"Pet w stajni {index}"
         if pet_id <= 0:
@@ -1157,6 +1240,9 @@ async def check_stable(scene: "Scene") -> bool:
         pet_lvl = _int(pet["pet_lvl"])
         polish_type = "Jajko" if pet_lvl == 0 else POLISH_TYPES.get(pet["type"], "")
         descriptions.append(f"{label}: {polish_type} {pet['pet_name']} ({pet_lvl} LVL).\n")
+        if index > 0:
+            options.append(ui.Option(str(index), f"{polish_type} {pet['pet_name']} ({pet_lvl} LVL)",
+                                      f"Miejsce w stajni {index}", emoji="🐾"))
 
     embed = discord.Embed(
         title="Stajnia",
@@ -1167,8 +1253,258 @@ async def check_stable(scene: "Scene") -> bool:
     embed.set_footer(text="Możesz schować lub wyciągnąć peta za pomocą komend $schowajtowarzysza "
                           "oraz $wyciagnijtowarzysza.")
     embed.set_thumbnail(url="https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png")
-    await scene.send(embed=embed)
+    return embed, options
+
+
+async def check_stable(scene: "Scene") -> bool:
+    """Show the author's active pet and the four stable slots; False when he has no row.
+
+    On a channel the stable carries a list (:class:`StablePanel`) that makes a
+    stabled pet the active one - only for the author, only where and when
+    ``$wyciagnijtowarzysza`` would work.
+    """
+    bot = scene.bot
+    player_id = _pid(scene.author)
+    view = await _stable_view(bot, player_id)
+    if view is None:
+        await scene.send(_msg_alone(player_id))
+        return False
+    embed, options = view
+    if not options or isinstance(scene, ui.WhisperScene):
+        await scene.send(embed=embed)
+        return True
+    panel = StablePanel(scene.author, options)
+    try:
+        await panel.send(scene.channel, embed=embed)
+    except BaseException:
+        panel.stop()
+        raise
     return True
+
+
+# -- panels (buttons under a shown pet and under the stable) ---------------------------
+
+def _display_gate_busy(bot: "AlterBot") -> bool:
+    """Whether display-only buttons are blocked while busy (as ``unless_busy(read_only=True)``)."""
+    return getattr(getattr(bot, "settings", None), "busy_policy", "notify") != "read_only_free"
+
+
+async def _edit_panel(message: Any, **kwargs: Any) -> bool:
+    """Edit a panel message; False when it is gone (purged).  Never raises."""
+    if message is None:
+        return False
+    try:
+        await message.edit(**kwargs)
+        return True
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - cosmetic; usually the message was purged meanwhile
+        return False
+
+
+class StablePanel(ui.PanelView):
+    """The list under ``$stajnia``: choose a stabled pet to make it the active one.
+
+    Same effect and the same guards as ``$wyciagnijtowarzysza <slot>``: boss
+    channel only, not while busy, not for dead hunters.  The stable is redrawn
+    after every change.
+    """
+
+    def __init__(self, owner: Any, options: Sequence[ui.Option], *, timeout: float | None = None) -> None:
+        super().__init__(owner=owner, timeout=PANEL_TIMEOUT if timeout is None else timeout)
+        self.select: discord.ui.Select = discord.ui.Select(
+            custom_id=ui.FLOW_PREFIX + "pet:stable-take", placeholder="Wyciągnij towarzysza ze stajni…",
+            min_values=1, max_values=1, options=self._options(options))
+        self.select.callback = self._chosen  # type: ignore[method-assign]
+        self.add_item(self.select)
+
+    @staticmethod
+    def _options(options: Sequence[ui.Option]) -> list[discord.SelectOption]:
+        return [discord.SelectOption(label=option.label[:100], value=option.value,
+                                     description=(option.description or None) and option.description[:100],
+                                     emoji=option.emoji) for option in options[:25]]
+
+    async def _chosen(self, interaction: Any) -> None:
+        if not await ui.gate(interaction):
+            return
+        values = (getattr(interaction, "data", None) or {}).get("values") or list(self.select.values)
+        await ui.ack(interaction)
+        if not values:
+            return
+        scene = ui.scene_of(interaction)
+        await unstore_pet(scene, values[0])
+        view = await _stable_view(scene.bot, _pid(interaction.user))
+        if view is None:
+            await self.finish()
+            return
+        embed, options = view
+        if not options:
+            await self.finish(embed=embed)
+            return
+        self.select.options = self._options(options)
+        await _edit_panel(self.message, embed=embed, view=self)
+
+
+class PetPanel(ui.PanelView):
+    """Buttons under the pet shown by ``$towarzysz``; only its owner can use them.
+
+    ``Zmień imię`` opens a pop-up window (``$nazwij`` with its 23-hour
+    cooldown), ``Stajnia`` shows the stable (display only, any channel), the
+    rest start exactly the flows of ``$odrodzenie``, ``$mocneodrodzenie``,
+    ``$oswiecenie``, ``$transformacja`` and ``$porzucam``.  Gameplay buttons
+    are refused (privately) outside the boss channel, while the channel is
+    busy and for dead hunters.  A gameplay button takes the panel's buttons
+    away: the flow shows the pet anew when it changed it.  Buttons that make
+    no sense for this pet (rerolling an egg, enlightening a young pet,
+    transforming a mythic one or without the rank) are not shown.
+    """
+
+    def __init__(self, player: Any, pet: Any, *, timeout: float | None = None) -> None:
+        super().__init__(owner=player, timeout=PANEL_TIMEOUT if timeout is None else timeout)
+        self.player = player
+        self.pet_name = str(pet["pet_name"] or "")
+        level, skills = _int(pet["pet_lvl"]), _int(pet["pet_skills"])
+        hidden = set()
+        if level < 1:
+            hidden |= {self.reroll, self.adv_reroll}
+        if not (level == MAX_LEVEL and skills <= ENLIGHT_MAX_SKILLS):
+            hidden.add(self.enlight)
+        if pet["mythic"] or not patrons.check_if_patron(player):
+            hidden.add(self.transform)
+        for item in hidden:
+            self.remove_item(item)
+
+    # -- display only ---------------------------------------------------------------
+
+    @discord.ui.button(label="Zmień imię", emoji="✏️", style=discord.ButtonStyle.secondary, row=0,
+                       custom_id=ui.FLOW_PREFIX + "pet:rename")
+    async def rename(self, interaction: Any, button: discord.ui.Button) -> None:
+        await rename_from_panel(self, interaction)
+
+    @discord.ui.button(label="Stajnia", emoji="🐴", style=discord.ButtonStyle.secondary, row=0,
+                       custom_id=ui.FLOW_PREFIX + "pet:stable")
+    async def stable(self, interaction: Any, button: discord.ui.Button) -> None:
+        if not await ui.gate(interaction, boss_channel=False, players_only=False,
+                             unless_busy=_display_gate_busy(interaction.client)):
+            return
+        await ui.ack(interaction)
+        await check_stable(ui.scene_of(interaction))
+
+    # -- gameplay -------------------------------------------------------------------
+
+    @discord.ui.button(label="Odrodzenie", emoji="🎲", style=discord.ButtonStyle.primary, row=1,
+                       custom_id=ui.FLOW_PREFIX + "pet:reroll")
+    async def reroll(self, interaction: Any, button: discord.ui.Button) -> None:
+        await self._play(interaction, lambda scene: reroll_pet(scene, scene.author))
+
+    @discord.ui.button(label="Mocne odrodzenie", emoji="🔮", style=discord.ButtonStyle.secondary, row=1,
+                       custom_id=ui.FLOW_PREFIX + "pet:adv-reroll")
+    async def adv_reroll(self, interaction: Any, button: discord.ui.Button) -> None:
+        await self._play(interaction, adv_reroll_pet, hold="adv-reroll")
+
+    @discord.ui.button(label="Oświecenie", emoji="✨", style=discord.ButtonStyle.secondary, row=1,
+                       custom_id=ui.FLOW_PREFIX + "pet:enlight")
+    async def enlight(self, interaction: Any, button: discord.ui.Button) -> None:
+        await self._play(interaction, lambda scene: enlight_pet(scene, scene.author))
+
+    @discord.ui.button(label="Transformacja", emoji="🪞", style=discord.ButtonStyle.secondary, row=1,
+                       custom_id=ui.FLOW_PREFIX + "pet:transform")
+    async def transform(self, interaction: Any, button: discord.ui.Button) -> None:
+        await self._play(interaction, lambda scene: transform_pet(scene, scene.author))
+
+    @discord.ui.button(label="Porzuć", emoji="💔", style=discord.ButtonStyle.danger, row=2,
+                       custom_id=ui.FLOW_PREFIX + "pet:discard")
+    async def discard(self, interaction: Any, button: discord.ui.Button) -> None:
+        await self._play(interaction, discard_pet)
+
+    async def _play(self, interaction: Any, flow: Callable[["Scene"], Awaitable[bool]], *,
+                    hold: str | None = None) -> None:
+        """Run a gameplay flow for the click, with the guards of its command."""
+        if not await ui.gate(interaction):
+            return
+        log.info("Pet panel of %s: %s.", self.owner_id, (interaction.data or {}).get("custom_id"))
+        scene = ui.scene_of(interaction)
+        if hold is None:
+            await ui.ack(interaction)
+            await self.finish()
+            await flow(scene)
+            return
+        # Like ``$mocneodrodzenie``: the flow holds the channel.  Nothing is awaited
+        # between the gate's check and taking the flag.
+        with interaction.client.state.hold_busy(hold):
+            await ui.ack(interaction)
+            await self.finish()
+            await flow(scene)
+
+    async def redraw(self, bot: "AlterBot") -> bool:
+        """Show the owner's pet as it is now on this panel (after a rename).  Never raises on Discord."""
+        player_id = _pid(self.player)
+        status, items, pet = await _load_shown_pet(bot, player_id)
+        if status != _OK:
+            return False
+        self.pet_name = str(pet["pet_name"] or "")
+        embed, _ = _shown_embed(player_id, pet, items)
+        return await _edit_panel(self.message, embed=embed)
+
+
+def _rename_bucket(bot: "AlterBot", member: Any) -> Any:
+    """The ``$nazwij`` cooldown of ``member`` (shared by the command and the button); None without one."""
+    command = bot.get_command("nazwij") if hasattr(bot, "get_command") else None
+    buckets = getattr(command, "_buckets", None)
+    if buckets is None or not getattr(buckets, "valid", False):
+        return None
+    try:
+        return buckets.get_bucket(types.SimpleNamespace(author=member, guild=getattr(member, "guild", None)))
+    except Exception:  # noqa: BLE001 - a cooldown that cannot be read is no reason to fail the click
+        log.exception("Could not read the $nazwij cooldown of %s.", getattr(member, "id", member))
+        return None
+
+
+async def rename_from_panel(panel: PetPanel, interaction: Any) -> bool:
+    """``Zmień imię``: ask for the name in a pop-up window, then name the pet like ``$nazwij``.
+
+    The guards and the 23-hour cooldown of the command apply (the cooldown is
+    the command's own, so a name given with a button counts for ``$nazwij``
+    and the other way round; a refused naming does not use it up).
+    """
+    bot = interaction.client
+    if not await ui.gate(interaction):
+        return False
+    bucket = _rename_bucket(bot, interaction.user)
+    if bucket is not None:
+        retry_after = bucket.get_retry_after()
+        if retry_after > 0:
+            await ui.reply(interaction, MSG_RENAME_COOLDOWN.format(when=ui.when(retry_after)))
+            return False
+    default = panel.pet_name if panel.pet_name and panel.pet_name != DEFAULT_NAME else None
+    window = await ui.ask_text(interaction, "Nowe imię towarzysza", "Imię", max_length=MAX_NAME_LENGTH,
+                               default=default[:MAX_NAME_LENGTH] if default else None,
+                               timeout=timing.timeout(RENAME_WINDOW_TIMEOUT))
+    if window is None:
+        return False
+    submitted, name = window.interaction, str(window.value or "").strip()
+    if not name:
+        await ui.reply(submitted, MSG_RENAME_EMPTY)
+        return False
+    if bot.state.busy:  # the window may have been open for minutes
+        await ui.reply(submitted, ui.MSG_BUSY)
+        return False
+    if bucket is not None:
+        retry_after = bucket.update_rate_limit()
+        if retry_after:
+            await ui.reply(submitted, MSG_RENAME_COOLDOWN.format(when=ui.when(retry_after)))
+            return False
+    await ui.ack(submitted)
+    done = False
+    try:
+        done = await name_pet(ui.scene_of(submitted), name)
+    finally:
+        if not done and bucket is not None:
+            bucket.reset()  # nothing was named: the 23 hours do not start
+    if done:
+        await ui.reply(submitted, MSG_RENAME_DONE.format(name=discord.utils.escape_markdown(name[:100])))
+        await panel.redraw(bot)
+    return done
 
 
 # -- ranking and boss detection -------------------------------------------------------

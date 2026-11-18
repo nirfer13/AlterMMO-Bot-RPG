@@ -43,6 +43,7 @@ def quick_lobby(monkeypatch):
     monkeypatch.setattr(daily, "JOIN_TIME", 0.03)
     monkeypatch.setattr(guards, "_last_notice", {})
     daily._gathering.clear()
+    daily._panels.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -226,7 +227,9 @@ async def test_mob_image_of_a_monster(game, monkeypatch):
     embed = card.embeds[0]
     assert embed.title == "💀 Zwykły mob! 💀"
     assert embed.description == ("Na polowaniu pojawił się zwykły potwór! ⚔️"
-                                 "\n\n*Inny gracz może dołączyć do polowania wpisując natychmiast $polowanie*.")
+                                 "\n\n*Inny gracz może dołączyć do polowania, klikając „Dołącz do polowania” "
+                                 "albo wpisując natychmiast $polowanie*.")
+    assert card.button_labels == ["Dołącz do polowania"]
     assert embed.colour.value == 0xFFFFFF and embed.thumbnail.url.endswith("large-green-square_1f7e9.png")
 
     assert await daily.send_mob_image(game.scene(), 1) == (False, None)
@@ -260,7 +263,8 @@ async def test_mob_image_of_a_player_chosen_at_the_shrine(game):
         "\n\n*Potworem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, to ten gracz zgarnia 2 zwojów!*"
         "\n\nDodatkowe statystyki:\n🔺 Drop zwiększony o 20 %"
         f"\n🔺 Bossem będzie gracz <@{patron.id}>"
-        "\n\n*Inny gracz może dołączyć do polowania wpisując natychmiast $polowanie*.")
+        "\n\n*Inny gracz może dołączyć do polowania, klikając „Dołącz do polowania” albo wpisując "
+        "natychmiast $polowanie*.")
 
 
 async def test_mob_image_when_the_chosen_player_left_the_server(game, monkeypatch):
@@ -769,8 +773,8 @@ async def test_polowanie_command_rules(game, monkeypatch):
     await bot.state.set_boss_phase(BossPhase.PRE_SPAWN)
     await command.callback(cog, ctx)
     assert game.channel.messages[-1].content == (
-        "Zaraz pojawi się prawidzwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, to wpisz "
-        "**$zaatakuj**, żeby stawić mu czoła.")
+        "Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, kliknij "
+        "**Zaatakuj** pod bossem albo wpisz **$zaatakuj**, żeby stawić mu czoła.")
     await bot.state.set_boss_phase(BossPhase.VISIBLE)
     await command.callback(cog, ctx)
     assert game.channel.messages[-1].content == (
@@ -791,9 +795,10 @@ async def test_polowanie_command_rules(game, monkeypatch):
     await bot.state.set_boss_phase(BossPhase.WAITING)
     daily.save_daily_to_file(bot, ala.id)
     await command.callback(cog, ctx)
+    stamp = int(daily.next_daily_reset().timestamp())
     assert game.channel.messages[-1].content == (
-        "Zregeneruj się i spróbuj zapolować jutro <:Bedge:970576892874854400> Niektóre modlitwy przy "
-        "kapliczkach również są w stanie zregenerować Twoje siły, więc bądź czujny!")
+        f"Zregeneruj się i spróbuj zapolować ponownie <t:{stamp}:R> <:Bedge:970576892874854400> Niektóre "
+        "modlitwy przy kapliczkach również są w stanie zregenerować Twoje siły, więc bądź czujny!")
     assert len(hunts) == 2
 
     # Busy with something else: the guard answers with the notice, nothing starts.

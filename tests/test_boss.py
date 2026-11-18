@@ -209,8 +209,9 @@ async def test_boss_image_of_a_monster(game, monkeypatch):
     embed = embed_message.embeds[0]
     assert embed.title == "💀 Epicki boss! 💀"
     assert embed.description == ("Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! "
-                                 "Wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️")
+                                 "Kliknij **Zaatakuj** albo wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️")
     assert embed.colour.value == 0x800080
+    assert embed_message.button_labels == ["Zaatakuj"]                  # the button is under the boss
 
 
 async def test_boss_image_of_a_patron(game, monkeypatch):
@@ -349,12 +350,17 @@ async def test_single_init_nobody_objects(game, short_timeouts):
         game.say_later(other, "$zaatakuj", 0, channel=game.announce_channel)  # another channel
         game.say_later(other, "zaatakuj", 0)                                  # not the command
 
+    posted = []
+    on_bot_message(game, "Jesteś sam?", lambda: posted.append(game.channel.sent[-1].content))
     on_bot_message(game, "Jesteś sam?", noise)
     assert await boss.single_init(game.scene(attacker, "$zaatakuj"), 0) is attacker
-    sent = [m.content for m in game.channel.sent]
-    assert sent[0] == ("Jesteś sam?... 120... *Inny gracz może wpisać **$zaatakuj**, "
-                       "jeśli chce zawalczyć o bossa!*")
-    assert sent[1:] == ["... 105...", "... 90...", "... 75...", "... 60...", "... 45...", "... 30...", "... 15..."]
+    # One lobby message whose deadline Discord counts down (no more "... 105..." messages).
+    assert len(game.channel.sent) == 1
+    assert re.fullmatch(r"Jesteś sam\?\.\.\. \*Inny gracz może kliknąć \*\*Zaatakuj\*\* albo wpisać "
+                        r"\*\*\$zaatakuj\*\*, jeśli chce zawalczyć o bossa!\* "
+                        r"Zgłoszenia kończą się <t:\d+:R>\.", posted[0])
+    lobby = game.channel.sent[0]
+    assert lobby.content == boss.MSG_SINGLE_LOBBY_ALONE.format(user_id=attacker.id) and lobby.view is None
     assert len(game.bot.extra_events.get("on_message", [])) == listeners
 
 
@@ -372,6 +378,7 @@ async def test_single_init_spell_decides(game):
 
     on_bot_message(game, "Zaklęcie to", cast)
     assert await boss.single_init(game.scene(attacker), 1) is bystander
+    assert game.channel.sent[0].content == boss.MSG_SINGLE_LOBBY_RIVAL.format(user_id=rival.id)
     assert game.channel.contains('"**SPOKÓJ!!!**" - *słyszyscie głos w swojej głowie.*')
     assert game.channel.contains('"Pierwszy, który PŁYNNIE wypowie zaklęcie, które zaraz zdradzę, '
                                  'będzie godzien walki ze mną!"')
@@ -379,7 +386,9 @@ async def test_single_init_spell_decides(game):
     assert requested_word(spell_line) in [word.lower() for word in boss.SPELL_WORDS]
 
 
-async def test_single_init_nobody_types_the_spell(game, short_timeouts):
+async def test_single_init_nobody_types_the_spell(game, monkeypatch):
+    # The two-minute window is one wait now: keep it above Windows' 15.6 ms timer resolution.
+    monkeypatch.setattr(timing, "TIMEOUT_SCALE", 0.05)
     attacker = game.add_member("Ala")
     rival = game.add_member("Ola")
     await modifiers.modify_modifiers(game.bot, "drop_boost_perc", 25)
@@ -657,6 +666,19 @@ async def test_fight_and_loot_with_the_real_pets_module(game_db, real_pets, loot
 
 # -- group lobby -------------------------------------------------------------------------
 
+def as_posted(game) -> list[tuple[str, str]]:
+    """(content, full text) of every bot message at the moment it was posted (edits change them later)."""
+    posted: list[tuple[str, str]] = []
+    game.channel.send_hooks.append(lambda message: posted.append((message.content, message.text)))
+    return posted
+
+
+def roster(message) -> tuple[str, str]:
+    """(name, value) of the party field of a legendary lobby panel."""
+    field = message.embeds[0].fields[0]
+    return field.name, field.value
+
+
 async def test_group_init_gathers_and_confirms_four_players(game):
     players = [game.add_member(name) for name in ("Ala", "Ola", "Ela", "Ula")]
     leader, *others = players
@@ -671,19 +693,23 @@ async def test_group_init_gathers_and_confirms_four_players(game):
         for player in players:
             game.say_later(player, "$TAK", 0)
 
+    posted = as_posted(game)
     on_bot_message(game, "Znajdź więcej chętnych", join)
     on_bot_message(game, "Jesteście gotowi", confirm)
     scene = game.scene(leader, "$zaatakuj")
     assert await boss.group_init(scene, 3) == players
     assert scene.message.reactions == ["⚔️"]
-    mentions = "".join(f"<@{p.id}> " for p in players)
-    sent = [m.content for m in game.channel.sent]
-    assert sent[0] == ("**Znajdź więcej chętnych do walki. Chyba nie myślisz, że sam dasz radę?...** - "
-                       "*słyszysz głos w swojej głowie*... 30...")
-    assert sent[1] == (f"**Nieźle, jest już Was 2. Zbierzcie więcej łowców! <@{leader.id}> <@{others[0].id}> "
-                       "...**  - *słyszycie głos w swojej głowie*... 25...")
-    assert sent[2].startswith("**Nieźle, jest już Was 3.")
-    assert sent[3] == "Jesteście gotowi do ataku? Wpiszcie **$tak**. " + mentions + "... 60..."
+    mentions = " " + "".join(f"<@{p.id}> " for p in players)
+    # One panel, posted anew once - with the mentions, so that the party is pinged for the ready check.
+    first, ready = game.channel.sent
+    assert first.deleted and not ready.deleted
+    assert posted[0][0] == "" and boss.VOICE_START in posted[0][1]
+    assert "Kliknij **Dołącz** albo wpisz **$zaatakuj**" in posted[0][1] and "<t:" in posted[0][1]
+    assert posted[1][0] == "Jesteście gotowi do ataku?" + mentions
+    assert "Kliknijcie **Gotowy** albo wpiszcie **$tak**" in posted[1][1]
+    # The outcome stays on the panel; its buttons are gone.
+    assert ready.view is None and ready.content == "Do walki z legendarnym bossem stają:" + mentions
+    assert roster(ready) == ("Drużyna (4/4)", "\n".join(f"✅ <@{p.id}>" for p in players))
     confirmations = [m for m in game.channel.messages if m.content == "$TAK"]
     assert len(confirmations) == 4 and all(m.reactions == ["⚔️"] for m in confirmations)
 
@@ -691,16 +717,20 @@ async def test_group_init_gathers_and_confirms_four_players(game):
 async def test_group_init_boss_leaves_when_nobody_joins(game, monkeypatch):
     monkeypatch.setattr(timing, "TIMEOUT_SCALE", 0.0001)
     leader = game.add_member("Ala")
+    posted = as_posted(game)
     assert await boss.group_init(game.scene(leader), 3) is None
-    assert [m.content for m in game.channel.sent[1:]] == [
-        "**Tchórzycie, co? Pff...** - *Wpisz $zaatakuj, jeśli chcesz dołączyć do walki!* 20...",
-        "... 15...",
-        "... 10...",
-        "**A myślałem, że czas na rozrywkę...** - *Wpisz $zaatakuj, jeśli chcesz dołączyć do walki! "
-        "Ostatnia szansa <@&985071779787730944>!* 5...",
-        "**Miernoty... Wiedziałem, że nie jesteście godni walki ze mną.**  - *słyszycie głos w swojej głowie.*",
-    ]
+    # The panel, the panel again with the last call to the hunters (a ping), the boss's verdict.
+    first, last_call, verdict = game.channel.sent
+    assert first.deleted
+    assert posted[1][0] == ("Ostatnia szansa, <@&985071779787730944>! "
+                            "Kliknij **Dołącz** albo wpisz **$zaatakuj**.")
+    assert boss.VOICE_LAST_CHANCE in posted[1][1]
+    assert last_call.view is None and last_call.content == "Drużyna się nie zebrała."
+    assert boss.MSG_GROUP_GAVE_UP in last_call.text
+    assert verdict.content == ("**Miernoty... Wiedziałem, że nie jesteście godni walki ze mną.**  - "
+                               "*słyszycie głos w swojej głowie.*")
     assert game.bot.extra_events.get("on_message", []) == []
+    assert game.bot.boss_cycle.lobby_door is None
 
 
 async def test_group_init_drops_players_who_do_not_confirm(game, short_timeouts):
@@ -715,14 +745,16 @@ async def test_group_init_drops_players_who_do_not_confirm(game, short_timeouts)
             for player in (ala, ola, iza, ada):
                 game.say_later(player, "$tak", 0)
 
+    posted = as_posted(game)
     on_bot_message(game, "Znajdź więcej chętnych",
                    lambda: [game.say_later(p, "$zaatakuj", 0) for p in (ola, ela, ula)])
     on_bot_message(game, "Jesteście gotowi", confirm)
     on_bot_message(game, "Zbierzcie drużynę",
                    lambda: [game.say_later(p, "$zaatakuj", 0) for p in (iza, ada, ala)])
     assert await boss.group_init(game.scene(ala), 3) == [ala, ola, iza, ada]
-    assert game.channel.contains(f"Zbierzcie drużynę przed atakiem... <@{ala.id}> <@{ola.id}> Jeśli ktoś chce "
-                                 "dołączyć do drużyny, to powinien wpisać **$zaatakuj**.")
+    regroup = [content for content, _ in posted if content.startswith("Zbierzcie drużynę")]
+    assert regroup == [f"Zbierzcie drużynę przed atakiem... <@{ala.id}> <@{ola.id}> "]   # pings who stayed
+    assert [m for m in game.channel.sent if not m.deleted] == [game.channel.sent[-1]]   # one panel left
 
 
 # -- group fight -------------------------------------------------------------------------

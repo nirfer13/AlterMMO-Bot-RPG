@@ -12,7 +12,7 @@ import discord
 from discord.ext import commands
 
 from . import schema
-from .core import io, scheduler
+from .core import io, scheduler, ui
 from .core.db import Database, DatabaseUnavailable
 from .core.net import ConnectionMonitor
 from .core.scene import Scene
@@ -42,8 +42,17 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.general",
     "altermmo.cogs.moderation",
     "altermmo.cogs.help",
+    "altermmo.cogs.hub",
     "altermmo.cogs.ui",
 )
+
+#: Answer to a command used again too early; ``{when}`` is Discord's live countdown (``ui.when``).
+MSG_COOLDOWN = "Poczekaj na odnowienie komendy! Spróbuj ponownie {when} <:Bedge:970576892874854400>"
+
+
+def cooldown_text(retry_after: float) -> str:
+    """:data:`MSG_COOLDOWN` for a cooldown that ends in ``retry_after`` seconds."""
+    return MSG_COOLDOWN.format(when=ui.when(max(1.0, float(retry_after))))
 
 #: State files carried over from the legacy bot (same names, same formats).
 LEGACY_STATE_FILES: tuple[str, ...] = (
@@ -331,9 +340,7 @@ class AlterBot(commands.Bot):
         if isinstance(error, commands.CommandNotFound):
             return
         if isinstance(error, commands.CommandOnCooldown):
-            hours = round(error.retry_after / 60 / 60, 2)
-            await self._reply(ctx, f"Poczekaj na odnowienie komendy! Zostało {hours} godzin/y "
-                                   "<:Bedge:970576892874854400>.")
+            await self._reply(ctx, cooldown_text(error.retry_after))
             return
         if isinstance(error, commands.UserInputError):  # missing / bad argument, unbalanced quote...
             usage = f"{COMMAND_PREFIX}{ctx.command.qualified_name} {ctx.command.signature}".strip()

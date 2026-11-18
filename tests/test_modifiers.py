@@ -181,13 +181,25 @@ async def test_shrine_posts_picture_and_embed(game, monkeypatch):
     assert embed.title == "🕯️ Kapliczka zmian! 🕯️"
     assert embed.description == (
         "Oto kapliczka zmian, która wpłynie na następnego bossa! "
-        "Jeśli chcesz wpłynąć na następnego bossa, to pomódl się wpisując **$modlitwa**.\n\n"
+        "Jeśli chcesz wpłynąć na następnego bossa, to pomódl się przyciskiem pod tym postem "
+        "albo wpisując **$modlitwa**.\n\n"
         "*Tylko Crafterzy i Patroni znają odpowiednią modlitwę, ale każdy może skorzystać"
         " z błogosławieństw rzuconych na potwora.*")
     assert embed.colour.value == 0x609AF7
     assert embed.thumbnail.url == "https://www.altermmo.pl/wp-content/uploads/Prayge.png"
-    # The event flags belong to the events cog.
+    # The event flags and the button belong to the events cog.
     assert game.bot.state.snapshot() == before and not game.bot.state.event_alive
+    assert shrine.view is None
+
+
+async def test_shrine_returns_its_panel_with_the_given_buttons(game):
+    import discord
+
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label="Pomódl się", custom_id="altermmo:test:pray"))
+    panel = await modifiers.spawn_modifier_shrine(game.scene(), view=view)
+    assert panel is game.channel.messages[-1] and panel.button_labels == ["Pomódl się"]
+    view.stop()
 
 
 async def test_every_shrine_picture_exists():

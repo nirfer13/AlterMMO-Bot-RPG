@@ -2,7 +2,12 @@
 
 Display-only commands (``$towarzysz``, ``$stajnia``, ``$rankingtowarzyszy``)
 work on every channel of the server; everything that changes a pet works on
-the boss channel only.  The game itself lives in :mod:`altermmo.features.pets`.
+the boss channel only.  The game itself lives in :mod:`altermmo.features.pets`,
+including the buttons under a shown pet and the stable (their clicks are
+answered by the views themselves, nothing to register here).
+
+``$nazwij`` takes the whole rest of the message as the name
+(``$nazwij Sir Burek``); quotes around it are still accepted and dropped.
 """
 
 from __future__ import annotations
@@ -12,11 +17,25 @@ import logging
 
 from discord.ext import commands
 
-from ..core import guards, io
+from ..core import guards, io, ui
 from ..core.scene import Scene
 from ..features import bossdetect, pets
 
 log = logging.getLogger(__name__)
+
+
+MSG_NAME_MISSING = "Po spacji podaj imię towarzysza np. **$nazwij Burek**."
+
+#: Opening -> closing quote pairs accepted around a name given to ``$nazwij``.
+_QUOTES = {'"': '"', "„": "”", "“": "”", "”": "”", "«": "»", "‘": "’", "'": "'"}
+
+
+def _unquote(text: str) -> str:
+    """``"Sir Burek"`` -> ``Sir Burek`` (only one pair of quotes around the whole text)."""
+    text = text.strip()
+    if len(text) >= 2 and _QUOTES.get(text[0]) == text[-1]:
+        text = text[1:-1].strip()
+    return text
 
 
 async def _say(ctx: commands.Context, text: str) -> None:
@@ -134,16 +153,22 @@ class PetsCog(commands.Cog, name="Pets"):
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)
     @guards.boss_channel_only()
     @guards.unless_busy()
-    async def name_pet(self, ctx: commands.Context, name: str) -> None:
+    async def name_pet(self, ctx: commands.Context, *, name: str) -> None:
+        # The whole rest of the message is the name ("$nazwij Sir Burek"), one
+        # pair of quotes around it (the old way to give a long name) is dropped.
+        name = _unquote(name)
+        if not name:  # only quotes were given
+            ctx.command.reset_cooldown(ctx)
+            await _say(ctx, MSG_NAME_MISSING)
+            return
         if not await pets.name_pet(Scene.from_ctx(ctx), name):
             ctx.command.reset_cooldown(ctx)  # nothing was named: the 23 hours do not start
 
     @name_pet.error
     async def name_pet_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         if isinstance(error, commands.CommandOnCooldown):
-            await _say(ctx, 'Poczekaj na odnowienie komendy! Zostało '
-                            + str(round(error.retry_after/60/60, 2))
-                            + ' godzin/y <:Bedge:970576892874854400>.')
+            # The same text as the "Zmień imię" button of the pet panel (shares this cooldown).
+            await _say(ctx, pets.MSG_RENAME_COOLDOWN.format(when=ui.when(error.retry_after)))
             return
         if not isinstance(error, commands.CheckFailure):
             # The cooldown was taken just before the arguments were read / the

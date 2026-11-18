@@ -10,9 +10,10 @@ Port of the legacy ``functions/functions_skills.py``.
 ``SKILLPOUCH``        new in v2: the other gems of a player, one row per gem
                       (player id, gem id).  A player can collect one gem of
                       every kind; only the active one works (``$skill``).
-                      ``$klejnoty`` lists them, ``$wybierzklejnot <nr>`` makes
-                      another one active.  The old bot never looks at this
-                      table and still sees the active gem in ``PETOWNER``.
+                      ``$klejnoty`` lists them (with a menu under the list),
+                      ``$wybierzklejnot <nr>`` or the menu makes another one
+                      active.  The old bot never looks at this table and
+                      still sees the active gem in ``PETOWNER``.
 
 A gem is never used up: after a use it "regenerates" until the next daily
 (variants 1, 4, 5, 6) or weekly (variants 2, 3) reset.  The cooldown lists are
@@ -23,6 +24,9 @@ Owner's rule for players with several gems: ONE gem use a day.  Every use -
 also of a weekly gem - puts the player on the daily list, and a player on the
 daily list cannot use any gem until the daily reset.  (With a single gem
 nothing changes: a daily gem works once a day, a weekly one once a week.)
+"Come back later" texts and the pouch show the real moment of the reset that
+ends the regeneration (Discord's live "za 5 godzin"): 02:30 for the daily list,
+Monday 15:00 for the weekly one (:func:`next_daily_regeneration`).
 
 Differences from the legacy code (apart from the gem pouch described above the
 game rules themselves are unchanged):
@@ -39,8 +43,10 @@ game rules themselves are unchanged):
 * the summoning gem refuses - without using anything up - while a boss is on
   the channel or arriving; the boss itself is put on the channel by
   :func:`skill_summon_boss` through ``bot.boss_cycle`` after the busy block;
-* the rest listens for reactions from before its message is sent until the end
-  and counts only the rest emoji on its own message, never the bot's own click;
+* the rest is a sign-up panel (v2): an "Odpocznij" button instead of the
+  reaction, a live list of the resting players, the same five minutes; a
+  player is recorded the moment he clicks (a purged invitation loses nobody),
+  once, and dead hunters cannot click;
 * the "tag a traveller" question is a :func:`altermmo.core.challenge.ask`
   round: the bot listens before it asks, only on its channel, and a connection
   problem does not cost the player the weekly use.
@@ -56,12 +62,13 @@ import contextlib
 import logging
 import random
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, Sequence
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Sequence
 
 import discord
 
-from ..core import challenge, io, timing
+from ..core import challenge, clock, io, timing, ui
 from ..core.state import EventType
 from ..settings import ASSETS_DIR
 from . import modifiers, pets
@@ -154,13 +161,33 @@ SUMMON_RARITY_RANGE = (2, 4)
 MSG_NO_SKILL = ("Niestety nie posiadasz umiejętności <@{player_id}> <:Sadge:936907659142111273> "
                 "Klejnoty umiejętności są bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!")
 MSG_NO_SUCH_GEM = "Taki klejnot umiejętności nie istnieje!"
-MSG_DAILY_CD = "Twój klejnot umiejętności regeneruje się! Spróbuj jutro! <:Bedge:970576892874854400>"
-MSG_WEEKLY_CD = ("Twój klejnot umiejętności regeneruje się! Spróbuj w nadchodzącym tygodniu! "
+# ``{when}``: Discord's live countdown to the reset that ends the regeneration
+# (:func:`daily_cd_text` / :func:`weekly_cd_text` / :func:`one_gem_text` fill it in).
+MSG_DAILY_CD = "Twój klejnot umiejętności regeneruje się! Będzie gotowy {when} <:Bedge:970576892874854400>"
+MSG_WEEKLY_CD = ("Twój klejnot umiejętności regeneruje się aż do nowego tygodnia! Będzie gotowy {when} "
                  "<:Bedge:970576892874854400>")
 MSG_ONE_GEM_A_DAY = ("Dziś użyłeś już klejnotu umiejętności, <@{player_id}>! Jednego dnia działa tylko jeden "
-                     "klejnot - spróbuj jutro <:Bedge:970576892874854400>")
+                     "klejnot - spróbuj ponownie {when} <:Bedge:970576892874854400>")
 MSG_REST_DONE = ("Wszyscy podróżnicy, którzy skorzystali z zaproszenia, mogą ponownie ruszyć na polowanie! "
                  "<:Up:912798893304086558>")
+# The rest's sign-up panel.
+REST_BUTTON = "Odpocznij"
+REST_ROSTER = "Odpoczywają ({count})"
+REST_ROSTER_EMPTY = "Na razie nikt nie odpoczywa..."
+REST_ROSTER_MORE = "\n...i {count} więcej"
+#: Mentions shown on the panel (everybody who clicked rests, shown or not).
+REST_ROSTER_SHOWN = 40
+MSG_REST_UNTIL = "⏳ Odpoczynek kończy się {when}."
+MSG_REST_OVER = "⌛ Odpoczynek dobiegł końca."
+MSG_ALREADY_RESTING = "Już odpoczywasz <:Bedge:970576892874854400>"
+#: Seconds between two edits of the rest's roster.
+ROSTER_EDIT_GAP = 1.0
+# The pouch's menu (``$klejnoty``).
+POUCH_PLACEHOLDER = "Wybierz aktywny klejnot..."
+#: Seconds the menu stays under the list without being used.
+POUCH_MENU_SECONDS = 180.0
+POUCH_ACTIVE = "aktywny"
+POUCH_REGENERATING = "regeneruje się"
 MSG_SHINY_ASK = "Oznacz użytkownika, którego towarzysz ma stać się wyjątkowy!"
 MSG_SHINY_TIMEOUT = "Moc kamienia zanikła..."
 MSG_NO_SUCH_TRAVELLER = ("Niestety podany podróżnik nie istnieje. "
@@ -177,7 +204,8 @@ MSG_ALREADY_ACTIVE = "**{name}** jest już Twoim aktywnym klejnotem, <@{player_i
 MSG_GEM_CHOSEN = ("Aktywny klejnot <@{player_id}>: **{name}**. Użyjesz go komendą **$skill**. "
                   "Pozostałe klejnoty czekają w sakwie (**$klejnoty**).")
 POUCH_TITLE = "Sakwa z klejnotami umiejętności"
-POUCH_FOOTER = "Działa tylko aktywny klejnot, jeden dziennie. Zmiana: $wybierzklejnot numer. Użycie: $skill."
+POUCH_FOOTER = ("Działa tylko aktywny klejnot, jeden dziennie. Zmiana: menu pod listą albo $wybierzklejnot "
+                "numer. Użycie: $skill.")
 # New in v2 (the legacy bot had no such situations, see the module docstring).
 MSG_EVENT_IN_THE_WAY = ("Trwa teraz inne wydarzenie, <@{player_id}>! Klejnot przywołania nie został użyty - "
                         "spróbuj ponownie, gdy się zakończy <:Bedge:970576892874854400>")
@@ -220,6 +248,34 @@ def _affected(command_tag: str) -> int:
 def gem_name(skill_variant: int) -> str:
     """The name a gem of this variant gets when it is generated."""
     return GEM_NAMES.get(int(skill_variant), UNKNOWN_GEM_NAME)
+
+
+def _daily():
+    """features/daily.py, imported on first use (it imports modifiers / pets itself)."""
+    from . import daily
+    return daily
+
+
+def next_daily_regeneration() -> datetime:
+    """When the daily gems (and the "one gem a day" rule) regenerate: the next daily reset."""
+    return _daily().next_daily_reset()
+
+
+def next_weekly_regeneration() -> datetime:
+    """When the weekly gems regenerate: the end of the ranking season (Monday 15:00)."""
+    return _daily().next_season_end()
+
+
+def daily_cd_text() -> str:
+    return MSG_DAILY_CD.format(when=ui.when(next_daily_regeneration()))
+
+
+def weekly_cd_text() -> str:
+    return MSG_WEEKLY_CD.format(when=ui.when(next_weekly_regeneration()))
+
+
+def one_gem_text(player_id: int) -> str:
+    return MSG_ONE_GEM_A_DAY.format(player_id=player_id, when=ui.when(next_daily_regeneration()))
 
 
 async def _announce(scene: "Scene", text: str) -> None:
@@ -467,19 +523,18 @@ def _gem_label(row: Any) -> str:
     return UNKNOWN_GEM_NAME if name is None else str(name)
 
 
-async def show_skills(scene: "Scene") -> bool:
-    """``$klejnoty``: every gem of the author with its number; False when they have none."""
-    bot = scene.bot
-    player_id = int(scene.author.id)
+async def _load_pouch(bot: "AlterBot", player_id: int) -> tuple[int, list[tuple[int, Any]]]:
+    """``(active gem id, numbered gems)`` of a player (no gems: an empty list)."""
     await _ensure_pouch(bot)
     async with bot.db.transaction() as con:
         owned = await _owned_gems(con, player_id)
         gems = await _numbered_gems(con, *owned) if owned is not None else []
-    if not gems:
-        await scene.send(MSG_NO_SKILL.format(player_id=player_id))
-        return False
-    active = owned[0]
+    return (owned[0] if owned is not None else 0), gems
 
+
+def _pouch_embed(bot: "AlterBot", player_id: int, active: int, gems: Sequence[tuple[int, Any]],
+                 *, menu: bool) -> discord.Embed:
+    """The ``$klejnoty`` list: every gem with its number, the active one marked, regeneration times."""
     lines = []
     for number, (skill_id, row) in enumerate(gems, start=1):
         cooldown = _cooldown_note(bot, player_id, _int(row["skill_variant"]))
@@ -487,20 +542,116 @@ async def show_skills(scene: "Scene") -> bool:
             lines.append(f"**{number}. {_gem_label(row)}** ✅ aktywny{cooldown}")
         else:
             lines.append(f"{number}. {_gem_label(row)}{cooldown}")
+    how = ("w menu pod listą albo komendą **$wybierzklejnot numer**" if menu
+           else "komendą **$wybierzklejnot numer**")
     description = (f"Oto Twoje klejnoty umiejętności, <@{player_id}>.\n\n" + "\n".join(lines)
-                   + "\n\nZmień aktywny klejnot komendą **$wybierzklejnot numer**, "
+                   + f"\n\nZmień aktywny klejnot {how}, "
                      "a szczegóły aktywnego zobaczysz przez **$pokazskill**.")
     embed = discord.Embed(title=POUCH_TITLE, description=description, color=SKILL_EMBED_COLOR)
     embed.set_footer(text=POUCH_FOOTER)
-    await scene.send(embed=embed)
+    return embed
+
+
+def _pouch_options(bot: "AlterBot", player_id: int, active: int,
+                   gems: Sequence[tuple[int, Any]]) -> list[discord.SelectOption]:
+    """One menu entry per gem; the value is the gem's number (as in ``$wybierzklejnot``)."""
+    options = []
+    for number, (skill_id, row) in enumerate(gems, start=1):
+        if skill_id == active:
+            note = POUCH_ACTIVE
+        elif _cooldown_note(bot, player_id, _int(row["skill_variant"])):
+            note = POUCH_REGENERATING
+        else:
+            note = None
+        options.append(discord.SelectOption(label=f"{number}. {_gem_label(row)}"[:100], value=str(number),
+                                            description=note, emoji="💎", default=skill_id == active))
+    return options[:25]
+
+
+class _PouchMenu(ui.PanelView):
+    """The menu under ``$klejnoty``: choosing a gem makes it the active one (= ``$wybierzklejnot``).
+
+    Only the owner of the list may use it.  Choosing is gameplay: boss channel
+    only, not while the channel is busy, not for dead hunters (:func:`ui.gate`),
+    while the list itself may be shown anywhere.  A choice repaints the list
+    and is confirmed privately.
+    """
+
+    def __init__(self, owner: Any, options: list[discord.SelectOption]) -> None:
+        super().__init__(owner=owner, timeout=POUCH_MENU_SECONDS)
+        self.select: discord.ui.Select = discord.ui.Select(
+            custom_id=ui.FLOW_PREFIX + "skills:choose", placeholder=POUCH_PLACEHOLDER,
+            min_values=1, max_values=1, options=options)
+        self.select.callback = self._chosen  # type: ignore[method-assign]
+        self.add_item(self.select)
+
+    async def _chosen(self, interaction: Any) -> None:
+        if not await ui.gate(interaction):
+            return
+        bot = interaction.client
+        player_id = int(interaction.user.id)
+        number = self.select.values[0] if self.select.values else ""
+        status, name = await _choose(bot, player_id, number)
+        text = _choice_text(status, player_id, name)
+        if status == "chosen":
+            active, gems = await _load_pouch(bot, player_id)
+            if len(gems) > 1:
+                self.select.options = _pouch_options(bot, player_id, active, gems)
+                await ui.update(interaction, embed=_pouch_embed(bot, player_id, active, gems, menu=True),
+                                view=self)
+            else:
+                await ui.update(interaction, embed=_pouch_embed(bot, player_id, active, gems, menu=False),
+                                view=None)
+                await self.finish()
+        await ui.reply(interaction, text)
+
+
+async def show_skills(scene: "Scene") -> bool:
+    """``$klejnoty``: every gem of the author with its number; False when they have none.
+
+    With two gems or more a menu under the list makes another gem the active
+    one (see :class:`_PouchMenu`).  A private scene (:class:`ui.WhisperScene`)
+    gets the list without the menu: its menu could not be told apart from a
+    stale one.
+    """
+    bot = scene.bot
+    player_id = int(scene.author.id)
+    active, gems = await _load_pouch(bot, player_id)
+    if not gems:
+        await scene.send(MSG_NO_SKILL.format(player_id=player_id))
+        return False
+    menu = len(gems) > 1 and not isinstance(scene, ui.WhisperScene)
+    embed = _pouch_embed(bot, player_id, active, gems, menu=menu)
+    if not menu:
+        await scene.send(embed=embed)
+        return True
+    panel = _PouchMenu(scene.author, _pouch_options(bot, player_id, active, gems))
+    try:
+        await panel.send(scene.channel, embed=embed)
+    except BaseException:
+        panel.stop()
+        raise
     return True
 
 
 def _cooldown_note(bot: "AlterBot", player_id: int, skill_variant: int) -> str:
-    """" (regeneruje się ...)" when a gem of this kind cannot be used right now."""
+    """" (regeneruje się, gotowy <za 5 godzin>)" when a gem of this kind cannot be used right now."""
     if skill_variant in WEEKLY_GEMS and load_weekly_skill(bot, player_id):
-        return " *(regeneruje się do końca tygodnia)*"
-    return " *(regeneruje się do jutra)*" if load_daily_skill(bot, player_id) else ""
+        return f" *(regeneruje się, gotowy {ui.when(next_weekly_regeneration())})*"
+    if load_daily_skill(bot, player_id):
+        return f" *(regeneruje się, gotowy {ui.when(next_daily_regeneration())})*"
+    return ""
+
+
+def _choice_text(status: str, player_id: int, name: str) -> str:
+    """The answer to ``$wybierzklejnot`` / a choice in the menu."""
+    if status == "none":
+        return MSG_NO_SKILL.format(player_id=player_id)
+    if status == "bad_number":
+        return MSG_NO_SUCH_NUMBER.format(player_id=player_id)
+    if status == "already":
+        return MSG_ALREADY_ACTIVE.format(player_id=player_id, name=name)
+    return MSG_GEM_CHOSEN.format(player_id=player_id, name=name)
 
 
 async def choose_skill(scene: "Scene", number: Any) -> bool:
@@ -508,8 +659,18 @@ async def choose_skill(scene: "Scene", number: Any) -> bool:
 
     The gem that was active goes to the pouch.  True when the active gem changed.
     """
-    bot = scene.bot
     player_id = int(scene.author.id)
+    status, name = await _choose(scene.bot, player_id, number)
+    await scene.send(_choice_text(status, player_id, name))
+    return status == "chosen"
+
+
+async def _choose(bot: "AlterBot", player_id: int, number: Any) -> tuple[str, str]:
+    """Make gem ``number`` the active one; ``(status, gem name)``.
+
+    Status: ``none`` (no gems), ``bad_number``, ``already`` (it is the active
+    one) or ``chosen``.
+    """
     try:
         wanted = int(str(number).strip())
     except (TypeError, ValueError):
@@ -542,16 +703,7 @@ async def choose_skill(scene: "Scene", number: Any) -> bool:
                                       player_id, skill_id)
                     status = "chosen"
                     log.info("Player %s made the skill gem %s active (was %s).", player_id, skill_id, active)
-
-    if status == "none":
-        await scene.send(MSG_NO_SKILL.format(player_id=player_id))
-    elif status == "bad_number":
-        await scene.send(MSG_NO_SUCH_NUMBER.format(player_id=player_id))
-    elif status == "already":
-        await scene.send(MSG_ALREADY_ACTIVE.format(player_id=player_id, name=name))
-    else:
-        await scene.send(MSG_GEM_CHOSEN.format(player_id=player_id, name=name))
-    return status == "chosen"
+    return status, name
 
 
 # ==================================== SHOWING AND USING ========================================
@@ -608,10 +760,10 @@ async def use_skill(scene: "Scene", player: Any) -> int:
     # whichever gem it is (owner's rule for players who collect several gems).
     weekly = skill_variant in WEEKLY_GEMS
     if weekly and load_weekly_skill(bot, player_id):
-        await scene.send(MSG_WEEKLY_CD)
+        await scene.send(weekly_cd_text())
         return 0
     if load_daily_skill(bot, player_id):
-        await scene.send(MSG_ONE_GEM_A_DAY.format(player_id=player_id) if weekly else MSG_DAILY_CD)
+        await scene.send(one_gem_text(player_id) if weekly else daily_cd_text())
         return 0
 
     if skill_variant == REST:
@@ -651,96 +803,104 @@ async def use_skill(scene: "Scene", player: Any) -> int:
 
 # ==================================== THE GEMS =================================================
 
-def _is_rest_emoji(emoji: Any) -> bool:
-    return getattr(emoji, "id", None) == REST_EMOJI_ID or str(emoji) == REST_EMOJI
+class _RestBoard:
+    """The rest's invitation: an "Odpocznij" button, the end of the rest and who is resting.
 
-
-@contextlib.contextmanager
-def _rest_clicks(bot: "AlterBot") -> Iterator[list[tuple[int, Any, bool]]]:
-    """Record every click on the rest emoji as ``(message id, user, added?)`` during the block.
-
-    Listeners that stay for the whole rest: a click is never lost between two
-    waits, taking a reaction back counts as well, and - because they are
-    registered before the invitation is sent - neither is the fastest player.
+    Every member who clicks while the rest lasts rests (once - a second click is
+    answered privately); dead hunters cannot click.  The members are recorded
+    the moment they click, so a purged invitation loses nobody.  The roster is
+    repainted by a small background task, at most once per
+    :data:`ROSTER_EDIT_GAP` seconds.  Use it as ``async with``: the button is
+    taken off when the block ends.
     """
-    clicks: list[tuple[int, Any, bool]] = []
 
-    async def on_reaction_add(reaction: Any, user: Any) -> None:
-        if _is_rest_emoji(reaction.emoji):
-            clicks.append((reaction.message.id, user, True))
+    def __init__(self, embed: discord.Embed) -> None:
+        self.embed = embed
+        self.members: list[Any] = []
+        self._ends_at: Any = None
+        self._dirty = asyncio.Event()
+        self._painter: asyncio.Task | None = None
+        self.view = ui.ClickView([ui.Choice("rest", REST_BUTTON, emoji=REST_EMOJI,
+                                            style=discord.ButtonStyle.primary)], allow=self._clicked)
 
-    async def on_reaction_remove(reaction: Any, user: Any) -> None:
-        if _is_rest_emoji(reaction.emoji):
-            clicks.append((reaction.message.id, user, False))
+    async def _clicked(self, interaction: Any, key: str) -> str | None:
+        # Synchronous check-and-add: two quick clicks of one member count once.
+        member = interaction.user
+        if any(resting.id == member.id for resting in self.members):
+            return MSG_ALREADY_RESTING
+        self.members.append(member)
+        self._dirty.set()
+        return ui.DROP  # acknowledged by the view; the roster shows the click
 
-    with io.reaction_listener(bot, on_reaction_add, on_reaction_remove):
-        yield clicks
+    def render(self, *, over: bool = False) -> discord.Embed:
+        status = MSG_REST_OVER if over else MSG_REST_UNTIL.format(when=ui.when(self._ends_at))
+        embed = self.embed.copy()
+        embed.description = f"{self.embed.description or ''}\n\n{status}"
+        embed.clear_fields()
+        mentions = [f"<@{member.id}>" for member in self.members]
+        roster = ", ".join(mentions[:REST_ROSTER_SHOWN]) or REST_ROSTER_EMPTY
+        if len(mentions) > REST_ROSTER_SHOWN:
+            roster += REST_ROSTER_MORE.format(count=len(mentions) - REST_ROSTER_SHOWN)
+        embed.add_field(name=REST_ROSTER.format(count=len(mentions)), value=roster[:1024], inline=False)
+        return embed
 
+    async def open(self, channel: Any, seconds: float) -> Any:
+        """Post the invitation; the rest ends in ``seconds``.  Sending may raise, like :func:`io.send`."""
+        self._ends_at = clock.utcnow() + timedelta(seconds=seconds)
+        message = await self.view.send(channel, embed=self.render())
+        self._painter = asyncio.ensure_future(self._paint())
+        return message
 
-async def _rest_reactors(scene: "Scene", message: Any) -> list[int] | None:
-    """Ids of the people who have the rest emoji on ``message`` right now, read from Discord.
+    async def _paint(self) -> None:
+        while True:
+            await self._dirty.wait()
+            self._dirty.clear()
+            await self.view.refresh(embed=self.render())  # never raises
+            await asyncio.sleep(ROSTER_EDIT_GAP)
 
-    None when Discord cannot be asked: the caller then uses the clicks it heard.
-    Reading the final list (as the legacy bot did) also covers clicks made
-    while the connection was down.
-    """
-    try:
-        fresh = await io.retry(lambda: scene.channel.fetch_message(message.id), what="fetch_message")
-        ids: list[int] = []
-        for reaction in fresh.reactions:
-            if not _is_rest_emoji(reaction.emoji):
-                continue
-            async for user in reaction.users():
-                if not getattr(user, "bot", False):
-                    ids.append(user.id)
-        return ids
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - the clicks heard live are good enough
-        log.info("Rest reactions could not be read from Discord (%s: %s); using the ones heard live.",
-                 type(exc).__name__, exc)
-        return None
+    async def close(self) -> None:
+        """Final roster, "over", button off.  Never raises."""
+        if self._painter is not None:
+            self._painter.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._painter
+            self._painter = None
+        await self.view.close(embed=self.render(over=True))
+
+    async def __aenter__(self) -> "_RestBoard":
+        return self
+
+    async def __aexit__(self, *exc: Any) -> None:
+        await self.close()
 
 
 async def skill_rest(scene: "Scene") -> bool:
-    """Skill which organizes meal. Everyone who use reaction can go hunting again."""
+    """Skill which organizes meal. Everyone who clicks "Odpocznij" can go hunting again."""
     bot = scene.bot
     author = scene.author
 
     if load_daily_skill(bot, author.id):
-        await scene.send(MSG_DAILY_CD)
+        await scene.send(daily_cd_text())
         return False
 
     e_title = f"<:peepofat:1062666941405331507> {author.name} zaprasza na odpoczynek! <:peepofat:1062666941405331507>"
 
     e_descr = ('Wspaniały dzień! Wszyscy bohaterowie zostali zaproszeni na ucztę!\n\n'
-               '**Zostaw reakcję, żeby wypocząć i móc ponownie wyruszyć na polowanie. '
+               f'**Kliknij „{REST_BUTTON}”, żeby wypocząć i móc ponownie wyruszyć na polowanie. '
                'Odpoczynek potrwa maksymalnie 5 minut.**')
 
     embed = discord.Embed(title=e_title, description=e_descr, color=REST_COLOR)
+    seconds = REST_SECONDS_DEBUG if bot.debug else REST_SECONDS
 
-    with _rest_clicks(bot) as clicks:
-        await _send_picture(scene, ASSETS_DIR / "events" / "rest" / f"{random.randint(0, REST_IMAGES - 1)}.png")
-        msg = await scene.send(embed=embed)
-        if not await io.safe_react(msg, REST_EMOJI):
-            log.warning("Could not add the rest reaction; players have to pick the emoji themselves.")
+    await _send_picture(scene, ASSETS_DIR / "events" / "rest" / f"{random.randint(0, REST_IMAGES - 1)}.png")
+    async with _RestBoard(embed) as board:
+        await board.open(scene.channel, seconds)
         log.info("Rest of %s started.", author)
-        await timing.pause(REST_SECONDS_DEBUG if bot.debug else REST_SECONDS)
+        await timing.pause(seconds)
 
-    # Who has the reaction on the invitation at the end (clicks taken back do not count).
-    resting: dict[int, None] = {}
-    for message_id, user, added in clicks:
-        if message_id != msg.id or getattr(user, "bot", False):
-            continue
-        if added:
-            resting[user.id] = None
-        else:
-            resting.pop(user.id, None)
-    fetched = await _rest_reactors(scene, msg)
-    if fetched is not None:
-        resting.update(dict.fromkeys(fetched))  # clicks made while the connection was down
+    # Everybody who clicked and is still on the server.
     guild = scene.guild
-    users = [str(user_id) for user_id in resting if guild.get_member(user_id) is not None]
+    users = [str(member.id) for member in board.members if guild.get_member(member.id) is not None]
     log.info("Rest of %s is over: %d traveller(s) rested.", author, len(users))
 
     if users:
@@ -778,7 +938,7 @@ async def skill_make_shiny(scene: "Scene") -> bool:
     author = scene.author
 
     if load_weekly_skill(bot, author.id):
-        await scene.send(MSG_WEEKLY_CD)
+        await scene.send(weekly_cd_text())
         return False
 
     result = await _ask_for_traveller(scene)
@@ -820,7 +980,7 @@ async def skill_spawn_boss(scene: "Scene") -> bool:
     bot = scene.bot
 
     if load_weekly_skill(bot, scene.author.id):
-        await scene.send(MSG_WEEKLY_CD)
+        await scene.send(weekly_cd_text())
         return False
     if not bot.boss_cycle.can_summon():
         await scene.send(MSG_BOSS_IN_THE_WAY.format(player_id=scene.author.id))
@@ -871,7 +1031,7 @@ async def skill_shrine_festival(scene: "Scene") -> bool:
     bot = scene.bot
 
     if load_daily_skill(bot, scene.author.id):
-        await scene.send(MSG_DAILY_CD)
+        await scene.send(daily_cd_text())
         return False
 
     await io.safe_react(scene.message, FESTIVAL_EMOJI)
@@ -886,7 +1046,7 @@ async def skill_slow(scene: "Scene") -> bool:
     bot = scene.bot
 
     if load_daily_skill(bot, scene.author.id):
-        await scene.send(MSG_DAILY_CD)
+        await scene.send(daily_cd_text())
         return False
 
     await modifiers.modify_modifiers(bot, "time_increased_perc", SLOW_TIME_BONUS)
@@ -899,7 +1059,7 @@ async def skill_increase_loot(scene: "Scene") -> bool:
     bot = scene.bot
 
     if load_daily_skill(bot, scene.author.id):
-        await scene.send(MSG_DAILY_CD)
+        await scene.send(daily_cd_text())
         return False
 
     await _apply_effects(bot, "skill_increase_loot", [

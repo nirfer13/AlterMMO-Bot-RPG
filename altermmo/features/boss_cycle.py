@@ -23,9 +23,20 @@ Timeline of one cycle (production timings)::
     WAITING    sleep until the arrival time
     PRE_SPAWN  apply shrine modifiers to the rarity, warn pet owners, post
                "Wiatr wzmaga się...", wait 4-7 minutes, show the boss
-    VISIBLE    wait for $zaatakuj
+    VISIBLE    wait for $zaatakuj (or a click on "Zaatakuj")
     ENGAGED    choosing the fighter / gathering a party
     FIGHTING   the fight
+
+The "Zaatakuj" button
+---------------------
+The boss picture (:func:`altermmo.features.boss.send_boss_image`) carries a
+permanent button (:class:`AttackView`, fixed ``custom_id``, registered by the
+boss cog): a click is the same as typing ``$zaatakuj`` - the same guards, but
+the refusals are private.  The cycle remembers the messages that carry the
+button and takes it off as soon as the boss is engaged or leaves; when a fight
+is interrupted and the boss stays, the notice about it carries the button
+again.  While a lobby runs, a click on an old button is handed to the lobby
+(:attr:`BossCycle.lobby_door`), like a typed ``$zaatakuj`` is.
 """
 
 from __future__ import annotations
@@ -34,9 +45,11 @@ import asyncio
 import logging
 import random
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
-from ..core import clock, io
+import discord
+
+from ..core import clock, io, ui
 from ..core.scene import Scene
 from ..core.state import BossInfo, BossPhase, EventType
 from .fight_types import FightInterrupted, FightResult
@@ -53,8 +66,14 @@ MSG_WIND = ("Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, "
             "a ziemią targają coraz mocniejsze wstrząsy... <:MonkaS:882181709100097587>")
 MSG_NOT_ATTACKABLE = "Nie możesz zaatakować bossa, poczekaj na pojawienie się kolejnego <@{user_id}>!"
 MSG_FIGHT_INTERRUPTED_STAYS = ("Wystąpił problem techniczny i walka została przerwana "
-                               "<:Sadge:936907659142111273> Boss wciąż tu jest - wpisz **$zaatakuj**, "
-                               "żeby spróbować ponownie!")
+                               "<:Sadge:936907659142111273> Boss wciąż tu jest - kliknij **Zaatakuj** "
+                               "albo wpisz **$zaatakuj**, żeby spróbować ponownie!")
+MSG_BOSS_TAKEN = "Ktoś już walczy z tym bossem - poczekaj na kolejnego! <:Bedge:970576892874854400>"
+
+#: The permanent button under the boss picture.
+ATTACK_BUTTON_ID = ui.PREFIX + "boss:attack"
+ATTACK_LABEL = "Zaatakuj"
+ATTACK_EMOJI = "⚔️"
 MSG_FIGHT_INTERRUPTED_GONE = ("Wystąpił problem techniczny i walka została przerwana "
                               "<:Sadge:936907659142111273> Boss pojawi się później!")
 MSG_BOSS_LEFT = ("Nikt nie odważył się stanąć do walki... Potwór odchodzi znudzony. "
@@ -89,6 +108,54 @@ def final_rarity(base_rarity: int, rarity_boost: int, now: datetime, *, debug: b
     return rarity
 
 
+# -- the "Zaatakuj" button -------------------------------------------------------------
+
+class AttackView(ui.GameView):
+    """The permanent, stateless "Zaatakuj" button (works on pictures from before a restart)."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label=ATTACK_LABEL, emoji=ATTACK_EMOJI, style=discord.ButtonStyle.primary,
+                       custom_id=ATTACK_BUTTON_ID)
+    async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await handle_attack_click(interaction)
+
+
+async def with_attack_button(send: Callable[[AttackView], Awaitable[Any]]) -> Any:
+    """Post a message with the "Zaatakuj" button: ``await with_attack_button(lambda view: ...send(view=view))``.
+
+    The view of the single message is stopped right away (discord.py would
+    otherwise keep one view per boss for ever); clicks are answered by the
+    view the boss cog registers at start-up (same ``custom_id``).
+    """
+    view = AttackView()
+    try:
+        return await send(view)
+    finally:
+        view.stop()
+
+
+async def handle_attack_click(interaction: Any) -> None:
+    """A click on "Zaatakuj": exactly ``$zaatakuj``, with private refusals.
+
+    The click is acknowledged as soon as the boss is claimed; the encounter
+    (lobby and fight) then runs inside this handler.
+    """
+    bot = interaction.client
+    # Same guards as the command: the boss channel only (and no dead hunters -
+    # they cannot type the command either).  ``$zaatakuj`` is not blocked by
+    # the busy flag, so the button is not either.
+    if not await ui.gate(interaction, unless_busy=False):
+        return
+    cycle: BossCycle = bot.boss_cycle
+    door = cycle.lobby_door
+    if bot.state.boss_phase is BossPhase.ENGAGED and door is not None:
+        await door(interaction)  # an old button clicked while a lobby runs: like a typed $zaatakuj
+        return
+    await cycle.attack(ui.scene_of(interaction), interaction=interaction)
+
+
 class BossCycle:
     """Owns the boss phase transitions.  One instance lives on ``bot.boss_cycle``."""
 
@@ -108,6 +175,41 @@ class BossCycle:
         self._wind_sent = False
         self._appears_at: datetime | None = None
         self._spawn_notice_message: Any = None
+        #: Messages that carry the "Zaatakuj" button right now.
+        self._attack_buttons: list[Any] = []
+        #: Where the button was taken off when the boss was engaged (restored when needed).
+        self._engaged_buttons: list[Any] = []
+        #: Set by a running lobby: ``async (interaction) -> None`` takes a click on an old
+        #: "Zaatakuj" button as a typed ``$zaatakuj`` (and answers it).
+        self.lobby_door: Callable[[Any], Awaitable[None]] | None = None
+
+    # -- the "Zaatakuj" button ------------------------------------------------------
+
+    def note_attack_button(self, message: Any) -> None:
+        """Remember a message that carries the "Zaatakuj" button (taken off when the boss is engaged)."""
+        if message is not None and message not in self._attack_buttons:
+            self._attack_buttons.append(message)
+
+    async def retire_attack_buttons(self) -> list[Any]:
+        """Take the "Zaatakuj" button off every message that carries it.  Never raises.
+
+        Returns those messages.  A purged message is simply skipped.
+        """
+        messages, self._attack_buttons = self._attack_buttons, []
+        for message in messages:
+            await ui.retire(message)
+        return messages
+
+    async def _restore_attack_buttons(self, messages: list[Any]) -> None:
+        """Put the button back on ``messages`` (when no new message could carry it).  Never raises."""
+        for message in messages:
+            try:
+                await with_attack_button(lambda view, message=message: message.edit(view=view))
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - usually: the message was purged meanwhile
+                continue
+            self.note_attack_button(message)
 
     # -- features (imported lazily: they import this module's types) -------------
 
@@ -143,6 +245,7 @@ class BossCycle:
         self.bot.supervisor.stop(LOOP_NAME)
         self._forget_schedule()
         await self.bot.state.set_boss_phase(BossPhase.IDLE)
+        await self.retire_attack_buttons()
         await self._database.update_boss_table(self.bot, 0, 0, False)
 
     async def reset(self) -> None:
@@ -154,6 +257,7 @@ class BossCycle:
         bot.state.close_event()
         bot.state.boss = BossInfo()
         await bot.state.set_boss_phase(BossPhase.IDLE)
+        await self.retire_attack_buttons()
         await self._guarded("reset boss table", self._database.update_boss_table(bot, 0, 0, False))
         await self._guarded("post-fight reset", self._boss.reset_end(bot))
         self._restored = True  # the schedule was wiped on purpose - do not resume it
@@ -402,6 +506,7 @@ class BossCycle:
         log.info("Nobody attacked the summoned boss (rarity %s); it leaves, the scheduled boss is due.",
                  bot.state.boss.rarity)
         try:
+            await self.retire_attack_buttons()  # in case clearing the channel fails
             await io.clear_channel(bot.boss_channel)
             await io.send_patient(bot.boss_channel, MSG_SUMMONED_LEFT)
         finally:
@@ -512,18 +617,33 @@ class BossCycle:
 
     # -- fights -----------------------------------------------------------------
 
-    async def attack(self, scene: Scene) -> None:
-        """``$zaatakuj``: claim the visible boss and run the whole encounter."""
+    async def attack(self, scene: Scene, *, interaction: Any = None) -> None:
+        """``$zaatakuj``: claim the visible boss and run the whole encounter.
+
+        ``interaction``: set when the attack is a click on "Zaatakuj" - the
+        refusals are then private answers to the click, and the click is
+        acknowledged as soon as the boss is claimed.
+        """
         bot = self.bot
         state = bot.state
         if state.boss_phase is BossPhase.ENGAGED:
-            return  # other players' $zaatakuj during the lobby is handled by the lobby itself
-        if not state.try_engage_boss():
-            await io.send(scene.channel, MSG_NOT_ATTACKABLE.format(user_id=scene.author.id))
+            # Other players' $zaatakuj during the lobby is handled by the lobby itself.
+            if interaction is not None:
+                await ui.reply(interaction, MSG_BOSS_TAKEN)
             return
+        if not state.try_engage_boss():
+            refusal = MSG_NOT_ATTACKABLE.format(user_id=scene.author.id)
+            if interaction is not None:
+                await ui.reply(interaction, refusal)
+            else:
+                await io.send(scene.channel, refusal)
+            return
+        if interaction is not None:
+            await ui.ack(interaction)
         # Wake the cycle loop: it then watches the encounter with its time limit
         # (try_engage_boss is synchronous and cannot notify the waiters itself).
         await state.set_boss_phase(BossPhase.ENGAGED)
+        self._engaged_buttons = await self.retire_attack_buttons()
 
         info = state.boss
         try:
@@ -559,7 +679,8 @@ class BossCycle:
     async def _interrupted(self, scene: Scene, reason: str) -> None:
         """A fight ended because of a technical problem, not because of the players."""
         bot = self.bot
-        if bot.settings.boss_returns_after_interrupted_fight:
+        stays = bot.settings.boss_returns_after_interrupted_fight
+        if stays:
             await bot.state.set_boss_phase(BossPhase.VISIBLE)
             message = MSG_FIGHT_INTERRUPTED_STAYS
         else:
@@ -567,10 +688,22 @@ class BossCycle:
             message = MSG_FIGHT_INTERRUPTED_GONE
         # Notify in the background: Discord may be unreachable right now and the
         # state must not wait for it.
-        asyncio.ensure_future(self._notify_interrupted(scene, message, reason))
+        asyncio.ensure_future(self._notify_interrupted(scene, message, reason, attack_button=stays))
 
-    async def _notify_interrupted(self, scene: Scene, message: str, reason: str) -> None:
-        await io.send_patient(scene.channel, message)
+    async def _notify_interrupted(self, scene: Scene, message: str, reason: str, *,
+                                  attack_button: bool = False) -> None:
+        if attack_button:
+            # The boss stays: the notice carries the "Zaatakuj" button.  When it
+            # cannot be posted, the button goes back under the boss picture.
+            engaged, self._engaged_buttons = self._engaged_buttons, []
+            posted = await with_attack_button(
+                lambda view: io.send_patient(scene.channel, message, view=view))
+            if posted is not None:
+                self.note_attack_button(posted)
+            else:
+                await self._restore_attack_buttons(engaged)
+        else:
+            await io.send_patient(scene.channel, message)
         await self.bot.log_to_owner(f"Walka z bossem przerwana z powodu błędu: `{reason}`", ping=True)
 
     async def finish(self, result: FightResult) -> None:
@@ -580,7 +713,9 @@ class BossCycle:
         the boss phase always moves on, so the next boss always comes.
         """
         bot = self.bot
+        self._engaged_buttons = []
         try:
+            await self.retire_attack_buttons()  # e.g. a boss that left unattacked
             await self._guarded("post-fight reset", self._boss.reset_end(bot))
             for loser in result.losers_to_ban:
                 await self._guarded(f"dead hunter role for {loser}", self._boss.set_dead_hunters(bot, loser))

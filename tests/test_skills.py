@@ -13,18 +13,17 @@ import discord
 import pytest
 import pytest_asyncio
 
-from altermmo.core import challenge, guards, timing
+from altermmo.core import challenge, guards, timing, ui
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossPhase
+from altermmo.features import daily as real_daily
 from altermmo.features import modifiers, skills
 
 from fakes import FakeMember, FakeMessage
 
 NO_SKILL = "Niestety nie posiadasz umiejętności <@{}> <:Sadge:936907659142111273> Klejnoty umiejętności są " \
            "bardzo rzadkie, więc musisz się bardzo postarać, żeby je zdobyć!"
-DAILY_CD = "Twój klejnot umiejętności regeneruje się! Spróbuj jutro! <:Bedge:970576892874854400>"
-WEEKLY_CD = "Twój klejnot umiejętności regeneruje się! Spróbuj w nadchodzącym tygodniu! <:Bedge:970576892874854400>"
 REST_DONE = "Wszyscy podróżnicy, którzy skorzystali z zaproszenia, mogą ponownie ruszyć na polowanie! " \
             "<:Up:912798893304086558>"
 ASK = "Oznacz użytkownika, którego towarzysz ma stać się wyjątkowy!"
@@ -42,6 +41,18 @@ PET_DEFAULTS = dict(pet_name="Towarzysz", pet_lvl=1, pet_skills=0, quality="Stan
 
 
 # -- helpers --------------------------------------------------------------------------
+
+def daily_cd() -> str:
+    """The daily "regenerating" text: the countdown to the next daily reset (02:30 / Monday 15:00)."""
+    stamp = int(real_daily.next_daily_reset().timestamp())
+    return f"Twój klejnot umiejętności regeneruje się! Będzie gotowy <t:{stamp}:R> {BEDGE}"
+
+
+def weekly_cd() -> str:
+    """The weekly "regenerating" text: the countdown to the end of the season (Monday 15:00)."""
+    stamp = int(real_daily.next_season_end().timestamp())
+    return f"Twój klejnot umiejętności regeneruje się aż do nowego tygodnia! Będzie gotowy <t:{stamp}:R> {BEDGE}"
+
 
 async def _insert(db, table: str, values: dict) -> None:
     marks = ", ".join(f"${index}" for index in range(1, len(values) + 1))
@@ -112,27 +123,23 @@ def modifier_file(game) -> dict:
     return {key: value for key, value in game.bot.store.modifiers.load().items() if value}
 
 
-class FakeReaction:
-    def __init__(self, message, emoji: str) -> None:
-        self.message = message
-        self.emoji = emoji
+def rest_clicks(game, monkeypatch, *clickers, during=None) -> list:
+    """While the rest lasts (instead of its five minutes) ``clickers`` click "Odpocznij" one by one.
 
+    ``during(invitation)`` runs after the clicks.  Returns the interactions (filled during the rest).
+    """
+    answers: list = []
 
-def react(game, message, member, emoji: str = BEDGE) -> None:
-    game.bot.dispatch("reaction_add", FakeReaction(message, emoji), member)
+    async def pause(seconds):
+        invitation = game.last_with_buttons()
+        assert invitation is not None and INVITATION in invitation.embeds[0].title
+        for member in clickers:
+            answers.append(await game.click(invitation, member, "rest"))
+        if during is not None:
+            await during(invitation)
 
-
-def unreact(game, message, member, emoji: str = BEDGE) -> None:
-    game.bot.dispatch("reaction_remove", FakeReaction(message, emoji), member)
-
-
-def on_invitation(game, callback) -> None:
-    """Run ``callback(invitation message)`` the moment the rest invitation is posted."""
-    def hook(message: FakeMessage) -> None:
-        if message.embeds and INVITATION in str(message.embeds[0].title):
-            callback(message)
-
-    game.channel.send_hooks.append(hook)
+    monkeypatch.setattr(timing, "pause", pause)
+    return answers
 
 
 def tags(game, member, text: str, *, delay: float = 0.0) -> None:
@@ -178,6 +185,8 @@ def daily(monkeypatch):
 
     module.remove_player_daily_file = remove_player_daily_file
     module.clear_daily_file = clear_daily_file
+    module.next_daily_reset = real_daily.next_daily_reset      # the reset times are the real ones
+    module.next_season_end = real_daily.next_season_end
     monkeypatch.setitem(sys.modules, "altermmo.features.daily", module)
     monkeypatch.setattr(features, "daily", module, raising=False)
     return module
@@ -483,23 +492,18 @@ async def test_rest_lets_the_guests_hunt_again(game_db, daily, monkeypatch):
     bot = game_db.bot
     asked = rig(monkeypatch, {(0, 4): 3})
     host = await with_gem(game_db, skills.REST)
-    ola, ela, iza, olek, jan = (game_db.add_member(name) for name in ("Ola", "Ela", "Iza", "Olek", "Jan"))
+    ola, ela, iza, olek = (game_db.add_member(name) for name in ("Ola", "Ela", "Iza", "Olek"))
+    dead = game_db.add_member("Polegly", roles=[bot.ids.dead_hunter_role])
+    game_db.channel.silenced_roles.add(bot.ids.dead_hunter_role)
     gone = FakeMember("Były gracz")
-    for tired in (ola, ela, iza, olek, jan, gone):
+    for tired in (ola, ela, iza, olek, dead, gone):
         bot.store.daily_cd.add(tired.id)
-    elsewhere = FakeMessage(game_db.channel, bot.fake_user, "inna wiadomość")
+    shown: list = []
 
-    def guests(invitation: FakeMessage) -> None:
-        react(game_db, invitation, bot.fake_user)                       # the bot's own click
-        react(game_db, invitation, ola)
-        react(game_db, invitation, ela)
-        react(game_db, invitation, iza)
-        unreact(game_db, invitation, iza)                               # changed her mind
-        react(game_db, invitation, olek, "👍")                           # not the rest emoji
-        react(game_db, elsewhere, jan)                                  # a different message
-        react(game_db, invitation, gone)                                # not on the server
+    async def look(invitation) -> None:
+        shown.append(invitation.embeds[0])
 
-    on_invitation(game_db, guests)
+    answers = rest_clicks(game_db, monkeypatch, bot.fake_user, ola, ela, ola, dead, gone, during=look)
     assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 1
 
     picture, invitation, done = game_db.channel.bot_messages[1:]
@@ -508,19 +512,31 @@ async def test_rest_lets_the_guests_hunt_again(game_db, daily, monkeypatch):
     assert embed.title == ("<:peepofat:1062666941405331507> Ala zaprasza na odpoczynek! "
                            "<:peepofat:1062666941405331507>")
     assert embed.description == (
-        "Wspaniały dzień! Wszyscy bohaterowie zostali zaproszeni na ucztę!\n\n**Zostaw reakcję, żeby wypocząć "
-        "i móc ponownie wyruszyć na polowanie. Odpoczynek potrwa maksymalnie 5 minut.**")
-    assert embed.colour.value == 0xFC0303 and invitation.reactions == [BEDGE]
-    assert done.content == REST_DONE
+        "Wspaniały dzień! Wszyscy bohaterowie zostali zaproszeni na ucztę!\n\n**Kliknij „Odpocznij”, żeby "
+        "wypocząć i móc ponownie wyruszyć na polowanie. Odpoczynek potrwa maksymalnie 5 minut.**"
+        "\n\n⌛ Odpoczynek dobiegł końca.")
+    assert [(field.name, field.value) for field in embed.fields] == [
+        ("Odpoczywają (3)", f"<@{ola.id}>, <@{ela.id}>, <@{gone.id}>")]
+    assert embed.colour.value == 0xFC0303 and invitation.reactions == []    # no reaction any more
+    assert invitation.view is None and done.content == REST_DONE              # the button is gone
 
-    assert daily.removed == [[str(ola.id), str(ela.id)]]
-    assert bot.store.daily_cd.all() == [str(iza.id), str(olek.id), str(jan.id), str(gone.id)]
+    # While the rest lasted: the deadline was on the panel; who clicked heard what.
+    assert "⏳ Odpoczynek kończy się <t:" in shown[0].description
+    bot_click, ola_1, ela_1, ola_2, dead_click, gone_click = answers
+    assert bot_click.replies == [] and not bot_click.response.is_done()      # the bot's own click: ignored
+    assert ola_1.response.deferred and ola_1.replies == [] and ela_1.replies == []
+    assert ola_2.whispers == [skills.MSG_ALREADY_RESTING]                     # counted once
+    assert dead_click.whispers == [ui.MSG_CANNOT_PLAY]                        # dead hunters rest no more
+    assert gone_click.response.deferred
+
+    assert daily.removed == [[str(ola.id), str(ela.id)]]                      # left the server: not counted
+    assert bot.store.daily_cd.all() == [str(iza.id), str(olek.id), str(dead.id), str(gone.id)]
     assert bot.store.skill_daily_cd.all() == [str(host.id)]
     assert reaction_listeners(game_db) == []
 
     # The gem regenerates until the daily reset.
     assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 0
-    assert game_db.channel.bot_messages[-1].content == DAILY_CD and game_db.channel.count(INVITATION) == 1
+    assert game_db.channel.bot_messages[-1].content == daily_cd() and game_db.channel.count(INVITATION) == 1
     await skills.clear_daily_skill(bot)
     assert await skills.skill_rest(game_db.scene(host)) is True
 
@@ -534,13 +550,13 @@ async def test_rest_nobody_came(game_db, daily):
     assert game_db.bot.store.skill_daily_cd.all() == []                  # use_skill marks the use, not the gem
 
 
-async def test_rest_with_the_real_daily_module(game_db):
+async def test_rest_with_the_real_daily_module(game_db, monkeypatch):
     """No stand-in: the rest calls features/daily.py as it is on disk."""
     bot = game_db.bot
     host, ola, ela = await with_gem(game_db, skills.REST), game_db.add_member("Ola"), game_db.add_member("Ela")
     for tired in (host, ola, ela):
         bot.store.daily_cd.add(tired.id)
-    on_invitation(game_db, lambda invitation: react(game_db, invitation, ola))
+    rest_clicks(game_db, monkeypatch, ola)
     assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 1
     assert bot.store.daily_cd.all() == [str(host.id), str(ela.id)]
     assert bot.store.skill_daily_cd.all() == [str(host.id)] and texts(game_db)[-1] == REST_DONE
@@ -560,23 +576,25 @@ async def test_rest_lasts_five_minutes(game_db, daily, monkeypatch, debug, secon
     assert pauses == [seconds]
 
 
-async def test_rest_without_its_picture_or_reaction_still_happens(game_db, daily, monkeypatch):
-    rig(monkeypatch, {(0, 4): 4})
+async def test_rest_without_its_picture_or_its_panel_still_happens(game_db, daily, monkeypatch):
+    """No picture; the invitation is purged in the middle of the rest: whoever clicked still rests."""
     monkeypatch.setattr(skills, "REST_IMAGES", 99)
     rig(monkeypatch, {(0, 98): 98})                                      # assets/events/rest/98.png is not there
     host, ola = await with_gem(game_db, skills.REST), game_db.add_member("Ola")
     game_db.bot.store.daily_cd.add(ola.id)
 
-    async def no_reactions(emoji):
-        raise RuntimeError("Missing Permissions")
+    async def purge(invitation) -> None:
+        await invitation.delete()
 
-    def guests(invitation: FakeMessage) -> None:
-        invitation.add_reaction = no_reactions
-        react(game_db, invitation, ola)
+        async def gone(**kwargs):
+            raise discord.NotFound(types.SimpleNamespace(status=404, reason="Not Found"), "unknown message")
 
-    on_invitation(game_db, guests)
+        invitation.edit = gone
+
+    rest_clicks(game_db, monkeypatch, ola, during=purge)
     assert await skills.skill_rest(game_db.scene(host)) is True
-    assert [m.files for m in game_db.channel.bot_messages[1:]] == [[], []]
+    assert [m.files for m in game_db.channel.bot_messages[1:]] == [[]]   # the invitation is gone, "done" is here
+    assert texts(game_db) == [REST_DONE]
     assert game_db.bot.store.daily_cd.all() == []
 
 
@@ -627,7 +645,7 @@ async def test_shiny_gem_changes_the_tagged_travellers_pet(game_db, mention):
     assert game_db.bot.store.skill_daily_cd.all() == [str(owner.id)]     # a weekly gem is that day's one use
 
     assert await skills.use_skill(game_db.scene(owner, "$skill"), owner) == 0
-    assert texts(game_db)[-1] == WEEKLY_CD and game_db.channel.count(ASK) == 1
+    assert texts(game_db)[-1] == weekly_cd() and game_db.channel.count(ASK) == 1
 
 
 async def test_shiny_gem_answer_is_heard_only_on_the_bots_channel(game_db, short_timeouts):
@@ -725,7 +743,7 @@ async def test_summoning_gem_asks_for_a_boss(game_db):
     assert texts(game_db) == [] and game_db.bot.store.skill_weekly_cd.all() == [str(player.id)]
 
     assert await skills.use_skill(game_db.scene(player), player) == 0    # once a week
-    assert texts(game_db) == [WEEKLY_CD]
+    assert texts(game_db) == [weekly_cd()]
 
 
 @pytest.mark.parametrize("phase", [BossPhase.PRE_SPAWN, BossPhase.VISIBLE, BossPhase.ENGAGED, BossPhase.FIGHTING])
@@ -779,7 +797,7 @@ async def test_festival_gem_prays_five_times(game_db, prayers):
     assert game_db.bot.store.skill_daily_cd.all() == [str(player.id)]
 
     assert await skills.use_skill(game_db.scene(player), player) == 0
-    assert texts(game_db)[-1] == DAILY_CD and len(prayers) == 5
+    assert texts(game_db)[-1] == daily_cd() and len(prayers) == 5
 
 
 async def test_festival_gem_draws_real_modifiers(game_db, daily, monkeypatch):
@@ -828,7 +846,7 @@ async def test_slow_gem(game_db):
     assert game_db.bot.store.skill_daily_cd.all() == [str(player.id)]
 
     assert await skills.use_skill(game_db.scene(player), player) == 0
-    assert texts(game_db)[-1] == DAILY_CD and modifier_file(game_db) == {"time_increased_perc": 40}
+    assert texts(game_db)[-1] == daily_cd() and modifier_file(game_db) == {"time_increased_perc": 40}
     assert game_db.bot.store.skill_weekly_cd.all() == []
 
 
@@ -852,7 +870,7 @@ async def test_effect_that_cannot_be_announced_is_not_free_to_repeat(game_db):
     assert any("Efekt działa: Klejnot sprawia" in line for line in game_db.bot.owner_log)
 
     await skills.use_skill(game_db.scene(player), player)
-    assert texts(game_db) == [DAILY_CD] and modifier_file(game_db) == {"time_increased_perc": 40}
+    assert texts(game_db) == [daily_cd()] and modifier_file(game_db) == {"time_increased_perc": 40}
 
 
 # -- cooldown lists -------------------------------------------------------------------
@@ -947,7 +965,7 @@ async def test_showing_works_anywhere_using_only_on_the_boss_channel(game_db, co
     assert modifier_file(game_db) == {"time_increased_perc": 40} and not game_db.bot.state.busy
     for command in ("$uzyjskilla", "$użyjumiejetnosc", "$użyjumiejętność", "$us", "$uzyj", "$uzyjskill", "$uu"):
         await run(game_db, player, command)
-    assert texts(game_db)[1:] == [DAILY_CD] * 7
+    assert texts(game_db)[1:] == [daily_cd()] * 7
 
 
 async def test_commands_are_blocked_with_a_notice_while_the_bot_is_busy(game_db, cog):
@@ -1012,7 +1030,7 @@ async def test_summoning_gem_puts_a_boss_on_the_channel(game_db, cog, monkeypatc
     assert texts(game_db)[-1] == skills.MSG_BOSS_IN_THE_WAY.format(player_id=second.id)
     assert state.boss_phase is BossPhase.VISIBLE and game_db.bot.store.skill_weekly_cd.all() == [str(player.id)]
     await run(game_db, player, "$skill")
-    assert texts(game_db)[-1] == WEEKLY_CD
+    assert texts(game_db)[-1] == weekly_cd()
 
 
 async def test_summoning_gem_is_given_back_when_summoning_fails(game_db, cog, summons):

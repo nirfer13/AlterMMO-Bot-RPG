@@ -25,23 +25,38 @@ Differences from the legacy code (the game itself is unchanged):
 * a "(Bonus)" drop really grants a second item (the legacy code only printed
   the line), and a player who poses as the monster earns no scrolls for a hunt
   he took part in himself.
+
+Joining somebody's hunt (v2 panels): the monster's embed carries a "Dołącz do
+polowania" button (:class:`_JoinPanel`).  A click does exactly what typing
+``$polowanie`` in that moment does - same window (:data:`JOIN_TIME`, restarted by
+every join), same limit (:data:`MAX_HUNTERS`), joining is free (only the player
+who started the hunt uses the daily attempt) - and both ways keep working side
+by side.  The embed shows who joined; dead hunters cannot click (they cannot
+type either).  :func:`start_hunt` is the whole ``$polowanie`` command, so a
+button elsewhere (the hub panel) can run exactly the same thing.
+
+The "come back later" text shows the real moment of the next reset
+(:func:`next_daily_reset`), as Discord's live "za 3 godziny".
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import random
 import time
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Awaitable, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterable, Sequence
 
 import discord
 
-from ..core import challenge, io, timing
+from ..core import challenge, clock, guards, io, timing, ui
 from ..core.challenge import Outcome
+from ..core.state import BossPhase
 from ..settings import ASSETS_DIR, CONFIG_DIR
 from . import achievements, boss, database, modifiers
 
@@ -119,7 +134,8 @@ _MOB_ADJECTIVE_FALLBACK = "Unikalny"
 _MOB_KINDS: dict[int, str] = {0: "zwykły", 1: "rzadki"}
 _MOB_KIND_FALLBACK = "UNIKALNY"
 
-MSG_JOIN_HINT = "\n\n*Inny gracz może dołączyć do polowania wpisując natychmiast $polowanie*."
+MSG_JOIN_HINT = ("\n\n*Inny gracz może dołączyć do polowania, klikając „Dołącz do polowania” albo wpisując "
+                 "natychmiast $polowanie*.")
 
 MSG_SOLO_START = ("Polowanie się rozpoczyna {mentions}<:REEeee:790963160495947856>! Wpisz pojawiające się "
                   "słowa tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpisz słowa bez "
@@ -144,6 +160,27 @@ MSG_HUNT_INTERRUPTED = ("Polowanie zostało przerwane z powodu problemów techni
                         "<:Sadge:936907659142111273> Nikt nie ponosi konsekwencji.")
 MSG_ATTEMPT_RETURNED = ("<@{user_id}>, z powodu problemów technicznych Twoje dzisiejsze polowanie się nie "
                         "liczy - możesz zapolować ponownie!")
+
+# Answers of ``$polowanie`` (moved here from cogs/hunting.py: the hub panel runs the same command).
+MSG_BOSS_COMING = ("Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, "
+                   "kliknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**, żeby stawić mu czoła.")
+MSG_BOSS_HERE = ("Teraz pora na walkę z prawdziwym bossem, nie mieszaj się leszczyku "
+                 "<:madge:882184635474386974>")
+#: ``{when}``: Discord's live countdown to the next reset (:func:`next_daily_reset`).
+MSG_ON_COOLDOWN = ("Zregeneruj się i spróbuj zapolować ponownie {when} <:Bedge:970576892874854400> Niektóre "
+                   "modlitwy przy kapliczkach również są w stanie zregenerować Twoje siły, więc bądź czujny!")
+# Only for a click (a typed $polowanie stays silent during a boss fight, as before).
+MSG_BOSS_FIGHT = "Trwa walka z bossem - polowanie musi poczekać <:MonkaS:882181709100097587>"
+
+# The "Dołącz do polowania" button under the monster.
+JOIN_BUTTON = "Dołącz do polowania"
+JOIN_EMOJI = "⚔️"
+ROSTER_NAME = "Łowcy ({count}/{limit})"
+MSG_JOIN_UNTIL = "⏳ Dołączanie kończy się {when}."
+MSG_ALREADY_HUNTING = "Już jesteś na tym polowaniu <:PepoG:790963160528977980>"
+MSG_JOIN_TOO_LATE = "Za późno - polowanie już się zaczęło <:Sadge:936907659142111273>"
+#: Seconds between two edits of the hunters' list on the monster's embed.
+ROSTER_EDIT_GAP = 1.0
 
 
 # -- small helpers (shared with features/tower.py) ------------------------------------
@@ -333,7 +370,8 @@ async def send_mob_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
 
     Returns ``(is_player_boss, boss_player)``; ``boss_player`` is the member
     who earns scrolls when the monster is not beaten, or None for an ordinary
-    monster.  Pass both on to :func:`hunt_mobs`.
+    monster.  Pass both on to :func:`hunt_mobs`.  The embed carries the "Dołącz
+    do polowania" button; :func:`hunt_mobs` on the same channel listens to it.
     """
     bot = scene.bot
     rarity = int(rarity)
@@ -373,7 +411,13 @@ async def send_mob_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
             await scene.send(file_path=picture)
         else:
             log.warning("Monster picture %s is missing; showing the monster without it.", picture)
-    await scene.send(embed=embed)
+    panel = _JoinPanel(bot, embed)
+    try:
+        await panel.view.send(scene.channel, embed=embed)
+    except BaseException:
+        await panel.view.close()
+        raise
+    await _keep_panel(scene.channel, panel)
     log.info("Monster shown: rarity %s, player monster: %s.", rarity, boss_player)
     return is_player_boss, boss_player
 
@@ -395,8 +439,22 @@ async def set_dead_hunters(scene: "Scene", user_id: Any) -> bool:
 
 # -- the hunt --------------------------------------------------------------------------
 
-#: Channels on which a hunt is gathering hunters right now.
-_gathering: set[int] = set()
+#: Answers a join request privately (a click); None for a typed ``$polowanie`` (stays silent).
+Answer = Callable[[str], Awaitable[Any]]
+
+
+@dataclass
+class _JoinRequest:
+    """Somebody wants to join the hunt gathering on a channel (typed, clicked or from the hub)."""
+
+    member: Any
+    answer: Answer | None = None
+
+
+#: Channel id -> the join requests of the hunt gathering hunters there right now.
+_gathering: dict[int, asyncio.Queue] = {}
+#: Channel id -> the join button of the monster shown last (taken by :func:`hunt_mobs`).
+_panels: dict[int, "_JoinPanel"] = {}
 
 
 def is_gathering(channel: Any) -> bool:
@@ -409,58 +467,175 @@ def is_gathering(channel: Any) -> bool:
     return getattr(channel, "id", None) in _gathering
 
 
+def request_join(channel: Any, member: Any, answer: Answer | None = None) -> bool:
+    """Ask to join the hunt gathering on ``channel`` (what typing ``$polowanie`` does now).
+
+    ``answer`` receives the private refusal ("already on this hunt", "too
+    late"); an accepted member is shown on the monster's embed.  False when no
+    hunt is gathering there.
+    """
+    queue = _gathering.get(getattr(channel, "id", None))
+    if queue is None:
+        return False
+    queue.put_nowait(_JoinRequest(member, answer))
+    return True
+
+
 def _mentions(hunters: Sequence[Any]) -> str:
     """Legacy ``player_list_string``: ``<@1> <@2> `` (a space after every mention)."""
     return "".join(f"<@{hunter.id}> " for hunter in hunters)
 
 
+class _JoinPanel:
+    """The "Dołącz do polowania" button under the monster and the list of its hunters.
+
+    Posted by :func:`send_mob_image`, read by :func:`_gather_hunters`.  A click
+    becomes a :class:`_JoinRequest` in :attr:`requests` - the same queue the
+    typed ``$polowanie`` goes to - so both ways follow one set of rules.  The
+    list is repainted by a small background task, at most once per
+    :data:`ROSTER_EDIT_GAP` seconds; every edit survives a purged message.
+    """
+
+    def __init__(self, bot: "AlterBot", embed: discord.Embed) -> None:
+        self.bot = bot
+        self.embed = embed
+        self.requests: asyncio.Queue[_JoinRequest] = asyncio.Queue()
+        self.hunters: list[Any] = []
+        self._ends_at: datetime | None = None
+        self._dirty = asyncio.Event()
+        self._painter: asyncio.Task | None = None
+        self.view = ui.ClickView([ui.Choice("hunt-join", JOIN_BUTTON, emoji=JOIN_EMOJI,
+                                            style=discord.ButtonStyle.primary)], allow=self._clicked)
+
+    async def _clicked(self, interaction: Any, key: str) -> str | None:
+        await ui.ack(interaction)
+        if self.view.closed:  # the hunt started while the click was being acknowledged
+            await ui.reply(interaction, MSG_JOIN_TOO_LATE)
+        else:
+            self.requests.put_nowait(_JoinRequest(interaction.user, lambda text: ui.reply(interaction, text)))
+        return ui.DROP
+
+    def render(self, *, closed: bool = False) -> discord.Embed:
+        """The monster's embed with the hunters (and, while gathering, the deadline)."""
+        embed = self.embed.copy()
+        embed.clear_fields()
+        if closed:
+            embed.description = (embed.description or "").replace(MSG_JOIN_HINT, "")
+        value = ", ".join(f"<@{hunter.id}>" for hunter in self.hunters) or "-"
+        if not closed and self._ends_at is not None:
+            value += "\n" + MSG_JOIN_UNTIL.format(when=ui.when(self._ends_at))
+        embed.add_field(name=ROSTER_NAME.format(count=len(self.hunters), limit=MAX_HUNTERS),
+                        value=value[:1024], inline=False)
+        return embed
+
+    def start(self, hunters: list[Any]) -> None:
+        """The gathering begins: show ``hunters`` (the same list object, kept up to date)."""
+        self.hunters = hunters
+        if self._painter is None and not self.view.closed:
+            self._painter = asyncio.ensure_future(self._paint())
+
+    def changed(self, seconds: float | None = None) -> None:
+        """Repaint soon; ``seconds``: joining ends that many seconds from now."""
+        if seconds is not None:
+            self._ends_at = clock.utcnow() + timedelta(seconds=seconds)
+        self._dirty.set()
+
+    async def _paint(self) -> None:
+        while True:
+            await self._dirty.wait()
+            self._dirty.clear()
+            await self.view.refresh(embed=self.render())  # never raises
+            await asyncio.sleep(ROSTER_EDIT_GAP)
+
+    async def close(self) -> None:
+        """Final list, button off, unanswered clicks told it is too late.  Never raises."""
+        if self._painter is not None:
+            self._painter.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._painter
+            self._painter = None
+        await self.view.close(embed=self.render(closed=True) if self.hunters else self.embed)
+        while not self.requests.empty():
+            request = self.requests.get_nowait()
+            if request.answer is not None:
+                await request.answer(MSG_JOIN_TOO_LATE)
+
+
+async def _keep_panel(channel: Any, panel: _JoinPanel) -> None:
+    """Remember the join button of the monster just shown on ``channel`` (for :func:`hunt_mobs`)."""
+    old = _panels.pop(channel.id, None)
+    _panels[channel.id] = panel
+    if old is not None and old.bot is panel.bot:  # a monster nobody hunted (should not happen)
+        await old.close()
+
+
+def _take_panel(scene: "Scene") -> _JoinPanel | None:
+    panel = _panels.pop(scene.channel.id, None)
+    if panel is None or panel.bot is not scene.bot or panel.view.closed:
+        return None
+    return panel
+
+
 async def _next_joiner(queue: asyncio.Queue, hunters: Sequence[Any], seconds: float, debug: bool) -> Any:
-    """The author of the next ``$polowanie`` within ``seconds``; None when nobody joins."""
+    """The member of the next acceptable join request within ``seconds``; None when nobody joins."""
     deadline = time.monotonic() + seconds
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return None
         try:
-            message = await asyncio.wait_for(queue.get(), remaining)
+            request: _JoinRequest = await asyncio.wait_for(queue.get(), remaining)
         except asyncio.TimeoutError:
             return None
-        if str(message.content).strip().lower() != JOIN_WORD:
+        if getattr(request.member, "bot", False):
             continue
-        if not debug and any(hunter.id == message.author.id for hunter in hunters):
-            continue  # already on the list (debug mode lets one tester fill the party)
-        return message.author
+        if not debug and any(hunter.id == request.member.id for hunter in hunters):
+            # Already on the list (debug mode lets one tester fill the party).
+            if request.answer is not None:
+                await request.answer(MSG_ALREADY_HUNTING)
+            continue
+        return request.member
 
 
-async def _gather_hunters(scene: "Scene", first: Any) -> list[Any]:
-    """``first`` plus up to two players who type ``$polowanie``; each join restarts the 8 s wait.
+async def _gather_hunters(scene: "Scene", first: Any, panel: _JoinPanel | None = None) -> list[Any]:
+    """``first`` plus up to two players who join; each join restarts the 8 s wait.
 
-    The players' messages are queued for the whole lobby (as in the boss
-    lobbies): with one ``wait_for`` per join, a second ``$polowanie`` arriving
-    right behind the first one was lost.
+    Players join by typing ``$polowanie`` or with the button of ``panel``.
+    Both are queued for the whole lobby (as in the boss lobbies): with one
+    ``wait_for`` per join, a second ``$polowanie`` arriving right behind the
+    first one was lost.
     """
     bot = scene.bot
     channel_id = scene.channel.id
     hunters = [first]
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = panel.requests if panel is not None else asyncio.Queue()
 
     async def on_message(message: discord.Message) -> None:
         if message.author.bot or message.channel.id != channel_id:
             return
-        queue.put_nowait(message)
+        if str(message.content).strip().lower() == JOIN_WORD:
+            queue.put_nowait(_JoinRequest(message.author))
 
     bot.add_listener(on_message, "on_message")
-    _gathering.add(channel_id)
+    _gathering[channel_id] = queue
     try:
+        if panel is not None:
+            panel.start(hunters)
         while len(hunters) < MAX_HUNTERS:
-            joiner = await _next_joiner(queue, hunters, timing.timeout(JOIN_TIME), bot.debug)
+            seconds = timing.timeout(JOIN_TIME)
+            if panel is not None:
+                panel.changed(seconds)
+            joiner = await _next_joiner(queue, hunters, seconds, bot.debug)
             if joiner is None:
                 break
             hunters.append(joiner)
             log.info("Hunt: %s (%s) joined, %d hunters.", joiner, joiner.id, len(hunters))
     finally:
-        _gathering.discard(channel_id)
+        if _gathering.get(channel_id) is queue:
+            del _gathering[channel_id]
         bot.remove_listener(on_message, "on_message")
+        if panel is not None:
+            await panel.close()
     return hunters
 
 
@@ -487,7 +662,8 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
     """Fight the monster shown by :func:`send_mob_image`.
 
     ``player`` (default: ``scene.author``) starts the hunt; up to two more
-    players may join by typing ``$polowanie`` right away.  Every round one of
+    players may join by typing ``$polowanie`` right away or with the "Dołącz do
+    polowania" button of the monster's embed.  Every round one of
     the hunters, drawn at random, has to type the requested word in time; one
     mistake or one missed word loses the hunt (unless the pet protects).
 
@@ -499,11 +675,14 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
     bot = scene.bot
     channel = scene.channel
     rarity = int(rarity)
+    panel = _take_panel(scene)
     first = player if player is not None else scene.author
     if first is None:
+        if panel is not None:
+            await panel.close()
         raise ValueError("hunt_mobs needs a player: pass one or use a scene with an author")
 
-    hunters = await _gather_hunters(scene, first)
+    hunters = await _gather_hunters(scene, first, panel)
     mentions = _mentions(hunters)
     await scene.send((MSG_GROUP_START if len(hunters) > 1 else MSG_SOLO_START).format(mentions=mentions))
 
@@ -623,6 +802,87 @@ async def daily_hunt(scene: "Scene") -> bool | None:
     if result is None:
         await _give_back_attempt(scene, player)
     return result
+
+
+async def start_hunt(scene: "Scene", *, refuse: Answer | None = None) -> bool:
+    """The whole ``$polowanie`` command of ``scene.author`` (boss phase, cooldown, busy flag, the hunt).
+
+    The command guards (boss channel, busy notice) run before; this checks
+    everything again because a click (the hub panel) has no command guards:
+
+    * while a hunt gathers hunters on the channel, a click joins it (as typing
+      ``$polowanie`` does); a typed command is silent here (the hunt's own
+      listener has already seen the word);
+    * ``refuse`` answers a click privately; None (a typed command) answers on
+      the channel as before.
+
+    Returns True when a hunt took place.  The hunt itself runs to its end
+    inside this call (minutes): acknowledge a click before calling it.
+    """
+    bot = scene.bot
+    state = bot.state
+    player = scene.author
+    if player is None:
+        raise ValueError("start_hunt needs a scene with an author")
+    if is_gathering(scene.channel):
+        if refuse is not None:
+            request_join(scene.channel, player, refuse)
+        return False
+    if state.busy:  # somebody took the channel between the guard and here
+        if refuse is None:
+            await guards.notify_busy(scene)  # type: ignore[arg-type] - needs only ``.channel``
+        else:
+            await refuse(ui.MSG_BUSY)
+        return False
+    phase = state.boss_phase
+    on_cd = load_daily_from_file(bot, player.id)
+    # No await between the checks above and hold_busy: two players cannot both start.
+    if (not state.boss_blocks_activities or bot.debug) and not on_cd:
+        with state.hold_busy("hunt"):
+            await daily_hunt(scene)
+        return True
+
+    async def tell(text: str) -> None:
+        if refuse is not None:
+            await refuse(text)
+        else:
+            await io.send(scene.channel, text)
+
+    if phase is BossPhase.PRE_SPAWN:
+        await tell(MSG_BOSS_COMING)
+    elif phase is BossPhase.VISIBLE:
+        await tell(MSG_BOSS_HERE)
+    elif phase > BossPhase.VISIBLE:
+        if refuse is not None:  # a typed command stays silent during a boss fight, as before
+            await refuse(MSG_BOSS_FIGHT)
+    elif on_cd:
+        await tell(cooldown_text())
+    return False
+
+
+def cooldown_text() -> str:
+    """"Come back later" with Discord's live countdown to the next daily reset."""
+    return MSG_ON_COOLDOWN.format(when=ui.when(next_daily_reset()))
+
+
+# -- when do the cooldowns end ---------------------------------------------------------
+
+#: The scheduled resets, Warsaw time - the moments of the jobs in ``cogs/schedule.py``
+#: (``tests/test_ui_daily.py`` checks that they agree).
+DAILY_RESET_AT = (2, 30)        # every day: the daily hunt and the daily skill gems
+SEASON_END_AT = (0, 15, 0)      # Monday 15:00: ranking, tower, weekly gems - and the daily lists again
+
+
+def next_season_end(after: datetime | None = None) -> datetime:
+    """The next end of the ranking season (also the weekly reset of the tower and the weekly gems)."""
+    weekday, hour, minute = SEASON_END_AT
+    return clock.next_weekly(weekday, hour, minute, after=after)
+
+
+def next_daily_reset(after: datetime | None = None) -> datetime:
+    """The next time the daily lists (hunt, daily gems) are cleared: 02:30 or the season end, if earlier."""
+    hour, minute = DAILY_RESET_AT
+    return min(clock.next_daily(hour, minute, after=after), next_season_end(after))
 
 
 # -- the daily cooldown list -----------------------------------------------------------

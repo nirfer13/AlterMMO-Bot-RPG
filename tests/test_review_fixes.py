@@ -63,8 +63,17 @@ async def test_reaction_listener_ignores_raw_copy_of_a_cached_message(game, monk
     assert heard == [ala.id]
 
 
-async def test_duel_volunteers_are_heard_through_raw_events(game, monkeypatch):
-    """After a longer outage the arena message is not cached; volunteers must still get in."""
+def _join_duel(game, *members) -> None:
+    """``members`` click "Dołącz" under the arena as soon as it is posted.
+
+    The sign-up used reactions (heard through raw events after an outage);
+    it is a button now, and clicks do not depend on the message cache at all.
+    """
+    for member in members:
+        game.auto_click(member, "join", when=lambda message: "Pojedynek!" in message.text)
+
+
+async def test_duel_volunteers_get_in_while_the_channel_stays_free(game, monkeypatch):
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     fights = []
 
@@ -78,10 +87,9 @@ async def test_duel_volunteers_are_heard_through_raw_events(game, monkeypatch):
     def hook(message) -> None:
         if "Pojedynek!" in message.text:
             busy_during_sign_up.append(game.bot.state.busy)
-            raw_click(game, message, SWORDS, ala)
-            raw_click(game, message, SWORDS, ola)
 
     game.channel.send_hooks.append(hook)
+    _join_duel(game, ala, ola)
     assert await events.spawn_duel(game.scene()) is True
     # The sign-up leaves the channel free (hunts and the tower work, as in the old
     # bot); only the fight itself holds the busy flag, and it is released afterwards.
@@ -108,10 +116,9 @@ async def test_duel_waits_for_a_running_hunt_before_the_fight(game, monkeypatch)
     def hook(message) -> None:
         if "Pojedynek!" in message.text:
             asyncio.ensure_future(hunt())
-            raw_click(game, message, SWORDS, ala)
-            raw_click(game, message, SWORDS, ola)
 
     game.channel.send_hooks.append(hook)
+    _join_duel(game, ala, ola)
     monkeypatch.setattr(events.asyncio, "sleep", _fast_sleep(asyncio.sleep))
     assert await events.spawn_duel(game.scene()) is True
     assert order == ["hunt over", "fight"]

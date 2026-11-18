@@ -2,7 +2,9 @@
 
 ``$rankingwiezy`` and ``$rekordwiezy`` only display something and work on every
 channel of the server; the run itself works on the boss channel only.  The game
-lives in :mod:`altermmo.features.tower`.
+lives in :mod:`altermmo.features.tower`; the body of ``$wieża`` is
+:func:`altermmo.features.tower.start_tower`, so a button can run exactly the
+same thing.
 """
 
 from __future__ import annotations
@@ -13,16 +15,14 @@ from discord.ext import commands
 
 from ..core import guards, io
 from ..core.scene import Scene
-from ..core.state import BossPhase
 from ..features import tower
 
 log = logging.getLogger(__name__)
 
-MSG_BOSS_COMING = ("Zaraz pojawi się prawidzwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, "
-                   "to wpisz **$zaatakuj**, żeby stawić mu czoła.")
-MSG_BOSS_HERE = ("Nie możesz ruszyć na eksplorację Wieży Śmierci, na Twojej drodze stoi boss "
-                 "<:MonkaS:882181709100097587> Wpusz **$zaatakuj**, żeby stawić mu czoła.")
-MSG_ON_COOLDOWN = "Drzwi Wieży Śmierci ani drgną. Sprawdź w następnym tygodniu <:Bedge:970576892874854400>"
+# The texts live in features/tower.py now (kept here under their old names).
+MSG_BOSS_COMING = tower.MSG_BOSS_COMING
+MSG_BOSS_HERE = tower.MSG_BOSS_HERE
+MSG_ON_COOLDOWN = tower.MSG_ON_COOLDOWN
 
 
 class TowerCog(commands.Cog, name="Tower"):
@@ -36,25 +36,7 @@ class TowerCog(commands.Cog, name="Tower"):
     @guards.unless_busy()
     async def explore_tower(self, ctx: commands.Context) -> None:
         """Climb the Death Tower; once a week."""
-        bot = ctx.bot
-        state = bot.state
-        if state.busy:  # somebody took the channel between the guard and here
-            await guards.notify_busy(ctx)
-            return
-        phase = state.boss_phase
-        on_cd = tower.load_weekly_tower_from_file(bot, ctx.author.id)
-        # No await between the checks above and hold_busy: two players cannot both start.
-        if (not state.boss_blocks_activities or bot.debug) and not on_cd:
-            with state.hold_busy("tower"):
-                await tower.explore_tower(Scene.from_ctx(ctx))
-        elif phase is BossPhase.PRE_SPAWN:
-            await io.send(ctx.channel, MSG_BOSS_COMING)
-        elif phase is BossPhase.VISIBLE:
-            await io.send(ctx.channel, MSG_BOSS_HERE)
-        elif phase > BossPhase.VISIBLE:
-            return  # a boss fight is on: stay silent, as before
-        elif on_cd:
-            await io.send(ctx.channel, MSG_ON_COOLDOWN)
+        await tower.start_tower(Scene.from_ctx(ctx))
 
     # -- display only (any channel; never blocked, exactly as in the old bot) ------
 

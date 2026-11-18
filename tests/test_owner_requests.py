@@ -15,7 +15,7 @@ from altermmo import schema
 from altermmo.cogs import events as events_cog
 from altermmo.core import clock, guards, timing
 from altermmo.core.state import BossPhase, EventType
-from altermmo.features import bossdetect, events, pets, skills, xpsteal
+from altermmo.features import bossdetect, daily, events, pets, skills, xpsteal
 
 from fakes import FakeMessage
 
@@ -235,12 +235,15 @@ def boss_image(game, monkeypatch):
 
 
 def join_ritual(game, *members, then=None) -> None:
+    """``members`` click "Dołącz" under the ritual panel, then ``then()`` runs (still during the sign-up)."""
     def hook(message) -> None:
-        if RITUAL in message.text:
-            for member in members:
-                game.bot.dispatch("reaction_add", SimpleNamespace(emoji=SPARKLES, message=message), member)
-            if then is not None:
-                then()
+        if RITUAL in message.text and message.view is not None:
+            async def join() -> None:
+                for member in members:
+                    await game.click(message, member, "join")
+                if then is not None:
+                    then()
+            game._tasks.append(asyncio.ensure_future(join()))
     game.channel.send_hooks.append(hook)
 
 
@@ -335,16 +338,18 @@ async def test_pouch_lists_every_gem_with_a_stable_number(game_db, collector):
     skills.daily_skill_used(game_db.bot, ala.id)                   # one gem a day: all of them wait now
     await skills.show_skills(game_db.scene(ala))
     text = game_db.channel.messages[-1].embeds[0].description
-    assert "**1. Klejnot Regeneracji** ✅ aktywny *(regeneruje się do jutra)*" in text
-    assert ("2. Klejnot Przywołania *(regeneruje się do jutra)*\n" in text
-            and "3. Klejnot Spowolnienia *(regeneruje się do jutra)*" in text)
+    tomorrow = f"<t:{int(daily.next_daily_reset().timestamp())}:R>"   # the next daily reset, live in Discord
+    assert f"**1. Klejnot Regeneracji** ✅ aktywny *(regeneruje się, gotowy {tomorrow})*" in text
+    assert (f"2. Klejnot Przywołania *(regeneruje się, gotowy {tomorrow})*\n" in text
+            and f"3. Klejnot Spowolnienia *(regeneruje się, gotowy {tomorrow})*" in text)
 
     await skills.clear_daily_skill(game_db.bot)
     skills.weekly_skill_used(game_db.bot, ala.id)                  # only the weekly gem regenerates
     await skills.show_skills(game_db.scene(ala))
     text = game_db.channel.messages[-1].embeds[0].description
+    monday = f"<t:{int(daily.next_season_end().timestamp())}:R>"     # the weekly reset: Monday 15:00
     assert "**1. Klejnot Regeneracji** ✅ aktywny\n" in text
-    assert "2. Klejnot Przywołania *(regeneruje się do końca tygodnia)*\n3. Klejnot Spowolnienia\n" in text
+    assert f"2. Klejnot Przywołania *(regeneruje się, gotowy {monday})*\n3. Klejnot Spowolnienia\n" in text
 
 
 async def test_only_one_gem_can_be_used_a_day(game_db, collector):
@@ -357,7 +362,8 @@ async def test_only_one_gem_can_be_used_a_day(game_db, collector):
 
     assert await skills.choose_skill(game_db.scene(ala), "2") is True          # the summoning gem (weekly)
     assert await skills.use_skill(game_db.scene(ala), ala) == 0
-    assert game_db.channel.messages[-1].content == skills.MSG_ONE_GEM_A_DAY.format(player_id=ala.id)
+    assert game_db.channel.messages[-1].content == skills.one_gem_text(ala.id)
+    assert f"<t:{int(daily.next_daily_reset().timestamp())}:R>" in skills.one_gem_text(ala.id)
     assert bot.store.skill_weekly_cd.all() == []                               # the weekly use is not spent
 
     await skills.clear_daily_skill(bot)
@@ -365,13 +371,14 @@ async def test_only_one_gem_can_be_used_a_day(game_db, collector):
     assert bot.store.skill_daily_cd.all() == [str(ala.id)] and bot.store.skill_weekly_cd.all() == [str(ala.id)]
     assert await skills.choose_skill(game_db.scene(ala), "3") is True
     assert await skills.use_skill(game_db.scene(ala), ala) == 0
-    assert game_db.channel.messages[-1].content == skills.MSG_DAILY_CD
+    assert game_db.channel.messages[-1].content == skills.daily_cd_text()
 
     await skills.clear_daily_skill(bot)                                        # the next day: a daily gem works,
     assert await skills.use_skill(game_db.scene(ala), ala) == skills.SLOW      # the weekly one still regenerates
     assert await skills.choose_skill(game_db.scene(ala), "2") is True
     assert await skills.use_skill(game_db.scene(ala), ala) == 0
-    assert game_db.channel.messages[-1].content == skills.MSG_WEEKLY_CD
+    assert game_db.channel.messages[-1].content == skills.weekly_cd_text()
+    assert f"<t:{int(daily.next_season_end().timestamp())}:R>" in skills.weekly_cd_text()
 
 
 async def test_summoning_gem_that_summons_nothing_gives_the_day_back(game_db, collector):

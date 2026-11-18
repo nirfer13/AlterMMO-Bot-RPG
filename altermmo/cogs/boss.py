@@ -1,7 +1,9 @@
 """Boss commands: ``$zaatakuj`` and the admin controls of the boss cycle.
 
 The life-cycle itself lives in :mod:`altermmo.features.boss_cycle`; this cog
-only starts its supervised loop and forwards commands to it.
+only starts its supervised loop, registers the permanent "Zaatakuj" button
+(it works under boss pictures from before a restart too) and forwards
+commands to the cycle.
 """
 
 from __future__ import annotations
@@ -10,7 +12,7 @@ import logging
 
 from discord.ext import commands
 
-from ..core import guards, io
+from ..core import guards, io, ui
 from ..core.scene import Scene
 from ..features import boss_cycle
 
@@ -22,6 +24,7 @@ class BossCog(commands.Cog, name="Boss"):
         self.bot = bot
 
     async def cog_load(self) -> None:
+        ui.register(self.bot, boss_cycle.AttackView())
         self.bot.boss_cycle.start()
 
     async def cog_unload(self) -> None:

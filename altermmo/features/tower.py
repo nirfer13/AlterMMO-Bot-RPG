@@ -17,6 +17,12 @@ Differences from the legacy code (the game itself is unchanged):
   always as ``H:MM:SS.ffffff`` (``str(timedelta)`` dropped the fraction for
   whole seconds and the legacy comparison then crashed);
 * ``create_database`` no longer drops the table.
+
+The run has no sign-up and no confirmation (one player, typed fights), so the
+v2 panels change only the "come back later" text: it shows the real moment of
+the weekly reset (:func:`altermmo.features.daily.next_season_end`) as
+Discord's live "za 3 dni".  :func:`start_tower` is the whole ``$wieża``
+command, so a button elsewhere (the hub panel) can run exactly the same thing.
 """
 
 from __future__ import annotations
@@ -30,8 +36,9 @@ from typing import TYPE_CHECKING, Any
 
 import discord
 
-from ..core import challenge, io, timing
+from ..core import challenge, guards, io, timing, ui
 from ..core.challenge import Outcome
+from ..core.state import BossPhase
 from ..settings import ASSETS_DIR
 from . import achievements, boss, daily, database, patrons
 
@@ -92,6 +99,18 @@ MSG_TOWER_INTERRUPTED = ("Eksploracja Wieży Śmierci została przerwana z powod
 MSG_ATTEMPT_RETURNED = ("<@{user_id}>, z powodu problemów technicznych Twoja wyprawa do Wieży Śmierci się "
                         "nie liczy - możesz spróbować ponownie w tym tygodniu! Zdobyte piętra i łupy "
                         "zostają.")
+
+# Answers of ``$wieża`` (moved here from cogs/tower.py: the hub panel runs the same command).
+MSG_BOSS_COMING = ("Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, "
+                   "kliknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**, żeby stawić mu czoła.")
+MSG_BOSS_HERE = ("Nie możesz ruszyć na eksplorację Wieży Śmierci, na Twojej drodze stoi boss "
+                 "<:MonkaS:882181709100097587> Kliknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**, "
+                 "żeby stawić mu czoła.")
+#: ``{when}``: Discord's live countdown to the weekly reset.
+MSG_ON_COOLDOWN = ("Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie {when} "
+                   "<:Bedge:970576892874854400>")
+# Only for a click (a typed $wieża stays silent during a boss fight, as before).
+MSG_BOSS_FIGHT = "Trwa walka z bossem - Wieża Śmierci musi poczekać <:MonkaS:882181709100097587>"
 
 
 # -- database ------------------------------------------------------------------------
@@ -337,6 +356,58 @@ async def explore_tower(scene: "Scene") -> int:
         raise
     log.info("Tower: %s (%s) finished the run with %s floors cleared.", player, player.id, cleared)
     return cleared
+
+
+async def start_tower(scene: "Scene", *, refuse: Any = None) -> bool:
+    """The whole ``$wieża`` command of ``scene.author`` (boss phase, cooldown, busy flag, the run).
+
+    The command guards (boss channel, busy notice) run before; this checks the
+    busy flag again because a click (the hub panel) has no command guards.
+    ``refuse`` (``async (text) -> Any``) answers a click privately; None (a
+    typed command) answers on the channel as before.  Returns True when a run
+    took place.  The run lasts minutes inside this call: acknowledge a click
+    before calling it.
+    """
+    bot = scene.bot
+    state = bot.state
+    player = scene.author
+    if player is None:
+        raise ValueError("start_tower needs a scene with an author")
+    if state.busy:  # somebody took the channel between the guard and here
+        if refuse is None:
+            await guards.notify_busy(scene)  # type: ignore[arg-type] - needs only ``.channel``
+        else:
+            await refuse(ui.MSG_BUSY)
+        return False
+    phase = state.boss_phase
+    on_cd = load_weekly_tower_from_file(bot, player.id)
+    # No await between the checks above and hold_busy: two players cannot both start.
+    if (not state.boss_blocks_activities or bot.debug) and not on_cd:
+        with state.hold_busy("tower"):
+            await explore_tower(scene)
+        return True
+
+    async def tell(text: str) -> None:
+        if refuse is not None:
+            await refuse(text)
+        else:
+            await io.send(scene.channel, text)
+
+    if phase is BossPhase.PRE_SPAWN:
+        await tell(MSG_BOSS_COMING)
+    elif phase is BossPhase.VISIBLE:
+        await tell(MSG_BOSS_HERE)
+    elif phase > BossPhase.VISIBLE:
+        if refuse is not None:  # a typed command stays silent during a boss fight, as before
+            await refuse(MSG_BOSS_FIGHT)
+    elif on_cd:
+        await tell(cooldown_text())
+    return False
+
+
+def cooldown_text() -> str:
+    """"Come back later" with Discord's live countdown to the weekly reset (Monday 15:00)."""
+    return MSG_ON_COOLDOWN.format(when=ui.when(daily.next_season_end()))
 
 
 # -- rankings --------------------------------------------------------------------------

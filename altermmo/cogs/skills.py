@@ -2,7 +2,9 @@
 
 ``$pokazskill`` and ``$klejnoty`` only display something and work on every
 channel of the server; ``$wybierzklejnot`` and ``$uzyjskilla`` are gameplay and
-work on the boss channel only.  The game itself lives in
+work on the boss channel only.  The menu under the ``$klejnoty`` list does what
+``$wybierzklejnot`` does, under the same rules (it answers a choice made on
+another channel privately).  The game itself lives in
 :mod:`altermmo.features.skills`.
 """
 

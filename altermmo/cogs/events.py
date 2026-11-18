@@ -6,6 +6,15 @@ failed Discord or database call inside any event killed it for good, usually
 with ``BUSY``/``EVENT_ALIVE`` left set ("events stopped working").  Here the
 loop is supervised, every event runs inside ``state.running_event`` (flags are
 always released) and a failing event is logged and skipped.
+
+The passive events (chest, shrine) wait for a player with no coroutine
+running: their panel carries a *permanent* button ("Otwórz skrzynię" /
+"Pomódl się", fixed ``custom_id``, registered in ``cog_load``) that does
+exactly what ``$skrzynia`` / ``$modlitwa`` do - same guards, same atomic
+claim, the refusals answered privately.  The cog remembers the panel and takes
+its button off once the event is claimed (by a click or by the command) or
+closed by the next event / the tournament; a click on a panel the cog no longer
+knows (e.g. from before a restart) is refused and its button removed.
 """
 
 from __future__ import annotations
@@ -14,10 +23,12 @@ import asyncio
 import logging
 import random
 from datetime import timedelta
+from typing import Any, Awaitable, Callable
 
+import discord
 from discord.ext import commands
 
-from ..core import clock, guards, io, scheduler
+from ..core import clock, guards, io, scheduler, ui
 from ..core.scene import Scene
 from ..core.state import EventType
 
@@ -48,7 +59,42 @@ MSG_NOT_A_BELIEVER = ("Nie umiesz pacierza. Poczekaj na kogoś bardziej wierząc
 MSG_NO_SHRINE = "Do kogo Ty chcesz się modlić? Przecież tu nic nie ma..."
 MSG_RITUAL_BOSS_GONE = ("Przywołany potwór rozpłynął się w powietrzu - nadciąga coś innego... "
                         "<:Hmm:984767035617730620>")
-MSG_NO_CHEST ="Powiedz mi... Czy ta skrzynia jest tutaj z nami w pokoju? <:Hmm:984767035617730620>"
+MSG_NO_CHEST = "Powiedz mi... Czy ta skrzynia jest tutaj z nami w pokoju? <:Hmm:984767035617730620>"
+MSG_CHEST_OPENED = "🗝️ Skrzynię otwiera {mention}!"
+MSG_SHRINE_USED = "🕯️ W kapliczce modli się {mention}."
+
+PRAYGE = "<:prayge:1063891597760139304>"
+LOOT = "<:Loot:912797849916436570>"
+CHEST_BUTTON_ID = ui.PREFIX + "events:chest"
+SHRINE_BUTTON_ID = ui.PREFIX + "events:pray"
+CHEST_BUTTON = "Otwórz skrzynię"
+SHRINE_BUTTON = "Pomódl się"
+
+
+class ChestView(ui.GameView):
+    """The "Otwórz skrzynię" button under a chest (permanent, stateless)."""
+
+    def __init__(self, cog: "EventsCog") -> None:
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(label=CHEST_BUTTON, emoji=LOOT, style=discord.ButtonStyle.primary,
+                       custom_id=CHEST_BUTTON_ID)
+    async def open_chest_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self.cog.passive_clicked(interaction, EventType.CHEST)
+
+
+class ShrineView(ui.GameView):
+    """The "Pomódl się" button under a shrine (permanent, stateless)."""
+
+    def __init__(self, cog: "EventsCog") -> None:
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(label=SHRINE_BUTTON, emoji=PRAYGE, style=discord.ButtonStyle.primary,
+                       custom_id=SHRINE_BUTTON_ID)
+    async def pray_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self.cog.passive_clicked(interaction, EventType.SHRINE)
 
 
 def pick_event(now, *, debug: bool, exclude: tuple[EventType, ...] = ()) -> EventType | None:
@@ -68,8 +114,17 @@ def pick_event(now, *, debug: bool, exclude: tuple[EventType, ...] = ()) -> Even
 class EventsCog(commands.Cog, name="Events"):
     def __init__(self, bot) -> None:
         self.bot = bot
+        #: The panel of the open chest / shrine (its button is taken off when the event ends).
+        self._panel: Any = None
+        self._panel_type: EventType | None = None
+
+    def register_views(self) -> None:
+        """Make the chest / shrine buttons work, also under panels posted before a restart."""
+        ui.register(self.bot, ChestView(self))
+        ui.register(self.bot, ShrineView(self))
 
     async def cog_load(self) -> None:
+        self.register_views()
         self.bot.supervisor.start(LOOP_NAME, self.event_loop)
         job = scheduler.weekly(TOURNAMENT_JOB, 5, 19, 0, self.run_tournament,
                                catch_up_within=timedelta(hours=2))
@@ -99,6 +154,7 @@ class EventsCog(commands.Cog, name="Events"):
         state = bot.state
         if state.event_alive and state.event_type in PASSIVE:
             state.close_event()  # an unclaimed shrine/chest expires now
+        await self.retire_panel()
 
         event_type = forced or pick_event(clock.now(), debug=bot.debug)
         if forced is None and event_type is EventType.RITUAL and not self.ritual_fits():
@@ -151,10 +207,17 @@ class EventsCog(commands.Cog, name="Events"):
         if event_type in PASSIVE:
             with state.hold_busy(f"event-spawn:{event_type.name}"):
                 await io.clear_channel(scene.channel)
+                view: ui.GameView
                 if event_type is EventType.SHRINE:
-                    await modifiers.spawn_modifier_shrine(scene)
+                    view = ShrineView(self)
+                    panel = await modifiers.spawn_modifier_shrine(scene, view=view)
                 else:
-                    await events.spawn_chest(scene)
+                    view = ChestView(self)
+                    panel = await events.spawn_chest(scene, view=view)
+                # Clicks are answered by the views registered in cog_load (same custom_id);
+                # discord.py would otherwise keep one view per panel for ever.
+                view.stop()
+            self._panel, self._panel_type = panel, event_type
             state.open_event(event_type)
             return
 
@@ -209,6 +272,7 @@ class EventsCog(commands.Cog, name="Events"):
         while not state.free_for_activity:
             if state.event_alive and state.event_type in PASSIVE:
                 state.close_event()
+                await self.retire_panel()
                 continue
             if not owner_told and clock.monotonic() - waiting_since >= 2 * 3600:
                 owner_told = True
@@ -230,44 +294,85 @@ class EventsCog(commands.Cog, name="Events"):
             await bot.log_to_owner(f"Turniej PvP przerwany przez błąd: `{type(exc).__name__}: {exc}`")
         log.info("Scheduled PvP Tournament finished.")
 
-    # -- player commands ----------------------------------------------------------
+    # -- player commands; chest and shrine: the command and the button share one path
+
+    async def _claim(self, event_type: EventType, scene: Scene, refuse: Callable[[str], Awaitable[Any]],
+                     started: Callable[[], Awaitable[Any]]) -> bool:
+        """``scene.author`` opens the chest / prays at the shrine; True when it happened.
+
+        ``refuse(text)`` answers a refusal, ``started()`` runs once the event is
+        claimed (the command reacts to the message, a click is acknowledged).
+        """
+        from ..features import events, modifiers, patrons
+
+        state = self.bot.state
+        if not state.try_claim_event(event_type):
+            await refuse(MSG_NO_SHRINE if event_type is EventType.SHRINE else MSG_NO_CHEST)
+            return False
+        if event_type is EventType.SHRINE and not patrons.check_if_patron(scene.author):
+            state.reopen_event(EventType.SHRINE)
+            await refuse(MSG_NOT_A_BELIEVER)
+            return False
+        try:
+            await started()
+            if event_type is EventType.SHRINE:
+                await modifiers.random_modifiers(scene, True)
+            else:
+                await events.open_chest(scene)
+        except BaseException:
+            state.reopen_event(event_type)  # nothing happened - the chest / shrine stays
+            raise
+        state.close_event()
+        line = MSG_SHRINE_USED if event_type is EventType.SHRINE else MSG_CHEST_OPENED
+        await self.retire_panel(line.format(mention=scene.author.mention))
+        return True
+
+    async def passive_clicked(self, interaction: Any, event_type: EventType) -> None:
+        """A click on "Otwórz skrzynię" / "Pomódl się"."""
+        if not await ui.gate(interaction, unless_busy=False):  # the commands do not wait for "busy" either
+            return
+        message = interaction.message
+        if message is None or self._panel is None or message.id != self._panel.id:
+            # A panel the cog no longer knows (a restart, an old message): nothing to claim there.
+            await ui.reply(interaction, MSG_NO_SHRINE if event_type is EventType.SHRINE else MSG_NO_CHEST)
+            await ui.retire(message)
+            return
+        log.info("%s button clicked by %s.", event_type.name, interaction.user.id)
+
+        async def refuse(text: str) -> None:
+            await ui.reply(interaction, text)
+            await self.retire_panel()  # e.g. the boss closed the event: the button goes (no-op otherwise)
+
+        await self._claim(event_type, ui.scene_of(interaction), refuse, lambda: ui.ack(interaction))
+
+    async def retire_panel(self, line: str | None = None) -> None:
+        """Take the button off the chest / shrine panel once that event is over.  Never raises.
+
+        ``line`` (who opened / prayed) is added to the panel.  Nothing happens
+        while the event is still open or being claimed.
+        """
+        if self._panel is None or self.bot.state.event_type is self._panel_type:
+            return
+        panel, self._panel, self._panel_type = self._panel, None, None
+        changes: dict[str, Any] = {}
+        embeds = getattr(panel, "embeds", None) or []
+        if line is not None and embeds:
+            embed = embeds[0].copy()
+            embed.description = f"{embed.description or ''}\n\n{line}"
+            changes["embed"] = embed
+        await ui.retire(panel, **changes)
 
     @commands.command(name="modlitwa", brief="Patron or Creator can pray to the shrine.")
     @guards.boss_channel_only()
     async def pray(self, ctx: commands.Context) -> None:
-        from ..features import modifiers, patrons
-
-        state = self.bot.state
-        if not state.try_claim_event(EventType.SHRINE):
-            await io.send(ctx.channel, MSG_NO_SHRINE)
-            return
-        if not patrons.check_if_patron(ctx.author):
-            state.reopen_event(EventType.SHRINE)
-            await io.send(ctx.channel, MSG_NOT_A_BELIEVER)
-            return
-        try:
-            await io.safe_react(ctx.message, "<:prayge:1063891597760139304>")
-            await modifiers.random_modifiers(Scene.from_ctx(ctx), True)
-        except BaseException:
-            state.reopen_event(EventType.SHRINE)  # the prayer did not happen - shrine stays
-            raise
-        state.close_event()
+        await self._claim(EventType.SHRINE, Scene.from_ctx(ctx), lambda text: io.send(ctx.channel, text),
+                          lambda: io.safe_react(ctx.message, PRAYGE))
 
     @commands.command(name="skrzynia", brief="Everyone can open a chest.")
     @guards.boss_channel_only()
     async def open_chest(self, ctx: commands.Context) -> None:
-        from ..features import events
-
-        state = self.bot.state
-        if not state.try_claim_event(EventType.CHEST):
-            await io.send(ctx.channel, MSG_NO_CHEST)
-            return
-        try:
-            await events.open_chest(Scene.from_ctx(ctx))
-        except BaseException:
-            state.reopen_event(EventType.CHEST)  # nothing was looted - chest stays
-            raise
-        state.close_event()
+        await self._claim(EventType.CHEST, Scene.from_ctx(ctx), lambda text: io.send(ctx.channel, text),
+                          lambda: asyncio.sleep(0))
 
     @commands.command(name="zabojca", aliases=["asasyn", "zabójca"], brief="Assinate the ranking player.")
     @commands.cooldown(1, 60 * 60 * 23, commands.BucketType.user)

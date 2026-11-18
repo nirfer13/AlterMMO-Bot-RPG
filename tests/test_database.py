@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from altermmo.core import clock
-from altermmo.features import database
+from altermmo.features import daily, database
 
 
 async def test_boss_schedule_roundtrip_and_legacy_format(game_db):
@@ -59,7 +59,9 @@ async def test_ranking_points_upsert_and_listing(game_db):
     await database.read_ranking_table(game_db.scene())
     embed = game_db.channel.messages[-1].embeds[0]
     assert embed.title == "Ranking łowców potworów!"
-    assert embed.description == "1. **Ala** - 15 pkt.\n2. **O'la** - -6 pkt.\n"
+    season_end = f"<t:{int(daily.next_season_end().timestamp())}:R>"     # Discord's live countdown
+    assert embed.description == (f"1. **Ala** - 15 pkt.\n2. **O'la** - -6 pkt.\n"
+                                 f"\n⏳ Sezon kończy się {season_end}.")
 
 
 async def test_season_summary_returns_winner_and_reset_keeps_table(game_db):

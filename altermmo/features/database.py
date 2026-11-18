@@ -261,9 +261,17 @@ async def _ranking_lines(bot: "AlterBot", separator: str) -> tuple[str, list]:
     return "\n".join(lines) + ("\n" if lines else ""), rows
 
 
+#: Last line of ``$ranking``; ``{when}`` is :func:`altermmo.core.ui.when` of the season end.
+MSG_SEASON_ENDS = "\n⏳ Sezon kończy się {when}."
+
+
 async def read_ranking_table(scene: "Scene") -> None:
-    """``$ranking``: post the current top 10."""
+    """``$ranking``: post the current top 10 and when the season ends (Discord's live countdown)."""
+    from ..core import ui
+    from .daily import next_season_end  # (daily imports this module)
+
     description, _ = await _ranking_lines(scene.bot, " - ")
+    description += MSG_SEASON_ENDS.format(when=ui.when(next_season_end()))
     embed = discord.Embed(title="Ranking łowców potworów!", url=RANKING_IMAGE,
                           description=description, color=0xFF0000)
     embed.set_thumbnail(url=RANKING_IMAGE)

@@ -22,7 +22,7 @@ from altermmo.settings import ASSETS_DIR
 from fakes import FakeMember, FakeMessage, FakeRole
 
 PATRON = patrons.PATRON_ROLES[0]
-ASK = "Wpisz **$potwierdzam**"
+ASK = "albo wpisz **$potwierdzam**."
 ALONE = "Niestety jesteś sam jak palec na tym świecie"
 PEPOG = "<:PepoG:790963160528977980>"
 ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN = pets.SKILL_EMOTES
@@ -113,20 +113,6 @@ def patron(game, name: str = "Patron") -> FakeMember:
 
 def forbidden() -> discord.Forbidden:
     return discord.Forbidden(types.SimpleNamespace(status=403, reason="Forbidden"), "Cannot send messages to this user")
-
-
-class FakeReaction:
-    def __init__(self, message, emoji: str) -> None:
-        self.message = message
-        self.emoji = emoji
-
-
-def react(game, message, member, emoji: str) -> None:
-    game.bot.dispatch("reaction_add", FakeReaction(message, emoji), member)
-
-
-def unreact(game, message, member, emoji: str) -> None:
-    game.bot.dispatch("reaction_remove", FakeReaction(message, emoji), member)
 
 
 class DatabaseDown:
@@ -687,7 +673,7 @@ async def test_reroll_spends_a_scroll_and_redistributes_the_talent(game_db, monk
 
     assert game_db.channel.contains(
         f"Czy jesteś pewien, że chcesz przelosować statystyki swojego towarzysza <@{player.id}>? "
-        "<:Hmm:984767035617730620> Wpisz **$potwierdzam**.")
+        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
     row = await pet_row(db, 5)
     assert {name: row[name.lower()] for name in pets.SKILL_POOL} == {
         "CRIT_PERC": 5, "REPLACE_PERC": 0, "DEF_PERC": 0, "DROP_PERC": 0, "LOWHP_PERC": 0, "SLOW_PERC": 16,
@@ -779,7 +765,8 @@ async def test_one_open_question_per_player(game_db, monkeypatch, sacrifices):
     rig(monkeypatch)
     task = asyncio.ensure_future(pets.reroll_pet(game_db.scene(player), player))
     await until(lambda: game_db.channel.contains(ASK))
-    waiting = "Już czekam na Twoje potwierdzenie. Wpisz **$potwierdzam** albo poczekaj aż prośba wygaśnie."
+    waiting = ("Już czekam na Twoje potwierdzenie. Kliknij **Potwierdzam** (albo wpisz **$potwierdzam**) "
+               "albo poczekaj, aż prośba wygaśnie.")
     assert await pets.discard_pet(game_db.scene(player)) is False
     assert await pets.reroll_pet(game_db.scene(player), player) is False
     assert await pets.store_pet(game_db.scene(player), 1) is False
@@ -812,10 +799,13 @@ async def test_reroll_leaving_stats_out_costs_ten_scrolls_each(game_db, monkeypa
 
 async def open_menu(game, player):
     task = asyncio.ensure_future(pets.adv_reroll_pet(game.scene(player)))
-    await until(lambda: game.channel.contains("Wybierz, które umiejętności chcesz pominąć"))
-    menu = next(m for m in game.channel.messages if "Wybierz, które umiejętności" in m.content)
-    await until(lambda: len(menu.reactions) == 8)
+    menu = await game.wait_for_buttons("pet:skip")
     return task, menu
+
+
+async def choose(game, menu, member, *indexes: int):
+    """``member`` chooses the stats ``indexes`` (of SKILL_POOL) in the menu's list."""
+    return await game.click(menu, member, "pet:skip", values=[str(index) for index in indexes])
 
 
 async def test_advanced_reroll_menu(game_db, monkeypatch):
@@ -826,26 +816,30 @@ async def test_advanced_reroll_menu(game_db, monkeypatch):
     confirms(game_db, player)
     task, menu = await open_menu(game_db, player)
     assert menu.content == (
-        "Wybierz, które umiejętności chcesz pominąć przy przelosowaniu."
-        "\nKażda wybrana statystyka to koszt 10 zwojów, maksymalnie 3 do wyboru:"
-        f"\n\n{ONE} - Szansa na krytyczne uderzenie,\n{TWO} - Szansa na zastąpienie ataku,"
-        f"\n{THREE} - Szansa na zablokowanie ataku,\n{FOUR} - Rzadszy drop,"
-        f"\n{FIVE} - Zmniejszenie życia przeciwnika,\n{SIX} - Spowolnienie przeciwnika,"
-        f"\n{SEVEN} - Wyczuwanie bossa,\n\n*Potwierdź {ACCEPT}.*")
-    assert menu.reactions == [ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, ACCEPT]
+        "Wybierz z listy, które umiejętności chcesz pominąć przy przelosowaniu."
+        "\nKażda wybrana statystyka to koszt 10 zwojów, maksymalnie 3 do wyboru."
+        "\n\n*Potwierdź przyciskiem **Przelosuj**.*\n\nPominięte: brak - koszt: **1 zwój**.")
+    assert menu.reactions == [] and menu.button_labels == ["Przelosuj", "Anuluj"]
+    select = menu.button("pet:skip")
+    assert [option.label for option in select.options] == [
+        "Szansa na krytyczne uderzenie", "Szansa na zastąpienie ataku", "Szansa na zablokowanie ataku",
+        "Rzadszy drop", "Zmniejszenie życia przeciwnika", "Spowolnienie przeciwnika", "Wyczuwanie bossa"]
+    assert [str(option.emoji) for option in select.options] == [ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN]
+    assert (select.min_values, select.max_values) == (0, 3)
 
-    # Clicks arriving together, a click taken back, strangers, the bot itself, another message.
-    react(game_db, menu, player, SEVEN)
-    react(game_db, menu, player, ONE)
-    react(game_db, menu, player, FOUR)
-    unreact(game_db, menu, player, FOUR)
-    react(game_db, menu, other, TWO)
-    react(game_db, menu, other, ACCEPT)
-    react(game_db, menu, game_db.bot.fake_user, THREE)
-    react(game_db, game_db.channel.messages[0], player, FIVE)
-    react(game_db, menu, player, "🤡")
-    react(game_db, menu, player, ACCEPT)
+    # Strangers cannot use it; a changed mind counts (the list is the whole choice).
+    not_yours = [f"Ten przycisk jest dla <@{player.id}>."]
+    assert (await choose(game_db, menu, other, 1)).whispers == not_yours
+    assert (await game_db.click(menu, other, "pet:skip-accept")).whispers == not_yours
+    await choose(game_db, menu, player, 6, 0, 3)
+    await until(lambda: "koszt: **30 zwojów**" in menu.content)
+    await choose(game_db, menu, player, 6, 0)
+    await until(lambda: "koszt: **20 zwojów**" in menu.content)
+    assert "Pominięte: **Szansa na krytyczne uderzenie**, **Wyczuwanie bossa** - koszt" in menu.content
+    assert [option.default for option in menu.button("pet:skip").options] == [True] + [False] * 5 + [True]
+    await game_db.click(menu, player, "pet:skip-accept")
     assert await asyncio.wait_for(task, 5) is True
+    assert menu.view is None and "koszt: **20 zwojów**" in menu.content            # the list is gone
 
     assert game_db.channel.contains("Zobaczmy...")
     assert pools and all(pool == ["REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "SLOW_PERC"]
@@ -860,17 +854,20 @@ async def test_advanced_reroll_without_a_choice_is_an_ordinary_reroll(game_db, m
     rig(monkeypatch)
     confirms(game_db, player)
     task, menu = await open_menu(game_db, player)
-    react(game_db, menu, player, ACCEPT)
+    await choose(game_db, menu, player, 2)
+    await choose(game_db, menu, player)                                     # ... and taken back
+    await game_db.click(menu, player, "pet:skip-accept")
     assert await asyncio.wait_for(task, 5) is True
     assert (await owner_row(game_db.bot.db, player.id))["reroll_scroll"] == 2
 
 
 async def test_advanced_reroll_allows_three_stats_at_most(game_db):
+    """Discord's list stops at three; a forged fourth choice is still refused."""
     player = await reroll_setup(game_db, scrolls=99)
     before = await pet_row(game_db.bot.db, 5)
     task, menu = await open_menu(game_db, player)
-    for emote in (ONE, TWO, THREE, FOUR, ACCEPT):
-        react(game_db, menu, player, emote)
+    await choose(game_db, menu, player, 0, 1, 2, 3)
+    await game_db.click(menu, player, "pet:skip-accept")
     assert await asyncio.wait_for(task, 5) is False
     assert game_db.channel.messages[-1].content == (
         "Wybrałeś za dużo statystyk. Można pominąć **maksymalnie 3**! <:madge:882184635474386974>")
@@ -881,9 +878,10 @@ async def test_advanced_reroll_menu_expires(game_db, short_timeouts):
     player = await reroll_setup(game_db)
     scene = game_db.scene(player)
     assert await pets.adv_reroll_pet(scene) is False
-    assert not game_db.channel.contains("Wybierz, które umiejętności")            # the menu is removed
+    assert not game_db.channel.contains("Wybierz z listy")                         # the menu is removed
     assert game_db.channel.messages[-1].content == "*Twój towarzysz spogląda na Ciebie niepewnie.*"
-    assert not game_db.bot.extra_events.get("on_reaction_add") and not game_db.bot.extra_events.get("on_reaction_remove")
+    menu = next(m for m in game_db.channel.sent if "Wybierz z listy" in m.content)
+    assert menu.deleted and menu.view is None
 
 
 # -- $transformacja -------------------------------------------------------------------
@@ -898,7 +896,7 @@ async def test_transform_changes_the_looks_for_a_mirror(game_db, monkeypatch):
     assert await pets.transform_pet(game_db.scene(player), player) is True
     assert game_db.channel.contains(
         f"Czy jesteś pewien, że chcesz zmienić wygląd swojego towarzysza <@{player.id}>? "
-        "<:Hmm:984767035617730620> Wpisz **$potwierdzam**.")
+        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
     assert pools == [list(pets.TRANSFORM_TYPES)] and ranges == [(0, 1)]
     row = await pet_row(db, 5)
     assert (row["type"], row["quality"], row["variant"], row["crit_perc"], row["pet_skills"]) == (
@@ -954,7 +952,7 @@ async def test_enlightenment_adds_talent_for_a_stone(game_db, monkeypatch):
     assert await pets.enlight_pet(game_db.scene(player), player) is True
     assert game_db.channel.contains(
         f"Czy jesteś pewien, że chcesz zwiększyć talent swojego towarzysza <@{player.id}>? "
-        "<:Hmm:984767035617730620> Wpisz **$potwierdzam**.")
+        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
     row = await pet_row(db, 5)
     assert (row["pet_skills"], row["pet_lvl"], row["variant"]) == (9, 3, "1")
     assert (row["crit_perc"], row["drop_perc"], row["detection"]) == (15, 5, True)
@@ -1009,7 +1007,7 @@ async def test_discard_sacrifices_the_pet(game_db, sacrifices):
     assert await pets.discard_pet(game_db.scene(player)) is True
     assert game_db.channel.contains(
         f"Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@{player.id}>? "
-        "<:MonkaS:882181709100097587> Wpisz **$potwierdzam**.")
+        "<:MonkaS:882181709100097587> Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
     row = await owner_row(db, player.id)
     assert (row["pet_id"], row["pet_id_alt1"], row["reroll_scroll"]) == (0, 6, 2)
     assert await pet_row(db, 5) is None and await pet_row(db, 6) is not None
@@ -1407,17 +1405,17 @@ async def test_commands_run_the_confirmed_flows(game_db, cog, monkeypatch, sacri
 
 async def test_advanced_reroll_command_holds_and_releases_the_channel(game_db, cog, monkeypatch):
     player = await reroll_setup(game_db, scrolls=10)
+    player.guild_permissions = discord.Permissions(send_messages=True)  # may play (see the cog fixture)
     other = game_db.add_member("Ola")
     rig(monkeypatch)
     confirms(game_db, player)
     task = asyncio.ensure_future(run(game_db, player, "$mo"))
-    await until(lambda: game_db.channel.contains("Wybierz, które umiejętności"))
+    menu = await game_db.wait_for_buttons("pet:skip")
     assert game_db.bot.state.busy and game_db.bot.state.busy_owner == "adv-reroll"
     await run(game_db, other, "$towarzysz")                              # blocked meanwhile
     assert game_db.channel.contains(guards.BUSY_NOTICE)
-    menu = next(m for m in game_db.channel.messages if "Wybierz, które umiejętności" in m.content)
-    react(game_db, menu, player, SEVEN)
-    react(game_db, menu, player, ACCEPT)
+    await choose(game_db, menu, player, 6)
+    await game_db.click(menu, player, "pet:skip-accept")
     await asyncio.wait_for(task, 5)
     assert not game_db.bot.state.busy
     assert (await owner_row(game_db.bot.db, player.id))["reroll_scroll"] == 0
@@ -1457,8 +1455,10 @@ async def test_naming_cooldown_counts_only_successful_namings(game_db, cog, monk
     await run(game_db, player, '$n "Sir O\'Burek"')
     assert (await pet_row(db, 5))["pet_name"] == "Sir O'Burek"
     await run(game_db, player, "$nazwij Reksio")
-    assert game_db.channel.messages[-1].content == (
-        "Poczekaj na odnowienie komendy! Zostało 23.0 godzin/y <:Bedge:970576892874854400>.")
+    assert game_db.channel.messages[-1].content.startswith(
+        "Poczekaj na odnowienie komendy! Imię zmienisz ponownie <t:")
+    stamp = int(game_db.channel.messages[-1].content.split("<t:")[1].split(":")[0])
+    assert abs(stamp - (time.time() + 23 * 3600)) < 60                   # Discord's live "in 23 hours"
     assert (await pet_row(db, 5))["pet_name"] == "Sir O'Burek"
     # A refused command (wrong channel, busy) neither uses nor clears the running cooldown.
     await run(game_db, player, "$nazwij Reksio", channel=game_db.announce_channel)

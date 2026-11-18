@@ -157,12 +157,17 @@ async def modify_modifiers(bot: "AlterBot", modifier_name: str, value: int) -> N
 
 # -- the shrine -------------------------------------------------------------------
 
-async def spawn_modifier_shrine(scene: "Scene") -> None:
-    """Post the shrine of changes (the event flags belong to the caller)."""
+async def spawn_modifier_shrine(scene: "Scene", *, view: discord.ui.View | None = None) -> Any:
+    """Post the shrine of changes; returns the panel (the embed message).
+
+    The event flags and the "Pomódl się" button (``view``) belong to the
+    events cog, which also takes the button off once the shrine is used.
+    """
     e_title = "🕯️ Kapliczka zmian! 🕯️"
 
     e_descr = 'Oto kapliczka zmian, która wpłynie na następnego bossa! '\
-        'Jeśli chcesz wpłynąć na następnego bossa, to pomódl się wpisując **$modlitwa**.\n\n'\
+        'Jeśli chcesz wpłynąć na następnego bossa, to pomódl się przyciskiem pod tym postem '\
+        'albo wpisując **$modlitwa**.\n\n'\
         '*Tylko Crafterzy i Patroni znają odpowiednią modlitwę, ale każdy może skorzystać'\
         ' z błogosławieństw rzuconych na potwora.*'
 
@@ -179,8 +184,10 @@ async def spawn_modifier_shrine(scene: "Scene") -> None:
             log.warning("Could not post the shrine picture %s: %s: %s", image, type(exc).__name__, exc)
     else:
         log.warning("Shrine picture %s is missing; posting the shrine without it.", image)
-    await scene.send(embed=embed)
+    extra = {} if view is None else {"view": view}
+    panel = await scene.send(embed=embed, **extra)
     log.info("Shrine spawned.")
+    return panel
 
 
 def _eligible(scene: "Scene", current: dict[str, int]) -> list[str]:

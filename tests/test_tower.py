@@ -648,13 +648,14 @@ async def test_wieza_command_rules(game, monkeypatch):
     await bot.state.set_boss_phase(BossPhase.PRE_SPAWN)
     await command.callback(cog, ctx)
     assert game.channel.messages[-1].content == (
-        "Zaraz pojawi się prawidzwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, to wpisz "
-        "**$zaatakuj**, żeby stawić mu czoła.")
+        "Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, kliknij "
+        "**Zaatakuj** pod bossem albo wpisz **$zaatakuj**, żeby stawić mu czoła.")
     await bot.state.set_boss_phase(BossPhase.VISIBLE)
     await command.callback(cog, ctx)
     assert game.channel.messages[-1].content == (
         "Nie możesz ruszyć na eksplorację Wieży Śmierci, na Twojej drodze stoi boss "
-        "<:MonkaS:882181709100097587> Wpusz **$zaatakuj**, żeby stawić mu czoła.")
+        "<:MonkaS:882181709100097587> Kliknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**, "
+        "żeby stawić mu czoła.")
     assert len(game.channel.bot_messages) == before + 2
     for phase in (BossPhase.ENGAGED, BossPhase.FIGHTING):
         await bot.state.set_boss_phase(phase)
@@ -671,8 +672,9 @@ async def test_wieza_command_rules(game, monkeypatch):
     await bot.state.set_boss_phase(BossPhase.WAITING)
     tower.save_weekly_tower_to_file(bot, ala.id)
     await command.callback(cog, ctx)
+    stamp = int(daily.next_season_end().timestamp())                  # the weekly reset: Monday 15:00
     assert game.channel.messages[-1].content == (
-        "Drzwi Wieży Śmierci ani drgną. Sprawdź w następnym tygodniu <:Bedge:970576892874854400>")
+        f"Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie <t:{stamp}:R> <:Bedge:970576892874854400>")
     assert len(runs) == 2
 
     # Busy with something else: the guard answers with the notice, nothing starts.
