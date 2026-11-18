@@ -20,6 +20,7 @@ import itertools
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Callable
 
 import discord
@@ -33,6 +34,12 @@ _ids = itertools.count(1_000_000_000_000_000_000)
 
 def next_id() -> int:
     return next(_ids)
+
+
+def not_found(what: str = "Unknown Message") -> discord.NotFound:
+    """The error Discord answers with when a message is gone (HTTP 404)."""
+    return discord.NotFound(SimpleNamespace(status=404, reason="Not Found"),  # type: ignore[arg-type]
+                            {"code": 10008, "message": what})
 
 
 class FakeAsset:
@@ -182,14 +189,30 @@ class FakeMessage:
         self.view: Any = None
 
     async def add_reaction(self, emoji: Any) -> None:
+        if self.deleted:
+            raise not_found()
         self.reactions.append(str(emoji))
 
     async def delete(self, **kwargs: Any) -> None:
+        if self.deleted:
+            raise not_found()
         self.deleted = True
         if self in self.channel.messages:
             self.channel.messages.remove(self)
 
+    async def pin(self, **kwargs: Any) -> None:
+        if self.deleted:
+            raise not_found()
+        self.pinned = True
+
+    async def unpin(self, **kwargs: Any) -> None:
+        if self.deleted:
+            raise not_found()
+        self.pinned = False
+
     async def edit(self, **kwargs: Any) -> "FakeMessage":
+        if self.deleted:
+            raise not_found()  # as Discord does for a purged message
         self.edits.append(kwargs)
         if "content" in kwargs and kwargs["content"] is not None:
             self.content = kwargs["content"]
@@ -266,6 +289,9 @@ class FakeChannel:
 
     def permissions_for(self, member: Any) -> discord.Permissions:
         permissions = discord.Permissions.all()
+        granted = getattr(member, "guild_permissions", None)
+        if granted is None or not granted.administrator:
+            permissions.update(administrator=False)  # ordinary members are not administrators
         if any(getattr(role, "id", None) in self.silenced_roles for role in getattr(member, "roles", [])):
             permissions.update(send_messages=False)
         return permissions
@@ -322,7 +348,7 @@ class FakeChannel:
         for message in self.messages:
             if message.id == message_id:
                 return message
-        raise LookupError(message_id)
+        raise not_found()
 
     # -- assertion helpers --------------------------------------------------------
 

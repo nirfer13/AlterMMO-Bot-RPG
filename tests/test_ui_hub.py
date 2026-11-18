@@ -252,11 +252,22 @@ async def test_posting_again_replaces_the_previous_panel(game, cog, pins):
     assert not third.deleted and fourth.pinned
 
 
+def administrator(game, name: str = "Alter"):
+    member = game.add_member(name)
+    member.guild_permissions = discord.Permissions(administrator=True)
+    return member
+
+
 async def test_panel_command_for_administrators(game, cog, pins):
     bot = game.bot
-    alter = game.add_member("Alter")
+    alter = administrator(game)
     command = bot.get_command("panel")
     assert any("has_permissions" in getattr(check, "__qualname__", "") for check in command.checks)
+
+    # Not for players: nothing is posted, nothing is said.
+    ala = game.add_member("Ala")
+    await run(game, ala, "$panel")
+    assert game.channel.count(hub.PANEL_TITLE) == 0 and bot.store.runtime_get(hub.PANEL_KEY) is None
 
     # Typed elsewhere: the panel goes to the boss channel and the administrator is told.
     await run(game, alter, "$panel", channel=game.announce_channel)
@@ -271,7 +282,7 @@ async def test_panel_command_for_administrators(game, cog, pins):
 
 
 async def test_panel_command_when_pinning_or_posting_fails(game, cog, monkeypatch):
-    alter = game.add_member("Alter")
+    alter = administrator(game)
 
     async def refused(self, *, reason=None):
         raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Missing Permissions")
