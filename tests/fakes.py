@@ -653,6 +653,9 @@ class Game:
                 return interaction
             view = registered
             item = find_component(view, item.custom_id)
+        # In production cogs/ui.py sees every click as well and answers the ones on flow
+        # buttons nobody registered as live - such a click would be answered twice.
+        assert not str(item.custom_id).startswith(ui.FLOW_PREFIX) or ui.is_live(message.id),             "flow buttons on a message that is not registered as live (send it with view.send / panel.send)"
         data: dict[str, Any] = {"custom_id": item.custom_id,
                                 "component_type": 3 if values is not None else 2}
         if values is not None:

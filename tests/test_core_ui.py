@@ -83,6 +83,53 @@ async def test_relabel_refresh_and_keep_disabled_buttons(game):
     await view.close()                                                                    # idempotent
 
 
+async def test_a_switched_off_button_no_longer_counts(game):
+    """A second quick click on a button the flow has just switched off never reaches the flow."""
+    ala = game.add_member("Ala")
+    choices = [ui.Choice("a", "A"), ui.Choice("b", "B")]
+    async with ui.ClickView(choices) as view:
+        message = await view.send(game.channel, "Runy")
+        first, second = await asyncio.gather(game.click(message, ala, "a"), game.click(message, ala, "a"))
+        assert (await view.next(0)).key == "a"
+        view.relabel("a", disabled=True)                     # the flow accepted "a"; the edit is on its way
+        await game.click(message, ala, "b")
+        assert (await view.next(0)).key == "b"               # the queued second "a" is skipped
+        late = await game.click(message, ala, "a")           # pressed before the edit was shown
+        assert late.response.deferred and late.replies == [] and await view.next(0) is None
+        view.relabel("a", disabled=False)
+        await game.click(message, ala, "a")
+        assert (await view.next(0)).key == "a"
+    assert first.response.deferred and second.response.deferred
+
+
+async def test_click_accepted_while_the_flow_closes_is_told_so(game, monkeypatch):
+    ala = game.add_member("Ala")
+    view = join_view()
+    message = await view.send(game.channel, "Event")
+    real_ack = ui.ack
+
+    async def slow_ack(interaction):
+        done = await real_ack(interaction)
+        await view.close()                                   # the deadline passes during the acknowledgement
+        return done
+
+    monkeypatch.setattr(ui, "ack", slow_ack)
+    interaction = await game.click(message, ala)
+    assert interaction.whispers == [ui.MSG_STALE] and view.pending() == []
+
+
+async def test_stale_click_is_answered_once_by_view_and_listener(game):
+    from altermmo.cogs.ui import UiCog
+
+    ala = game.add_member("Ala")
+    view = join_view()
+    message = await view.send(game.channel, "Event")
+    await view.close(keep_buttons=True)
+    interaction = await game.click(message, ala)             # the view's side
+    await UiCog(game.bot).on_interaction(interaction)        # ...and the listener sees the same click
+    assert interaction.whispers == [ui.MSG_STALE]
+
+
 async def test_close_survives_a_purged_message(game):
     view = join_view()
     message = await view.send(game.channel, "Event")

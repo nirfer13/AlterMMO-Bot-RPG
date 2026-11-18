@@ -40,6 +40,7 @@ Texts shown to players are Polish, like the rest of the game.
 from __future__ import annotations
 
 import asyncio
+import collections
 import functools
 import logging
 import time
@@ -73,6 +74,9 @@ DROP = ""
 
 #: Ids of the messages whose flow buttons somebody is listening to right now.
 _live: set[int] = set()
+#: Ids of the last interactions answered as stale: discord.py hands one click to
+#: the view AND to the ``on_interaction`` listener - only one of them may answer.
+_stale_answered: collections.deque[int] = collections.deque(maxlen=256)
 
 
 # -- answering an interaction ----------------------------------------------------------
@@ -305,6 +309,8 @@ class ClickView(GameView):
         self._players_only = players_only
         self._auto_ack = auto_ack
         self._buttons: dict[str, discord.ui.Button] = {}
+        #: Keys of buttons the flow switched off (see :meth:`relabel`).
+        self._switched_off: set[str] = set()
         for choice in choices:
             self.add_choice(choice)
 
@@ -324,12 +330,21 @@ class ClickView(GameView):
 
     def relabel(self, key: str, label: str | None = None, *, disabled: bool | None = None,
                 style: discord.ButtonStyle | None = None) -> None:
-        """Change a button; call :meth:`refresh` (or edit the message with ``view=``) to show it."""
+        """Change a button; call :meth:`refresh` (or edit the message with ``view=``) to show it.
+
+        A button switched off with ``disabled=True`` stops counting at once:
+        the player's screen shows it as clickable until the edit arrives, and a
+        second quick click must not reach the flow (a memory rune pressed twice).
+        """
         button = self._buttons[key]
         if label is not None:
             button.label = label
         if disabled is not None:
             button.disabled = disabled
+            if disabled:
+                self._switched_off.add(key)
+            else:
+                self._switched_off.discard(key)
         if style is not None:
             button.style = style
 
@@ -343,6 +358,9 @@ class ClickView(GameView):
             await handle_stale(interaction)
             return
         if getattr(user, "bot", False):
+            return
+        if key in self._switched_off:
+            await ack(interaction)  # pressed again before the edit that switched it off was shown
             return
         if self._only is not None and user.id not in self._only:
             text = (MSG_NOT_YOURS_NAMED.format(player_id=next(iter(self._only)))
@@ -365,6 +383,9 @@ class ClickView(GameView):
             return
         if self._auto_ack:
             await ack(interaction)
+            if self.closed:  # the flow ended during the acknowledgement: nobody would read the click
+                await reply(interaction, MSG_STALE)
+                return
         self.clicks.put_nowait(Click(key, user, interaction))
 
     # -- the flow's side ----------------------------------------------------------
@@ -395,16 +416,23 @@ class ClickView(GameView):
             return False
 
     async def next(self, timeout: float | None) -> Click | None:
-        """The next accepted click; None after ``timeout`` seconds (None: wait for ever)."""
-        if timeout is not None and timeout <= 0:
+        """The next accepted click; None after ``timeout`` seconds (None: wait for ever).
+
+        Clicks on a button the flow has switched off meanwhile (:meth:`relabel`)
+        are skipped: they were made before the player could see the change.
+        """
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            remaining = None if deadline is None else deadline - time.monotonic()
             try:
-                return self.clicks.get_nowait()
-            except asyncio.QueueEmpty:
+                if remaining is not None and remaining <= 0:
+                    click = self.clicks.get_nowait()
+                else:
+                    click = await asyncio.wait_for(self.clicks.get(), remaining)
+            except (asyncio.QueueEmpty, asyncio.TimeoutError):
                 return None
-        try:
-            return await asyncio.wait_for(self.clicks.get(), timeout)
-        except asyncio.TimeoutError:
-            return None
+            if click.key not in self._switched_off:
+                return click
 
     def pending(self) -> list[Click]:
         """Every accepted click not read yet (does not wait)."""
@@ -493,7 +521,16 @@ class PanelView(GameView):
 
 
 async def handle_stale(interaction: Any) -> None:
-    """Answer a click on a flow button nobody listens to any more and take the buttons away."""
+    """Answer a click on a flow button nobody listens to any more and take the buttons away.
+
+    Safe to call twice for one click (the view and the listener of
+    ``altermmo/cogs/ui.py`` may both notice it): only the first call answers.
+    """
+    interaction_id = getattr(interaction, "id", None)
+    if interaction_id is not None:
+        if interaction_id in _stale_answered:
+            return
+        _stale_answered.append(interaction_id)
     message = getattr(interaction, "message", None)
     if not interaction.response.is_done():
         try:

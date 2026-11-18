@@ -21,7 +21,7 @@ from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossPhase
 from altermmo.features import daily, hub, pets, skills, tower
 
-from fakes import FakeMessage
+from fakes import FakeInteraction, FakeMessage
 from test_pets import add_owner, add_pet
 
 LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Pomoc"]
@@ -279,6 +279,32 @@ async def test_panel_command_for_administrators(game, cog, pins):
     typed = await run(game, alter, "$centrum")
     assert typed.reactions == ["✅"] and panel.deleted
     assert game.channel.count(hub.PANEL_TITLE) == 1
+
+
+async def test_panel_on_the_test_channel_leaves_the_real_one_alone(game, cog, pins):
+    bot = game.bot
+    real = await panel_on(game)
+    trial = await panel_on(game, game.announce_channel)
+    assert not real.deleted and real.pinned and trial.pinned
+    assert bot.store.runtime_get(hub.PANEL_KEY)["message"] == real.id
+    assert bot.store.runtime_get(hub.panel_key(bot, game.announce_channel.id))["message"] == trial.id
+    again = await panel_on(game, game.announce_channel)
+    assert trial.deleted and not real.deleted and again.pinned
+
+
+async def test_click_discord_gave_up_starts_nothing(game, cog, fake_hunt):
+    """The bot lagged for more than 3 s: the player saw "interaction failed" - no hunt is spent."""
+    ala = game.add_member("Ala")
+    panel = await panel_on(game)
+    for handler in (hub.hunt_clicked, hub.tower_clicked):
+        click = FakeInteraction(game.bot, ala, panel)
+        click.response.fail_with = discord.NotFound(SimpleNamespace(status=404, reason="Not Found"),
+                                                    "Unknown interaction")
+        assert await handler(click) is False
+    assert fake_hunt == [] and not daily.load_daily_from_file(game.bot, ala.id)
+    click = FakeInteraction(game.bot, ala, panel)
+    click.response.fail_with = ConnectionError("down")
+    assert await hub.show_privately(click, hub.show_help) is False and game.bot.owner_log == []
 
 
 async def test_panel_command_when_pinning_or_posting_fails(game, cog, monkeypatch):

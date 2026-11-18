@@ -4,8 +4,9 @@ An administrator posts it with ``$panel`` (see ``altermmo/cogs/hub.py``); the
 bot pins it, so the regular purge of the boss channel
 (:func:`altermmo.core.io.clear_channel` keeps pinned messages) never removes
 it.  Posting it again replaces the previous panel: its id is remembered in
-``runtime.json`` (:data:`PANEL_KEY`) and the old message is deleted - a panel
-somebody already removed by hand is simply skipped.
+``runtime.json`` (:func:`panel_key`, one entry per channel, so a panel tried
+out on the test channel never removes the real one) and the old message is
+deleted - a panel somebody already removed by hand is simply skipped.
 
 The buttons are *permanent* (fixed ``custom_id``\\ s ``altermmo:hub:...``, no
 timeout, no state in the view): the cog registers one :class:`HubView` at
@@ -29,7 +30,10 @@ Two kinds of buttons:
   the gem pouch carry no buttons of their own (the typed commands still
   show them with buttons).
 
-Every click is acknowledged at once; the fights themselves stay typed.
+Every click is acknowledged at once; the fights themselves stay typed.  A
+click Discord has already given up on (the bot lagged for more than three
+seconds - the player was told "interaction failed") starts nothing: no hunt
+and no tower run is spent behind the player's back.
 """
 
 from __future__ import annotations
@@ -90,6 +94,11 @@ MSG_POSTED_NOT_PINNED = ("Panel **Centrum gry** jest na kanale <#{channel_id}>, 
                          "(brak uprawnienia do zarządzania wiadomościami albo 50 przypiętych wiadomości?). "
                          "Kanał jest regularnie czyszczony - przypnij go ręcznie.")
 MSG_NOT_POSTED = "Nie udało się opublikować panelu **Centrum gry** <:Sadge:936907659142111273>"
+
+
+def panel_key(bot: "AlterBot", channel_id: int) -> str:
+    """``runtime.json`` key of the panel on ``channel_id`` (:data:`PANEL_KEY` for the boss channel)."""
+    return PANEL_KEY if int(channel_id) == int(bot.ids.boss_channel) else f"{PANEL_KEY}:{int(channel_id)}"
 
 
 def panel_embed() -> discord.Embed:
@@ -156,7 +165,8 @@ async def hunt_clicked(interaction: Any) -> bool:
     # The busy flag is checked by start_hunt itself: during a gathering hunt a click joins it.
     if not await ui.gate(interaction, unless_busy=False):
         return False
-    await ui.ack(interaction)
+    if not await ui.ack(interaction):
+        return False  # Discord gave the click up: the player saw "interaction failed"
     log.info("Hub: hunt clicked by %s.", interaction.user.id)
     return await _guarded(interaction, lambda: daily.start_hunt(ui.scene_of(interaction),
                                                                 refuse=_private_refusal(interaction)))
@@ -168,7 +178,8 @@ async def tower_clicked(interaction: Any) -> bool:
 
     if not await ui.gate(interaction, unless_busy=False):  # start_tower answers "busy" itself
         return False
-    await ui.ack(interaction)
+    if not await ui.ack(interaction):
+        return False  # Discord gave the click up: the player saw "interaction failed"
     log.info("Hub: tower clicked by %s.", interaction.user.id)
     return await _guarded(interaction, lambda: tower.start_tower(ui.scene_of(interaction),
                                                                  refuse=_private_refusal(interaction)))
@@ -184,7 +195,8 @@ async def show_privately(interaction: Any, show: Callable[["Scene"], Awaitable[A
     if not await ui.gate(interaction, boss_channel=False, players_only=False,
                          unless_busy=display_blocked_while_busy(interaction.client)):
         return False
-    await ui.ack(interaction)  # the database may take a moment; the answers follow privately
+    if not await ui.ack(interaction):  # the database may take a moment; the answers follow privately
+        return False  # an expired click cannot be answered any more
     await _guarded(interaction, lambda: show(ui.whisper_scene(interaction)))
     return True
 
@@ -302,7 +314,8 @@ async def post_panel(bot: "AlterBot", channel: Any) -> tuple[Any, bool]:
     Returns ``(message, pinned)``.  Posting may raise like :func:`io.send`;
     the previous panel is left alone then.
     """
-    previous = bot.store.runtime_get(PANEL_KEY)
+    key = panel_key(bot, channel.id)
+    previous = bot.store.runtime_get(key)
     view = HubView()
     try:
         message = await io.send(channel, embed=panel_embed(), view=view)
@@ -313,7 +326,7 @@ async def post_panel(bot: "AlterBot", channel: Any) -> tuple[Any, bool]:
     pinned = await _pin(message)
     if pinned:
         await _drop_pin_notice(channel, message)
-    bot.store.runtime_set(PANEL_KEY, {"channel": int(channel.id), "message": int(message.id)})
+    bot.store.runtime_set(key, {"channel": int(channel.id), "message": int(message.id)})
     if isinstance(previous, dict) and previous.get("message") != message.id:
         await _remove(bot, previous)
     log.info("Hub panel posted on %s (message %s, pinned=%s).", channel.id, message.id, pinned)
