@@ -195,7 +195,24 @@ class FakeMessage:
             self.content = kwargs["content"]
         if "embed" in kwargs and kwargs["embed"] is not None:
             self.embeds = [kwargs["embed"]]
+        if "embeds" in kwargs and kwargs["embeds"] is not None:
+            self.embeds = list(kwargs["embeds"])
+        if "view" in kwargs:
+            self.view = kwargs["view"]
+            self.channel._store_view(self.view, self.id)
         return self
+
+    def button(self, key_or_label: str | None = None) -> Any:
+        """A component of the message's view: by ``custom_id`` (suffix) or label; None: the first one."""
+        return find_component(self.view, key_or_label)
+
+    @property
+    def button_labels(self) -> list[str]:
+        """Labels of the buttons under the message that can be clicked right now."""
+        if self.view is None:
+            return []
+        return [str(item.label) for item in self.view.children
+                if isinstance(item, discord.ui.Button) and not item.disabled]
 
     @property
     def text(self) -> str:
@@ -236,7 +253,22 @@ class FakeChannel:
         #: Set to an exception instance to make the next ``fail_sends`` sends raise.
         self.fail_with: BaseException | None = None
         self.fail_sends = 0
+        #: Ids of roles that may not write here (the server's "dead hunter" set-up).
+        self.silenced_roles: set[int] = set()
+        #: The bot (set by ``make_game``): views sent here are registered with it.
+        self.client: Any = None
         guild.channels.append(self)
+
+    def _store_view(self, view: Any, message_id: int) -> None:
+        """What discord.py does when a message with a view is sent: its timeout starts to run."""
+        if view is not None and self.client is not None and not view.is_finished():
+            self.client._connection.store_view(view, message_id)
+
+    def permissions_for(self, member: Any) -> discord.Permissions:
+        permissions = discord.Permissions.all()
+        if any(getattr(role, "id", None) in self.silenced_roles for role in getattr(member, "roles", [])):
+            permissions.update(send_messages=False)
+        return permissions
 
     @property
     def mention(self) -> str:
@@ -257,6 +289,7 @@ class FakeChannel:
         message = FakeMessage(self, self._bot_user, None if content is None else str(content),
                               embed=embed, embeds=embeds, files=names)
         message.view = kwargs.get("view")
+        self._store_view(message.view, message.id)
         self.messages.append(message)
         self.sent.append(message)
         for hook in list(self.send_hooks):
@@ -314,6 +347,137 @@ class FakeChannel:
 
     def sent_count(self, fragment: str) -> int:
         return sum(1 for m in self.sent if fragment in m.text)
+
+
+def find_component(view: Any, key_or_label: str | None = None) -> Any:
+    """Item of ``view`` whose ``custom_id`` is / ends with ``key_or_label`` or whose label equals it."""
+    assert view is not None, "the message has no buttons"
+    items = list(view.children)
+    if key_or_label is None:
+        return items[0]
+    for item in items:
+        custom_id = str(getattr(item, "custom_id", "") or "")
+        if custom_id == key_or_label or custom_id.endswith(":" + key_or_label):
+            return item
+    for item in items:
+        if getattr(item, "label", None) == key_or_label:
+            return item
+    raise AssertionError(f"no component {key_or_label!r} among "
+                         f"{[(getattr(i, 'custom_id', None), getattr(i, 'label', None)) for i in items]}")
+
+
+@dataclass
+class FakeReply:
+    """One answer to an interaction (``response.send_message`` or ``followup.send``)."""
+
+    content: str
+    ephemeral: bool
+    embeds: list = field(default_factory=list)
+    view: Any = None
+    files: list = field(default_factory=list)
+
+    @property
+    def text(self) -> str:
+        parts = [self.content]
+        for embed in self.embeds:
+            parts += [str(embed.title or ""), str(embed.description or "")]
+            parts += [f"{f.name} {f.value}" for f in embed.fields]
+            if embed.footer and embed.footer.text:
+                parts.append(str(embed.footer.text))
+        return "\n".join(p for p in parts if p)
+
+
+def _reply_from(content: Any, kwargs: dict[str, Any]) -> FakeReply:
+    embeds = list(kwargs.get("embeds") or ([kwargs["embed"]] if kwargs.get("embed") is not None else []))
+    names = []
+    for item in ([kwargs["file"]] if kwargs.get("file") is not None else []) + list(kwargs.get("files") or []):
+        names.append(getattr(item, "filename", str(item)))
+        close = getattr(item, "close", None)
+        if close is not None:
+            close()
+    return FakeReply("" if content is None else str(content), bool(kwargs.get("ephemeral", False)),
+                     embeds, kwargs.get("view"), names)
+
+
+class FakeResponse:
+    """``interaction.response``: the first (and only) direct answer to a click."""
+
+    def __init__(self, interaction: "FakeInteraction") -> None:
+        self._interaction = interaction
+        self._done = False
+        self.deferred = False
+        self.modal: Any = None
+        #: Set to an exception to make every answer fail (Discord is down).
+        self.fail_with: BaseException | None = None
+
+    def is_done(self) -> bool:
+        return self._done
+
+    def _answer(self) -> None:
+        if self.fail_with is not None:
+            raise self.fail_with
+        assert not self._done, "the interaction was answered twice"
+        self._done = True
+
+    async def send_message(self, content: Any = None, **kwargs: Any) -> None:
+        self._answer()
+        self._interaction.replies.append(_reply_from(content, kwargs))
+
+    async def defer(self, **kwargs: Any) -> None:
+        self._answer()
+        self.deferred = True
+
+    async def edit_message(self, **kwargs: Any) -> None:
+        self._answer()
+        if self._interaction.message is not None:
+            await self._interaction.message.edit(**kwargs)
+
+    async def send_modal(self, modal: Any) -> None:
+        self._answer()
+        self.modal = modal
+
+
+class FakeFollowup:
+    def __init__(self, interaction: "FakeInteraction") -> None:
+        self._interaction = interaction
+
+    async def send(self, content: Any = None, **kwargs: Any) -> FakeReply:
+        if self._interaction.response.fail_with is not None:
+            raise self._interaction.response.fail_with
+        assert self._interaction.response.is_done(), "followup before the interaction was answered"
+        reply = _reply_from(content, kwargs)
+        self._interaction.replies.append(reply)
+        return reply
+
+
+class FakeInteraction:
+    """A click on a button / a choice in a menu / a submitted pop-up window."""
+
+    def __init__(self, client: Any, user: FakeMember, message: FakeMessage | None = None,
+                 channel: "FakeChannel | None" = None, data: dict[str, Any] | None = None,
+                 kind: discord.InteractionType = discord.InteractionType.component) -> None:
+        self.id = next_id()
+        self.client = client
+        self.user = user
+        self.message = message
+        self.channel = channel if channel is not None else (message.channel if message is not None else None)
+        self.guild = getattr(self.channel, "guild", None)
+        self.data = data or {}
+        self.type = kind
+        self.response = FakeResponse(self)
+        self.followup = FakeFollowup(self)
+        #: Everything the bot answered, in order.
+        self.replies: list[FakeReply] = []
+
+    @property
+    def whispers(self) -> list[str]:
+        """Texts of the ephemeral answers."""
+        return [reply.text for reply in self.replies if reply.ephemeral]
+
+    @property
+    def said(self) -> str:
+        """All answers as one text - handy for ``in`` assertions."""
+        return "\n".join(reply.text for reply in self.replies)
 
 
 class GameBot(AlterBot):
@@ -436,6 +600,127 @@ class Game:
 
         self.channel.send_hooks.append(hook)
 
+    async def click(self, message: FakeMessage, member: FakeMember, key_or_label: str | None = None,
+                    *, values: list[str] | None = None) -> FakeInteraction:
+        """``member`` clicks a button (or chooses ``values`` in a menu) under ``message``.
+
+        Goes the way discord.py dispatches a component: the view's
+        ``interaction_check``, the item's callback, ``on_error`` on failure.
+        Buttons of a flow that is over are answered by the stale-click handler
+        (as ``altermmo/cogs/ui.py`` does), permanent buttons by the view registered
+        at start-up.  Returns the interaction with the answers.
+        """
+        from altermmo.core import ui
+
+        view = message.view
+        item = find_component(view, key_or_label)
+        if view.is_finished():
+            # Not listened to through this message any more: a permanent button is
+            # answered by the view registered at start-up, a flow button is stale.
+            registered = next((candidate for candidate in self.bot.persistent_views
+                               for child in candidate.children
+                               if getattr(child, "custom_id", None) == item.custom_id), None)
+            if registered is None:
+                interaction = FakeInteraction(self.bot, member, message,
+                                              data={"custom_id": item.custom_id, "component_type": 2})
+                await ui.handle_stale(interaction)
+                return interaction
+            view = registered
+            item = find_component(view, item.custom_id)
+        data: dict[str, Any] = {"custom_id": item.custom_id,
+                                "component_type": 3 if values is not None else 2}
+        if values is not None:
+            data["values"] = list(values)
+        interaction = FakeInteraction(self.bot, member, message, data=data)
+        try:
+            item._refresh_state(interaction, data)
+            if await view.interaction_check(interaction):
+                await item.callback(interaction)
+        except Exception as exc:  # noqa: BLE001 - exactly what discord.py does
+            await view.on_error(interaction, exc, item)
+        return interaction
+
+    def click_later(self, message: FakeMessage, member: FakeMember, key_or_label: str | None = None,
+                    delay: float = 0.0, *, values: list[str] | None = None) -> asyncio.Task:
+        async def _later() -> FakeInteraction:
+            await asyncio.sleep(delay)
+            return await self.click(message, member, key_or_label, values=values)
+
+        task = asyncio.ensure_future(_later())
+        self._tasks.append(task)
+        return task
+
+    def auto_click(self, member: FakeMember, key_or_label: str | None = None, *, delay: float = 0.0,
+                   values: list[str] | None = None, times: int | None = 1,
+                   when: Callable[[FakeMessage], bool] | None = None) -> list[asyncio.Task]:
+        """Make ``member`` click as soon as the bot posts a message with a matching component.
+
+        ``times`` limits how many messages are clicked (None: every one);
+        ``when`` filters the messages.  Returns the list the click tasks are
+        appended to (await them to read the interactions).
+        """
+        clicks: list[asyncio.Task] = []
+        remaining = [times]
+
+        def hook(message: FakeMessage) -> None:
+            if message.view is None or (remaining[0] is not None and remaining[0] <= 0):
+                return
+            if when is not None and not when(message):
+                return
+            try:
+                find_component(message.view, key_or_label)
+            except AssertionError:
+                return
+            if remaining[0] is not None:
+                remaining[0] -= 1
+            clicks.append(self.click_later(message, member, key_or_label, delay, values=values))
+
+        self.channel.send_hooks.append(hook)
+        return clicks
+
+    async def submit_modal(self, interaction: FakeInteraction, text: str,
+                           member: FakeMember | None = None) -> FakeInteraction:
+        """Fill in and submit the pop-up window that was opened as the answer to ``interaction``."""
+        modal = interaction.response.modal
+        assert modal is not None, "no pop-up window was opened"
+        submitted = FakeInteraction(self.bot, member or interaction.user, interaction.message,
+                                    channel=interaction.channel, kind=discord.InteractionType.modal_submit)
+        field_item = next(item for item in modal.children if isinstance(item, discord.ui.TextInput))
+        field_item._value = text
+        try:
+            if await modal.interaction_check(submitted):
+                await modal.on_submit(submitted)
+        except Exception as exc:  # noqa: BLE001 - exactly what discord.py does
+            await modal.on_error(submitted, exc)
+        else:
+            modal.stop()
+        return submitted
+
+    def last_with_buttons(self, channel: FakeChannel | None = None) -> FakeMessage | None:
+        """The newest message on the channel that carries (live) buttons."""
+        for message in reversed((channel or self.channel).messages):
+            if message.view is not None and not message.view.is_finished():
+                return message
+        return None
+
+    async def wait_for_buttons(self, key_or_label: str | None = None, *, timeout: float = 3.0,
+                               channel: FakeChannel | None = None) -> FakeMessage:
+        """Wait until a message with live buttons (with ``key_or_label`` when given) is on the channel."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            for message in reversed((channel or self.channel).messages):
+                if message.view is None or message.view.is_finished():
+                    continue
+                if key_or_label is None:
+                    return message
+                try:
+                    find_component(message.view, key_or_label)
+                except AssertionError:
+                    continue
+                return message
+            assert asyncio.get_running_loop().time() < deadline, f"no buttons {key_or_label!r} appeared"
+            await asyncio.sleep(0.01)
+
     async def settle(self) -> None:
         """Let scheduled player messages and listeners run."""
         for _ in range(5):
@@ -474,6 +759,7 @@ async def make_game(tmp_path, *, debug: bool = True, database_url: str = "") -> 
     for attr in ("boss_channel", "log_channel", "announce_channel", "notice_channel"):
         channel_id = getattr(ids, attr)
         channels[attr] = FakeChannel(channel_id, guild, bot.fake_user, name=attr)
+        channels[attr].client = bot
         bot.fake_channels[channel_id] = channels[attr]
     for role_attr in ("hunters_role", "boss_slayer_role", "dead_hunter_role", "mythic_slayer_role"):
         guild.add_role(getattr(ids, role_attr), role_attr)

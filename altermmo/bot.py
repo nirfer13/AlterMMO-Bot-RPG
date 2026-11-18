@@ -42,6 +42,7 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.general",
     "altermmo.cogs.moderation",
     "altermmo.cogs.help",
+    "altermmo.cogs.ui",
 )
 
 #: State files carried over from the legacy bot (same names, same formats).
