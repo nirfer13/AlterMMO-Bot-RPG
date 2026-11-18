@@ -59,6 +59,8 @@ MSG_FIGHT_INTERRUPTED_GONE = ("Wystąpił problem techniczny i walka została pr
                               "<:Sadge:936907659142111273> Boss pojawi się później!")
 MSG_BOSS_LEFT = ("Nikt nie odważył się stanąć do walki... Potwór odchodzi znudzony. "
                  "Boss pojawi się później! <:RIP:912797982917816341>")
+MSG_SUMMONED_LEFT = ("Nikt nie odważył się stanąć do walki... Przywołany potwór rozpływa się w powietrzu, "
+                     "bo z oddali nadciąga już coś innego <:MonkaS:882181709100097587>")
 
 #: Legendary bosses need a party; outside these hours (and outside weekends)
 #: a legendary boss becomes a mythic one that a single player can fight.
@@ -100,6 +102,8 @@ class BossCycle:
         self.quiet_until: datetime | None = None
         #: Phase to go back to after a summoned (skill/ritual) boss is done.
         self._resume_phase: BossPhase | None = None
+        #: When the summoned boss appeared (aware UTC); None without one.
+        self._summoned_at: datetime | None = None
         self._restored = False
         self._wind_sent = False
         self._appears_at: datetime | None = None
@@ -160,6 +164,7 @@ class BossCycle:
         self.arrives_at = None
         self.quiet_until = None
         self._resume_phase = None
+        self._summoned_at = None
         self._wind_sent = False
         self._appears_at = None
         self.bot.store.runtime_set(_KEY_QUIET_UNTIL, None)
@@ -212,6 +217,8 @@ class BossCycle:
                 self.base_rarity = row.rarity
                 self.arrives_at = row.respawn_at
                 self._resume_phase = BossPhase.SCHEDULED
+                if self._summoned_at is None:
+                    self._summoned_at = clock.utcnow()
             log.info("Boss loop (re)started during an encounter (phase %s); it goes on.",
                      bot.state.boss_phase.name)
             return
@@ -369,10 +376,59 @@ class BossCycle:
         except Exception:  # noqa: BLE001
             log.exception("Could not post the boss spawn notice.")
 
+    def summoned_leaves_at(self) -> datetime | None:
+        """When an unattacked summoned boss makes room for the scheduled one (None: never).
+
+        Owner's rule: a ritual / skill gem boss waits only until the scheduled
+        boss is due - but at least ``timings.summoned_min_stay`` after it
+        appeared, so nobody summons a boss that is gone within seconds.
+        """
+        if self._resume_phase is None or self.arrives_at is None or not self.enabled:
+            return None
+        if self._summoned_at is None:
+            self._summoned_at = clock.utcnow()
+        stays_until = self._summoned_at + timedelta(seconds=self.bot.timings.summoned_min_stay)
+        return max(self.arrives_at, stays_until)
+
+    async def _summoned_boss_leaves(self) -> None:
+        """The scheduled boss is due: the summoned boss nobody attacked is gone.
+
+        Called with the boss already claimed (ENGAGED), so nobody can attack it
+        any more.  Nothing is reset: the shrine modifiers, the dead hunters and
+        the schedule belong to the boss that arrives now - without the quiet
+        hour that follows a fight.
+        """
+        bot = self.bot
+        log.info("Nobody attacked the summoned boss (rarity %s); it leaves, the scheduled boss is due.",
+                 bot.state.boss.rarity)
+        try:
+            await io.clear_channel(bot.boss_channel)
+            await io.send_patient(bot.boss_channel, MSG_SUMMONED_LEFT)
+        finally:
+            bot.state.boss = BossInfo(rarity=self.base_rarity)
+            self._remember_summoned(None)
+            self._resume_phase = None
+            self._summoned_at = None
+            await bot.state.set_boss_phase(BossPhase.WAITING)
+
     async def _phase_visible(self) -> None:
-        """The boss waits for an attacker (optionally only for a limited time)."""
+        """The boss waits for an attacker.
+
+        The scheduled boss waits for ever (optionally: ``boss_visible_timeout``);
+        a summoned one only until the scheduled boss is due.
+        """
         bot = self.bot
         timeout = bot.settings.boss_visible_timeout
+        leaves_at = self.summoned_leaves_at()
+        if leaves_at is not None:
+            remaining = clock.seconds_until(leaves_at)
+            if timeout is None or remaining <= timeout:
+                if remaining > 0:
+                    # In slices, like the wait for the scheduled boss: a changed clock cannot strand us.
+                    await bot.state.sleep_while_boss_phase(BossPhase.VISIBLE, min(remaining, 300.0))
+                elif bot.state.try_engage_boss():
+                    await self._summoned_boss_leaves()
+                return
         if timeout is None:
             await bot.state.wait_boss_phase(*(p for p in BossPhase if p is not BossPhase.VISIBLE))
             return
@@ -420,8 +476,10 @@ class BossCycle:
         """Put an extra boss on the channel right now (skill gem / ritual).
 
         The regular schedule is only paused: when the summoned boss is dealt
-        with, the scheduled one still arrives at its original time.  Returns
-        False (and does nothing) when a boss is already there or on its way.
+        with, the scheduled one still arrives at its original time - and when
+        nobody attacks the summoned boss until then, it leaves (see
+        :meth:`summoned_leaves_at`).  Returns False (and does nothing) when a
+        boss is already there or on its way.
 
         ``show_image=True`` clears the channel and posts the boss picture (skill
         gem); with ``show_image=False`` the caller already presented the boss
@@ -446,6 +504,7 @@ class BossCycle:
             state.close_event()
         # Read only now: the phase may have moved on (IDLE -> SCHEDULED) during the upload.
         self._resume_phase = state.boss_phase
+        self._summoned_at = clock.utcnow()
         state.boss = BossInfo(rarity=int(rarity), is_player_boss=is_player_boss, player_boss=player_boss)
         self._remember_summoned(int(rarity))
         await state.set_boss_phase(BossPhase.VISIBLE)
@@ -528,6 +587,7 @@ class BossCycle:
         finally:
             bot.state.boss = BossInfo()
             self._remember_summoned(None)
+            self._summoned_at = None
             resume, self._resume_phase = self._resume_phase, None
             if (resume in (BossPhase.SCHEDULED, BossPhase.WAITING) and self.arrives_at is not None
                     and self.enabled):

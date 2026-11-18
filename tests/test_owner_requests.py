@@ -332,11 +332,56 @@ async def test_pouch_lists_every_gem_with_a_stable_number(game_db, collector):
             in embed.description)
     assert "$wybierzklejnot" in embed.description and embed.footer.text == skills.POUCH_FOOTER
 
-    skills.daily_skill_used(game_db.bot, ala.id)                   # daily gems regenerate, the weekly one is ready
+    skills.daily_skill_used(game_db.bot, ala.id)                   # one gem a day: all of them wait now
     await skills.show_skills(game_db.scene(ala))
     text = game_db.channel.messages[-1].embeds[0].description
     assert "**1. Klejnot Regeneracji** ✅ aktywny *(regeneruje się do jutra)*" in text
-    assert "2. Klejnot Przywołania\n" in text and "3. Klejnot Spowolnienia *(regeneruje się do jutra)*" in text
+    assert ("2. Klejnot Przywołania *(regeneruje się do jutra)*\n" in text
+            and "3. Klejnot Spowolnienia *(regeneruje się do jutra)*" in text)
+
+    await skills.clear_daily_skill(game_db.bot)
+    skills.weekly_skill_used(game_db.bot, ala.id)                  # only the weekly gem regenerates
+    await skills.show_skills(game_db.scene(ala))
+    text = game_db.channel.messages[-1].embeds[0].description
+    assert "**1. Klejnot Regeneracji** ✅ aktywny\n" in text
+    assert "2. Klejnot Przywołania *(regeneruje się do końca tygodnia)*\n3. Klejnot Spowolnienia\n" in text
+
+
+async def test_only_one_gem_can_be_used_a_day(game_db, collector):
+    """Owner's rule of 2026-11-18: one gem use a day, whichever gem it is."""
+    ala = collector
+    bot = game_db.bot
+    assert await skills.choose_skill(game_db.scene(ala), "3") is True          # the slowing gem (daily)
+    assert await skills.use_skill(game_db.scene(ala), ala) == skills.SLOW
+    assert bot.store.skill_daily_cd.all() == [str(ala.id)]
+
+    assert await skills.choose_skill(game_db.scene(ala), "2") is True          # the summoning gem (weekly)
+    assert await skills.use_skill(game_db.scene(ala), ala) == 0
+    assert game_db.channel.messages[-1].content == skills.MSG_ONE_GEM_A_DAY.format(player_id=ala.id)
+    assert bot.store.skill_weekly_cd.all() == []                               # the weekly use is not spent
+
+    await skills.clear_daily_skill(bot)
+    assert await skills.use_skill(game_db.scene(ala), ala) == skills.SUMMON    # a weekly gem is that day's use too
+    assert bot.store.skill_daily_cd.all() == [str(ala.id)] and bot.store.skill_weekly_cd.all() == [str(ala.id)]
+    assert await skills.choose_skill(game_db.scene(ala), "3") is True
+    assert await skills.use_skill(game_db.scene(ala), ala) == 0
+    assert game_db.channel.messages[-1].content == skills.MSG_DAILY_CD
+
+    await skills.clear_daily_skill(bot)                                        # the next day: a daily gem works,
+    assert await skills.use_skill(game_db.scene(ala), ala) == skills.SLOW      # the weekly one still regenerates
+    assert await skills.choose_skill(game_db.scene(ala), "2") is True
+    assert await skills.use_skill(game_db.scene(ala), ala) == 0
+    assert game_db.channel.messages[-1].content == skills.MSG_WEEKLY_CD
+
+
+async def test_summoning_gem_that_summons_nothing_gives_the_day_back(game_db, collector):
+    ala = collector
+    bot = game_db.bot
+    assert await skills.choose_skill(game_db.scene(ala), "2") is True
+    assert await skills.use_skill(game_db.scene(ala), ala) == skills.SUMMON
+    await bot.state.set_boss_phase(BossPhase.PRE_SPAWN)                        # the scheduled boss started to arrive
+    assert await skills.skill_summon_boss(game_db.scene(ala)) is False
+    assert bot.store.skill_daily_cd.all() == [] and bot.store.skill_weekly_cd.all() == []
 
 
 async def test_choosing_a_gem_swaps_it_with_the_active_one(game_db, collector):

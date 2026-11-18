@@ -299,6 +299,64 @@ async def test_boss_summoned_while_the_schedule_is_being_saved_keeps_the_channel
     assert ("single_fight", "Ala", 4) in stub.calls
 
 
+async def _eventually(condition, timeout=5.0):
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not condition():
+        assert asyncio.get_running_loop().time() < deadline, "condition never became true"
+        await asyncio.sleep(0.02)
+
+
+async def test_unattacked_summoned_boss_leaves_when_the_scheduled_boss_is_due(game_db, cycle, stub):
+    """Owner's rule of 2026-11-18: a ritual / gem boss does not hold the scheduled boss up."""
+    bot = game_db.bot
+    bot.timings = dataclasses.replace(FAST, respawn_min=1, respawn_max=1, summoned_min_stay=0.0)
+    player = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    planned = cycle.arrives_at
+    assert await cycle.summon(game_db.scene(player), 4)
+    assert cycle.summoned_leaves_at() == planned
+    assert bot.store.runtime_get("summoned_boss_rarity") == 4
+
+    await _eventually(lambda: game_db.channel.ever_sent("Przywołany potwór rozpływa się w powietrzu"))
+    await _eventually(lambda: ("image", 1) in stub.calls)        # the scheduled boss (rarity 1) has arrived
+    await wait_phase(bot, BossPhase.VISIBLE)
+    assert bot.state.boss_rarity == 1 and cycle.summoned_leaves_at() is None
+    assert "reset_end" not in stub.calls                         # nobody fought: modifiers and the dead stay
+    assert bot.store.runtime_get("summoned_boss_rarity") is None
+    assert not game_db.channel.contains("BOSS rarity 4")         # its picture is gone
+    assert ("detect", 1) in stub.calls                           # pets warned about the scheduled boss as usual
+
+    await asyncio.sleep(0.1)                                     # the scheduled boss waits for ever
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss_rarity == 1
+    await cycle.attack(game_db.scene(player))
+    assert ("single_fight", "Ala", 1) in stub.calls
+
+
+async def test_summoned_boss_stays_a_minimal_time_and_while_the_scheduled_one_is_far(game_db, cycle, stub):
+    bot = game_db.bot
+    bot.timings = dataclasses.replace(FAST, respawn_min=1, respawn_max=1, summoned_min_stay=60.0)
+    player = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(player), 4)
+    assert clock.seconds_until(cycle.summoned_leaves_at()) > 50  # later than the scheduled boss (1 s away)
+    await asyncio.sleep(1.3)
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss_rarity == 4
+    await cycle.attack(game_db.scene(player))                    # ...and can still be fought
+    assert ("single_fight", "Ala", 4) in stub.calls
+
+
+async def test_summoned_boss_waits_for_ever_while_spawning_is_off(game_db, cycle, stub):
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    await cycle.disable()
+    assert await cycle.summon(game_db.scene(player), 4)
+    assert cycle.summoned_leaves_at() is None
+    await asyncio.sleep(0.1)
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss_rarity == 4
+
+
 async def test_unattacked_boss_leaves_when_a_limit_is_configured(game_db, cycle, stub):
     bot = game_db.bot
     bot.settings = dataclasses.replace(bot.settings, boss_visible_timeout=0.05)

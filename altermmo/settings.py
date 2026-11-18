@@ -93,6 +93,9 @@ class Timings:
     #: Pause between random events.
     event_gap_min: float = 2000.0
     event_gap_max: float = 3000.0
+    #: A summoned (ritual / skill gem) boss leaves when the scheduled boss is due,
+    #: but never sooner than this after it appeared.
+    summoned_min_stay: float = 600.0
 
 
 _DEBUG_TIMINGS = Timings(
@@ -104,6 +107,7 @@ _DEBUG_TIMINGS = Timings(
     pre_spawn_max=10.0,
     event_gap_min=15.0,
     event_gap_max=20.0,
+    summoned_min_stay=20.0,
 )
 
 

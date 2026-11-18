@@ -19,6 +19,11 @@ A gem is never used up: after a use it "regenerates" until the next daily
 the legacy files ``skill_daily_player_cd.txt`` / ``skill_weekly_player_cd.txt``
 (``bot.store.skill_daily_cd`` / ``skill_weekly_cd``, one id per line).
 
+Owner's rule for players with several gems: ONE gem use a day.  Every use -
+also of a weekly gem - puts the player on the daily list, and a player on the
+daily list cannot use any gem until the daily reset.  (With a single gem
+nothing changes: a daily gem works once a day, a weekly one once a week.)
+
 Differences from the legacy code (apart from the gem pouch described above the
 game rules themselves are unchanged):
 
@@ -96,6 +101,9 @@ _LOCK_SKILL_IDS = 7303
 #: What a gem does (``SKILLS.SKILL_VARIANT``).
 REST, SHINY, SUMMON, FESTIVAL, SLOW, LOOT = 1, 2, 3, 4, 5, 6
 
+#: Gems that regenerate with the weekly reset; all the others with the daily one.
+WEEKLY_GEMS = (SHINY, SUMMON)
+
 #: A new gem draws its variant with ``randint(*GENERATED_VARIANTS)``.  Gems 4-6
 #: can be shown and used but are never generated - exactly as in the legacy bot.
 GENERATED_VARIANTS = (1, 3)
@@ -149,6 +157,8 @@ MSG_NO_SUCH_GEM = "Taki klejnot umiejętności nie istnieje!"
 MSG_DAILY_CD = "Twój klejnot umiejętności regeneruje się! Spróbuj jutro! <:Bedge:970576892874854400>"
 MSG_WEEKLY_CD = ("Twój klejnot umiejętności regeneruje się! Spróbuj w nadchodzącym tygodniu! "
                  "<:Bedge:970576892874854400>")
+MSG_ONE_GEM_A_DAY = ("Dziś użyłeś już klejnotu umiejętności, <@{player_id}>! Jednego dnia działa tylko jeden "
+                     "klejnot - spróbuj jutro <:Bedge:970576892874854400>")
 MSG_REST_DONE = ("Wszyscy podróżnicy, którzy skorzystali z zaproszenia, mogą ponownie ruszyć na polowanie! "
                  "<:Up:912798893304086558>")
 MSG_SHINY_ASK = "Oznacz użytkownika, którego towarzysz ma stać się wyjątkowy!"
@@ -167,7 +177,7 @@ MSG_ALREADY_ACTIVE = "**{name}** jest już Twoim aktywnym klejnotem, <@{player_i
 MSG_GEM_CHOSEN = ("Aktywny klejnot <@{player_id}>: **{name}**. Użyjesz go komendą **$skill**. "
                   "Pozostałe klejnoty czekają w sakwie (**$klejnoty**).")
 POUCH_TITLE = "Sakwa z klejnotami umiejętności"
-POUCH_FOOTER = "Działa tylko aktywny klejnot. Zmiana: $wybierzklejnot numer. Użycie: $skill."
+POUCH_FOOTER = "Działa tylko aktywny klejnot, jeden dziennie. Zmiana: $wybierzklejnot numer. Użycie: $skill."
 # New in v2 (the legacy bot had no such situations, see the module docstring).
 MSG_EVENT_IN_THE_WAY = ("Trwa teraz inne wydarzenie, <@{player_id}>! Klejnot przywołania nie został użyty - "
                         "spróbuj ponownie, gdy się zakończy <:Bedge:970576892874854400>")
@@ -488,8 +498,8 @@ async def show_skills(scene: "Scene") -> bool:
 
 def _cooldown_note(bot: "AlterBot", player_id: int, skill_variant: int) -> str:
     """" (regeneruje się ...)" when a gem of this kind cannot be used right now."""
-    if skill_variant in (SHINY, SUMMON):
-        return " *(regeneruje się do końca tygodnia)*" if load_weekly_skill(bot, player_id) else ""
+    if skill_variant in WEEKLY_GEMS and load_weekly_skill(bot, player_id):
+        return " *(regeneruje się do końca tygodnia)*"
     return " *(regeneruje się do jutra)*" if load_daily_skill(bot, player_id) else ""
 
 
@@ -594,6 +604,16 @@ async def use_skill(scene: "Scene", player: Any) -> int:
     skill_name, skill_variant, _ = gem
     log.info("Player %s uses the skill gem %r (variant %s).", player_id, skill_name, skill_variant)
 
+    # Cooldowns, in one place: a weekly gem once a week, and one gem use a day
+    # whichever gem it is (owner's rule for players who collect several gems).
+    weekly = skill_variant in WEEKLY_GEMS
+    if weekly and load_weekly_skill(bot, player_id):
+        await scene.send(MSG_WEEKLY_CD)
+        return 0
+    if load_daily_skill(bot, player_id):
+        await scene.send(MSG_ONE_GEM_A_DAY.format(player_id=player_id) if weekly else MSG_DAILY_CD)
+        return 0
+
     if skill_variant == REST:
         await skill_rest(scene)
         daily_skill_used(bot, player_id)
@@ -604,10 +624,12 @@ async def use_skill(scene: "Scene", player: Any) -> int:
         except SkillInterrupted:
             return 0
         weekly_skill_used(bot, player_id)
+        daily_skill_used(bot, player_id)
         return SHINY
     if skill_variant == SUMMON:
         if await skill_spawn_boss(scene):
             weekly_skill_used(bot, player_id)
+            daily_skill_used(bot, player_id)
             return SUMMON
         return 0
     if skill_variant == FESTIVAL:
@@ -834,6 +856,7 @@ async def skill_summon_boss(scene: "Scene") -> bool:
     finally:
         if not summoned and scene.author is not None:
             bot.store.skill_weekly_cd.remove([scene.author.id])
+            bot.store.skill_daily_cd.remove([scene.author.id])  # ...and today's one use
             log.info("Boss of the summoning gem did not appear; player %s keeps the weekly use.",
                      scene.author.id)
     if not summoned:

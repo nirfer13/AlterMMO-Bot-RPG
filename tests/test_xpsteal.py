@@ -24,6 +24,9 @@ async def test_theft_hides_the_victim_and_books_the_transfer(game):
     assert "Ofiara" not in game.channel.transcript and str(victim.id) not in game.channel.transcript
     assert _exp(game) == {str(thief.id): 2500, str(victim.id): -2500}
     assert any("Ofiara" in line and "2500" in line for line in game.bot.owner_log)
+    # Recorded like every other exp (Horus synchronises itself): nothing to do by hand, no ping.
+    assert not any("Przenieś" in line for line in game.bot.owner_log)
+    assert not any(f"<@{game.bot.ids.owner}>!" in m.content for m in game.log_channel.messages)
     assert xpsteal.pending(game.bot, thief.id) == []
 
 

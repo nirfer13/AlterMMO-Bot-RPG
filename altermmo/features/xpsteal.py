@@ -8,8 +8,10 @@ Discordzie" (loot id 2).  The winner receives a *theft right*, kept in
 The victim must stay secret: the command message is deleted at once and the
 public confirmation names only the thief.  Discord experience itself belongs to
 another bot (Horus), so the transfer is written to the experience summary
-(thief ``+amount``, victim ``-amount``, shown by ``$Exp``) and reported in the
-owner's log channel, exactly like every other experience reward of this bot.
+(``data/expSummary.json``: thief ``+amount``, victim ``-amount``, shown by
+``$Exp``) exactly like the experience dropped by monsters and bosses - Horus
+synchronises itself from there (owner's decision).  The owner's log channel
+only gets a line for the record; nothing has to be done by hand.
 """
 
 from __future__ import annotations
@@ -201,6 +203,6 @@ async def steal(scene: "Scene", target_text: str | None) -> bool:
     log.info("XP theft: %s (%s) stole %s exp from %s (%s).", thief, thief.id, amount, victim, victim.id)
     await bot.log_to_owner(
         f"{thief.name} (<@{thief.id}>) ukradł {amount} expa użytkownikowi {victim.name} (<@{victim.id}>). "
-        f"Przenieś doświadczenie w Horusie (w podsumowaniu $Exp: +{amount} / -{amount}).", ping=True)
+        f"Zapisane w podsumowaniu $Exp jak każdy inny exp: +{amount} / -{amount}.")
     await scene.send(MSG_DONE.format(thief=thief.id, amount=amount))
     return True

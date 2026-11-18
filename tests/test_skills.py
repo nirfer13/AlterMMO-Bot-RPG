@@ -519,7 +519,7 @@ async def test_rest_lets_the_guests_hunt_again(game_db, daily, monkeypatch):
     assert reaction_listeners(game_db) == []
 
     # The gem regenerates until the daily reset.
-    assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 1
+    assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 0
     assert game_db.channel.bot_messages[-1].content == DAILY_CD and game_db.channel.count(INVITATION) == 1
     await skills.clear_daily_skill(bot)
     assert await skills.skill_rest(game_db.scene(host)) is True
@@ -624,9 +624,9 @@ async def test_shiny_gem_changes_the_tagged_travellers_pet(game_db, mention):
                                    f"To sprawka <@{owner.id}>."]
     assert await is_shiny(game_db) is True and await is_shiny(game_db, 22) is False
     assert game_db.bot.store.skill_weekly_cd.all() == [str(owner.id)]
-    assert game_db.bot.store.skill_daily_cd.all() == []
+    assert game_db.bot.store.skill_daily_cd.all() == [str(owner.id)]     # a weekly gem is that day's one use
 
-    assert await skills.use_skill(game_db.scene(owner, "$skill"), owner) == 2
+    assert await skills.use_skill(game_db.scene(owner, "$skill"), owner) == 0
     assert texts(game_db)[-1] == WEEKLY_CD and game_db.channel.count(ASK) == 1
 
 
@@ -778,7 +778,7 @@ async def test_festival_gem_prays_five_times(game_db, prayers):
                               "umiejętności <:MonkaChrist:783992337075929098>"]
     assert game_db.bot.store.skill_daily_cd.all() == [str(player.id)]
 
-    assert await skills.use_skill(game_db.scene(player), player) == 4
+    assert await skills.use_skill(game_db.scene(player), player) == 0
     assert texts(game_db)[-1] == DAILY_CD and len(prayers) == 5
 
 
@@ -827,7 +827,7 @@ async def test_slow_gem(game_db):
     assert texts(game_db) == ["Klejnot sprawia, że przeciwnicy lepią się od błota i poruszają się znacznie wolniej."]
     assert game_db.bot.store.skill_daily_cd.all() == [str(player.id)]
 
-    assert await skills.use_skill(game_db.scene(player), player) == 5
+    assert await skills.use_skill(game_db.scene(player), player) == 0
     assert texts(game_db)[-1] == DAILY_CD and modifier_file(game_db) == {"time_increased_perc": 40}
     assert game_db.bot.store.skill_weekly_cd.all() == []
 
