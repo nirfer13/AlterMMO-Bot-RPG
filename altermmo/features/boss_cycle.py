@@ -69,6 +69,8 @@ MSG_FIGHT_INTERRUPTED_STAYS = ("Wystąpił problem techniczny i walka została p
                                "<:Sadge:936907659142111273> Boss wciąż tu jest - kliknij **Zaatakuj** "
                                "albo wpisz **$zaatakuj**, żeby spróbować ponownie!")
 MSG_BOSS_TAKEN = "Ktoś już walczy z tym bossem - poczekaj na kolejnego! <:Bedge:970576892874854400>"
+#: A click in the moment between the claim of the boss and the opening of its lobby.
+MSG_LOBBY_OPENING = "Walka właśnie się zaczyna - za chwilę pojawi się lobby, dołącz tam! ⚔️"
 
 #: The permanent button under the boss picture.
 ATTACK_BUTTON_ID = ui.PREFIX + "boss:attack"
@@ -179,9 +181,25 @@ class BossCycle:
         self._attack_buttons: list[Any] = []
         #: Where the button was taken off when the boss was engaged (restored when needed).
         self._engaged_buttons: list[Any] = []
-        #: Set by a running lobby: ``async (interaction) -> None`` takes a click on an old
-        #: "Zaatakuj" button as a typed ``$zaatakuj`` (and answers it).
-        self.lobby_door: Callable[[Any], Awaitable[None]] | None = None
+        self._lobby_door: Callable[[Any], Awaitable[None]] | None = None
+        #: The encounter whose lobby is about to open: set by :meth:`attack` at the claim
+        #: of the boss, None again as soon as its lobby opens the door (or it ends).
+        self._lobby_opening: int | None = None
+        #: Counts the encounters (claims of the boss by :meth:`attack`) and the bosses that
+        #: are gone, so that a late notice about an interrupted fight can tell it is out of date.
+        self._encounters = 0
+
+    @property
+    def lobby_door(self) -> Callable[[Any], Awaitable[None]] | None:
+        """Set by a running lobby: ``async (interaction) -> None`` takes a click on an old
+        "Zaatakuj" button as a typed ``$zaatakuj`` (and answers it)."""
+        return self._lobby_door
+
+    @lobby_door.setter
+    def lobby_door(self, door: Callable[[Any], Awaitable[None]] | None) -> None:
+        self._lobby_door = door
+        if door is not None:
+            self._lobby_opening = None
 
     # -- the "Zaatakuj" button ------------------------------------------------------
 
@@ -265,6 +283,7 @@ class BossCycle:
             self.start()
 
     def _forget_schedule(self) -> None:
+        self._encounters += 1  # whatever stood there is gone: a late "still here" notice is out of date
         self.arrives_at = None
         self.quiet_until = None
         self._resume_phase = None
@@ -316,8 +335,11 @@ class BossCycle:
         row = await self._database.read_boss_table(bot)
         if bot.state.boss_phase >= BossPhase.VISIBLE:
             # Spawning was switched on while a summoned boss is on the channel (or
-            # being fought): that boss stays; only the schedule is picked up.
-            if row is not None and row.respawn_started and row.respawn_at is not None:
+            # being fought): that boss stays; only the schedule is picked up.  The
+            # scheduled boss itself ($startSpawnBoss while it waits) is not a
+            # summoned one: it keeps waiting for ever, nothing is picked up.
+            summoned = bot.store.runtime_get(_KEY_SUMMONED) is not None
+            if summoned and row is not None and row.respawn_started and row.respawn_at is not None:
                 self.base_rarity = row.rarity
                 self.arrives_at = row.respawn_at
                 self._resume_phase = BossPhase.SCHEDULED
@@ -501,20 +523,32 @@ class BossCycle:
         any more.  Nothing is reset: the shrine modifiers, the dead hunters and
         the schedule belong to the boss that arrives now - without the quiet
         hour that follows a fight.
+
+        When the loop is cancelled meanwhile by $ResetBoss / $stopSpawnBoss, the
+        phase is left alone: they have set their own (IDLE) already.  A plain
+        restart of the loop ($startSpawnBoss while spawning is on) sets nothing,
+        so the boss - claimed, with no fight - is still sent away: ENGAGED
+        without a fight would block the channel for two hours.
         """
         bot = self.bot
         log.info("Nobody attacked the summoned boss (rarity %s); it leaves, the scheduled boss is due.",
                  bot.state.boss.rarity)
+        self._encounters += 1  # the boss is gone: a late "still here" notice is out of date
+        cancelled = False
         try:
             await self.retire_attack_buttons()  # in case clearing the channel fails
             await io.clear_channel(bot.boss_channel)
             await io.send_patient(bot.boss_channel, MSG_SUMMONED_LEFT)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
         finally:
-            bot.state.boss = BossInfo(rarity=self.base_rarity)
             self._remember_summoned(None)
             self._resume_phase = None
             self._summoned_at = None
-            await bot.state.set_boss_phase(BossPhase.WAITING)
+            if not cancelled or bot.state.boss_phase is BossPhase.ENGAGED:
+                bot.state.boss = BossInfo(rarity=self.base_rarity)
+                await bot.state.set_boss_phase(BossPhase.WAITING)
 
     async def _phase_visible(self) -> None:
         """The boss waits for an attacker.
@@ -610,6 +644,7 @@ class BossCycle:
         # Read only now: the phase may have moved on (IDLE -> SCHEDULED) during the upload.
         self._resume_phase = state.boss_phase
         self._summoned_at = clock.utcnow()
+        self._encounters += 1  # a new boss: notices about the previous one are out of date
         state.boss = BossInfo(rarity=int(rarity), is_player_boss=is_player_boss, player_boss=player_boss)
         self._remember_summoned(int(rarity))
         await state.set_boss_phase(BossPhase.VISIBLE)
@@ -623,13 +658,20 @@ class BossCycle:
         ``interaction``: set when the attack is a click on "Zaatakuj" - the
         refusals are then private answers to the click, and the click is
         acknowledged as soon as the boss is claimed.
+
+        Acknowledging the click and taking the buttons off are Discord round
+        trips: they run in the background, so the lobby - and with it the door
+        for the other players' clicks (:attr:`lobby_door`) - opens right after
+        the claim.  A click that still comes in between is told that the lobby
+        is about to open, not that the boss is gone.
         """
         bot = self.bot
         state = bot.state
         if state.boss_phase is BossPhase.ENGAGED:
             # Other players' $zaatakuj during the lobby is handled by the lobby itself.
             if interaction is not None:
-                await ui.reply(interaction, MSG_BOSS_TAKEN)
+                opening = self._lobby_opening is not None
+                await ui.reply(interaction, MSG_LOBBY_OPENING if opening else MSG_BOSS_TAKEN)
             return
         if not state.try_engage_boss():
             refusal = MSG_NOT_ATTACKABLE.format(user_id=scene.author.id)
@@ -638,28 +680,42 @@ class BossCycle:
             else:
                 await io.send(scene.channel, refusal)
             return
+        self._encounters += 1
+        encounter = self._encounters
+        self._lobby_opening = encounter
+        self._engaged_buttons, self._attack_buttons = self._attack_buttons, []
+        claimed = asyncio.ensure_future(self._claimed(interaction, self._engaged_buttons))
+        try:
+            # Wake the cycle loop: it then watches the encounter with its time limit
+            # (try_engage_boss is synchronous and cannot notify the waiters itself).
+            await state.set_boss_phase(BossPhase.ENGAGED)
+            info = state.boss
+            try:
+                result = await asyncio.wait_for(self._encounter(scene, info),
+                                                timeout=bot.settings.boss_fight_time_limit)
+                await asyncio.wait({claimed})
+            except asyncio.CancelledError:
+                await self._interrupted(scene, "cancelled", claimed=claimed)
+                raise
+            except Exception as exc:  # noqa: BLE001 - whatever happened, leave a defined state
+                if isinstance(exc, (FightInterrupted, asyncio.TimeoutError)):
+                    log.warning("Boss fight interrupted: %s: %s", type(exc).__name__, exc)
+                else:
+                    log.exception("Boss fight crashed.")
+                await asyncio.wait({claimed})  # the old buttons are off before the boss is attackable again
+                await self._interrupted(scene, f"{type(exc).__name__}: {exc}", claimed=claimed)
+                return
+        finally:
+            if self._lobby_opening == encounter:
+                self._lobby_opening = None
+        await self.finish(result)
+
+    async def _claimed(self, interaction: Any, messages: list[Any]) -> None:
+        """The boss was claimed: acknowledge the click and take the buttons off ``messages``.  Never raises."""
         if interaction is not None:
             await ui.ack(interaction)
-        # Wake the cycle loop: it then watches the encounter with its time limit
-        # (try_engage_boss is synchronous and cannot notify the waiters itself).
-        await state.set_boss_phase(BossPhase.ENGAGED)
-        self._engaged_buttons = await self.retire_attack_buttons()
-
-        info = state.boss
-        try:
-            result = await asyncio.wait_for(self._encounter(scene, info),
-                                            timeout=bot.settings.boss_fight_time_limit)
-        except asyncio.CancelledError:
-            await self._interrupted(scene, "cancelled")
-            raise
-        except Exception as exc:  # noqa: BLE001 - whatever happened, leave a defined state
-            if isinstance(exc, (FightInterrupted, asyncio.TimeoutError)):
-                log.warning("Boss fight interrupted: %s: %s", type(exc).__name__, exc)
-            else:
-                log.exception("Boss fight crashed.")
-            await self._interrupted(scene, f"{type(exc).__name__}: {exc}")
-            return
-        await self.finish(result)
+        for message in messages:
+            await ui.retire(message)
 
     async def _encounter(self, scene: Scene, info: BossInfo) -> FightResult:
         boss = self._boss
@@ -676,11 +732,19 @@ class BossCycle:
         await state.set_boss_phase(BossPhase.FIGHTING)
         return await boss.single_fight(scene, hunter, info.rarity, info.is_player_boss, info.player_boss)
 
-    async def _interrupted(self, scene: Scene, reason: str) -> None:
-        """A fight ended because of a technical problem, not because of the players."""
+    async def _interrupted(self, scene: Scene, reason: str, *, claimed: asyncio.Future | None = None) -> None:
+        """A fight ended because of a technical problem, not because of the players.
+
+        By policy (``boss_returns_after_interrupted_fight``) the boss stays.  A
+        summoned boss then gets its minimal stay anew: the rule that makes it
+        leave for the scheduled boss is about a boss nobody attacked, and it
+        must not leave at the very moment the "still here" notice appears.
+        """
         bot = self.bot
         stays = bot.settings.boss_returns_after_interrupted_fight
         if stays:
+            if self._resume_phase is not None:
+                self._summoned_at = clock.utcnow()
             await bot.state.set_boss_phase(BossPhase.VISIBLE)
             message = MSG_FIGHT_INTERRUPTED_STAYS
         else:
@@ -688,17 +752,34 @@ class BossCycle:
             message = MSG_FIGHT_INTERRUPTED_GONE
         # Notify in the background: Discord may be unreachable right now and the
         # state must not wait for it.
-        asyncio.ensure_future(self._notify_interrupted(scene, message, reason, attack_button=stays))
+        asyncio.ensure_future(self._notify_interrupted(scene, message, reason, attack_button=stays,
+                                                       encounter=self._encounters, claimed=claimed))
 
     async def _notify_interrupted(self, scene: Scene, message: str, reason: str, *,
-                                  attack_button: bool = False) -> None:
+                                  attack_button: bool = False, encounter: int | None = None,
+                                  claimed: asyncio.Future | None = None) -> None:
+        """Tell the channel (and the owner) about an interrupted fight.  Never raises.
+
+        ``attack_button``: the boss stays and the notice carries the "Zaatakuj"
+        button - but only while that is still true when the notice is finally
+        posted (``encounter``: the value of the encounter counter at the
+        interruption): a notice that arrives after the boss was engaged again,
+        or is gone, carries no live button, and no button is put back.
+        """
         if attack_button:
+            if claimed is not None:
+                await asyncio.wait({claimed})  # the buttons are off before they may be put back
             # The boss stays: the notice carries the "Zaatakuj" button.  When it
             # cannot be posted, the button goes back under the boss picture.
             engaged, self._engaged_buttons = self._engaged_buttons, []
             posted = await with_attack_button(
                 lambda view: io.send_patient(scene.channel, message, view=view))
-            if posted is not None:
+            current = (self.bot.state.boss_phase is BossPhase.VISIBLE
+                       and (encounter is None or encounter == self._encounters))
+            if not current:
+                log.info("The interrupted-fight notice came too late: the boss was engaged again or is gone.")
+                await ui.retire(posted)
+            elif posted is not None:
                 self.note_attack_button(posted)
             else:
                 await self._restore_attack_buttons(engaged)
@@ -714,6 +795,7 @@ class BossCycle:
         """
         bot = self.bot
         self._engaged_buttons = []
+        self._encounters += 1  # the boss is gone: a late "still here" notice is out of date
         try:
             await self.retire_attack_buttons()  # e.g. a boss that left unattacked
             await self._guarded("post-fight reset", self._boss.reset_end(bot))

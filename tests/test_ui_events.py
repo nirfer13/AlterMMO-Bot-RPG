@@ -74,7 +74,7 @@ async def test_forest_is_one_panel_and_the_first_valid_click_enters(game, hunt):
     embed = forest.embeds[0]
     assert forest.files == ["0.png"] and embed.image.url == "attachment://0.png"    # picture inside the panel
     assert forest.button_labels == [events.HUNTING_BUTTON] and forest.button("join").emoji.name == "🌲"
-    assert "Czekam na śmiałka do <t:" in embed.description
+    assert "Czekam na śmiałka - czas mija <t:" in embed.description and embed.description.endswith(":R>.")
     refused = await game.click(forest, ghost, "join")
     assert refused.whispers == [ui.MSG_CANNOT_PLAY]
     first = await game.click(forest, ala, "join")
@@ -365,6 +365,65 @@ async def test_memory_runes_are_ten_buttons_only_the_volunteer_may_press(game, l
         await game.click(question, ala, events.rune_key(index))
     assert await task is True
     assert question.view is None and board.view is None
+
+
+async def test_memory_survives_a_double_click_on_a_correct_rune(game, loot, monkeypatch):
+    monkeypatch.setattr(random, "choice", lambda pool: list(pool)[0])     # runes 0, 1, 2, 3
+    ala = game.add_member("Ala")
+    task = asyncio.ensure_future(events.spawn_memory(game.scene()))
+    board = await game.wait_for_buttons("join")
+    await game.click(board, ala, "join")
+    question = await game.wait_for_buttons(events.rune_key(0))
+    # Both taps reach the bot before it switched the rune off.
+    first, second = await asyncio.gather(game.click(question, ala, events.rune_key(0)),
+                                         game.click(question, ala, events.rune_key(0)))
+    assert first.response.deferred and second.response.deferred
+    assert first.whispers == [] and second.whispers == []
+    for index in range(1, 4):
+        await game.click(question, ala, events.rune_key(index))
+    assert await task is True
+    assert game.channel.count("*Dobrze!* - Sanczo dopinguje.") == 4
+    assert not game.channel.contains(events.MSG_MEMORY_WRONG) and [call[1] for call in loot] == [ala]
+
+
+async def test_volunteer_double_click_is_not_told_somebody_was_faster(game, hunt, loot, monkeypatch):
+    monkeypatch.setattr(random, "choice", lambda pool: list(pool)[0])
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    task = asyncio.ensure_future(events.spawn_memory(game.scene()))
+    board = await game.wait_for_buttons("join")
+    first, second, late = await asyncio.gather(game.click(board, ala, "join"), game.click(board, ala, "join"),
+                                               game.click(board, ola, "join"))
+    assert first.whispers == [] and second.whispers == []               # Ala got in: no "Ktoś był szybszy"
+    assert first.response.deferred and second.response.deferred
+    assert late.whispers == [events.MSG_TOO_LATE]                       # Ola really was too late
+    question = await game.wait_for_buttons(events.rune_key(0))
+    for index in range(4):
+        await game.click(question, ala, events.rune_key(index))
+    assert await task is True
+
+    task = asyncio.ensure_future(events.spawn_hunting(game.scene()))
+    forest = await game.wait_for_buttons("join")
+    first, second = await asyncio.gather(game.click(forest, ola, "join"), game.click(forest, ola, "join"))
+    assert await task is True and hunt == [ola]
+    assert first.whispers == [] and second.whispers == []
+
+
+async def test_hazard_second_cup_of_the_player_is_not_told_somebody_was_faster(game_db, loot, monkeypatch):
+    game = game_db
+    monkeypatch.setattr(random, "choice", lambda pool: list(pool)[1])     # the right cup is lucky
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await game.bot.db.execute(
+        "INSERT INTO PETOWNER (PLAYER_ID, PET_ID, PET_OWNED, REROLL_SCROLL) VALUES ($1, 0, FALSE, 9)", ala.id)
+    task = asyncio.ensure_future(events.spawn_hazard(game.scene()))
+    cups = await game.wait_for_buttons(events.cup_key(0))
+    first, second, late = await asyncio.gather(game.click(cups, ala, events.cup_key(1)),
+                                               game.click(cups, ala, events.cup_key(0)),
+                                               game.click(cups, ola, events.cup_key(0)))
+    assert await task is True                                           # the first cup counts, once
+    assert first.whispers == [] and second.whispers == []
+    assert late.whispers == [events.MSG_TOO_LATE]
+    scrolls = await game.bot.db.fetchval("SELECT REROLL_SCROLL FROM PETOWNER WHERE PLAYER_ID = $1", ala.id)
+    assert scrolls == 9 + events.HAZARD_STAKE
 
 
 async def test_hazard_cups_are_two_buttons(game_db, loot, monkeypatch):

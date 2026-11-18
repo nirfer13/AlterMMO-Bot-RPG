@@ -416,6 +416,12 @@ async def _owned_gems(con: Any, player_id: int) -> tuple[int, list[int]] | None:
     return active, pouch
 
 
+async def _has_spare_gems(bot: "AlterBot", player_id: int) -> bool:
+    """True when the player owns gems besides the active one."""
+    await _ensure_pouch(bot)
+    return await bot.db.fetchrow("SELECT 1 FROM SKILLPOUCH WHERE PLAYER_ID = $1 LIMIT 1", int(player_id)) is not None
+
+
 async def _gem_rows(q: Any, skill_ids: Sequence[int]) -> dict[int, Any]:
     """``SKILLS`` rows of the given gems by id (gems without a row are left out)."""
     if not skill_ids:
@@ -588,6 +594,9 @@ class _PouchMenu(ui.PanelView):
     async def _chosen(self, interaction: Any) -> None:
         if not await ui.gate(interaction):
             return
+        # Two database transactions follow (they may retry for a while): acknowledge first,
+        # the repaint and the private confirmation still work afterwards.
+        await ui.ack(interaction)
         bot = interaction.client
         player_id = int(interaction.user.id)
         number = self.select.values[0] if self.select.values else ""
@@ -763,7 +772,10 @@ async def use_skill(scene: "Scene", player: Any) -> int:
         await scene.send(weekly_cd_text())
         return 0
     if load_daily_skill(bot, player_id):
-        await scene.send(one_gem_text(player_id) if weekly else daily_cd_text())
+        # With one gem it is simply that gem regenerating (the old answer).  With several
+        # the daily list cannot tell which one was used today, so the answer names the rule.
+        several = weekly or await _has_spare_gems(bot, player_id)
+        await scene.send(one_gem_text(player_id) if several else daily_cd_text())
         return 0
 
     if skill_variant == REST:
@@ -880,7 +892,7 @@ async def skill_rest(scene: "Scene") -> bool:
     author = scene.author
 
     if load_daily_skill(bot, author.id):
-        await scene.send(daily_cd_text())
+        await scene.send(one_gem_text(author.id))
         return False
 
     e_title = f"<:peepofat:1062666941405331507> {author.name} zaprasza na odpoczynek! <:peepofat:1062666941405331507>"
@@ -1031,7 +1043,7 @@ async def skill_shrine_festival(scene: "Scene") -> bool:
     bot = scene.bot
 
     if load_daily_skill(bot, scene.author.id):
-        await scene.send(daily_cd_text())
+        await scene.send(one_gem_text(scene.author.id))
         return False
 
     await io.safe_react(scene.message, FESTIVAL_EMOJI)
@@ -1046,7 +1058,7 @@ async def skill_slow(scene: "Scene") -> bool:
     bot = scene.bot
 
     if load_daily_skill(bot, scene.author.id):
-        await scene.send(daily_cd_text())
+        await scene.send(one_gem_text(scene.author.id))
         return False
 
     await modifiers.modify_modifiers(bot, "time_increased_perc", SLOW_TIME_BONUS)
@@ -1059,7 +1071,7 @@ async def skill_increase_loot(scene: "Scene") -> bool:
     bot = scene.bot
 
     if load_daily_skill(bot, scene.author.id):
-        await scene.send(daily_cd_text())
+        await scene.send(one_gem_text(scene.author.id))
         return False
 
     await _apply_effects(bot, "skill_increase_loot", [

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import altermmo.features
-from altermmo.core import clock
+from altermmo.core import clock, io
 from altermmo.core.state import BossPhase
 from altermmo.features import boss_cycle, database
 from altermmo.features.fight_types import FightInterrupted, FightResult
@@ -345,6 +345,110 @@ async def test_summoned_boss_stays_a_minimal_time_and_while_the_scheduled_one_is
     assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss_rarity == 4
     await cycle.attack(game_db.scene(player))                    # ...and can still be fought
     assert ("single_fight", "Ala", 4) in stub.calls
+
+
+async def test_summoned_boss_whose_fight_was_interrupted_gets_its_minimal_stay_again(game_db, cycle, stub):
+    """A technical problem in the fight must not make a summoned boss vanish at once.
+
+    It was attacked: the boss stays (``boss_returns_after_interrupted_fight``),
+    with a fresh minimal stay - never leaving as the "still here" notice appears.
+    """
+    bot = game_db.bot
+    bot.timings = dataclasses.replace(FAST, respawn_min=1, respawn_max=1, summoned_min_stay=1.0)
+    player = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(player), 4)
+    stub.fight_gate = asyncio.Event()
+    stub.fight_error = FightInterrupted("lag")
+    fight = asyncio.ensure_future(cycle.attack(game_db.scene(player)))
+    await asyncio.sleep(1.3)                     # meanwhile the scheduled boss is due, the minimal stay is over
+    stub.fight_gate.set()
+    await fight
+    await asyncio.sleep(0.3)
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss_rarity == 4
+    assert not game_db.channel.ever_sent("Przywołany potwór rozpływa się w powietrzu")
+    assert game_db.channel.contains("Boss wciąż tu jest")
+    assert clock.seconds_until(cycle.summoned_leaves_at()) > 0.3
+    await cycle.attack(game_db.scene(player))    # ...and the second try works
+    assert stub.calls.count(("single_fight", "Ala", 4)) == 2
+
+
+async def test_start_spawn_while_the_scheduled_boss_waits_does_not_make_it_leave(game_db, cycle, stub):
+    """$startSpawnBoss with spawning already on restarts the loop - the scheduled boss still waits for ever."""
+    bot = game_db.bot
+    bot.timings = dataclasses.replace(FAST, summoned_min_stay=0.0)
+    cycle.start()
+    await wait_phase(bot, BossPhase.VISIBLE)
+    stub.calls.clear()
+    await cycle.enable()
+    await asyncio.sleep(0.3)
+    assert cycle.summoned_leaves_at() is None
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss_rarity == 1
+    assert not game_db.channel.ever_sent("Przywołany potwór rozpływa się w powietrzu")
+    assert ("image", 1) not in stub.calls
+
+
+@pytest.mark.parametrize("admin", ["reset", "disable"])
+async def test_reset_while_the_summoned_boss_leaves_is_not_undone(game_db, cycle, stub, monkeypatch, admin):
+    """$ResetBoss / $stopSpawnBoss while an unattacked summoned boss is leaving (Discord is slow)."""
+    bot = game_db.bot
+    bot.timings = dataclasses.replace(FAST, respawn_min=1, respawn_max=1, summoned_min_stay=0.0)
+    player = game_db.add_member("Ala")
+    leaving, gate = asyncio.Event(), asyncio.Event()
+    real_send_patient = io.send_patient
+
+    async def send_patient(destination, content=None, **kwargs):
+        if content == boss_cycle.MSG_SUMMONED_LEFT:
+            leaving.set()
+            await gate.wait()                    # Discord has problems right now
+        return await real_send_patient(destination, content, **kwargs)
+
+    monkeypatch.setattr(io, "send_patient", send_patient)
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(player), 4)
+    await asyncio.wait_for(leaving.wait(), 5)
+    bot.timings = SLOW_RESPAWN                   # a fresh cycle brings its boss much later
+    stub.calls.clear()
+    await getattr(cycle, admin)()
+    await asyncio.sleep(0.3)
+    assert ("image", 1) not in stub.calls       # no boss of the old schedule
+    if admin == "reset":
+        assert bot.state.boss_phase in (BossPhase.SCHEDULED, BossPhase.WAITING)
+        assert clock.seconds_until(cycle.arrives_at) > 900
+    else:
+        assert bot.state.boss_phase is BossPhase.IDLE
+    assert bot.store.runtime_get("summoned_boss_rarity") is None
+
+
+async def test_start_spawn_while_the_summoned_boss_leaves_does_not_strand_the_boss(game_db, cycle, stub,
+                                                                                    monkeypatch):
+    """$startSpawnBoss restarts the loop in the middle of the leave: the scheduled boss still comes."""
+    bot = game_db.bot
+    bot.timings = dataclasses.replace(FAST, respawn_min=1, respawn_max=1, summoned_min_stay=0.0)
+    player = game_db.add_member("Ala")
+    leaving, gate = asyncio.Event(), asyncio.Event()
+    real_send_patient = io.send_patient
+
+    async def send_patient(destination, content=None, **kwargs):
+        if content == boss_cycle.MSG_SUMMONED_LEFT and not gate.is_set():
+            leaving.set()
+            await gate.wait()                    # Discord has problems right now
+        return await real_send_patient(destination, content, **kwargs)
+
+    monkeypatch.setattr(io, "send_patient", send_patient)
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(player), 4)
+    await asyncio.wait_for(leaving.wait(), 5)
+    assert bot.state.boss_phase is BossPhase.ENGAGED          # claimed by the leave, no fight
+    stub.calls.clear()
+    await cycle.enable()                                      # the admin restarts the loop
+    gate.set()
+    await _eventually(lambda: ("image", 1) in stub.calls)     # not stuck in ENGAGED for two hours
+    await wait_phase(bot, BossPhase.VISIBLE)
+    assert bot.state.boss_rarity == 1 and bot.store.runtime_get("summoned_boss_rarity") is None
 
 
 async def test_summoned_boss_waits_for_ever_while_spawning_is_off(game_db, cycle, stub):

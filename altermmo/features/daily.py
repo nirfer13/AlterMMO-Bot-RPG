@@ -451,10 +451,27 @@ class _JoinRequest:
     answer: Answer | None = None
 
 
-#: Channel id -> the join requests of the hunt gathering hunters there right now.
-_gathering: dict[int, asyncio.Queue] = {}
+def _on_list(hunters: Sequence[Any], member: Any, debug: bool) -> bool:
+    """True when ``member`` hunts already (debug mode lets one tester fill the party)."""
+    return not debug and any(hunter.id == member.id for hunter in hunters)
+
+
+@dataclass
+class _Gathering:
+    """A hunt waiting for more hunters on a channel: where join requests go, who is in already."""
+
+    queue: asyncio.Queue
+    #: The hunters so far (the very list :func:`_gather_hunters` fills).
+    hunters: list[Any]
+    debug: bool = False
+
+
+#: Channel id -> the hunt gathering hunters there right now.
+_gathering: dict[int, _Gathering] = {}
 #: Channel id -> the join button of the monster shown last (taken by :func:`hunt_mobs`).
 _panels: dict[int, "_JoinPanel"] = {}
+#: Private answers still on their way (kept here so they are not garbage-collected).
+_answers: set[asyncio.Future] = set()
 
 
 def is_gathering(channel: Any) -> bool:
@@ -467,18 +484,49 @@ def is_gathering(channel: Any) -> bool:
     return getattr(channel, "id", None) in _gathering
 
 
+def is_hunting(channel: Any, member: Any) -> bool:
+    """True when ``member`` is on the list of the hunt gathering on ``channel`` already."""
+    gathering = _gathering.get(getattr(channel, "id", None))
+    return gathering is not None and _on_list(gathering.hunters, member, gathering.debug)
+
+
 def request_join(channel: Any, member: Any, answer: Answer | None = None) -> bool:
     """Ask to join the hunt gathering on ``channel`` (what typing ``$polowanie`` does now).
 
     ``answer`` receives the private refusal ("already on this hunt", "too
     late"); an accepted member is shown on the monster's embed.  False when no
-    hunt is gathering there.
+    hunt is gathering there.  A click should be refused with
+    :func:`is_hunting` first: the gathering itself never waits for an answer.
     """
-    queue = _gathering.get(getattr(channel, "id", None))
-    if queue is None:
+    gathering = _gathering.get(getattr(channel, "id", None))
+    if gathering is None:
         return False
-    queue.put_nowait(_JoinRequest(member, answer))
+    gathering.queue.put_nowait(_JoinRequest(member, answer))
     return True
+
+
+def _answer_later(answer: Answer, text: str) -> None:
+    """Deliver a private answer in the background (the join window keeps running meanwhile)."""
+
+    def done(task: asyncio.Future) -> None:
+        _answers.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            log.info("A private answer to a join request failed (%s).", task.exception())
+
+    task = asyncio.ensure_future(answer(text))
+    _answers.add(task)
+    task.add_done_callback(done)
+
+
+async def _refuse_leftovers(queue: asyncio.Queue) -> None:
+    """Tell every join request nobody took that the hunt has started.  Never raises.
+
+    The answers go out in the background: the hunt does not wait for Discord.
+    """
+    while not queue.empty():
+        request = queue.get_nowait()
+        if request.answer is not None:
+            _answer_later(request.answer, MSG_JOIN_TOO_LATE)
 
 
 def _mentions(hunters: Sequence[Any]) -> str:
@@ -492,6 +540,10 @@ class _JoinPanel:
     Posted by :func:`send_mob_image`, read by :func:`_gather_hunters`.  A click
     becomes a :class:`_JoinRequest` in :attr:`requests` - the same queue the
     typed ``$polowanie`` goes to - so both ways follow one set of rules.  The
+    click is queued the moment it arrives and acknowledged afterwards, so a
+    click counts exactly like a ``$polowanie`` typed at the same moment (the
+    acknowledgement is a round trip to Discord).  A click of somebody already
+    on the list is refused right away and never reaches the queue.  The
     list is repainted by a small background task, at most once per
     :data:`ROSTER_EDIT_GAP` seconds; every edit survives a purged message.
     """
@@ -508,11 +560,21 @@ class _JoinPanel:
                                             style=discord.ButtonStyle.primary)], allow=self._clicked)
 
     async def _clicked(self, interaction: Any, key: str) -> str | None:
-        await ui.ack(interaction)
-        if self.view.closed:  # the hunt started while the click was being acknowledged
-            await ui.reply(interaction, MSG_JOIN_TOO_LATE)
-        else:
-            self.requests.put_nowait(_JoinRequest(interaction.user, lambda text: ui.reply(interaction, text)))
+        member = interaction.user
+        if self.view.closed:
+            return MSG_JOIN_TOO_LATE
+        if _on_list(self.hunters, member, self.bot.debug):
+            return MSG_ALREADY_HUNTING  # answered by the view; the gathering never waits for it
+        acked = asyncio.ensure_future(ui.ack(interaction))
+
+        async def answer(text: str) -> None:
+            # A late answer ("too late") must not race the acknowledgement still on its way.
+            await asyncio.wait({acked})
+            await ui.reply(interaction, text)
+
+        # Queued before the round trip to Discord: the moment of the click counts.
+        self.requests.put_nowait(_JoinRequest(member, answer))
+        await asyncio.wait({acked})
         return ui.DROP
 
     def render(self, *, closed: bool = False) -> discord.Embed:
@@ -555,10 +617,7 @@ class _JoinPanel:
                 await self._painter
             self._painter = None
         await self.view.close(embed=self.render(closed=True) if self.hunters else self.embed)
-        while not self.requests.empty():
-            request = self.requests.get_nowait()
-            if request.answer is not None:
-                await request.answer(MSG_JOIN_TOO_LATE)
+        await _refuse_leftovers(self.requests)
 
 
 async def _keep_panel(channel: Any, panel: _JoinPanel) -> None:
@@ -577,22 +636,28 @@ def _take_panel(scene: "Scene") -> _JoinPanel | None:
 
 
 async def _next_joiner(queue: asyncio.Queue, hunters: Sequence[Any], seconds: float, debug: bool) -> Any:
-    """The member of the next acceptable join request within ``seconds``; None when nobody joins."""
+    """The member of the next acceptable join request within ``seconds``; None when nobody joins.
+
+    Nothing in here waits for Discord: a refusal is delivered in the
+    background, so a burst of repeated requests cannot push a request made in
+    time past the deadline.  Requests already queued when the deadline passes
+    are still read.
+    """
     deadline = time.monotonic() + seconds
     while True:
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return None
         try:
-            request: _JoinRequest = await asyncio.wait_for(queue.get(), remaining)
-        except asyncio.TimeoutError:
+            if remaining <= 0:
+                request: _JoinRequest = queue.get_nowait()
+            else:
+                request = await asyncio.wait_for(queue.get(), remaining)
+        except (asyncio.QueueEmpty, asyncio.TimeoutError):
             return None
         if getattr(request.member, "bot", False):
             continue
-        if not debug and any(hunter.id == request.member.id for hunter in hunters):
-            # Already on the list (debug mode lets one tester fill the party).
+        if _on_list(hunters, request.member, debug):
             if request.answer is not None:
-                await request.answer(MSG_ALREADY_HUNTING)
+                _answer_later(request.answer, MSG_ALREADY_HUNTING)
             continue
         return request.member
 
@@ -616,8 +681,9 @@ async def _gather_hunters(scene: "Scene", first: Any, panel: _JoinPanel | None =
         if str(message.content).strip().lower() == JOIN_WORD:
             queue.put_nowait(_JoinRequest(message.author))
 
+    gathering = _Gathering(queue, hunters, bool(bot.debug))
     bot.add_listener(on_message, "on_message")
-    _gathering[channel_id] = queue
+    _gathering[channel_id] = gathering
     try:
         if panel is not None:
             panel.start(hunters)
@@ -631,11 +697,13 @@ async def _gather_hunters(scene: "Scene", first: Any, panel: _JoinPanel | None =
             hunters.append(joiner)
             log.info("Hunt: %s (%s) joined, %d hunters.", joiner, joiner.id, len(hunters))
     finally:
-        if _gathering.get(channel_id) is queue:
+        if _gathering.get(channel_id) is gathering:
             del _gathering[channel_id]
         bot.remove_listener(on_message, "on_message")
         if panel is not None:
             await panel.close()
+        else:  # e.g. a hub click that arrived right at the deadline of a hunt without a card
+            await _refuse_leftovers(queue)
     return hunters
 
 
@@ -811,8 +879,9 @@ async def start_hunt(scene: "Scene", *, refuse: Answer | None = None) -> bool:
     everything again because a click (the hub panel) has no command guards:
 
     * while a hunt gathers hunters on the channel, a click joins it (as typing
-      ``$polowanie`` does); a typed command is silent here (the hunt's own
-      listener has already seen the word);
+      ``$polowanie`` does; somebody on the list already is told so privately);
+      a typed command is silent here (the hunt's own listener has already
+      seen the word);
     * ``refuse`` answers a click privately; None (a typed command) answers on
       the channel as before.
 
@@ -826,7 +895,10 @@ async def start_hunt(scene: "Scene", *, refuse: Answer | None = None) -> bool:
         raise ValueError("start_hunt needs a scene with an author")
     if is_gathering(scene.channel):
         if refuse is not None:
-            request_join(scene.channel, player, refuse)
+            if is_hunting(scene.channel, player):
+                await refuse(MSG_ALREADY_HUNTING)  # here, so the gathering never waits for it
+            else:
+                request_join(scene.channel, player, refuse)
         return False
     if state.busy:  # somebody took the channel between the guard and here
         if refuse is None:

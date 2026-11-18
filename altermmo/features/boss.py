@@ -1096,7 +1096,8 @@ class _GroupLobby:
     The panel is edited in place - at most once per :data:`PANEL_EDIT_INTERVAL`
     s, clicks in between are gathered into one edit - and posted anew only to
     ping somebody (the ready check, the last call to the hunters, a regroup).
-    A panel deleted meanwhile is posted again at the next change.
+    A panel deleted meanwhile is posted again at the next change (with the same
+    text, but without pinging anybody again).
     """
 
     GATHER = "gather"
@@ -1127,13 +1128,15 @@ class _GroupLobby:
 
     async def run(self) -> list[Any] | None:
         bot = self.bot
-        await io.safe_react(self.scene.message, "⚔️")
         step = timing.timeout(GROUP_LOBBY_STEP)
         confirm_time = timing.timeout(GROUP_CONFIRM_TIME)
         waited = 0
+        # The door opens before the first Discord round trip: a click on the boss
+        # picture in the meantime already joins the party.
         with _listening(bot, self.channel) as inbox, _lobby_door(bot, self._door):
             self.inbox = inbox
             try:
+                await io.safe_react(self.scene.message, "⚔️")
                 self._set_deadline(step * (GROUP_LOBBY_STEPS - 1 - waited))
                 await self._post(None)
                 while True:
@@ -1271,15 +1274,18 @@ class _GroupLobby:
                         value="\n".join(roster) or GROUP_ROSTER_EMPTY, inline=False)
         return embed
 
-    async def _post(self, content: str | None) -> None:
+    async def _post(self, content: str | None, *, ping: bool = True) -> None:
         """Post the panel anew (``content`` pings whoever it mentions); the old one goes away.
 
+        ``ping=False``: the same text, but nobody is notified (a deleted panel
+        that is only put back - its ping was already heard).
         Raises like :func:`io.send` - the encounter treats it as a technical problem.
         """
+        extra: dict[str, Any] = {} if ping else {"allowed_mentions": discord.AllowedMentions.none()}
         async with self._lock:
             old = self.view
             view = ui.ClickView(self._choices(), allow=self._allow)
-            await view.send(self.channel, content, embed=self._embed())
+            await view.send(self.channel, content, embed=self._embed(), **extra)
             self.view = view
             self.content = content
             self._last_edit = time.monotonic()
@@ -1320,9 +1326,9 @@ class _GroupLobby:
             except Exception as exc:  # noqa: BLE001 - cosmetic: the next change edits it again
                 log.info("Could not update the legendary lobby panel (%s: %s).", type(exc).__name__, exc)
                 return
-        log.info("The legendary lobby panel was deleted; posting it again.")
+        log.info("The legendary lobby panel was deleted; posting it again (without pinging anybody).")
         try:
-            await self._post(self.content)
+            await self._post(self.content, ping=False)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - typing $zaatakuj / $tak still works

@@ -248,7 +248,7 @@ ROSTER_EMPTY = "Na razie nikogo tu nie ma..."
 ROSTER_MORE = "\n...i {count} więcej"
 MSG_SIGN_UP_UNTIL = "⏳ Zapisy kończą się {when}."
 MSG_SIGN_UP_CLOSED = "⌛ Zapisy zakończone."
-MSG_WAITING_UNTIL = "⏳ Czekam na śmiałka do {when}."
+MSG_WAITING_UNTIL = "⏳ Czekam na śmiałka - czas mija {when}."
 MSG_ALREADY_SIGNED = "Już jesteś na liście <:PepoG:790963160528977980>"
 MSG_TOO_LATE = "Ktoś był szybszy <:Sadge:936907659142111273>"
 MSG_SIGN_UP_TOO_LATE = "Za późno - zapisy już się zakończyły <:Sadge:936907659142111273>"
@@ -281,7 +281,7 @@ def _with_line(embed: discord.Embed, line: str) -> discord.Embed:
 
 
 def _until(seconds: float) -> str:
-    """"Czekam na śmiałka do <za 10 minut>" (Discord's live countdown)."""
+    """"Czekam na śmiałka - czas mija <za 10 minut>" (Discord's live countdown)."""
     return MSG_WAITING_UNTIL.format(when=ui.when(seconds))
 
 
@@ -303,9 +303,16 @@ async def _volunteer(scene: "Scene", view: ui.ClickView, seconds: float) -> Any:
             return member
 
 
-async def _answer_late_clicks(view: ui.ClickView, text: str) -> None:
-    """Clicks that were accepted but not used by the flow (somebody was faster) are told so."""
+async def _answer_late_clicks(view: ui.ClickView, text: str, *, chosen: Any = None) -> None:
+    """Clicks that were accepted but not used by the flow (somebody was faster) are told so.
+
+    Extra clicks of the ``chosen`` player (a double click, the second cup) are
+    left alone: they were acknowledged already and that player was not late.
+    """
+    chosen_id = getattr(chosen, "id", None)
     for click in view.pending():
+        if chosen_id is not None and click.member.id == chosen_id:
+            continue
         await ui.reply(click.interaction, text)
 
 
@@ -629,7 +636,7 @@ async def spawn_memory(scene: "Scene") -> bool:
         player = await _volunteer(scene, view, seconds)
         await view.close(embed=embed if player is None
                          else _with_line(embed, MSG_MEMORY_HELPER.format(mention=player.mention)))
-        await _answer_late_clicks(view, MSG_TOO_LATE)
+        await _answer_late_clicks(view, MSG_TOO_LATE, chosen=player)
     if player is None:
         return await _memory_failed(scene, MSG_MEMORY_NOBODY, pause=5)
 
@@ -663,7 +670,9 @@ async def spawn_memory(scene: "Scene") -> bool:
             if MEMORY_EMOTES[int(click.key.removeprefix("rune"))] != expected:
                 failure = MSG_MEMORY_WRONG
                 break
-            # A pressed rune cannot be pressed again by an accidental double click.
+            # A pressed rune cannot be pressed again by an accidental double click:
+            # switched off right here (no await since next() returned it), so a second
+            # click already queued or still on its way is skipped by answer.next().
             answer.relabel(click.key, disabled=True)
             await answer.refresh()
             await scene.send(MSG_MEMORY_GOOD)
@@ -724,7 +733,7 @@ async def spawn_hazard(scene: "Scene") -> bool:
                 continue
             player = member
             await view.close(embed=_with_line(embed, MSG_HAZARD_PLAYER.format(mention=player.mention)))
-            await _answer_late_clicks(view, MSG_TOO_LATE)
+            await _answer_late_clicks(view, MSG_TOO_LATE, chosen=player)
             break
 
     if player is None:
@@ -761,7 +770,7 @@ async def spawn_hunting(scene: "Scene") -> bool:
         player = await _volunteer(scene, view, seconds)
         await view.close(embed=embed if player is None
                          else _with_line(embed, MSG_FOREST_ENTERED.format(mention=player.mention)))
-        await _answer_late_clicks(view, MSG_TOO_LATE)
+        await _answer_late_clicks(view, MSG_TOO_LATE, chosen=player)
 
     if player is None:
         await scene.send(MSG_HUNTING_NOBODY)

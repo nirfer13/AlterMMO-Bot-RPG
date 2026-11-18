@@ -369,9 +369,9 @@ async def test_only_one_gem_can_be_used_a_day(game_db, collector):
     await skills.clear_daily_skill(bot)
     assert await skills.use_skill(game_db.scene(ala), ala) == skills.SUMMON    # a weekly gem is that day's use too
     assert bot.store.skill_daily_cd.all() == [str(ala.id)] and bot.store.skill_weekly_cd.all() == [str(ala.id)]
-    assert await skills.choose_skill(game_db.scene(ala), "3") is True
-    assert await skills.use_skill(game_db.scene(ala), ala) == 0
-    assert game_db.channel.messages[-1].content == skills.daily_cd_text()
+    assert await skills.choose_skill(game_db.scene(ala), "3") is True          # never used, but today's use is gone:
+    assert await skills.use_skill(game_db.scene(ala), ala) == 0                # the answer names the rule,
+    assert game_db.channel.messages[-1].content == skills.one_gem_text(ala.id)  # not "your gem regenerates"
 
     await skills.clear_daily_skill(bot)                                        # the next day: a daily gem works,
     assert await skills.use_skill(game_db.scene(ala), ala) == skills.SLOW      # the weekly one still regenerates

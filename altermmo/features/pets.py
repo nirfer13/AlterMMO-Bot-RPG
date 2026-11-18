@@ -36,9 +36,12 @@ Buttons and menus (the rules behind them are the commands' own):
 * the pet shown by ``$towarzysz`` carries a panel (:class:`PetPanel`) for its
   owner: rename in a pop-up window, the stable, and the pet commands.  Showing
   works on every channel; the gameplay buttons, like the commands, only on the
-  boss channel, not while the channel is busy and not for dead hunters;
+  boss channel, not while the channel is busy and not for dead hunters.  The
+  panel acts only on the pet it shows: once another pet is active its buttons
+  are refused (typed commands still mean "the active pet");
 * the stable (``$stajnia``) has a list that makes a stabled pet the active one,
-  exactly as ``$wyciagnijtowarzysza <slot>`` does.
+  exactly as ``$wyciagnijtowarzysza <slot>`` does - but only the pet the entry
+  names (a stale list is refused and redrawn).
 """
 
 from __future__ import annotations
@@ -235,6 +238,10 @@ MSG_RENAME_DONE = "Twój towarzysz ma teraz na imię **{name}** <:peepoBlush:984
 MSG_RENAME_EMPTY = "Imię towarzysza nie może być puste <:Hmm:984767035617730620>"
 MSG_RENAME_COOLDOWN = ("Poczekaj na odnowienie komendy! Imię zmienisz ponownie {when} "
                        "<:Bedge:970576892874854400>")
+#: A panel button under a pet that is no longer the active one (another pet came out of the stable).
+MSG_OTHER_PET = "Ten panel pokazuje innego towarzysza - wpisz **$towarzysz**, żeby zobaczyć aktualnego."
+#: A stable list entry whose slot no longer holds the pet it names.
+MSG_STABLE_CHANGED = "Stajnia zmieniła się w międzyczasie - wybierz jeszcze raz."
 PET_FOOTER = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś."
 RANKING_IMAGE = ("https://www.altermmo.pl/wp-content/uploads/alter0000_Adventurer_with_a_small_dragon_"
                  "pet._Fantasy._Pixel_ar_fac9f513-e338-4727-af61-32b79dbfa7e3.png")
@@ -589,7 +596,7 @@ async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool
     if not buttons or isinstance(scene, ui.WhisperScene):
         await scene.send(embed=embed, **files)
         return True
-    panel = PetPanel(player, pet)
+    panel = PetPanel(player, pet, image=image)
     try:
         await panel.send(scene.channel, embed=embed, **files)
     except BaseException:
@@ -825,6 +832,15 @@ async def _thank(answer: ui.Confirmation, emoji: str) -> None:
     await io.safe_react(answer.typed if answer.typed is not None else answer.message, emoji)
 
 
+def _other_pet(active_pet_id: int, expected_pet: int | None) -> bool:
+    """True when a button under ``expected_pet`` would act on another (active) pet.
+
+    ``expected_pet`` None: a typed command, which always means the active pet.
+    Without an active pet the flows answer "you are alone" themselves.
+    """
+    return expected_pet is not None and active_pet_id > 0 and active_pet_id != expected_pet
+
+
 async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, messages: dict[str, str],
                             check: Callable[..., Awaitable[tuple[str, Any]]],
                             apply: Callable[[Any, Any], Awaitable[None]]) -> bool:
@@ -834,10 +850,12 @@ async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, message
     ``messages`` explains why not.  It runs before the question and once more,
     with the rows locked, in the transaction that applies the change - whatever
     happened during the 15 seconds, nothing is paid for twice or with items
-    that are gone.
+    that are gone.  The status ``other_pet`` (see :func:`_other_pet`) is
+    answered with :data:`MSG_OTHER_PET`.
     """
     bot = scene.bot
     player_id = _pid(player)
+    messages = {"other_pet": MSG_OTHER_PET, **messages}
     status, _ = await check(bot.db, False)
     if status != _OK:
         await scene.send(messages[status])
@@ -862,8 +880,13 @@ async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, message
     return True
 
 
-async def reroll_pet(scene: "Scene", player: Any, remove_list: Sequence[int] = ()) -> bool:
-    """Reroll pet stats for a scroll; ``remove_list`` (indexes of SKILL_POOL) costs 10 each."""
+async def reroll_pet(scene: "Scene", player: Any, remove_list: Sequence[int] = (), *,
+                     expected_pet: int | None = None) -> bool:
+    """Reroll pet stats for a scroll; ``remove_list`` (indexes of SKILL_POOL) costs 10 each.
+
+    ``expected_pet``: the pet a panel button was clicked under; nothing happens
+    when another pet is active (also checked after the question).
+    """
     player_id = _pid(player)
     removed = {int(index) for index in remove_list if 0 <= int(index) < len(SKILL_POOL)}
     cost = 10 * len(removed) if removed else 1
@@ -875,6 +898,8 @@ async def reroll_pet(scene: "Scene", player: Any, remove_list: Sequence[int] = (
         pet_id = _int(owner["pet_id"]) if owner is not None else 0
         if pet_id <= 0:
             return "alone", None
+        if _other_pet(pet_id, expected_pet):
+            return "other_pet", None
         if _int(owner["reroll_scroll"]) < cost:
             return "poor", None
         pet = await _pet(q, pet_id, lock=lock)
@@ -946,12 +971,13 @@ class SkillMenu(ui.ClickView):
         return sorted(chosen)
 
 
-async def adv_reroll_pet(scene: "Scene") -> bool:
+async def adv_reroll_pet(scene: "Scene", *, expected_pet: int | None = None) -> bool:
     """Advanced reroll: the player first picks (a list) up to 3 stats to leave out.
 
     Every change of the list restarts the 20 s; the menu as a whole is limited
     too (it keeps the channel busy, so endless clicking must not hold it for
-    ever).  Then the ordinary reroll question follows (:func:`reroll_pet`).
+    ever).  Then the ordinary reroll question follows (:func:`reroll_pet`,
+    which also gets ``expected_pet``).
     """
     user = scene.author
     selected: list[int] = []
@@ -978,11 +1004,14 @@ async def adv_reroll_pet(scene: "Scene") -> bool:
     if len(selected) > MAX_SKIPPED:
         await scene.send(MSG_TOO_MANY_SKILLS)
         return False
-    return await reroll_pet(scene, user, selected)
+    return await reroll_pet(scene, user, selected, expected_pet=expected_pet)
 
 
-async def transform_pet(scene: "Scene", player: Any) -> bool:
-    """Transform pet appearance for a mirror (patrons and crafters only)."""
+async def transform_pet(scene: "Scene", player: Any, *, expected_pet: int | None = None) -> bool:
+    """Transform pet appearance for a mirror (patrons and crafters only).
+
+    ``expected_pet``: as in :func:`reroll_pet`.
+    """
     player_id = _pid(player)
     mention = "<@" + str(player_id) + ">"
 
@@ -991,6 +1020,8 @@ async def transform_pet(scene: "Scene", player: Any) -> bool:
         pet_id = _int(owner["pet_id"]) if owner is not None else 0
         if pet_id <= 0:
             return "alone", None
+        if _other_pet(pet_id, expected_pet):
+            return "other_pet", None
         pet = await _pet(q, pet_id, lock=lock)
         if pet is None:
             return "no_data", None
@@ -1029,8 +1060,11 @@ async def transform_pet(scene: "Scene", player: Any) -> bool:
         })
 
 
-async def enlight_pet(scene: "Scene", player: Any) -> bool:
-    """Enlighting pet (1-3 more talent points for a level 3 pet) for a rebirth stone."""
+async def enlight_pet(scene: "Scene", player: Any, *, expected_pet: int | None = None) -> bool:
+    """Enlighting pet (1-3 more talent points for a level 3 pet) for a rebirth stone.
+
+    ``expected_pet``: as in :func:`reroll_pet`.
+    """
     player_id = _pid(player)
     mention = "<@" + str(player_id) + ">"
     unworthy = ("Niestety Twój towarzysz nie jest godny dostąpić oświecenia " + mention
@@ -1041,6 +1075,8 @@ async def enlight_pet(scene: "Scene", player: Any) -> bool:
         pet_id = _int(owner["pet_id"]) if owner is not None else 0
         if pet_id <= 0:
             return "alone", None
+        if _other_pet(pet_id, expected_pet):
+            return "other_pet", None
         if _int(owner["rebirth_stones"]) <= 0:
             return "poor", None
         pet = await _pet(q, pet_id, lock=lock)
@@ -1079,8 +1115,12 @@ async def enlight_pet(scene: "Scene", player: Any) -> bool:
         })
 
 
-async def discard_pet(scene: "Scene") -> bool:
-    """Discarding pet from the author if it is possible (a sacrifice: a random boss modifier)."""
+async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> bool:
+    """Discarding pet from the author if it is possible (a sacrifice: a random boss modifier).
+
+    ``expected_pet``: the pet a panel button was clicked under; when another
+    pet is active (before or after the question) nothing is discarded.
+    """
     bot = scene.bot
     player = scene.author
     player_id = _pid(player)
@@ -1091,6 +1131,9 @@ async def discard_pet(scene: "Scene") -> bool:
         owner = await _owner(bot.db, player_id, "PET_ID")
         if owner is None or _int(owner["pet_id"]) <= 0:
             await scene.send(MSG_ALONE_MAD)
+            return False
+        if _other_pet(_int(owner["pet_id"]), expected_pet):
+            await scene.send(MSG_OTHER_PET)
             return False
         answer = await _confirm(
             scene, player,
@@ -1103,9 +1146,15 @@ async def discard_pet(scene: "Scene") -> bool:
         async with bot.db.transaction() as con:
             owner = await _owner(con, player_id, "PET_ID", lock=True)
             pet_id = _int(owner["pet_id"]) if owner is not None else 0
-            if pet_id > 0:
+            other = _other_pet(pet_id, expected_pet)
+            if pet_id > 0 and not other:
                 await con.execute("UPDATE PETOWNER SET PET_ID = 0 WHERE PLAYER_ID = $1", player_id)
                 await con.execute("DELETE FROM PETS WHERE PET_ID = $1", pet_id)
+        if other:
+            log.info("Player %s: discard of pet %s refused, pet %s is active now.", player_id,
+                     expected_pet, pet_id)
+            await scene.send(MSG_OTHER_PET)
+            return False
         if pet_id <= 0:
             await scene.send(MSG_ALONE_MAD)
             return False
@@ -1115,8 +1164,12 @@ async def discard_pet(scene: "Scene") -> bool:
     return True
 
 
-async def name_pet(scene: "Scene", name: str) -> bool:
-    """Set name of the author's pet (15% chance that it turns shiny); False without a pet."""
+async def name_pet(scene: "Scene", name: str, *, expected_pet: int | None = None) -> bool:
+    """Set name of the author's pet (15% chance that it turns shiny); False without a pet.
+
+    ``expected_pet``: the pet a panel was showing; False (nothing named) when
+    another pet is active.
+    """
     bot = scene.bot
     player_id = _pid(scene.author)
     name = str(name)[:MAX_NAME_LENGTH]
@@ -1124,6 +1177,9 @@ async def name_pet(scene: "Scene", name: str) -> bool:
     pet_id = _int(owner["pet_id"]) if owner is not None else 0
     if pet_id <= 0:
         await scene.send(MSG_ALONE_MAD)
+        return False
+    if _other_pet(pet_id, expected_pet):
+        await scene.send(MSG_OTHER_PET)
         return False
 
     percentage = random.randint(0, 100)
@@ -1184,9 +1240,29 @@ async def store_pet(scene: "Scene", slot: Any) -> bool:
     return status == _OK
 
 
+async def _take_out(bot: "AlterBot", player_id: int, column: str, expected_pet: int | None) -> str:
+    """Swap stable ``column`` with the active pet in one locked transaction.
+
+    Status ``alone`` / ``empty`` / ``swapped`` / ``taken``, or ``changed``
+    (nothing done) when ``expected_pet`` is given and the slot no longer holds it.
+    """
+    async with bot.db.transaction() as con:
+        owner = await _owner(con, player_id, _STABLE_COLUMNS, lock=True)
+        if owner is None:
+            return "alone"
+        stabled = _int(owner[column.lower()])
+        if expected_pet is not None and stabled != expected_pet:
+            return "changed"
+        if stabled <= 0:
+            return "empty"
+        current = max(_int(owner["pet_id"]), 0)
+        await con.execute(f"UPDATE PETOWNER SET {column} = $2, PET_ID = $3 WHERE PLAYER_ID = $1",
+                          player_id, current, stabled)
+        return "swapped" if current > 0 else "taken"
+
+
 async def unstore_pet(scene: "Scene", slot: Any) -> bool:
     """Take a pet out of stable slot 1-4 (the active pet takes its place)."""
-    bot = scene.bot
     player_id = _pid(scene.author)
     column = _slot_column(slot)
     if column is None:
@@ -1195,20 +1271,15 @@ async def unstore_pet(scene: "Scene", slot: Any) -> bool:
     if player_id in _awaiting_confirmation:
         await scene.send(MSG_ALREADY_WAITING)
         return False
-    async with bot.db.transaction() as con:
-        owner = await _owner(con, player_id, _STABLE_COLUMNS, lock=True)
-        if owner is None:
-            status = "alone"
-        elif _int(owner[column.lower()]) <= 0:
-            status = "empty"
-        else:
-            current = max(_int(owner["pet_id"]), 0)
-            status = "swapped" if current > 0 else "taken"
-            await con.execute(f"UPDATE PETOWNER SET {column} = $2, PET_ID = $3 WHERE PLAYER_ID = $1",
-                              player_id, current, _int(owner[column.lower()]))
-    await scene.send({"alone": _msg_alone(player_id), "empty": MSG_EMPTY_SLOT,
-                      "swapped": MSG_SWAPPED, "taken": MSG_UNSTORED}[status])
+    status = await _take_out(scene.bot, player_id, column, None)
+    await scene.send(_unstore_message(player_id, status))
     return status in ("swapped", "taken")
+
+
+def _unstore_message(player_id: int, status: str) -> str:
+    """What the channel is told after a :func:`_take_out` (any status but ``changed``)."""
+    return {"alone": _msg_alone(player_id), "empty": MSG_EMPTY_SLOT,
+            "swapped": MSG_SWAPPED, "taken": MSG_UNSTORED}[status]
 
 
 async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, list[ui.Option]] | None:
@@ -1240,8 +1311,8 @@ async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, 
         pet_lvl = _int(pet["pet_lvl"])
         polish_type = "Jajko" if pet_lvl == 0 else POLISH_TYPES.get(pet["type"], "")
         descriptions.append(f"{label}: {polish_type} {pet['pet_name']} ({pet_lvl} LVL).\n")
-        if index > 0:
-            options.append(ui.Option(str(index), f"{polish_type} {pet['pet_name']} ({pet_lvl} LVL)",
+        if index > 0:  # "slot:pet": a stale list cannot take out another pet than it names
+            options.append(ui.Option(f"{index}:{pet_id}", f"{polish_type} {pet['pet_name']} ({pet_lvl} LVL)",
                                       f"Miejsce w stajni {index}", emoji="🐾"))
 
     embed = discord.Embed(
@@ -1324,6 +1395,17 @@ class StablePanel(ui.PanelView):
                                      description=(option.description or None) and option.description[:100],
                                      emoji=option.emoji) for option in options[:25]]
 
+    @staticmethod
+    def _parse(value: Any) -> tuple[str, int] | None:
+        """``"3:7"`` -> (stable column of slot 3, pet 7); None for anything else."""
+        slot, _, pet_id = str(value).partition(":")
+        column = _slot_column(slot)
+        try:
+            pet = int(pet_id)
+        except ValueError:
+            return None
+        return (column, pet) if column is not None and pet > 0 else None
+
     async def _chosen(self, interaction: Any) -> None:
         if not await ui.gate(interaction):
             return
@@ -1332,8 +1414,20 @@ class StablePanel(ui.PanelView):
         if not values:
             return
         scene = ui.scene_of(interaction)
-        await unstore_pet(scene, values[0])
-        view = await _stable_view(scene.bot, _pid(interaction.user))
+        player_id = _pid(interaction.user)
+        chosen = self._parse(values[0])
+        if player_id in _awaiting_confirmation:
+            await scene.send(MSG_ALREADY_WAITING)  # as $wyciagnijtowarzysza
+        else:
+            # The pet the entry names must still be in its slot (checked under the lock).
+            status = "changed" if chosen is None else await _take_out(scene.bot, player_id, *chosen)
+            if status == "changed":
+                log.info("Stable list of %s: %r no longer matches the stable.", player_id, values[0])
+                await ui.reply(interaction, MSG_STABLE_CHANGED)
+            else:
+                await scene.send(_unstore_message(player_id, status))
+        # Redrawn in every case: the list must not keep showing the entry as chosen.
+        view = await _stable_view(scene.bot, player_id)
         if view is None:
             await self.finish()
             return
@@ -1357,11 +1451,19 @@ class PetPanel(ui.PanelView):
     away: the flow shows the pet anew when it changed it.  Buttons that make
     no sense for this pet (rerolling an egg, enlightening a young pet,
     transforming a mythic one or without the rank) are not shown.
+
+    The panel acts only on the pet it shows (:attr:`pet_id`): once another pet
+    is active (taken out of the stable meanwhile) a click takes the buttons off
+    and is answered privately with :data:`MSG_OTHER_PET`; the flows re-check
+    it after their question too.  ``image``: the picture sent with the panel.
     """
 
-    def __init__(self, player: Any, pet: Any, *, timeout: float | None = None) -> None:
+    def __init__(self, player: Any, pet: Any, *, image: Path | None = None,
+                 timeout: float | None = None) -> None:
         super().__init__(owner=player, timeout=PANEL_TIMEOUT if timeout is None else timeout)
         self.player = player
+        self.pet_id = _int(pet["pet_id"])
+        self.image = image
         self.pet_name = str(pet["pet_name"] or "")
         level, skills = _int(pet["pet_lvl"]), _int(pet["pet_skills"])
         hidden = set()
@@ -1395,32 +1497,50 @@ class PetPanel(ui.PanelView):
     @discord.ui.button(label="Odrodzenie", emoji="🎲", style=discord.ButtonStyle.primary, row=1,
                        custom_id=ui.FLOW_PREFIX + "pet:reroll")
     async def reroll(self, interaction: Any, button: discord.ui.Button) -> None:
-        await self._play(interaction, lambda scene: reroll_pet(scene, scene.author))
+        await self._play(interaction, lambda scene: reroll_pet(scene, scene.author, expected_pet=self.pet_id))
 
     @discord.ui.button(label="Mocne odrodzenie", emoji="🔮", style=discord.ButtonStyle.secondary, row=1,
                        custom_id=ui.FLOW_PREFIX + "pet:adv-reroll")
     async def adv_reroll(self, interaction: Any, button: discord.ui.Button) -> None:
-        await self._play(interaction, adv_reroll_pet, hold="adv-reroll")
+        await self._play(interaction, lambda scene: adv_reroll_pet(scene, expected_pet=self.pet_id),
+                         hold="adv-reroll")
 
     @discord.ui.button(label="Oświecenie", emoji="✨", style=discord.ButtonStyle.secondary, row=1,
                        custom_id=ui.FLOW_PREFIX + "pet:enlight")
     async def enlight(self, interaction: Any, button: discord.ui.Button) -> None:
-        await self._play(interaction, lambda scene: enlight_pet(scene, scene.author))
+        await self._play(interaction, lambda scene: enlight_pet(scene, scene.author, expected_pet=self.pet_id))
 
     @discord.ui.button(label="Transformacja", emoji="🪞", style=discord.ButtonStyle.secondary, row=1,
                        custom_id=ui.FLOW_PREFIX + "pet:transform")
     async def transform(self, interaction: Any, button: discord.ui.Button) -> None:
-        await self._play(interaction, lambda scene: transform_pet(scene, scene.author))
+        await self._play(interaction, lambda scene: transform_pet(scene, scene.author, expected_pet=self.pet_id))
 
     @discord.ui.button(label="Porzuć", emoji="💔", style=discord.ButtonStyle.danger, row=2,
                        custom_id=ui.FLOW_PREFIX + "pet:discard")
     async def discard(self, interaction: Any, button: discord.ui.Button) -> None:
-        await self._play(interaction, discard_pet)
+        await self._play(interaction, lambda scene: discard_pet(scene, expected_pet=self.pet_id))
+
+    async def shows_active_pet(self, interaction: Any) -> bool:
+        """True when the click may act on the active pet: it is this panel's pet (or there is none).
+
+        Otherwise the click is answered privately with :data:`MSG_OTHER_PET`
+        and the panel's buttons are taken off.
+        """
+        player_id = _pid(interaction.user)
+        owner = await _owner(interaction.client.db, player_id, "PET_ID")
+        active = _int(owner["pet_id"]) if owner is not None else 0
+        if not _other_pet(active, self.pet_id):
+            return True
+        log.info("Pet panel of %s shows pet %s but pet %s is active; click refused.",
+                 player_id, self.pet_id, active)
+        await ui.reply(interaction, MSG_OTHER_PET)
+        await self.finish()
+        return False
 
     async def _play(self, interaction: Any, flow: Callable[["Scene"], Awaitable[bool]], *,
                     hold: str | None = None) -> None:
         """Run a gameplay flow for the click, with the guards of its command."""
-        if not await ui.gate(interaction):
+        if not await ui.gate(interaction) or not await self.shows_active_pet(interaction):
             return
         log.info("Pet panel of %s: %s.", self.owner_id, (interaction.data or {}).get("custom_id"))
         scene = ui.scene_of(interaction)
@@ -1429,22 +1549,44 @@ class PetPanel(ui.PanelView):
             await self.finish()
             await flow(scene)
             return
-        # Like ``$mocneodrodzenie``: the flow holds the channel.  Nothing is awaited
-        # between the gate's check and taking the flag.
+        # Like ``$mocneodrodzenie``: the flow holds the channel.  The database read
+        # above may have let somebody take it, so the gate looks again; nothing is
+        # awaited between its (passing) check and taking the flag.
+        if not await ui.gate(interaction):
+            return
         with interaction.client.state.hold_busy(hold):
             await ui.ack(interaction)
             await self.finish()
             await flow(scene)
 
     async def redraw(self, bot: "AlterBot") -> bool:
-        """Show the owner's pet as it is now on this panel (after a rename).  Never raises on Discord."""
+        """Show this panel's pet as it is now (after a rename).  Never raises on Discord.
+
+        When another pet is active the buttons are taken off instead (the
+        message carries this pet's picture).  A changed picture (the pet grew
+        meanwhile) is sent along with the embed.
+        """
         player_id = _pid(self.player)
         status, items, pet = await _load_shown_pet(bot, player_id)
         if status != _OK:
             return False
+        if _int(pet["pet_id"]) != self.pet_id:
+            await self.finish()
+            return False
         self.pet_name = str(pet["pet_name"] or "")
-        embed, _ = _shown_embed(player_id, pet, items)
-        return await _edit_panel(self.message, embed=embed)
+        embed, image = _shown_embed(player_id, pet, items)
+        if image == self.image:
+            return await _edit_panel(self.message, embed=embed)
+        try:
+            attachments = [] if image is None else [discord.File(str(image))]
+        except OSError as exc:  # the picture vanished since it was checked
+            log.warning("Pet %s: picture %s could not be read (%s); panel retired.", self.pet_id, image, exc)
+            await self.finish()
+            return False
+        if not await _edit_panel(self.message, embed=embed, attachments=attachments):
+            return False
+        self.image = image
+        return True
 
 
 def _rename_bucket(bot: "AlterBot", member: Any) -> Any:
@@ -1465,14 +1607,21 @@ async def rename_from_panel(panel: PetPanel, interaction: Any) -> bool:
 
     The guards and the 23-hour cooldown of the command apply (the cooldown is
     the command's own, so a name given with a button counts for ``$nazwij``
-    and the other way round; a refused naming does not use it up).
+    and the other way round; a refused naming does not use it up).  Only the
+    pet the panel shows is named (see :meth:`PetPanel.shows_active_pet`),
+    checked when the button is clicked and again when the window is sent.
+
+    The cooldown is charged on the bucket fetched again right before it, with
+    nothing awaited in between: discord.py drops a never-used bucket from its
+    cache whenever anybody's ``$nazwij`` looks at the cooldowns, so the bucket
+    seen at the click may be an orphan by the time the window is sent.
     """
     bot = interaction.client
-    if not await ui.gate(interaction):
+    if not await ui.gate(interaction) or not await panel.shows_active_pet(interaction):
         return False
     bucket = _rename_bucket(bot, interaction.user)
     if bucket is not None:
-        retry_after = bucket.get_retry_after()
+        retry_after = bucket.get_retry_after()  # a preview only: the window is not opened in vain
         if retry_after > 0:
             await ui.reply(interaction, MSG_RENAME_COOLDOWN.format(when=ui.when(retry_after)))
             return False
@@ -1486,9 +1635,12 @@ async def rename_from_panel(panel: PetPanel, interaction: Any) -> bool:
     if not name:
         await ui.reply(submitted, MSG_RENAME_EMPTY)
         return False
-    if bot.state.busy:  # the window may have been open for minutes
+    if not await panel.shows_active_pet(submitted):  # the window may have been open for minutes
+        return False
+    if bot.state.busy:
         await ui.reply(submitted, ui.MSG_BUSY)
         return False
+    bucket = _rename_bucket(bot, submitted.user)  # no await between this and the charge below
     if bucket is not None:
         retry_after = bucket.update_rate_limit()
         if retry_after:
@@ -1497,7 +1649,7 @@ async def rename_from_panel(panel: PetPanel, interaction: Any) -> bool:
     await ui.ack(submitted)
     done = False
     try:
-        done = await name_pet(ui.scene_of(submitted), name)
+        done = await name_pet(ui.scene_of(submitted), name, expected_pet=panel.pet_id)
     finally:
         if not done and bucket is not None:
             bucket.reset()  # nothing was named: the 23 hours do not start

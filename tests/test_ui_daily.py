@@ -15,7 +15,7 @@ from altermmo.cogs import schedule
 from altermmo.core import clock, guards, ui
 from altermmo.core.scene import Scene
 from altermmo.core.state import BossPhase
-from altermmo.features import achievements, daily, database, skills, tower
+from altermmo.features import achievements, daily, database, hub, skills, tower
 
 from fakes import FakeInteraction, requested_word
 
@@ -196,6 +196,82 @@ async def test_the_card_purged_while_gathering_does_not_stop_the_hunt(game, quie
     assert not ui.is_live(card.id)
 
 
+def slow(monkeypatch, name: str, seconds: float) -> None:
+    """Every ``ui.<name>`` (``ack`` / ``reply``) takes a round trip of ``seconds`` before it acts."""
+    real = getattr(ui, name)
+
+    async def delayed(interaction, *args, **kwargs):
+        await asyncio.sleep(seconds)
+        return await real(interaction, *args, **kwargs)
+
+    monkeypatch.setattr(ui, name, delayed)
+
+
+async def test_repeated_clicks_of_a_hunter_do_not_push_a_joiner_past_the_deadline(game, quiet_hunt, monkeypatch):
+    """Review: each "already hunting" answer was awaited inside the join window."""
+    game.bot.debug = False
+    monkeypatch.setattr(daily, "JOIN_TIME", 0.4)
+    slow(monkeypatch, "reply", 0.15)                                    # every private answer: 150 ms
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    team_answers(game, [ala, ola])
+    card, task = await start_gathering(game, ala)
+    repeats = [game.click_later(card, ala, JOIN) for _ in range(4)]    # the starter clicks again and again
+    joined = game.click_later(card, ola, JOIN)                          # Ola clicks at the same moment
+    assert await task is True
+    assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> ")
+    assert (await joined).whispers == [] and (await joined).response.deferred
+    for click in repeats:
+        assert (await click).whispers == [daily.MSG_ALREADY_HUNTING]
+
+
+async def test_clicks_queued_before_the_hunt_listens_are_refused_without_delaying_it(game, quiet_hunt, monkeypatch):
+    """Repeated clicks made before the gathering knows its hunters are refused in the background."""
+    game.bot.debug = False
+    monkeypatch.setattr(daily, "JOIN_TIME", 0.4)
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    team_answers(game, [ala, ola])
+    await daily.send_mob_image(game.scene(ala), 0)
+    card = game.last_with_buttons()
+    repeats = [await game.click(card, ala, JOIN) for _ in range(4)]     # queued: nobody hunts yet
+    joined = await game.click(card, ola, JOIN)
+    slow(monkeypatch, "reply", 0.15)
+    assert await daily.hunt_mobs(game.scene(ala), 0, False, None) is True
+    assert game.channel.contains(f"Rozpoczęliście polowanie <@{ala.id}> <@{ola.id}> ")
+    assert joined.whispers == []
+    for click in repeats:
+        await until(lambda c=click: c.whispers == [daily.MSG_ALREADY_HUNTING])
+
+
+async def test_a_click_counts_from_the_moment_it_is_made_not_after_its_acknowledgement(game, quiet_hunt, monkeypatch):
+    """Review: the click was queued only after the round trip of its acknowledgement."""
+    game.bot.debug = False
+    monkeypatch.setattr(daily, "JOIN_TIME", 0.4)
+    slow(monkeypatch, "ack", 0.2)
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    team_answers(game, [ala, ola])
+    card, task = await start_gathering(game, ala)
+    await asyncio.sleep(0.25)                                           # 0.15 s before the window closes
+    click = await game.click(card, ola, JOIN)                           # acknowledged only after it closed
+    assert click.response.deferred and click.whispers == []
+    assert await task is True
+    assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> ")
+
+
+async def test_a_click_left_over_is_told_too_late_only_after_its_acknowledgement(game, quiet_hunt, monkeypatch):
+    """A queued click whose acknowledgement is still on its way gets "too late" after it, not instead."""
+    game.bot.debug = False
+    slow(monkeypatch, "ack", 0.2)
+    ala, ola, ela, iza = (game.add_member(name) for name in ("Ala", "Ola", "Ela", "Iza"))
+    team_answers(game, [ala, ola, ela])
+    card, task = await start_gathering(game, ala)
+    clicks = [game.click_later(card, member, JOIN) for member in (ola, ela, iza)]   # one too many
+    assert await task is True
+    assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> <@{ela.id}> ")
+    ola_click, ela_click, iza_click = [await click for click in clicks]
+    assert ola_click.whispers == [] and ela_click.whispers == []
+    assert iza_click.response.deferred and iza_click.whispers == [daily.MSG_JOIN_TOO_LATE]
+
+
 async def test_a_hunt_without_a_card_still_takes_typed_joins(game, quiet_hunt):
     """Events may call hunt_mobs without the monster's card on this channel: typing keeps working."""
     game.bot.debug = False
@@ -256,6 +332,63 @@ async def test_start_hunt_from_a_click_joins_a_gathering_hunt(game, quiet_hunt):
             await until(lambda: click.whispers == [daily.MSG_ALREADY_HUNTING])
     assert await task is True
     assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> ")
+
+
+async def test_hub_hunt_click_joins_a_real_gathering_hunt(game, quiet_hunt):
+    """The "Polowanie" button of the hub panel, with nothing of the gathering replaced."""
+    game.bot.debug = False
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    team_answers(game, [ala, ola])
+    card, task = await start_gathering(game, ala)
+    own = whisperer(game, ala)
+    assert await hub.hunt_clicked(own) is False                         # the starter: told at once, privately
+    assert own.whispers == [daily.MSG_ALREADY_HUNTING]
+    click = whisperer(game, ola)
+    assert await hub.hunt_clicked(click) is False                       # joined; the hunt is the starter's
+    await until(lambda: roster(card)[0] == "Łowcy (2/3)")
+    assert click.response.deferred and click.replies == []
+    assert await task is True
+    assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> ")
+    assert click.replies == [] and roster(card) == ("Łowcy (2/3)", f"<@{ala.id}>, <@{ola.id}>")
+
+
+async def test_hub_hunt_click_after_the_gathering_is_refused_privately(game, quiet_hunt):
+    game.bot.debug = False
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    team_answers(game, [ala])
+    with game.bot.state.hold_busy("hunt"):                              # as start_hunt holds it
+        card, task = await start_gathering(game, ala)
+        await until(lambda: not daily.is_gathering(game.channel))      # the hunt has started
+        click = whisperer(game, ola)
+        assert await hub.hunt_clicked(click) is False
+        assert click.whispers == [ui.MSG_BUSY]
+        assert await task is True
+    assert game.channel.contains(f"Brawo <@{ala.id}> ") and roster(card) == ("Łowcy (1/3)", f"<@{ala.id}>")
+
+
+@pytest.mark.parametrize("with_card", [True, False])
+async def test_hub_hunt_click_right_at_the_deadline_is_told_too_late(game, quiet_hunt, monkeypatch, with_card):
+    """A click that reaches the queue when nobody takes requests any more still gets an answer."""
+    game.bot.debug = False
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    team_answers(game, [ala])
+    click = whisperer(game, ola)
+    real_next_joiner = daily._next_joiner
+
+    async def next_joiner(*args, **kwargs):
+        joiner = await real_next_joiner(*args, **kwargs)
+        if joiner is None:                                              # the window has just closed
+            assert await hub.hunt_clicked(click) is False
+        return joiner
+
+    monkeypatch.setattr(daily, "_next_joiner", next_joiner)
+    if with_card:
+        card, task = await start_gathering(game, ala)
+    else:
+        task = asyncio.ensure_future(daily.hunt_mobs(game.scene(ala), 0, False, None))
+    assert await task is True
+    assert game.channel.contains(f"Brawo <@{ala.id}> ")
+    assert click.response.deferred and click.whispers == [daily.MSG_JOIN_TOO_LATE]
 
 
 async def test_typed_polowanie_answers_on_the_channel_with_the_live_reset_time(game):
@@ -396,6 +529,37 @@ async def test_pouch_menu_makes_another_gem_active(game_db):
 
     assert await skills.choose_skill(game_db.scene(ala), "3") is True                   # typing still works
     assert await active_gem(game_db, ala) == 9
+
+
+async def test_pouch_menu_acknowledges_the_choice_before_the_database_work(game_db, monkeypatch):
+    """Review: two transactions (with retries) ran before the 3-second answer."""
+    ala = await collector(game_db)
+    await skills.show_skills(game_db.scene(ala))
+    pouch = game_db.channel.messages[-1]
+    clicks: list = []
+    seen: list = []
+    real_gate, real_choose, real_load = ui.gate, skills._choose, skills._load_pouch
+
+    async def gate(interaction, **kwargs):
+        clicks.append(interaction)
+        return await real_gate(interaction, **kwargs)
+
+    def watched(name, real):
+        async def run(*args, **kwargs):
+            seen.append((name, clicks[-1].response.is_done()))
+            return await real(*args, **kwargs)
+        return run
+
+    monkeypatch.setattr(ui, "gate", gate)
+    monkeypatch.setattr(skills, "_choose", watched("_choose", real_choose))
+    monkeypatch.setattr(skills, "_load_pouch", watched("_load_pouch", real_load))
+    chosen = await game_db.click(pouch, ala, MENU, values=["2"])
+    assert seen == [("_choose", True), ("_load_pouch", True)]          # answered before the database
+    assert chosen.response.deferred
+    assert chosen.whispers == [skills.MSG_GEM_CHOSEN.format(player_id=ala.id, name="Klejnot Przywołania")]
+    assert "**2. Klejnot Przywołania** ✅ aktywny" in pouch.embeds[0].description        # still repainted
+    assert [o.default for o in pouch.button(MENU).options] == [False, True, False]
+    assert await active_gem(game_db, ala) == 8
 
 
 async def test_pouch_menu_follows_the_gameplay_rules(game_db):

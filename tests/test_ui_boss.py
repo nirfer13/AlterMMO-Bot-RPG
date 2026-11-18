@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import discord
 import pytest
 
-from altermmo.core import timing, ui
+from altermmo.core import io, timing, ui
 from altermmo.core.state import BossInfo, BossPhase
 from altermmo.features import boss, boss_cycle
 from altermmo.features.fight_types import FightInterrupted, FightResult
@@ -161,6 +161,96 @@ async def test_button_goes_back_under_the_picture_when_the_notice_cannot_be_post
     assert picture.button_labels == ["Zaatakuj"]
     await game.click(picture, ala, "Zaatakuj")
     assert fights.calls.count(("fight", "Ala", 0)) == 2
+
+
+@pytest.mark.parametrize("delivered", [True, False])
+async def test_late_interrupted_notice_brings_no_button_after_the_boss_was_engaged_again(registered, fights,
+                                                                                       monkeypatch, delivered):
+    """The "still here" notice is late (Discord is slow) and the boss was fought again meanwhile."""
+    game = registered
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    gate = asyncio.Event()
+    real_send_patient = io.send_patient
+
+    async def send_patient(destination, content=None, **kwargs):
+        if content == boss_cycle.MSG_FIGHT_INTERRUPTED_STAYS:
+            await gate.wait()
+            if not delivered:
+                return None                                          # Discord finally refused it
+        return await real_send_patient(destination, content, **kwargs)
+
+    monkeypatch.setattr(io, "send_patient", send_patient)
+    picture = await show_boss(game, monkeypatch)
+    fights.error = FightInterrupted("lag")
+    await game.click(picture, ala, "Zaatakuj")
+    assert game.bot.state.boss_phase is BossPhase.VISIBLE
+    await asyncio.sleep(0.05)                                        # the notice is on its way
+    await game.bot.boss_cycle.attack(game.scene(ola, "$zaatakuj"))  # the second try, before the notice
+    assert ("fight", "Ola", 0) in fights.calls and game.bot.state.boss_phase is BossPhase.IDLE
+    gate.set()
+    await asyncio.sleep(0.1)
+    if delivered:
+        notice = next(m for m in game.channel.messages if m.content == boss_cycle.MSG_FIGHT_INTERRUPTED_STAYS)
+        assert notice.view is None                                   # no live "Zaatakuj" for a boss that is gone
+    assert picture.view is None                                      # ...and none put back under the picture
+    assert game.bot.boss_cycle._attack_buttons == []
+
+
+async def test_click_right_after_another_claimed_the_legendary_boss_joins_the_lobby(registered, monkeypatch):
+    """Ala and Ola click "Zaatakuj" at the same moment and Discord answers slowly: Ola joins the party."""
+    game = registered
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    real_ack, real_retire = ui.ack, ui.retire
+
+    async def slow_ack(interaction):
+        await asyncio.sleep(0.2)                                     # a round trip to Discord
+        return await real_ack(interaction)
+
+    async def slow_retire(message, **kwargs):
+        await asyncio.sleep(0.2)
+        return await real_retire(message, **kwargs)
+
+    monkeypatch.setattr(ui, "ack", slow_ack)
+    monkeypatch.setattr(ui, "retire", slow_retire)
+    picture = await show_boss(game, monkeypatch, rarity=3)
+    encounter = game.click_later(picture, ala, "Zaatakuj")
+    second = game.click_later(picture, ola, "Zaatakuj", 0.05)
+    click = await asyncio.wait_for(second, 3)
+    assert click.whispers == [] and click.response.deferred        # taken by the lobby door
+    panel = await game.wait_for_buttons("join")
+    await eventually(lambda: field(panel)[0] == "Drużyna (2/4)")
+    assert field(panel)[1] == f"⚔️ <@{ala.id}>\n⚔️ <@{ola.id}>"
+    encounter.cancel()
+    await asyncio.gather(encounter, return_exceptions=True)
+    await asyncio.sleep(0.3)                                         # the background notice of the cancelled fight
+
+
+async def test_click_while_the_lobby_opens_is_not_sent_away(registered, fights, monkeypatch):
+    """A click between the claim of the boss and the opening of its lobby: not "wait for the next one"."""
+    game = registered
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    opening, spell = asyncio.Event(), asyncio.Event()
+
+    async def single_init(scene, rarity):
+        await opening.wait()                                         # the lobby takes a moment to open
+        with boss._lobby_door(scene.bot, ui.ack):
+            pass                                                     # its door was open; now the spell is typed
+        await spell.wait()
+        return scene.author
+
+    monkeypatch.setattr(boss, "single_init", single_init)
+    picture = await show_boss(game, monkeypatch)
+    old = await boss_cycle.with_attack_button(lambda view: game.channel.send("boss", view=view))
+    encounter = game.click_later(picture, ala, "Zaatakuj")
+    await asyncio.sleep(0.05)
+    assert game.bot.state.boss_phase is BossPhase.ENGAGED
+    assert (await game.click(old, ola, "Zaatakuj")).whispers == [boss_cycle.MSG_LOBBY_OPENING]
+    opening.set()
+    await asyncio.sleep(0.05)
+    assert (await game.click(old, ola, "Zaatakuj")).whispers == [boss_cycle.MSG_BOSS_TAKEN]
+    spell.set()
+    await asyncio.wait_for(encounter, 3)
+    assert ("fight", "Ala", 0) in fights.calls
 
 
 async def test_boss_that_leaves_takes_its_button_along(game, fights, monkeypatch):
@@ -351,6 +441,42 @@ async def test_legendary_lobby_panel_deleted_midway_is_posted_again(registered, 
     assert again.view is None
 
 
+async def test_legendary_lobby_panel_put_back_after_a_deletion_pings_nobody_again(registered, monkeypatch):
+    game = registered
+    monkeypatch.setattr(boss, "PANEL_EDIT_INTERVAL", 0.0)
+    ala, ola, ela, ula = (game.add_member(name) for name in ("Ala", "Ola", "Ela", "Ula"))
+    sent_with: list = []
+    real_send = game.channel.send
+
+    async def send(content=None, **kwargs):
+        message = await real_send(content, **kwargs)
+        sent_with.append((message, kwargs.get("allowed_mentions")))
+        return message
+
+    monkeypatch.setattr(game.channel, "send", send)
+    lobby = asyncio.ensure_future(boss.group_init(game.scene(ala), 3))
+    panel = await game.wait_for_buttons("join")
+    for member in (ola, ela, ula):
+        await game.click(panel, member, "join")
+    ready = await game.wait_for_buttons("ready")
+    assert ready.content.startswith("Jesteście gotowi do ataku?")
+    assert next(mentions for message, mentions in sent_with if message is ready) is None   # the party is pinged
+    await ready.delete()                                             # e.g. a moderator cleaned up
+
+    async def gone(**kwargs):
+        raise not_found()
+
+    ready.edit = gone
+    game.say(ola, "$tak")
+    again = await game.wait_for_buttons("ready")
+    assert again is not ready and again.content == ready.content     # the same text...
+    mentions = next(mentions for message, mentions in sent_with if message is again)
+    assert mentions is not None                                      # ...but nobody is notified again
+    assert not mentions.everyone and not mentions.users and not mentions.roles
+    lobby.cancel()
+    await asyncio.gather(lobby, return_exceptions=True)
+
+
 async def test_legendary_lobby_through_the_cycle(registered, monkeypatch):
     """A click on the legendary boss's picture opens the lobby; the others join on the panel."""
     game = registered
@@ -370,7 +496,7 @@ async def test_legendary_lobby_through_the_cycle(registered, monkeypatch):
     picture = await show_boss(game, monkeypatch, rarity=3)
     encounter = game.click_later(picture, party[0], "Zaatakuj")
     panel = await game.wait_for_buttons("join")
-    assert picture.view is None
+    await eventually(lambda: picture.view is None)                   # taken off while the lobby opens
     for member in party[1:]:
         await game.click(panel, member, "join")
     ready = await game.wait_for_buttons("ready")

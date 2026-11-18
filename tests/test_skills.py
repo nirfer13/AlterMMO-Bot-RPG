@@ -42,10 +42,13 @@ PET_DEFAULTS = dict(pet_name="Towarzysz", pet_lvl=1, pet_skills=0, quality="Stan
 
 # -- helpers --------------------------------------------------------------------------
 
-def daily_cd() -> str:
-    """The daily "regenerating" text: the countdown to the next daily reset (02:30 / Monday 15:00)."""
+def one_gem(player_id: int) -> str:
+    """The refusal of a gem while a player with SEVERAL gems is on the daily list ("one gem a day";
+    a player with one gem gets ``skills.daily_cd_text()`` from ``$skill`` - that gem regenerates):
+    the countdown to the next daily reset (02:30 / Monday 15:00)."""
     stamp = int(real_daily.next_daily_reset().timestamp())
-    return f"Twój klejnot umiejętności regeneruje się! Będzie gotowy <t:{stamp}:R> {BEDGE}"
+    return (f"Dziś użyłeś już klejnotu umiejętności, <@{player_id}>! Jednego dnia działa tylko jeden "
+            f"klejnot - spróbuj ponownie <t:{stamp}:R> {BEDGE}")
 
 
 def weekly_cd() -> str:
@@ -534,9 +537,9 @@ async def test_rest_lets_the_guests_hunt_again(game_db, daily, monkeypatch):
     assert bot.store.skill_daily_cd.all() == [str(host.id)]
     assert reaction_listeners(game_db) == []
 
-    # The gem regenerates until the daily reset.
+    # The gem regenerates until the daily reset (one gem a day).
     assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 0
-    assert game_db.channel.bot_messages[-1].content == daily_cd() and game_db.channel.count(INVITATION) == 1
+    assert game_db.channel.bot_messages[-1].content == skills.daily_cd_text() and game_db.channel.count(INVITATION) == 1
     await skills.clear_daily_skill(bot)
     assert await skills.skill_rest(game_db.scene(host)) is True
 
@@ -797,7 +800,7 @@ async def test_festival_gem_prays_five_times(game_db, prayers):
     assert game_db.bot.store.skill_daily_cd.all() == [str(player.id)]
 
     assert await skills.use_skill(game_db.scene(player), player) == 0
-    assert texts(game_db)[-1] == daily_cd() and len(prayers) == 5
+    assert texts(game_db)[-1] == skills.daily_cd_text() and len(prayers) == 5
 
 
 async def test_festival_gem_draws_real_modifiers(game_db, daily, monkeypatch):
@@ -846,7 +849,7 @@ async def test_slow_gem(game_db):
     assert game_db.bot.store.skill_daily_cd.all() == [str(player.id)]
 
     assert await skills.use_skill(game_db.scene(player), player) == 0
-    assert texts(game_db)[-1] == daily_cd() and modifier_file(game_db) == {"time_increased_perc": 40}
+    assert texts(game_db)[-1] == skills.daily_cd_text() and modifier_file(game_db) == {"time_increased_perc": 40}
     assert game_db.bot.store.skill_weekly_cd.all() == []
 
 
@@ -858,6 +861,7 @@ async def test_abundance_gem(game_db):
     assert texts(game_db) == ["Klejnot sprawia, że przeciwnicy oferują teraz lepsze nagrody."]
     assert game_db.bot.store.skill_daily_cd.all() == [str(player.id)]
     assert await skills.skill_increase_loot(game_db.scene(player)) is False
+    assert texts(game_db)[-1] == one_gem(player.id)
 
 
 async def test_effect_that_cannot_be_announced_is_not_free_to_repeat(game_db):
@@ -870,7 +874,7 @@ async def test_effect_that_cannot_be_announced_is_not_free_to_repeat(game_db):
     assert any("Efekt działa: Klejnot sprawia" in line for line in game_db.bot.owner_log)
 
     await skills.use_skill(game_db.scene(player), player)
-    assert texts(game_db) == [daily_cd()] and modifier_file(game_db) == {"time_increased_perc": 40}
+    assert texts(game_db) == [skills.daily_cd_text()] and modifier_file(game_db) == {"time_increased_perc": 40}
 
 
 # -- cooldown lists -------------------------------------------------------------------
@@ -965,7 +969,7 @@ async def test_showing_works_anywhere_using_only_on_the_boss_channel(game_db, co
     assert modifier_file(game_db) == {"time_increased_perc": 40} and not game_db.bot.state.busy
     for command in ("$uzyjskilla", "$użyjumiejetnosc", "$użyjumiejętność", "$us", "$uzyj", "$uzyjskill", "$uu"):
         await run(game_db, player, command)
-    assert texts(game_db)[1:] == [daily_cd()] * 7
+    assert texts(game_db)[1:] == [skills.daily_cd_text()] * 7
 
 
 async def test_commands_are_blocked_with_a_notice_while_the_bot_is_busy(game_db, cog):

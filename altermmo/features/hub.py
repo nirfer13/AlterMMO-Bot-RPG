@@ -165,7 +165,22 @@ async def hunt_clicked(interaction: Any) -> bool:
     # The busy flag is checked by start_hunt itself: during a gathering hunt a click joins it.
     if not await ui.gate(interaction, unless_busy=False):
         return False
-    if not await ui.ack(interaction):
+    scene = ui.scene_of(interaction)
+    if daily.is_gathering(scene.channel) and not daily.is_hunting(scene.channel, scene.author):
+        # Queue first, acknowledge second: the click counts from the moment it was made,
+        # like a typed $polowanie or the button under the monster.
+        acked = asyncio.ensure_future(ui.ack(interaction))
+
+        async def answer(text: str) -> None:
+            await asyncio.wait({acked})
+            await ui.reply(interaction, text)
+
+        if daily.request_join(scene.channel, scene.author, answer):
+            await asyncio.wait({acked})
+            log.info("Hub: %s asks to join the gathering hunt.", interaction.user.id)
+            return False
+        await asyncio.wait({acked})
+    elif not await ui.ack(interaction):
         return False  # Discord gave the click up: the player saw "interaction failed"
     log.info("Hub: hunt clicked by %s.", interaction.user.id)
     return await _guarded(interaction, lambda: daily.start_hunt(ui.scene_of(interaction),
