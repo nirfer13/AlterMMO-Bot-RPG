@@ -10,7 +10,7 @@ import pytest
 
 from altermmo.core import clock, io
 from altermmo.core.state import BossPhase, Busy, EventType, GameState
-from altermmo.core.storage import IdListFile, JsonFile, migrate_legacy_file
+from altermmo.core.storage import IdListFile, JsonFile, atomic_write_text, migrate_legacy_file
 from altermmo.core.supervisor import Supervisor
 
 
@@ -33,6 +33,21 @@ def test_busy_flag_cannot_be_taken_twice():
                 pass
         assert state.busy_owner == "hunt"
     assert not state.busy
+
+
+def test_activity_running_names_hunts_tower_runs_and_events_only():
+    state = GameState()
+    assert not state.activity_running
+    for holder, playing in (("hunt", True), ("tower", True), ("event:INVASION", True), ("event:DUEL", True),
+                            ("skill", False), ("adv-reroll", False), ("boss-spawn", False),
+                            ("boss-summon", False), ("event-spawn:CHEST", False)):
+        with state.hold_busy(holder):
+            assert state.busy and state.activity_running is playing, holder
+    with state.running_event(EventType.PARTY):
+        assert state.activity_running
+    with state.running_event(EventType.RITUAL, exclusive=False):       # an open sign-up: hunts go on
+        assert not state.activity_running
+    assert not state.activity_running
 
 
 def test_running_event_always_clears_flags():
@@ -105,6 +120,32 @@ def test_id_list_file_roundtrip(tmp_path):
     cooldowns.add(5)
     cooldowns.clear()
     assert cooldowns.all() == []
+
+
+def test_save_waits_out_a_reader(tmp_path):
+    """On Windows a file that somebody is reading cannot be replaced: the save tries again, nothing is lost."""
+    import threading
+
+    path = tmp_path / "expSummary.json"
+    atomic_write_text(path, "old")
+    opened, release = threading.Event(), threading.Event()
+
+    def reader() -> None:
+        with open(path, "rb"):
+            opened.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=reader)
+    thread.start()
+    try:
+        assert opened.wait(5)
+        threading.Timer(0.05, release.set).start()                      # the reader is done in a moment
+        atomic_write_text(path, "new")
+    finally:
+        release.set()
+        thread.join(5)
+    assert path.read_text(encoding="utf-8") == "new"
+    assert [item.name for item in tmp_path.iterdir()] == ["expSummary.json"]   # no temp file left
 
 
 def test_id_list_file_reads_legacy_format(tmp_path):

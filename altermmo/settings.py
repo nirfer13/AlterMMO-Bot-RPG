@@ -13,6 +13,8 @@ Environment variables (``.env`` file in the project root):
 ``ALTERMMO_DATA_DIR``             where cooldown/modifier files live (default ``data``,
                                   in debug mode ``data-debug``)
 ``ALTERMMO_LOG_DIR``              where log files go (default ``logs``)
+``ALTERMMO_BACKUP_DIR``           where the copies of the database go (default ``backups``,
+                                  in debug mode ``backups-debug``); see features/backup.py
 ``ALTERMMO_LEGACY_DIR``           folder of the old bot; its state files are copied into the
                                   data folder on the first production start (default: the
                                   sibling folder ``AlterMMO-Bot-RPG``; ``none`` = do not copy)
@@ -122,6 +124,9 @@ class Settings:
     #: that are still missing in ``data_dir`` (cooldown lists, shrine modifiers,
     #: exp summary) are copied from there.  None = nothing to take over.
     legacy_dir: Path | None = None
+    #: Folder for the copies of the database (features/backup.py).  None = ``backups``
+    #: next to ``data_dir``.
+    backup_dir: Path | None = None
     ids: Ids = field(default_factory=Ids)
     timings: Timings = field(default_factory=Timings)
 
@@ -164,6 +169,7 @@ def load_settings(*, env_file: Path | None = None) -> Settings:
     # "spawning off" switch must never end up in the production files.
     data_dir = Path(_env("ALTERMMO_DATA_DIR") or PROJECT_ROOT / ("data-debug" if debug else "data"))
     log_dir = Path(_env("ALTERMMO_LOG_DIR") or PROJECT_ROOT / "logs")
+    backup_dir = Path(_env("ALTERMMO_BACKUP_DIR") or PROJECT_ROOT / ("backups-debug" if debug else "backups"))
     policies: dict = {}
     # The old bot's files are production state: never mix them into a debug run.
     legacy_text = _env("ALTERMMO_LEGACY_DIR")
@@ -186,6 +192,7 @@ def load_settings(*, env_file: Path | None = None) -> Settings:
         debug=debug,
         data_dir=data_dir if data_dir.is_absolute() else PROJECT_ROOT / data_dir,
         log_dir=log_dir if log_dir.is_absolute() else PROJECT_ROOT / log_dir,
+        backup_dir=backup_dir if backup_dir.is_absolute() else PROJECT_ROOT / backup_dir,
         ids=_DEBUG_IDS if debug else Ids(),
         timings=_DEBUG_TIMINGS if debug else Timings(),
         **policies,

@@ -7,6 +7,9 @@
 data/
 data-debug/
 logs/
+# copies of the database (player data)
+backups/
+backups-debug/
 
 # python
 __pycache__/

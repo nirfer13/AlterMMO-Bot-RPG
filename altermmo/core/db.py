@@ -156,23 +156,45 @@ class Database:
             await con.executemany(query, args_list, timeout=timeout or self._command_timeout)
 
     @contextlib.asynccontextmanager
-    async def transaction(self) -> AsyncIterator[asyncpg.Connection]:
+    async def transaction(self, *, readonly: bool = False,
+                          isolation: str | None = None) -> AsyncIterator[asyncpg.Connection]:
         """``async with db.transaction() as con:`` - several statements, all or nothing.
 
         Use ``con.fetch / con.fetchrow / con.fetchval / con.execute`` inside.
         Nothing is retried automatically; a connection failure raises
         :class:`DatabaseUnavailable` and the transaction is rolled back.
+
+        ``readonly=True``: PostgreSQL refuses every change inside the
+        transaction (used by the backup).  ``isolation="repeatable_read"``:
+        all statements see the database as of one moment.
         """
         con = await self._acquire_with_retry()
         broken = False
+        cancelled = False
         try:
-            async with con.transaction():
-                yield con
+            async with con.transaction(readonly=readonly, isolation=isolation):
+                try:
+                    yield con
+                except asyncio.CancelledError:
+                    cancelled = True
+                    if readonly:
+                        # Nothing to roll back - and the connection may be in the middle of a
+                        # COPY, where the ROLLBACK would wait for the whole command timeout
+                        # (a shutdown would hang that long).  Dropping the connection ends
+                        # the transaction on the server at once.
+                        con.terminate()
+                    raise
             self._last_ok = time.monotonic()
-        except _CONNECTION_ERRORS as exc:
-            broken = True
-            raise DatabaseUnavailable(f"Database connection failed: {exc!r}") from exc
-        except Exception:
+        except Exception as exc:
+            if cancelled:
+                # The block was cancelled and the ROLLBACK failed on top of it (asyncpg cannot
+                # roll back in the middle of a COPY).  The cancellation is what happened: a
+                # swallowed one would leave the cancelled task running.  The connection goes.
+                broken = True
+                raise asyncio.CancelledError() from None
+            if isinstance(exc, _CONNECTION_ERRORS):
+                broken = True
+                raise DatabaseUnavailable(f"Database connection failed: {exc!r}") from exc
             broken = con.is_closed()
             raise
         finally:

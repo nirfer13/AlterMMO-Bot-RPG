@@ -17,10 +17,33 @@ import logging
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
 log = logging.getLogger(__name__)
+
+
+#: How often a save tries to put the new file in place.
+_REPLACE_ATTEMPTS = 6
+
+
+def _replace(source: str, target: Path) -> None:
+    """``os.replace`` that waits out a reader.
+
+    On Windows a file somebody has open at this very moment (the backup run
+    from ``backup_now.bat``, an antivirus scan) cannot be replaced: the call
+    fails with PermissionError and the save would be lost.  Such a reader is
+    done within milliseconds, so the replace is simply tried again.
+    """
+    for attempt in range(1, _REPLACE_ATTEMPTS + 1):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS:
+                raise
+            time.sleep(0.02 * attempt)
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -32,7 +55,7 @@ def atomic_write_text(path: Path, text: str) -> None:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp_name, path)
+        _replace(tmp_name, path)
     except BaseException:
         try:
             os.unlink(tmp_name)

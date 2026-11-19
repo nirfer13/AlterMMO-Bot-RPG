@@ -38,6 +38,7 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.xpsteal",
     "altermmo.cogs.twitch",
     "altermmo.cogs.schedule",
+    "altermmo.cogs.backup",
     "altermmo.cogs.admin",
     "altermmo.cogs.general",
     "altermmo.cogs.moderation",

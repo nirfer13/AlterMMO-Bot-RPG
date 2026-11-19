@@ -215,7 +215,7 @@ def test_owner_is_told_when_spawning_is_switched_off(game):
 def test_debug_runs_use_their_own_data_folder(monkeypatch, tmp_path):
     from altermmo import settings
 
-    for name in ("ALTERMMO_DATA_DIR", "ALTERMMO_LEGACY_DIR"):
+    for name in ("ALTERMMO_DATA_DIR", "ALTERMMO_LEGACY_DIR", "ALTERMMO_BACKUP_DIR"):
         monkeypatch.delenv(name, raising=False)
     empty_env = tmp_path / "empty.env"
     empty_env.write_text("", encoding="utf-8")
@@ -223,9 +223,14 @@ def test_debug_runs_use_their_own_data_folder(monkeypatch, tmp_path):
     monkeypatch.setenv("ALTERMMO_DEBUG", "1")
     debug = settings.load_settings(env_file=empty_env)
     assert debug.data_dir.name == "data-debug" and debug.legacy_dir is None
+    assert debug.backup_dir.name == "backups-debug"          # copies of the test database stay apart
 
     monkeypatch.setenv("ALTERMMO_DEBUG", "0")
-    assert settings.load_settings(env_file=empty_env).data_dir.name == "data"
+    production = settings.load_settings(env_file=empty_env)
+    assert production.data_dir.name == "data" and production.backup_dir.name == "backups"
+    assert production.backup_dir.parent == production.data_dir.parent == settings.PROJECT_ROOT
+    monkeypatch.setenv("ALTERMMO_BACKUP_DIR", str(tmp_path / "kopie"))
+    assert settings.load_settings(env_file=empty_env).backup_dir == tmp_path / "kopie"
 
 
 # -- switch-over: state files of the old bot -----------------------------------------
