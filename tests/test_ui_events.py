@@ -10,7 +10,7 @@ import discord
 import pytest
 
 from altermmo.cogs import events as events_cog
-from altermmo.core import timing, ui
+from altermmo.core import guards, timing, ui
 from altermmo.core.state import EventType
 from altermmo.features import events, patrons
 
@@ -156,13 +156,69 @@ async def test_chest_command_still_works_and_takes_the_button_away(game, cog, lo
     assert game.channel.messages[-1].content == events_cog.MSG_NO_CHEST and len(loot) == 1
 
 
-async def test_chest_button_works_while_a_hunt_runs_like_the_command(game, cog, loot):
+async def test_chest_waits_while_a_hunt_runs(game, cog, loot, monkeypatch):
+    """Owner's rule: neither the button nor the command opens the chest in the middle of a hunt."""
+    monkeypatch.setattr(guards, "_last_notice", {})
     ala = game.add_member("Ala")
     await cog.run_one_event(forced=EventType.CHEST)
     chest = game.channel.messages[-1]
     with game.bot.state.hold_busy("hunt"):
-        await game.click(chest, ala, events_cog.CHEST_BUTTON_ID)
+        refused = await game.click(chest, ala, events_cog.CHEST_BUTTON_ID)
+        assert refused.whispers == [ui.MSG_BUSY]
+        assert not game.channel.contains(guards.BUSY_NOTICE)              # the click is answered privately
+        await cog.open_chest.callback(cog, ctx_of(game, ala, "$skrzynia"))
+        assert game.channel.messages[-1].content == guards.BUSY_NOTICE
+    assert loot == [] and game.bot.state.event_alive                      # the chest is still there...
+    assert chest.button_labels == [events_cog.CHEST_BUTTON]
+    await game.click(chest, ala, events_cog.CHEST_BUTTON_ID)              # ...and opens after the hunt
     assert [call[1] for call in loot] == [ala]
+
+
+async def test_gem_or_pet_menu_does_not_keep_the_chest_closed(game, cog, loot):
+    ala = game.add_member("Ala")
+    await cog.run_one_event(forced=EventType.CHEST)
+    chest = game.channel.messages[-1]
+    with game.bot.state.hold_busy("skill"):                               # e.g. the five-minute rest gem
+        assert (await game.click(chest, ala, events_cog.CHEST_BUTTON_ID)).whispers == []
+    assert [call[1] for call in loot] == [ala]
+
+
+async def test_no_chest_is_the_answer_also_during_a_hunt(game, cog, loot, monkeypatch):
+    """A chest that is already gone: "there is no chest", not "try again in a moment"."""
+    monkeypatch.setattr(guards, "_last_notice", {})
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await cog.run_one_event(forced=EventType.CHEST)
+    chest = game.channel.messages[-1]
+    await game.click(chest, ala, events_cog.CHEST_BUTTON_ID)
+    with game.bot.state.hold_busy("hunt"):
+        late = FakeInteraction(game.bot, ola, chest, channel=game.channel)
+        await cog.passive_clicked(late, EventType.CHEST)
+        assert late.whispers == [events_cog.MSG_NO_CHEST]
+        await cog.open_chest.callback(cog, ctx_of(game, ola, "$skrzynia"))
+        assert game.channel.messages[-1].content == events_cog.MSG_NO_CHEST
+        await cog.pray.callback(cog, ctx_of(game, ola, "$modlitwa"))
+        assert game.channel.messages[-1].content == events_cog.MSG_NO_SHRINE
+    assert not game.channel.contains(guards.BUSY_NOTICE) and len(loot) == 1
+
+
+async def test_shrine_waits_while_a_tower_run_is_on(game, cog, monkeypatch):
+    monkeypatch.setattr(guards, "_last_notice", {})
+    monkeypatch.setattr(random, "choice", lambda pool: "points_boost")
+    patron = game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
+    await cog.run_one_event(forced=EventType.SHRINE)
+    shrine = game.channel.messages[-1]
+    with game.bot.state.hold_busy("tower"):
+        assert (await game.click(shrine, patron, events_cog.SHRINE_BUTTON_ID)).whispers == [ui.MSG_BUSY]
+        ctx = ctx_of(game, patron, "$modlitwa")
+        await cog.pray.callback(cog, ctx)
+        assert game.channel.messages[-1].content == guards.BUSY_NOTICE and ctx.message.reactions == []
+        ala = game.add_member("Ala")                                      # may never pray: told so right away
+        assert (await game.click(shrine, ala, events_cog.SHRINE_BUTTON_ID)).whispers == [
+            events_cog.MSG_NOT_A_BELIEVER]
+    assert game.bot.state.event_alive and shrine.button_labels == [events_cog.SHRINE_BUTTON]
+    assert (await events.modifiers.load_modifiers(game.bot))["points_boost"] == 0
+    assert (await game.click(shrine, patron, events_cog.SHRINE_BUTTON_ID)).response.deferred
+    assert not game.bot.state.event_alive
 
 
 async def test_chest_that_fails_to_open_stays(game, cog, monkeypatch):

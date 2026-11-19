@@ -297,15 +297,24 @@ class EventsCog(commands.Cog, name="Events"):
     # -- player commands; chest and shrine: the command and the button share one path
 
     async def _claim(self, event_type: EventType, scene: Scene, refuse: Callable[[str], Awaitable[Any]],
-                     started: Callable[[], Awaitable[Any]]) -> bool:
+                     started: Callable[[], Awaitable[Any]], busy: Callable[[], Awaitable[Any]]) -> bool:
         """``scene.author`` opens the chest / prays at the shrine; True when it happened.
 
         ``refuse(text)`` answers a refusal, ``started()`` runs once the event is
         claimed (the command reacts to the message, a click is acknowledged).
+
+        Owner's rule: not while a hunt / tower run plays on the channel -
+        ``busy()`` says so and the chest / shrine stays for later.  (Only when
+        there is something to claim: otherwise "there is no chest" is the answer.)
         """
         from ..features import events, modifiers, patrons
 
         state = self.bot.state
+        may_claim = event_type is not EventType.SHRINE or patrons.check_if_patron(scene.author)
+        if state.event_alive and state.event_type is event_type and state.activity_running and may_claim:
+            # (Somebody who may never pray gets that answer below, not "try again in a moment".)
+            await busy()
+            return False
         if not state.try_claim_event(event_type):
             await refuse(MSG_NO_SHRINE if event_type is EventType.SHRINE else MSG_NO_CHEST)
             return False
@@ -329,7 +338,7 @@ class EventsCog(commands.Cog, name="Events"):
 
     async def passive_clicked(self, interaction: Any, event_type: EventType) -> None:
         """A click on "Otwórz skrzynię" / "Pomódl się"."""
-        if not await ui.gate(interaction, unless_busy=False):  # the commands do not wait for "busy" either
+        if not await ui.gate(interaction, unless_busy=False):  # "busy" is answered by _claim, as for the commands
             return
         message = interaction.message
         if message is None or self._panel is None or message.id != self._panel.id:
@@ -343,7 +352,8 @@ class EventsCog(commands.Cog, name="Events"):
             await ui.reply(interaction, text)
             await self.retire_panel()  # e.g. the boss closed the event: the button goes (no-op otherwise)
 
-        await self._claim(event_type, ui.scene_of(interaction), refuse, lambda: ui.ack(interaction))
+        await self._claim(event_type, ui.scene_of(interaction), refuse, lambda: ui.ack(interaction),
+                          lambda: ui.reply(interaction, ui.MSG_BUSY))
 
     async def retire_panel(self, line: str | None = None) -> None:
         """Take the button off the chest / shrine panel once that event is over.  Never raises.
@@ -366,13 +376,13 @@ class EventsCog(commands.Cog, name="Events"):
     @guards.boss_channel_only()
     async def pray(self, ctx: commands.Context) -> None:
         await self._claim(EventType.SHRINE, Scene.from_ctx(ctx), lambda text: io.send(ctx.channel, text),
-                          lambda: io.safe_react(ctx.message, PRAYGE))
+                          lambda: io.safe_react(ctx.message, PRAYGE), lambda: guards.notify_busy(ctx))
 
     @commands.command(name="skrzynia", brief="Everyone can open a chest.")
     @guards.boss_channel_only()
     async def open_chest(self, ctx: commands.Context) -> None:
         await self._claim(EventType.CHEST, Scene.from_ctx(ctx), lambda text: io.send(ctx.channel, text),
-                          lambda: asyncio.sleep(0))
+                          lambda: asyncio.sleep(0), lambda: guards.notify_busy(ctx))
 
     @commands.command(name="zabojca", aliases=["asasyn", "zabójca"], brief="Assinate the ranking player.")
     @commands.cooldown(1, 60 * 60 * 23, commands.BucketType.user)

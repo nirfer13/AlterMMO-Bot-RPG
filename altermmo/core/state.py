@@ -170,6 +170,17 @@ class GameState:
     def busy_owner(self) -> str | None:
         return self._busy_owner
 
+    @property
+    def activity_running(self) -> bool:
+        """True while a hunt, a tower run or an event plays on the channel.
+
+        Narrower than :attr:`busy`: a skill gem or a pet menu also hold the busy
+        flag (for minutes), but they are not a fight.  Owner's rule: the boss,
+        the chest and the shrine wait while this is true.
+        """
+        owner = self._busy_owner
+        return owner is not None and (owner in ("hunt", "tower") or owner.startswith("event:"))
+
     @contextlib.contextmanager
     def hold_busy(self, owner: str) -> Iterator[None]:
         """Mark the channel as busy for the duration of the ``with`` block.

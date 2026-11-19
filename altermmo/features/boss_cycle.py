@@ -37,6 +37,13 @@ button and takes it off as soon as the boss is engaged or leaves; when a fight
 is interrupted and the boss stays, the notice about it carries the button
 again.  While a lobby runs, a click on an old button is handed to the lobby
 (:attr:`BossCycle.lobby_door`), like a typed ``$zaatakuj`` is.
+
+Owner's rule: the boss cannot be attacked while a hunt, a tower run or an event
+plays on the channel (``state.activity_running``) - neither with the command
+nor with the button (:meth:`BossCycle.attack`).  Joining a lobby that already
+runs is not an attack and is not affected.  (In production hunts and tower
+runs do not start once the boss is on its way, so this is a safeguard; a skill
+gem or a pet menu that holds the busy flag does not keep the boss away.)
 """
 
 from __future__ import annotations
@@ -49,7 +56,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import discord
 
-from ..core import clock, io, ui
+from ..core import clock, guards, io, ui
 from ..core.scene import Scene
 from ..core.state import BossInfo, BossPhase, EventType
 from .fight_types import FightInterrupted, FightResult
@@ -69,8 +76,12 @@ MSG_FIGHT_INTERRUPTED_STAYS = ("Wystąpił problem techniczny i walka została p
                                "<:Sadge:936907659142111273> Boss wciąż tu jest - kliknij **Zaatakuj** "
                                "albo wpisz **$zaatakuj**, żeby spróbować ponownie!")
 MSG_BOSS_TAKEN = "Ktoś już walczy z tym bossem - poczekaj na kolejnego! <:Bedge:970576892874854400>"
-#: A click in the moment between the claim of the boss and the opening of its lobby.
-MSG_LOBBY_OPENING = "Walka właśnie się zaczyna - za chwilę pojawi się lobby, dołącz tam! ⚔️"
+#: A click in the split second between somebody's attack and the message where the
+#: others sign up (the party panel of a legendary boss / the two minutes for a rival).
+MSG_PARTY_GATHERS = ("Ktoś zaatakował bossa ułamek sekundy przed Tobą. Za moment pojawi się tu panel "
+                     "drużyny - kliknij na nim **Dołącz**, żeby walczyć razem! ⚔️")
+MSG_RIVAL_WELCOME = ("Ktoś zaatakował bossa ułamek sekundy przed Tobą. Za moment pojawi się tu wiadomość "
+                     "z przyciskiem **Zaatakuj** - kliknij go, jeśli też chcesz zawalczyć o tego bossa! ⚔️")
 
 #: The permanent button under the boss picture.
 ATTACK_BUTTON_ID = ui.PREFIX + "boss:attack"
@@ -94,6 +105,11 @@ _KEY_QUIET_UNTIL = "boss_quiet_until"
 _KEY_SUMMONED = "summoned_boss_rarity"
 #: Events that only wait for a command; everything else is an activity in progress.
 _PASSIVE_EVENTS = (EventType.SHRINE, EventType.CHEST)
+
+
+def somebody_was_first(rarity: int) -> str:
+    """Private answer to a "Zaatakuj" click that came a moment after somebody else's attack."""
+    return MSG_PARTY_GATHERS if int(rarity) == 3 else MSG_RIVAL_WELCOME
 
 
 def spawn_notice(boss_channel_id: int) -> str:
@@ -146,8 +162,8 @@ async def handle_attack_click(interaction: Any) -> None:
     """
     bot = interaction.client
     # Same guards as the command: the boss channel only (and no dead hunters -
-    # they cannot type the command either).  ``$zaatakuj`` is not blocked by
-    # the busy flag, so the button is not either.
+    # they cannot type the command either).  The busy flag is checked by
+    # ``attack`` itself: it stops an attack, not a click that joins a running lobby.
     if not await ui.gate(interaction, unless_busy=False):
         return
     cycle: BossCycle = bot.boss_cycle
@@ -185,6 +201,8 @@ class BossCycle:
         #: The encounter whose lobby is about to open: set by :meth:`attack` at the claim
         #: of the boss, None again as soon as its lobby opens the door (or it ends).
         self._lobby_opening: int | None = None
+        #: Who claimed the boss of the running encounter (a second click of theirs says nothing).
+        self._claimer_id: int | None = None
         #: Counts the encounters (claims of the boss by :meth:`attack`) and the bosses that
         #: are gone, so that a late notice about an interrupted fight can tell it is out of date.
         self._encounters = 0
@@ -662,16 +680,30 @@ class BossCycle:
         Acknowledging the click and taking the buttons off are Discord round
         trips: they run in the background, so the lobby - and with it the door
         for the other players' clicks (:attr:`lobby_door`) - opens right after
-        the claim.  A click that still comes in between is told that the lobby
-        is about to open, not that the boss is gone.
+        the claim.  A click that still comes in between is told where to sign
+        up in a moment (:func:`somebody_was_first`), not that the boss is gone.
+
+        Owner's rule: no attack while a hunt / tower run / event plays on the
+        channel - the boss stays and waits.
         """
         bot = self.bot
         state = bot.state
         if state.boss_phase is BossPhase.ENGAGED:
             # Other players' $zaatakuj during the lobby is handled by the lobby itself.
             if interaction is not None:
-                opening = self._lobby_opening is not None
-                await ui.reply(interaction, MSG_LOBBY_OPENING if opening else MSG_BOSS_TAKEN)
+                if self._lobby_opening is None:
+                    await ui.reply(interaction, MSG_BOSS_TAKEN)
+                elif getattr(interaction.user, "id", None) == self._claimer_id:
+                    await ui.ack(interaction)  # the attacker clicked twice: the attack is already on
+                else:
+                    await ui.reply(interaction, somebody_was_first(state.boss.rarity))
+            return
+        if state.boss_phase is BossPhase.VISIBLE and state.activity_running:
+            # (Only with a boss to attack: without one the answer below is the true one.)
+            if interaction is not None:
+                await ui.reply(interaction, ui.MSG_BUSY)
+            else:
+                await guards.notify_busy(scene)  # type: ignore[arg-type] - needs only ``.channel``
             return
         if not state.try_engage_boss():
             refusal = MSG_NOT_ATTACKABLE.format(user_id=scene.author.id)
@@ -683,6 +715,7 @@ class BossCycle:
         self._encounters += 1
         encounter = self._encounters
         self._lobby_opening = encounter
+        self._claimer_id = getattr(scene.author, "id", None)
         self._engaged_buttons, self._attack_buttons = self._attack_buttons, []
         claimed = asyncio.ensure_future(self._claimed(interaction, self._engaged_buttons))
         try:
