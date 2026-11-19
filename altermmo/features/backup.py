@@ -10,7 +10,8 @@ or ``ALTERMMO_BACKUP_DIR``)::
         db/<table>.csv    every row of the table: CSV with a header, as PostgreSQL's COPY writes it
         data/<file>       the state files (cooldown lists, exp summary, shrine modifiers ...)
 
-The owner's condition: **absolutely nothing may be deleted while a copy is made.**
+The owner's conditions: **absolutely nothing may be deleted while a copy is made**
+(nothing in the database, that is) and **the last 14 copies are kept**.
 
 * The database is only read, inside ONE transaction opened as ``READ ONLY``:
   PostgreSQL itself refuses every INSERT / UPDATE / DELETE / TRUNCATE / DROP
@@ -26,9 +27,17 @@ The owner's condition: **absolutely nothing may be deleted while a copy is made.
   also saves them, so a read can never get in the way of a save.
 * A copy is written under a temporary name (``*.part``), checked - ZIP
   checksums, the rows of every table counted again -, flushed to the disk and
-  only then given its final name.  An existing copy is never overwritten, and the bot never
-  removes old copies.  The only file ever deleted here is the unfinished
-  ``*.part`` of a copy that failed.
+  only then given its final name.  An existing copy is never overwritten.
+* Only the newest ``keep`` copies stay (owner: 14; ``ALTERMMO_BACKUP_KEEP``,
+  0 = all): AFTER a new copy passed its check, the oldest ones beyond that
+  number are removed (:func:`prune`).  Only files named exactly as this module
+  names them count - a copy the owner put a word in front of (or any other
+  file in the folder) is never touched, and neither is the copy just made.
+  The only other file ever deleted here is the unfinished ``*.part`` of a
+  failed copy.
+* Because old copies go away, a copy in which a table is gone, empty or holds
+  far fewer rows than in the copy before is reported to the owner with a ping
+  (:attr:`Backup.shrunk`): that is the moment to put an older copy aside.
 * Restoring is deliberately not a bot command: putting data back means
   overwriting, and that should be a human's decision.
 
@@ -49,6 +58,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import time
 import zipfile
@@ -69,6 +79,21 @@ SUFFIX = ".zip"
 PART_SUFFIX = ".part"
 MANIFEST = "manifest.json"
 SCHEMA_FILE = "schema.sql"
+#: The names this module gives its copies: ``altermmo-2026-11-19_03-15-00.zip`` (``..._2.zip``,
+#: ``..._3.zip`` for further copies in the same second) - exactly what :func:`_reserve` produces.
+#: Nothing else in the folder is a "copy".  (Used with ``fullmatch``.)
+_COPY_NAME = re.compile(r"altermmo-(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})(?:_([2-9]|[1-9]\d+))?\.zip")
+
+#: Tables the bot empties on purpose (the weekly ranking reset, the Twitch treasure queue):
+#: fewer rows there mean nothing.
+SHRINK_BY_DESIGN: tuple[str, ...] = ("ranking", "treasure_table")
+#: Tables that may become empty in normal play (the last spare gem was taken out of the pouch).
+MAY_BECOME_EMPTY: tuple[str, ...] = ("skillpouch",)
+#: A table is reported as shrunk when it had at least this many rows in the previous copy ...
+SHRINK_MIN_ROWS = 20
+#: ... and has fewer than this share of them now.  (A table that is gone, or empty after it
+#: held rows, is reported whatever its size.)
+SHRINK_SHARE = 0.5
 
 #: The tables the bot works with (its own and the two it shares with the Twitch bot).
 TABLES: tuple[str, ...] = tuple(schema.EXPECTED_COLUMNS)
@@ -113,6 +138,10 @@ class Backup:
     #: Names of the state files in the copy.
     files: tuple[str, ...]
     size: int
+    #: Names of the oldest copies removed after this one was finished (see :func:`prune`).
+    removed: tuple[str, ...] = ()
+    #: Tables with far fewer rows than in the previous copy: ``(table, rows before, rows now)``.
+    shrunk: tuple[tuple[str, int, int], ...] = ()
 
     @property
     def rows(self) -> int:
@@ -127,13 +156,87 @@ def folder(settings: Any) -> Path:
     return Path(configured) if configured else Path(settings.data_dir).parent / "backups"
 
 
+def _copy_order(path: Path) -> tuple[str, int] | None:
+    """Sort key of a copy (its time stamp, then its number); None when ``path`` is not named like one."""
+    match = _COPY_NAME.fullmatch(path.name)
+    return None if match is None else (match.group(1), int(match.group(2) or 1))
+
+
 def copies(backup_dir: Path) -> list[Path]:
-    """The finished copies in ``backup_dir``, oldest first."""
+    """The finished copies in ``backup_dir``, oldest first.
+
+    Only regular files named exactly as this module names its copies: a
+    renamed copy, an unfinished ``*.part`` or anything else is not listed.
+    """
     try:
-        found = [path for path in Path(backup_dir).glob(PREFIX + "*" + SUFFIX) if path.is_file()]
+        found = [path for path in Path(backup_dir).iterdir()
+                 if _copy_order(path) is not None and path.is_file() and not path.is_symlink()]
     except OSError:
         return []
-    return sorted(found, key=lambda path: path.name)
+    return sorted(found, key=_copy_order)
+
+
+def prune(backup_dir: Path, keep: int | None, *, protect: Path | None = None) -> list[str]:
+    """Remove the oldest copies so that the newest ``keep`` stay; returns the removed names.
+
+    ``keep`` None or 0: nothing is removed.  ``protect`` (the copy just made)
+    is never removed, whatever its name sorts like.  Only files listed by
+    :func:`copies` can go.  Never raises: a copy that cannot be removed stays.
+    """
+    if not keep or keep < 1:
+        return []
+    stored = copies(backup_dir)
+    removed: list[str] = []
+    for path in stored[:max(0, len(stored) - int(keep))]:
+        if protect is not None and path.name == protect.name:
+            continue
+        try:
+            path.unlink()
+        except OSError as exc:
+            log.warning("Backup: the old copy %s could not be removed (%s); it stays.", path.name, exc)
+            continue
+        removed.append(path.name)
+    if removed:
+        log.info("Backup: removed the oldest copies (the newest %d stay): %s", keep, ", ".join(removed))
+    return removed
+
+
+def _rows_in(path: Path, debug: bool) -> dict[str, int]:
+    """Rows per table according to the manifest of the copy ``path``.
+
+    {} when it cannot be read or comes from the other database (a copy of the
+    test database says nothing about the production one): nothing to compare with.
+    """
+    try:
+        with zipfile.ZipFile(path) as archive:
+            manifest = json.loads(archive.read(MANIFEST))
+        if bool(manifest.get("debug", False)) != bool(debug):
+            return {}
+        return {str(table["name"]): int(table["rows"]) for table in manifest["tables"]}
+    except Exception:  # noqa: BLE001 - an unreadable older copy only means: nothing to compare with
+        return {}
+
+
+def _shrunk(previous: dict[str, int], tables: Sequence[TableCopy]) -> list[tuple[str, int, int]]:
+    """Tables that lost their rows since the previous copy: ``(table, rows before, rows now)``.
+
+    Reported: a table that held rows and is gone from the database or empty
+    now, and a bigger table that lost more than half of its rows.  Not
+    reported: what the bot empties by design (:data:`SHRINK_BY_DESIGN`).
+    """
+    now = {table.name: table.rows for table in tables}
+    found = []
+    for name, before in previous.items():
+        if name in SHRINK_BY_DESIGN or before <= 0:
+            continue
+        rows = now.get(name)
+        if rows is None:
+            found.append((name, before, 0))  # the table is not in the database any more
+        elif rows == 0 and name not in MAY_BECOME_EMPTY:
+            found.append((name, before, 0))
+        elif before >= SHRINK_MIN_ROWS and rows < before * SHRINK_SHARE:
+            found.append((name, before, rows))
+    return found
 
 
 def newest_age(backup_dir: Path) -> float | None:
@@ -164,8 +267,15 @@ def describe(backup: Backup) -> str:
             f"wierszy: {backup.rows}, plików stanu: {len(backup.files)}, rozmiar: {_size(backup.size)}. "
             f"Baza była tylko czytana. W folderze `{backup_dir.name}` jest teraz kopii: {len(stored)} "
             f"(razem {_size(total)}).")
+    if backup.removed:
+        text += f" Usunięto najstarsze kopie: {len(backup.removed)} (zostają najnowsze)."
     if backup.missing:
         text += " Tych tabel nie ma w bazie: " + ", ".join(backup.missing) + "."
+    if backup.shrunk:
+        text += (" ⚠️ UWAGA: w porównaniu z poprzednią kopią zniknęły dane z tabel: "
+                 + ", ".join(f"{name} (było {before}, jest {now})" for name, before, now in backup.shrunk)
+                 + ". Jeśli to nie było zamierzone, przenieś starszą kopię do innego folderu albo dopisz słowo "
+                 "na początku nazwy pliku (np. `zachowaj-altermmo-...`) - najstarsze kopie są z czasem usuwane.")
     return text
 
 
@@ -191,10 +301,13 @@ class _Worker:
 
 
 async def create_backup(db: Any, data_dir: Path, backup_dir: Path, *,
-                        tables: Sequence[str] = TABLES, debug: bool = False) -> Backup:
+                        tables: Sequence[str] = TABLES, debug: bool = False,
+                        keep: int | None = None) -> Backup:
     """Make one copy of ``tables`` and of the files in ``data_dir``; returns it once it is verified.
 
     ``debug``: the copy comes from a debug run (the test database); noted in the manifest.
+    ``keep``: once the new copy is finished, only the newest ``keep`` copies stay
+    (:func:`prune`); None / 0 = nothing is removed.
 
     Raises :class:`BackupInProgress` when a copy into ``backup_dir`` is already
     being made, and whatever went wrong otherwise (database unreachable, disk
@@ -207,7 +320,7 @@ async def create_backup(db: Any, data_dir: Path, backup_dir: Path, *,
     _in_progress.add(key)
     worker = _Worker()
     try:
-        return await _create(db, Path(data_dir), backup_dir, tuple(tables), worker, bool(debug))
+        return await _create(db, Path(data_dir), backup_dir, tuple(tables), worker, bool(debug), keep)
     finally:
         _in_progress.discard(key)
         worker.close()
@@ -226,9 +339,11 @@ def _discard_opened(opened: list[zipfile.ZipFile], part: Path) -> None:
 
 
 async def _create(db: Any, data_dir: Path, backup_dir: Path, tables: tuple[str, ...],
-                  worker: _Worker, debug: bool) -> Backup:
+                  worker: _Worker, debug: bool, keep: int | None) -> Backup:
     taken_at = clock.now()
     final, part = await worker.run(_reserve, backup_dir, taken_at)
+    earlier = await worker.run(copies, backup_dir)
+    previous = await worker.run(_rows_in, earlier[-1], debug) if earlier else {}
     # Read right here, on the event-loop thread: the bot saves these files on this thread
     # (core/storage.py), so a read can never overlap a save.  On Windows a file that is
     # open for reading cannot be replaced - a read on the worker thread could make a save fail.
@@ -264,8 +379,13 @@ async def _create(db: Any, data_dir: Path, backup_dir: Path, tables: tuple[str, 
                 await asyncio.shield(worker.run(_discard_opened, opened, part))
     log.info("Backup written: %s (%d tables, %d rows, %d state files, %d bytes).",
              final, len(copied), sum(table.rows for table in copied), len(files), size)
+    shrunk = _shrunk(previous, copied)
+    if shrunk:
+        log.warning("Backup: far fewer rows than in the previous copy: %s", shrunk)
+    # Only now, with the new copy finished and checked, may the oldest ones go.
+    removed = await asyncio.shield(worker.run(prune, backup_dir, keep, protect=final))
     return Backup(path=final, taken_at=taken_at, tables=tuple(copied), missing=tuple(missing),
-                  files=tuple(files), size=size)
+                  files=tuple(files), size=size, removed=tuple(removed), shrunk=tuple(shrunk))
 
 
 async def _copy_tables(db: Any, archive: zipfile.ZipFile, tables: tuple[str, ...],
@@ -449,7 +569,8 @@ def main() -> int:
         db = Database(settings.database_url, min_size=1, max_size=1)
         await db.connect()
         try:
-            return await create_backup(db, settings.data_dir, folder(settings), debug=settings.debug)
+            return await create_backup(db, settings.data_dir, folder(settings), debug=settings.debug,
+                                       keep=settings.backup_keep)
         finally:
             await db.close()
 

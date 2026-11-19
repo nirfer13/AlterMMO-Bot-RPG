@@ -14,7 +14,9 @@ Environment variables (``.env`` file in the project root):
                                   in debug mode ``data-debug``)
 ``ALTERMMO_LOG_DIR``              where log files go (default ``logs``)
 ``ALTERMMO_BACKUP_DIR``           where the copies of the database go (default ``backups``,
-                                  in debug mode ``backups-debug``); see features/backup.py
+                                  in debug mode ``backups-debug``; a folder given here gets a
+                                  ``debug`` subfolder in debug mode); see features/backup.py
+``ALTERMMO_BACKUP_KEEP``          how many newest copies are kept (default 14; 0 = all of them)
 ``ALTERMMO_LEGACY_DIR``           folder of the old bot; its state files are copied into the
                                   data folder on the first production start (default: the
                                   sibling folder ``AlterMMO-Bot-RPG``; ``none`` = do not copy)
@@ -127,6 +129,8 @@ class Settings:
     #: Folder for the copies of the database (features/backup.py).  None = ``backups``
     #: next to ``data_dir``.
     backup_dir: Path | None = None
+    #: How many newest copies stay in the backup folder (owner's decision: 14).  0 = all.
+    backup_keep: int = 14
     ids: Ids = field(default_factory=Ids)
     timings: Timings = field(default_factory=Timings)
 
@@ -169,7 +173,13 @@ def load_settings(*, env_file: Path | None = None) -> Settings:
     # "spawning off" switch must never end up in the production files.
     data_dir = Path(_env("ALTERMMO_DATA_DIR") or PROJECT_ROOT / ("data-debug" if debug else "data"))
     log_dir = Path(_env("ALTERMMO_LOG_DIR") or PROJECT_ROOT / "logs")
-    backup_dir = Path(_env("ALTERMMO_BACKUP_DIR") or PROJECT_ROOT / ("backups-debug" if debug else "backups"))
+    # Copies of the test database never share a folder with the production ones: only the
+    # newest few copies are kept, and test copies would push the real ones out.
+    if _env("ALTERMMO_BACKUP_DIR"):
+        backup_dir = Path(_env("ALTERMMO_BACKUP_DIR"))
+        backup_dir = backup_dir / "debug" if debug else backup_dir
+    else:
+        backup_dir = PROJECT_ROOT / ("backups-debug" if debug else "backups")
     policies: dict = {}
     # The old bot's files are production state: never mix them into a debug run.
     legacy_text = _env("ALTERMMO_LEGACY_DIR")
@@ -179,6 +189,8 @@ def load_settings(*, env_file: Path | None = None) -> Settings:
             legacy_dir = PROJECT_ROOT / legacy_dir
         if legacy_dir.is_dir() and legacy_dir.resolve() != PROJECT_ROOT.resolve():
             policies["legacy_dir"] = legacy_dir
+    if _env("ALTERMMO_BACKUP_KEEP").isdigit():  # (anything else: the default stays)
+        policies["backup_keep"] = int(_env("ALTERMMO_BACKUP_KEEP"))
     if _env("ALTERMMO_BUSY_POLICY"):
         policies["busy_policy"] = _env("ALTERMMO_BUSY_POLICY")
     if _env("ALTERMMO_BOSS_VISIBLE_MINUTES"):

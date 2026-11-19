@@ -8,6 +8,8 @@ The copying itself (and why it cannot delete anything) is described in
   none - so the very first start of the bot begins with a copy;
 * ``$kopia`` (administrators): now.
 
+Only the newest ``settings.backup_keep`` copies stay (owner: 14).
+
 The automatic copies wait for a quiet moment (no hunt / tower run / event, no
 boss fight) - the owner does not want anything to stutter during a fight.
 """
@@ -20,7 +22,7 @@ import time
 
 from discord.ext import commands
 
-from ..core import guards, io, scheduler
+from ..core import guards, io, scheduler, ui
 from ..core.state import BossPhase
 from ..features import backup
 
@@ -35,9 +37,14 @@ FRESH_ENOUGH = 3600.0
 #: How long an automatic copy waits for a quiet moment before it is made anyway.
 QUIET_WAIT = 3 * 3600.0
 QUIET_POLL = 15.0
+#: ``$kopia`` right after a copy would only push an older copy out of the kept ones.
+MANUAL_GAP = 600.0
 
 MSG_RUNNING = "Kopia zapasowa właśnie się robi - poczekaj, aż skończy."
 MSG_STARTED = "Robię kopię zapasową bazy (baza jest tylko czytana)..."
+MSG_JUST_MADE = ("Ostatnia kopia zapasowa jest sprzed {minutes} min - kolejną można zrobić {when}. "
+                 "(Zostaje tylko {keep} najnowszych kopii, więc kopie robione jedna po drugiej "
+                 "wypychałyby starsze.)")
 MSG_FAILED = ("Kopia zapasowa NIE powstała: `{error}`. Baza nie została zmieniona "
               "(kopia tylko ją czyta).")
 #: The answer on the channel names only the kind of the error; the details go to the owner's log.
@@ -136,8 +143,10 @@ class BackupCog(commands.Cog, name="Backup"):
     async def make_copy(self) -> backup.Backup:
         """Make a copy and tell the owner's log channel about it."""
         bot = self.bot
-        made = await backup.create_backup(bot.db, bot.store.data_dir, self.folder, debug=bot.debug)
-        await bot.log_to_owner(backup.describe(made))
+        made = await backup.create_backup(bot.db, bot.store.data_dir, self.folder, debug=bot.debug,
+                                          keep=bot.settings.backup_keep)
+        # A copy with far fewer rows than the one before: the owner should look at it today.
+        await bot.log_to_owner(backup.describe(made), ping=bool(made.shrunk))
         return made
 
     @commands.command(name="kopia", aliases=["backup"], brief="Makes a copy of the database now.")
@@ -145,9 +154,15 @@ class BackupCog(commands.Cog, name="Backup"):
     async def copy_now(self, ctx: commands.Context) -> None:
         """Make a copy of the database and of the state files right now."""
         bot = self.bot
+        age = backup.newest_age(self.folder)
+        if age is not None and age < MANUAL_GAP and bot.settings.backup_keep:
+            await io.send(ctx.channel, MSG_JUST_MADE.format(
+                minutes=int(age // 60), when=ui.when(MANUAL_GAP - age), keep=bot.settings.backup_keep))
+            return
         await io.send(ctx.channel, MSG_STARTED)
         try:
-            made = await backup.create_backup(bot.db, bot.store.data_dir, self.folder, debug=bot.debug)
+            made = await backup.create_backup(bot.db, bot.store.data_dir, self.folder, debug=bot.debug,
+                                              keep=bot.settings.backup_keep)
         except backup.BackupInProgress:
             await io.send(ctx.channel, MSG_RUNNING)
             return
@@ -158,6 +173,10 @@ class BackupCog(commands.Cog, name="Backup"):
             await bot.log_to_owner(MSG_FAILED.format(error=f"{type(exc).__name__}: {exc}"))
             return
         await io.send(ctx.channel, backup.describe(made))
+        if made.shrunk:
+            # Not only whoever typed the command: the next copy will compare with this one
+            # and stay silent, so this is the owner's only warning.
+            await bot.log_to_owner(backup.describe(made), ping=True)
 
 
 async def setup(bot) -> None:

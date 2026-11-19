@@ -228,9 +228,18 @@ def test_debug_runs_use_their_own_data_folder(monkeypatch, tmp_path):
     monkeypatch.setenv("ALTERMMO_DEBUG", "0")
     production = settings.load_settings(env_file=empty_env)
     assert production.data_dir.name == "data" and production.backup_dir.name == "backups"
+    assert production.backup_keep == 14                      # owner: the last 14 copies are kept
+    monkeypatch.setenv("ALTERMMO_BACKUP_KEEP", "0")
+    assert settings.load_settings(env_file=empty_env).backup_keep == 0
+    for nonsense in ("czternaście", "-3", "1.5"):            # a typo must not stop the bot from starting
+        monkeypatch.setenv("ALTERMMO_BACKUP_KEEP", nonsense)
+        assert settings.load_settings(env_file=empty_env).backup_keep == 14
+    monkeypatch.delenv("ALTERMMO_BACKUP_KEEP")
     assert production.backup_dir.parent == production.data_dir.parent == settings.PROJECT_ROOT
     monkeypatch.setenv("ALTERMMO_BACKUP_DIR", str(tmp_path / "kopie"))
     assert settings.load_settings(env_file=empty_env).backup_dir == tmp_path / "kopie"
+    monkeypatch.setenv("ALTERMMO_DEBUG", "1")                # ...and test copies never mix with them
+    assert settings.load_settings(env_file=empty_env).backup_dir == tmp_path / "kopie" / "debug"
 
 
 # -- switch-over: state files of the old bot -----------------------------------------

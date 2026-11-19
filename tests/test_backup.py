@@ -374,6 +374,158 @@ def test_folder_and_age(tmp_path):
     assert 0 <= backup.newest_age(tmp_path) < 60
 
 
+# -- only the newest copies are kept (owner: 14) -------------------------------------------------
+
+def stamp(day: int, number: int = 1) -> str:
+    return f"altermmo-2026-11-{day:02d}_03-15-00" + ("" if number == 1 else f"_{number}") + ".zip"
+
+
+def test_prune_removes_only_the_oldest_copies_named_by_the_bot(tmp_path):
+    for day in range(1, 21):
+        (tmp_path / stamp(day)).write_bytes(b"copy")
+    strangers = ["altermmo-przed-przelaczeniem.zip", "altermmo-2026-11-01_03-15-00-zachowaj.zip",
+                 "zachowaj-altermmo-2026-11-01_03-15-00.zip", "altermmo-2026-11-01_03-15-00_1.zip",
+                 "altermmo-2026-11-01_03-15-00_0.zip", "altermmo-2026-11-01_03-15-00_02.zip",
+                 "altermmo-2026-11-01_03-15-00 - Kopia.zip", "altermmo-2026-11-01_03-15-00.zip\n".strip() + "x",
+                 "altermmo-2026-11-02_03-15-00.zip.part", "notatki.txt", "ALTERMMO-2026-11-01_03-15-00.ZIP.bak",
+                 "xaltermmo-2026-11-01_03-15-00.zip", "altermmo-2026-11-01_03-15-00.zip.old"]
+    for name in strangers:
+        (tmp_path / name).write_bytes(b"mine")
+    (tmp_path / "altermmo-2026-11-03_03-15-00.zip.d").mkdir()
+    removed = backup.prune(tmp_path, 14)
+    assert removed == [stamp(day) for day in range(1, 7)]                     # the six oldest, oldest first
+    assert [path.name for path in backup.copies(tmp_path)] == [stamp(day) for day in range(7, 21)]
+    for name in strangers:                                                    # nothing else is ever touched
+        assert (tmp_path / name).read_bytes() == b"mine"
+    assert (tmp_path / "altermmo-2026-11-03_03-15-00.zip.d").is_dir()
+    assert backup.prune(tmp_path, 14) == []                                   # nothing more to do
+
+
+@pytest.mark.parametrize("keep", [None, 0, -3])
+def test_prune_can_be_switched_off(tmp_path, keep):
+    for day in range(1, 21):
+        (tmp_path / stamp(day)).write_bytes(b"copy")
+    assert backup.prune(tmp_path, keep) == [] and len(backup.copies(tmp_path)) == 20
+
+
+def test_prune_is_harmless_on_odd_folders(tmp_path):
+    assert backup.prune(tmp_path / "does-not-exist", 14) == []
+    (tmp_path / stamp(1)).mkdir()                                             # a folder named like a copy
+    (tmp_path / stamp(2)).write_bytes(b"copy")
+    assert backup.prune(tmp_path, 1) == [] and (tmp_path / stamp(1)).is_dir()
+    assert [path.name for path in backup.copies(tmp_path)] == [stamp(2)]
+
+
+def test_copies_of_one_second_are_ordered_by_their_number(tmp_path):
+    for number in (1, 2, 10, 3):
+        (tmp_path / stamp(5, number)).write_bytes(b"copy")
+    (tmp_path / stamp(4)).write_bytes(b"copy")
+    assert [path.name for path in backup.copies(tmp_path)] == [
+        stamp(4), stamp(5), stamp(5, 2), stamp(5, 3), stamp(5, 10)]
+    assert backup.prune(tmp_path, 2) == [stamp(4), stamp(5), stamp(5, 2)]
+
+
+def test_prune_never_removes_the_copy_just_made(tmp_path):
+    """The clock went back (or was wrong): the new copy sorts as the oldest - it still stays."""
+    for day in range(10, 15):
+        (tmp_path / stamp(day)).write_bytes(b"copy")
+    new = tmp_path / stamp(1)
+    new.write_bytes(b"new")
+    assert backup.prune(tmp_path, 3, protect=new) == [stamp(10), stamp(11)]
+    assert new.read_bytes() == b"new"
+
+
+def test_prune_leaves_a_copy_it_cannot_remove(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    for day in range(1, 5):
+        (tmp_path / stamp(day)).write_bytes(b"copy")
+    real_unlink = Path.unlink
+
+    def unlink(self, *args, **kwargs):
+        if self.name == stamp(1):
+            raise PermissionError("in use")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    assert backup.prune(tmp_path, 2) == [stamp(2)]                            # never raises
+    assert (tmp_path / stamp(1)).exists()
+
+
+async def test_new_copy_pushes_out_the_oldest_only_after_it_is_finished(db, folders, monkeypatch):
+    await fill(db)
+    folders.backups.mkdir()
+    for day in range(1, 15):
+        (folders.backups / stamp(day)).write_bytes(b"old copy")
+    made = await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    assert made.removed == (stamp(1),) and len(backup.copies(folders.backups)) == 14
+    assert backup.copies(folders.backups)[-1] == made.path and not (folders.backups / stamp(1)).exists()
+    assert "Usunięto najstarsze kopie: 1" in backup.describe(made)
+
+    def verify(part, manifest):
+        raise backup.BackupFailed("rows do not match")
+
+    monkeypatch.setattr(backup, "_verify", verify)                            # a copy that fails its check...
+    before = [path.name for path in backup.copies(folders.backups)]
+    with pytest.raises(backup.BackupFailed):
+        await backup.create_backup(db, folders.data, folders.backups, keep=1)
+    assert [path.name for path in backup.copies(folders.backups)] == before   # ...removes nothing at all
+
+
+async def test_copy_without_keep_removes_nothing(db, folders):
+    folders.backups.mkdir()
+    for day in range(1, 30):
+        (folders.backups / stamp(day)).write_bytes(b"old copy")
+    made = await backup.create_backup(db, folders.data, folders.backups)
+    assert made.removed == () and len(backup.copies(folders.backups)) == 30
+
+
+async def test_copy_that_lost_most_rows_of_a_table_is_reported(db, folders):
+    """The oldest copies go away with time - so a sudden loss of data must be pointed out at once."""
+    await db.execute("INSERT INTO TOWER (PLAYER_ID, TOWER_LEVEL, TIME) SELECT g, 1, '0:00:01' "
+                     "FROM generate_series(1, 40) g")
+    await db.execute("INSERT INTO RANKING (ID, NICK, POINTS) SELECT g::text, 'x', 1 FROM generate_series(1, 40) g")
+    await db.execute("INSERT INTO ACHIEVEMENTS (PLAYER_ID, BOSS_KILLS, HUNTS, BUTCHERS) SELECT g, 1, 1, 0 "
+                     "FROM generate_series(1, 10) g")
+    await db.execute("INSERT INTO SKILLPOUCH (PLAYER_ID, SKILL_ID) VALUES (1, 1), (2, 2)")
+    first = await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    assert first.shrunk == () and "UWAGA" not in backup.describe(first)       # nothing to compare with yet
+    await db.execute("DELETE FROM TOWER WHERE PLAYER_ID > 19")                # 40 -> 19: more than half gone
+    await db.execute("DELETE FROM RANKING")                                   # the weekly reset: by design
+    await db.execute("DELETE FROM ACHIEVEMENTS WHERE PLAYER_ID > 4")          # 10 -> 4, a small table: no alarm
+    await db.execute("DELETE FROM SKILLPOUCH")                                # the last spare gems were taken out
+    second = await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    assert second.shrunk == (("tower", 40, 19),)
+    assert "UWAGA" in backup.describe(second) and "tower (było 40, jest 19)" in backup.describe(second)
+    assert "zachowaj-altermmo-" in backup.describe(second)                    # how to put a copy aside
+    await db.execute("DELETE FROM TOWER WHERE PLAYER_ID > 10")                # 19 -> 10: below the threshold of 20
+    third = await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    assert third.shrunk == ()
+    await db.execute("DELETE FROM ACHIEVEMENTS")                              # 4 -> 0: emptied - reported
+    await db.execute("DROP TABLE TOWER")                                      # gone altogether - reported
+    fourth = await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    assert sorted(fourth.shrunk) == [("achievements", 4, 0), ("tower", 10, 0)] and "tower" in fourth.missing
+    fifth = await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    assert fifth.shrunk == ()                                                 # reported once, not every night
+
+
+async def test_copy_of_the_other_database_is_not_compared_with(db, folders):
+    """A copy of the test database (debug) says nothing about the production one."""
+    await db.execute("INSERT INTO TOWER (PLAYER_ID, TOWER_LEVEL, TIME) SELECT g, 1, '0:00:01' "
+                     "FROM generate_series(1, 40) g")
+    await backup.create_backup(db, folders.data, folders.backups, debug=True)
+    await db.execute("DELETE FROM TOWER")
+    assert (await backup.create_backup(db, folders.data, folders.backups, debug=False)).shrunk == ()
+    assert (await backup.create_backup(db, folders.data, folders.backups, debug=False)).shrunk == ()
+
+
+async def test_unreadable_previous_copy_does_not_stop_a_new_one(db, folders):
+    folders.backups.mkdir()
+    (folders.backups / stamp(1)).write_bytes(b"this is not a zip file")
+    made = await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    assert made.shrunk == () and len(backup.copies(folders.backups)) == 2
+
+
 # -- the cog: when copies are made ---------------------------------------------------------------
 
 @pytest.fixture
@@ -425,6 +577,61 @@ async def test_kopia_reports_a_failure_without_details_on_the_channel(game_db, c
     answer = game.channel.messages[-1].content
     assert answer == backup_cog.MSG_FAILED_HERE.format(kind="OSError") and "10.0.0.5" not in answer
     assert any("disk full" in line for line in game.bot.owner_log)
+
+
+async def test_bot_keeps_the_last_fourteen_copies(game_db, cog, monkeypatch):
+    game = game_db
+    assert game.bot.settings.backup_keep == 14
+    cog.folder.mkdir(parents=True)
+    for day in range(1, 17):
+        (cog.folder / stamp(day)).write_bytes(b"old copy")
+    made = await cog.make_copy()                                              # the nightly / start-up path
+    assert made.removed == (stamp(1), stamp(2), stamp(3)) and len(backup.copies(cog.folder)) == 14
+    assert "Usunięto najstarsze kopie: 3" in game.bot.owner_log[-1]
+    alter = game.add_member("Alter")
+    await cog.copy_now.callback(cog, ctx_of(game, alter))                     # $kopia right after a copy:
+    assert "Ostatnia kopia zapasowa jest sprzed 0 min" in game.channel.messages[-1].content
+    assert (cog.folder / stamp(4)).exists()                                   # ...would only push one out
+    monkeypatch.setattr(backup_cog, "MANUAL_GAP", 0.0)
+    await cog.copy_now.callback(cog, ctx_of(game, alter))
+    assert len(backup.copies(cog.folder)) == 14 and not (cog.folder / stamp(4)).exists()
+    assert "jest teraz kopii: 14" in game.channel.messages[-1].content
+
+
+async def test_owner_is_pinged_when_a_copy_lost_most_of_a_table(game_db, cog):
+    game = game_db
+    pings = []
+    real_log = game.bot.log_to_owner
+
+    async def log_to_owner(text, *, ping=False):
+        pings.append(ping)
+        await real_log(text, ping=ping)
+
+    game.bot.log_to_owner = log_to_owner
+    await game.bot.db.execute("INSERT INTO TOWER (PLAYER_ID, TOWER_LEVEL, TIME) SELECT g, 1, '0:00:01' "
+                              "FROM generate_series(1, 40) g")
+    await cog.make_copy()
+    await game.bot.db.execute("DELETE FROM TOWER WHERE PLAYER_ID > 30")
+    await cog.make_copy()
+    assert pings == [False, False]                                            # 40 -> 30: nothing unusual
+    await game.bot.db.execute("DELETE FROM TOWER WHERE PLAYER_ID > 5")
+    await cog.make_copy()
+    assert pings == [False, False, True] and "UWAGA" in game.bot.owner_log[-1]
+
+
+async def test_kopia_that_finds_a_loss_tells_the_owner_too(game_db, cog, monkeypatch):
+    """The next copy compares with this one and stays silent: this is the owner's only warning."""
+    game = game_db
+    monkeypatch.setattr(backup_cog, "MANUAL_GAP", 0.0)
+    admin = game.add_member("Admin")
+    await game.bot.db.execute("INSERT INTO TOWER (PLAYER_ID, TOWER_LEVEL, TIME) SELECT g, 1, '0:00:01' "
+                              "FROM generate_series(1, 40) g")
+    await cog.copy_now.callback(cog, ctx_of(game, admin))
+    assert game.bot.owner_log == []                                           # an ordinary $kopia: the channel only
+    await game.bot.db.execute("DELETE FROM TOWER")
+    await cog.copy_now.callback(cog, ctx_of(game, admin))
+    assert "UWAGA" in game.channel.messages[-1].content
+    assert len(game.bot.owner_log) == 1 and "tower (było 40, jest 0)" in game.bot.owner_log[0]
 
 
 async def test_copy_at_start_only_when_none_is_fresh(game_db, cog):
