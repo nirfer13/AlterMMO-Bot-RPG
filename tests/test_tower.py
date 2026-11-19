@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import itertools
+import random
 import re
 from datetime import timedelta
 from types import SimpleNamespace
@@ -19,7 +20,7 @@ from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.scene import Scene
 from altermmo.core.state import BossPhase
-from altermmo.features import achievements, boss, daily, patrons, pets, tower
+from altermmo.features import achievements, boss, daily, modifiers, patrons, pets, tower
 
 from fakes import FakeChannel, FakeMember, FakeMessage, requested_word
 
@@ -514,6 +515,35 @@ async def test_database_failure_before_the_fight_propagates(game, monkeypatch):
     assert not game.channel.contains("Błąd bazy danych")      # the db layer retries, not the tower
     with pytest.raises(ValueError):
         await tower.tower_fight(game.scene(), 1)              # nobody to fight
+
+
+# -- changed commands from the shrine ------------------------------------------------------
+
+async def test_changed_commands_do_not_apply_to_the_tower(game, skills, drops, monkeypatch):
+    """The tower compares record times: it keeps the usual words whatever the shrine gave."""
+    bot = game.bot
+    hunter = game.add_member("Ala")
+    monkeypatch.setattr(tower, "_store_record", _stored)
+    await modifiers.modify_modifiers(bot, modifiers.COMMANDS_CHANGED, 1)
+    ranges: list[tuple[int, int]] = []
+    counter = itertools.count()
+
+    def randint(low, high):                                    # walk the range: every word gets asked
+        ranges.append((low, high))
+        return low + next(counter) % (high - low + 1)
+
+    monkeypatch.setattr(random, "randint", randint)
+    game.auto_answer(hunter)
+    assert await tower.tower_fight(game.scene(hunter), 8) is True    # 16 words: all 15, then the first again
+
+    asked = prompts(game.channel)
+    usual = [prompt for _, prompt in daily.MOB_ACTIONS]
+    assert asked == [f"{n}. **Ala**: {prompt}" for n, prompt in enumerate(usual + usual[:1], 1)]
+    assert set(ranges) == {(0, 14)}
+    changed = {word for word, _ in modifiers.CHANGED_ACTIONS}
+    assert not any(requested_word(p) in changed for p in asked)
+    assert game.channel.contains("Piętro zaliczone!")
+    assert (await modifiers.load_modifiers(bot))[modifiers.COMMANDS_CHANGED] == 1   # still there for the boss
 
 
 # -- $wieża: the whole run -----------------------------------------------------------------

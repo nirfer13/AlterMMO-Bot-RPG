@@ -761,13 +761,14 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
 
     mob_hp = scaled_hp(random_boss_hp(rarity), mods["hp_boost_perc"] - mods["hp_reduced_perc"]
                        - pets[hunters[0].id]["LOWHP_PERC"])
+    actions = modifiers.fight_actions(mods, MOB_ACTIONS, "Potwór")
     log.info("Hunt: %s vs a monster of rarity %s, hp %s.", [str(hunter) for hunter in hunters], rarity, mob_hp)
 
     started = time.monotonic()
     turn = 0
     while True:
         turn += 1
-        word, prompt = MOB_ACTIONS[random.randint(0, len(MOB_ACTIONS) - 1)]
+        word, prompt = actions[random.randint(0, len(actions) - 1)]
         hunter = random.choice(hunters)
         pet = pets[hunter.id]
 

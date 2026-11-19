@@ -3,9 +3,9 @@
 Port of the legacy ``functions/functions_modifiers.py``.
 
 The modifiers live in ``data/bossModifier.json`` (``bot.store.modifiers``) in
-exactly the legacy format - one flat JSON object with the keys of
+the legacy format - one flat JSON object with the keys of
 :data:`INIT_MODIFIERS` - so the file of the production bot can be copied over
-as it is.  They are filled by prayers at the shrine (``$modlitwa``), by pet
+as it is (a key the old file does not have yet simply counts as 0).  They are filled by prayers at the shrine (``$modlitwa``), by pet
 sacrifices and by skill gems, used by the next boss fight and by hunts, and
 zeroed again when the boss fight is over (``boss.reset_end``).
 
@@ -18,6 +18,12 @@ Differences from the legacy code:
 * ``load_modifiers`` / ``init_modifiers`` / ``load_desc_modifiers`` /
   ``modify_modifiers`` take the bot instead of a command context: they never
   talked to Discord, and background flows have no context.
+
+New in v2 (owner's request): the "changed commands" modifier
+(:data:`COMMANDS_CHANGED`).  While it is on, the fight with the next boss and
+the hunts ask for the words of :data:`CHANGED_ACTIONS` instead of the usual
+ones (:func:`fight_actions`).  It does not apply to the mythic boss (which
+has its own words), to the Death Tower or to duels.
 """
 
 from __future__ import annotations
@@ -37,7 +43,10 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = logging.getLogger(__name__)
 
-#: The content of a fresh ``bossModifier.json`` (legacy keys, legacy order).
+#: New in v2: the fights ask for other words (see :data:`CHANGED_ACTIONS`).  One-off, like the ban.
+COMMANDS_CHANGED = "commands_changed"
+
+#: The content of a fresh ``bossModifier.json`` (legacy keys in the legacy order, then the new ones).
 INIT_MODIFIERS: dict[str, int] = {
     "hp_reduced_perc": 0,
     "hp_boost_perc": 0,
@@ -48,7 +57,41 @@ INIT_MODIFIERS: dict[str, int] = {
     "ban_loser": 0,
     "points_boost": 0,
     "player_id": 0,
+    COMMANDS_CHANGED: 0,
 }
+
+#: (word to type, prompt) while the "changed commands" modifier is on; ``{foe}`` is "Boss" /
+#: "Potwór".  Short on purpose (3-5 letters, no Polish letters): the difficulty is that
+#: nobody has them in their fingers, not their length.  Approved by the owner word by word.
+CHANGED_ACTIONS: tuple[tuple[str, str], ...] = (
+    ("sus", "Ziemia pęka pod Twoimi nogami, wpisz **S U S**"),
+    ("mur", "{foe} ciska w Ciebie głazem, wpisz **M U R**"),
+    ("hak", "{foe} opuścił gardę! Wpisz **H A K**"),
+    ("kop", "{foe} stracił równowagę! Wpisz **K O P**"),
+    ("ryk", "{foe} próbuje Cię zastraszyć, odpowiedz tym samym, wpisz **R Y K**"),
+    ("tnij", "{foe} się odsłonił! Teraz! Wpisz **T N I J**"),
+    ("rzut", "Masz pod ręką kamień, wpisz **R Z U T**"),
+    ("urok", "{foe} rzuca klątwę, odpowiedz własną, wpisz **U R O K**"),
+    ("garda", "{foe} bierze potężny zamach, wpisz **G A R D A**"),
+    ("wypad", "Dostrzegasz lukę w obronie, wpisz **W Y P A D**"),
+    ("zwrot", "{foe} zachodzi Cię od tyłu, wpisz **Z W R O T**"),
+    ("finta", "Zmyl przeciwnika, wpisz **F I N T A**"),
+    ("odwet", "{foe} Cię trafił, oddaj mu! Wpisz **O D W E T**"),
+)
+
+
+def fight_actions(mods: dict[str, int], usual: tuple[tuple[str, str], ...],
+                  foe: str) -> tuple[tuple[str, str], ...]:
+    """The (word, prompt) pairs a fight draws from.
+
+    ``usual`` - or, while the "changed commands" modifier is on, the whole of
+    :data:`CHANGED_ACTIONS` with ``foe`` ("Boss" / "Potwór") in the prompts.
+    ``mods``: what :func:`load_modifiers` returned at the start of the fight
+    (one fight never mixes the two sets).
+    """
+    if mods.get(COMMANDS_CHANGED, 0) > 0:
+        return tuple((word, prompt.format(foe=foe)) for word, prompt in CHANGED_ACTIONS)
+    return usual
 
 #: Pseudo modifier: resets the daily hunting cooldown at once, is never stored.
 RESET_CD = "reset_cd"
@@ -127,6 +170,8 @@ async def load_desc_modifiers(bot: "AlterBot") -> str:
             lines.append("\n🔺 Bossem będzie gracz <@" + str(value) + ">")
         elif key == "ban_loser":
             lines.append("\n🔻 Przegrany zostanie zbanowany")
+        elif key == COMMANDS_CHANGED:
+            lines.append("\n🔀 Komendy w walce są zmienione (nie dotyczy mitycznego bossa)")
     if not lines:
         return ""
     return "\n\nDodatkowe statystyki:" + "".join(lines)
@@ -196,12 +241,15 @@ def _eligible(scene: "Scene", current: dict[str, int]) -> list[str]:
     The legacy code drew again when it hit a one-off modifier that was already
     taken (a player already is the next boss / the ban is already on); drawing
     from the outcomes that are still possible gives the same odds without a loop.
+    The changed commands are a one-off as well.
     """
     pool = []
     for name in RANDOM_POOL:
         if name == "player_id" and (current["player_id"] != 0 or scene.author is None):
             continue
         if name == "ban_loser" and current["ban_loser"] != 0:
+            continue
+        if name == COMMANDS_CHANGED and current[COMMANDS_CHANGED] != 0:
             continue
         pool.append(name)
     return pool
@@ -260,6 +308,11 @@ async def random_modifiers(scene: "Scene", msg: bool = True, sacrefice: bool = F
         random_value = random.randint(1, 5)
         desc = base_desc + \
             "za wygraną z kolejnym bossem **będzie o " + str(random_value) + " więcej punktów!**"
+    elif modifier == COMMANDS_CHANGED:
+        random_value = 1
+        desc = base_desc + \
+            "w walce z następnym bossem i potworami **obowiązują inne komendy!** " \
+            "*(Nie dotyczy mitycznego bossa.)*"
     else:  # reset_cd
         random_value = 1
         desc = base_desc + \

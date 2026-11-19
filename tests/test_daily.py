@@ -664,6 +664,114 @@ async def test_database_failure_before_the_fight_propagates(game, monkeypatch):
     assert not game.channel.contains("Błąd bazy danych")               # the db layer retries, not the hunt
 
 
+# -- the hunt: changed commands from the shrine --------------------------------------------
+
+#: The prompts of the changed commands as a hunt must show them: the foe is the monster.
+CHANGED_PROMPTS = {word: prompt.replace("{foe}", "Potwór") for word, prompt in modifiers.CHANGED_ACTIONS}
+CHANGED_WORDS = [word for word, _ in modifiers.CHANGED_ACTIONS]
+
+
+def cycle_actions(monkeypatch) -> list[tuple[int, int]]:
+    """``random.randint`` walks its range in order, so every word gets asked; records the ranges asked for."""
+    ranges: list[tuple[int, int]] = []
+    counter = itertools.count()
+
+    def randint(low, high):
+        ranges.append((low, high))
+        return low + next(counter) % (high - low + 1)
+
+    monkeypatch.setattr(random, "randint", randint)
+    return ranges
+
+
+def no_bookkeeping(monkeypatch) -> None:
+    monkeypatch.setattr(daily, "rand_loot", _no_loot)
+    monkeypatch.setattr(database, "update_ranking_table", _nothing)
+    monkeypatch.setattr(achievements, "add_hunts", _nothing)
+
+
+async def test_hunt_with_changed_commands_asks_only_for_the_new_words(game, skills, monkeypatch):
+    bot = game.bot
+    hunter = game.add_member("Ala")
+    await modifiers.modify_modifiers(bot, modifiers.COMMANDS_CHANGED, 1)
+    assert await daily.send_mob_image(game.scene(), 0) == (False, None)
+    assert "\n🔀 Komendy w walce są zmienione" in game.channel.messages[-1].embeds[0].description
+
+    ranges = cycle_actions(monkeypatch)
+    no_bookkeeping(monkeypatch)
+    monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 2 * len(CHANGED_WORDS))   # every word twice
+    game.auto_answer(hunter)
+    assert await daily.hunt_mobs(game.scene(hunter), 1, False, None) is True
+
+    asked = prompts(game.channel)
+    assert asked == [f"{n}. **Ala**: {CHANGED_PROMPTS[CHANGED_WORDS[(n - 1) % 13]]}" for n in range(1, 27)]
+    assert set(ranges) == {(0, 12)}                       # drawn from the 13 new words only, never a mix
+    assert not any(requested_word(p) in dict(daily.MOB_ACTIONS) for p in asked)
+    assert not any("Boss" in p or "{" in p or "}" in p for p in asked)
+    assert sum("Potwór" in p for p in asked) == 18        # 9 of the 13 prompts name the foe
+    assert game.channel.contains(f"Brawo <@{hunter.id}> <:ok:990161663053422592> Potwór pokonany!")
+
+
+async def test_party_hunt_with_changed_commands(game, skills, monkeypatch):
+    bot = game.bot
+    bot.debug = False
+    monkeypatch.setattr(daily, "JOIN_TIME", 0.3)
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await modifiers.modify_modifiers(bot, modifiers.COMMANDS_CHANGED, 1)
+    ranges = cycle_actions(monkeypatch)
+    no_bookkeeping(monkeypatch)
+    monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: len(CHANGED_WORDS) + 1)
+    take_turns(monkeypatch)
+    team_answers(game, [ala, ola])
+    game.say_later(ola, "$polowanie", 0.01)
+
+    assert await daily.hunt_mobs(game.scene(ala), 2, False, None) is True
+    names = ["Ala", "Ola"]
+    words = CHANGED_WORDS + CHANGED_WORDS[:1]
+    assert prompts(game.channel) == [f"{n}. **{names[(n - 1) % 2]}**: {CHANGED_PROMPTS[word]}"
+                                     for n, word in enumerate(words, 1)]
+    assert set(ranges) == {(0, 12)}
+    assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> <:ok:990161663053422592> Potwór pokonany!")
+
+
+async def test_hunt_without_changed_commands_keeps_the_usual_words(game, skills, monkeypatch):
+    hunter = game.add_member("Ala")
+    assert (await modifiers.load_modifiers(game.bot))[modifiers.COMMANDS_CHANGED] == 0
+    ranges = cycle_actions(monkeypatch)
+    no_bookkeeping(monkeypatch)
+    monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: len(daily.MOB_ACTIONS))
+    game.auto_answer(hunter)
+    assert await daily.hunt_mobs(game.scene(hunter), 0, False, None) is True
+    assert prompts(game.channel) == [f"{n}. **Ala**: {prompt}" for n, (_, prompt) in enumerate(daily.MOB_ACTIONS, 1)]
+    assert set(ranges) == {(0, 14)}
+    assert not any(requested_word(p) in CHANGED_PROMPTS for p in prompts(game.channel))
+
+
+async def test_hunts_do_not_switch_the_changed_commands_off(game, skills, monkeypatch):
+    """Only the end of the boss fight resets the modifiers: won or lost, every hunt until then is changed."""
+    bot = game.bot
+    hunter = game.add_member("Ala")
+    await modifiers.modify_modifiers(bot, modifiers.COMMANDS_CHANGED, 1)
+    await modifiers.modify_modifiers(bot, "drop_boost_perc", 5)
+    before = await modifiers.load_modifiers(bot)
+    cycle_actions(monkeypatch)
+    no_bookkeeping(monkeypatch)
+    monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 3)
+
+    game.auto_answer(hunter)
+    assert await daily.hunt_mobs(game.scene(hunter), 0, False, None) is True
+    assert await modifiers.load_modifiers(bot) == before
+    assert "🔀 Komendy w walce są zmienione" in await modifiers.load_desc_modifiers(bot)
+
+    game.channel.sent.clear()
+    game.channel.send_hooks.clear()
+    game.auto_answer(hunter, wrong_on_round=2)
+    assert await daily.hunt_mobs(game.scene(hunter), 0, False, None) is False
+    asked = prompts(game.channel)
+    assert len(asked) == 2 and all(requested_word(p) in CHANGED_PROMPTS for p in asked)
+    assert await modifiers.load_modifiers(bot) == before
+
+
 # -- $polowanie: the whole daily hunt ------------------------------------------------------
 
 async def test_daily_hunt_won_and_lost_keep_the_cooldown(game_db, monkeypatch):

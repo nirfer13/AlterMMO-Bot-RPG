@@ -17,7 +17,9 @@ LEGACY_KEYS = ["hp_reduced_perc", "hp_boost_perc", "drop_boost_perc", "time_redu
 #: The file exactly as the legacy bot writes it (bossModifier.json in the old repository).
 LEGACY_FILE = ('{"hp_reduced_perc": 0, "hp_boost_perc": 0, "drop_boost_perc": 0, "time_reduced_perc": 0, '
                '"time_increased_perc": 0, "rarity_boost": 0, "ban_loser": 0, "points_boost": 0, "player_id": 0}')
-ZEROS = dict.fromkeys(LEGACY_KEYS, 0)
+#: What v2 writes: the legacy keys in the legacy order, then the keys that are new in v2.
+FILE_KEYS = LEGACY_KEYS + ["commands_changed"]
+ZEROS = dict.fromkeys(FILE_KEYS, 0)
 
 
 def write_file(game, text: str) -> None:
@@ -65,7 +67,7 @@ def fake_daily(monkeypatch):
 async def test_missing_file_gives_initial_values(game):
     assert not game.bot.store.modifiers.path.exists()
     loaded = await modifiers.load_modifiers(game.bot)
-    assert loaded == ZEROS and list(loaded) == LEGACY_KEYS
+    assert loaded == ZEROS and list(loaded) == FILE_KEYS
     assert await modifiers.load_desc_modifiers(game.bot) == ""
 
 
@@ -85,7 +87,7 @@ async def test_incomplete_file_and_bad_values_are_repaired_on_read(game):
                                  "something_else": 99}))
     loaded = await modifiers.load_modifiers(game.bot)
     assert loaded == {**ZEROS, "hp_boost_perc": 12, "drop_boost_perc": 15, "rarity_boost": 1}
-    assert list(loaded) == LEGACY_KEYS                       # every legacy key, nothing else
+    assert list(loaded) == FILE_KEYS                         # every key of the bot, nothing else
     assert all(type(value) is int for value in loaded.values())
 
 
@@ -96,9 +98,11 @@ async def test_legacy_file_is_read_and_written_in_the_legacy_format(game):
     assert loaded["rarity_boost"] == 1                       # what the boss cycle reads
     assert loaded["player_id"] == 291836779495948288
     await modifiers.modify_modifiers(game.bot, "time_increased_perc", 40)
-    # The legacy bot does json.load + ``modifiers[name] += value`` on this file.
+    assert loaded["commands_changed"] == 0                   # a key the old file lacks counts as 0
+    # The legacy bot does json.load + ``modifiers[name] += value`` on this file: its keys come
+    # first, in its order; what is new in v2 follows.
     stored = read_file(game)
-    assert list(stored) == LEGACY_KEYS
+    assert list(stored) == FILE_KEYS and list(stored)[:len(LEGACY_KEYS)] == LEGACY_KEYS
     assert stored == {**ZEROS, "rarity_boost": 1, "player_id": 291836779495948288, "time_increased_perc": 40}
     assert all(type(value) is int for value in stored.values())
 
@@ -107,8 +111,8 @@ async def test_init_modifiers_resets_everything(game):
     await modifiers.modify_modifiers(game.bot, "hp_boost_perc", 10)
     await modifiers.modify_modifiers(game.bot, "player_id", 123)
     await modifiers.init_modifiers(game.bot)
-    assert read_file(game) == json.loads(LEGACY_FILE)
-    assert list(read_file(game)) == LEGACY_KEYS
+    assert read_file(game) == ZEROS == {**json.loads(LEGACY_FILE), "commands_changed": 0}
+    assert list(read_file(game)) == FILE_KEYS
     assert await modifiers.load_modifiers(game.bot) == ZEROS
 
 
@@ -146,7 +150,7 @@ async def test_unwritable_store_read_error_does_not_crash_readers(game, monkeypa
 async def test_description_lists_active_modifiers_verbatim(game):
     for name, value in (("hp_reduced_perc", 7), ("hp_boost_perc", 8), ("drop_boost_perc", 25),
                         ("time_reduced_perc", 5), ("time_increased_perc", 40), ("rarity_boost", 1),
-                        ("ban_loser", 1), ("points_boost", 3), ("player_id", 42)):
+                        ("ban_loser", 1), ("points_boost", 3), ("player_id", 42), ("commands_changed", 1)):
         await modifiers.modify_modifiers(game.bot, name, value)
     assert await modifiers.load_desc_modifiers(game.bot) == (
         "\n\nDodatkowe statystyki:"
@@ -159,6 +163,7 @@ async def test_description_lists_active_modifiers_verbatim(game):
         "\n🔻 Przegrany zostanie zbanowany"
         "\n🔺 Punkty za wygraną zwiększone o 3 (nie dotyczy potworów)"
         "\n🔺 Bossem będzie gracz <@42>"
+        "\n🔀 Komendy w walce są zmienione (nie dotyczy mitycznego bossa)"
     )
 
 
@@ -260,6 +265,8 @@ OUTCOMES = [
     ("time_increased_perc", 25, "podczas walki z następnym bossem i potworami **będzie o 25% więcej "
                                 "czasu na reakcję!**"),
     ("points_boost", 5, "za wygraną z kolejnym bossem **będzie o 5 więcej punktów!**"),
+    ("commands_changed", 1, "w walce z następnym bossem i potworami **obowiązują inne komendy!** "
+                            "*(Nie dotyczy mitycznego bossa.)*"),
 ]
 
 
@@ -291,10 +298,63 @@ async def test_prayer_value_ranges(game, monkeypatch, name, low, high):
     assert (await modifiers.load_modifiers(game.bot))[name] == low
 
 
-async def test_fresh_prayer_draws_from_the_ten_legacy_outcomes(game, monkeypatch):
+async def test_fresh_prayer_draws_from_the_ten_legacy_outcomes_and_the_changed_commands(game, monkeypatch):
     pools = draw(monkeypatch, "rarity_boost")
     await modifiers.random_modifiers(game.scene(game.add_member("Ala")), False)
-    assert pools == [LEGACY_KEYS + ["reset_cd"]]
+    assert pools == [LEGACY_KEYS + ["commands_changed", "reset_cd"]]         # eleven, each equally likely
+    assert modifiers.COMMANDS_CHANGED == "commands_changed"
+
+
+async def test_changed_commands_are_not_drawn_twice(game, monkeypatch):
+    pools = draw(monkeypatch, "commands_changed")
+    await modifiers.random_modifiers(game.scene(game.add_member("Ala")), False)
+    assert (await modifiers.load_modifiers(game.bot))["commands_changed"] == 1
+    monkeypatch.setattr(random, "choice", lambda pool: pools.append(list(pool)) or "points_boost")
+    await modifiers.random_modifiers(game.scene(game.add_member("Ola")), False)
+    assert "commands_changed" in pools[0] and "commands_changed" not in pools[1]
+    assert (await modifiers.load_modifiers(game.bot))["commands_changed"] == 1
+    await modifiers.init_modifiers(game.bot)                                 # after the boss: the usual words again
+    assert (await modifiers.load_modifiers(game.bot))["commands_changed"] == 0
+
+
+async def test_sacrifice_can_change_the_commands_too(game, monkeypatch):
+    draw(monkeypatch, "commands_changed")
+    await modifiers.random_modifiers(game.scene(game.add_member("Ala")), True, True)
+    embed = game.channel.messages[-1].embeds[0]
+    assert embed.title == "Poświęcono towarzysza!"
+    assert embed.description == ("Poświęcenie sprawiło, że w walce z następnym bossem i potworami "
+                                 "**obowiązują inne komendy!** *(Nie dotyczy mitycznego bossa.)*")
+
+
+def test_changed_commands_are_the_thirteen_words_the_owner_approved():
+    words = [word for word, _ in modifiers.CHANGED_ACTIONS]
+    assert words == ["sus", "mur", "hak", "kop", "ryk", "tnij", "rzut", "urok", "garda", "wypad", "zwrot",
+                     "finta", "odwet"]
+    assert "bok" not in words and "pad" not in words                         # removed by the owner
+    for word, prompt in modifiers.CHANGED_ACTIONS:
+        assert 3 <= len(word) <= 5 and word.isascii() and word.islower()
+        assert prompt.endswith("**" + " ".join(word.upper()) + "**")         # the usual "wpisz **S U S**"
+        assert prompt.count("**") == 2                                       # nothing else in bold
+
+
+def test_changed_commands_share_no_word_with_the_other_sets():
+    from altermmo.features import boss, daily
+
+    others = {word for actions in (boss.BOSS_ACTIONS, boss.MYTHIC_ACTIONS, boss.DUEL_ACTIONS, daily.MOB_ACTIONS)
+              for word, _ in actions}
+    assert not others & {word for word, _ in modifiers.CHANGED_ACTIONS}
+
+
+def test_fight_actions_swaps_the_whole_set():
+    usual = (("unik", "Boss szarżuje na Ciebie! Wpisz **U N I K**"),)
+    assert modifiers.fight_actions(dict(ZEROS), usual, "Boss") is usual
+    assert modifiers.fight_actions({}, usual, "Boss") is usual               # an old dict without the key
+    changed = modifiers.fight_actions({**ZEROS, "commands_changed": 1}, usual, "Boss")
+    assert [word for word, _ in changed] == [word for word, _ in modifiers.CHANGED_ACTIONS]
+    assert ("mur", "Boss ciska w Ciebie głazem, wpisz **M U R**") in changed
+    mobs = modifiers.fight_actions({**ZEROS, "commands_changed": 1}, usual, "Potwór")
+    assert ("mur", "Potwór ciska w Ciebie głazem, wpisz **M U R**") in mobs
+    assert all("{" not in prompt and "Boss" not in prompt for _, prompt in mobs)
 
 
 async def test_praying_player_becomes_the_next_boss_only_once(game, monkeypatch):
@@ -310,7 +370,7 @@ async def test_praying_player_becomes_the_next_boss_only_once(game, monkeypatch)
     monkeypatch.setattr(random, "choice", lambda pool: pools.append(list(pool)) or "hp_boost_perc")
     await modifiers.random_modifiers(game.scene(second), True)
     assert "player_id" in pools[0] and "player_id" not in pools[1]
-    assert len(pools[1]) == 9
+    assert len(pools[1]) == 10
     loaded = await modifiers.load_modifiers(game.bot)
     assert loaded["player_id"] == first.id and loaded["hp_boost_perc"] == 15
 
@@ -408,6 +468,7 @@ async def test_real_randomness_always_terminates_and_keeps_the_file_valid(game, 
         name = await modifiers.random_modifiers(game.scene(player), False)
         assert name in modifiers.RANDOM_POOL
     stored = read_file(game)
-    assert list(stored) == LEGACY_KEYS
+    assert list(stored) == FILE_KEYS
     assert stored["player_id"] in (0, player.id) and stored["ban_loser"] in (0, 1)
+    assert stored["commands_changed"] in (0, 1)
     assert all(type(value) is int and value >= 0 for value in stored.values())

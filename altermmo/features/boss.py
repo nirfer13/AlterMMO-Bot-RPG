@@ -862,7 +862,9 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
     await database.update_history_table(bot, hunter.name)
     await challenge.countdown(channel)
 
-    actions = MYTHIC_ACTIONS if rarity == 4 else BOSS_ACTIONS
+    # The mythic boss keeps its own words: the "changed commands" of the shrine are short
+    # and would make it the easiest fight (owner's decision).
+    actions = MYTHIC_ACTIONS if rarity == 4 else modifiers.fight_actions(mods, BOSS_ACTIONS, "Boss")
     boss_hp = _scaled_hp(random_boss_hp(rarity),
                          mods["hp_boost_perc"] - mods["hp_reduced_perc"] - pet["LOWHP_PERC"])
     base_time = MYTHIC_ROUND_TIME if rarity == 4 else 5 - rarity
@@ -1389,6 +1391,7 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
                          - sum(pets[player.id]["LOWHP_PERC"] for player in players))
     chances = GROUP_SPARE_CHANCES
     banned = list(players) if mods["ban_loser"] > 0 else []
+    actions = modifiers.fight_actions(mods, BOSS_ACTIONS, "Boss")
     log.info("Group boss fight: %s, hp %s.", party, boss_hp)
     await challenge.countdown(channel)
 
@@ -1396,7 +1399,7 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
     turn = 0
     while True:
         turn += 1
-        word, prompt = BOSS_ACTIONS[random.randint(0, len(BOSS_ACTIONS) - 1)]
+        word, prompt = actions[random.randint(0, len(actions) - 1)]
         hunter = random.choice(players)
         pet = pets[hunter.id]
 

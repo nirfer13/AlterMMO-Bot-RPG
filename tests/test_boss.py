@@ -1082,6 +1082,143 @@ async def test_cycle_runs_a_won_fight(game_db, monkeypatch, short_timeouts):
     assert bot.owner_log[-1].startswith("Ala otrzymał: \n👉 250")
 
 
+# -- changed commands (shrine modifier) --------------------------------------------------
+
+CHANGED_WORDS = [word for word, _ in modifiers.CHANGED_ACTIONS]
+BOSS_WORDS = [word for word, _ in boss.BOSS_ACTIONS]
+MYTHIC_WORDS = [word for word, _ in boss.MYTHIC_ACTIONS]
+DUEL_WORDS = [word for word, _ in boss.DUEL_ACTIONS]
+
+
+def walk_every_action(monkeypatch, *tables) -> None:
+    """``random.randint`` picks index 0, 1, 2, ... of a word table in turn (each table its own walk).
+
+    Only the draws ``randint(0, len(table) - 1)`` of the given tables are pinned; every other
+    draw stays random, so a fight that draws from another table is not steered.
+    """
+    real_randint = random.randint
+    walks = {len(table) - 1: itertools.count() for table in tables}
+
+    def randint(a, b):
+        if a == 0 and b in walks:
+            return next(walks[b]) % (b + 1)
+        return real_randint(a, b)
+
+    monkeypatch.setattr(random, "randint", randint)
+
+
+def asked_words(channel) -> list[str]:
+    return [requested_word(prompt) for prompt in prompts(channel)]
+
+
+@pytest.mark.parametrize("rarity", [0, 1, 2])
+async def test_changed_commands_replace_every_word_of_a_single_fight(game_db, monkeypatch, rarity):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await modifiers.modify_modifiers(bot, modifiers.COMMANDS_CHANGED, 1)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: len(modifiers.CHANGED_ACTIONS))
+    walk_every_action(monkeypatch, modifiers.CHANGED_ACTIONS, boss.BOSS_ACTIONS)
+    game_db.auto_answer(hunter)
+    result = await boss.single_fight(game_db.scene(hunter), hunter, rarity, False, None)
+    assert result == fight_types.FightResult(won=True)
+    assert game_db.channel.contains(boss.MSG_SINGLE_WON.format(user_id=hunter.id))
+    # Every one of the 13 words, once each, with "Boss" in the templates that name the foe.
+    assert asked_words(game_db.channel) == CHANGED_WORDS
+    assert prompts(game_db.channel) == [f"{number}. " + template.format(foe="Boss")
+                                        for number, (_, template) in enumerate(modifiers.CHANGED_ACTIONS, 1)]
+    assert sum("Boss " in prompt for prompt in prompts(game_db.channel)) == 9
+    assert not set(asked_words(game_db.channel)) & set(BOSS_WORDS)
+    assert not any("{foe}" in m.content or "Potwór" in m.content for m in game_db.channel.sent)
+    # The fight does not use the modifier up: the boss cycle resets it afterwards.
+    assert (await modifiers.load_modifiers(bot))[modifiers.COMMANDS_CHANGED] == 1
+
+
+async def test_single_fight_without_changed_commands_keeps_the_boss_words(game_db, monkeypatch):
+    hunter = game_db.add_member("Ala")
+    await modifiers.modify_modifiers(game_db.bot, "ban_loser", 1)          # some other modifier is on
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: len(boss.BOSS_ACTIONS))
+    walk_every_action(monkeypatch, boss.BOSS_ACTIONS, modifiers.CHANGED_ACTIONS)
+    game_db.auto_answer(hunter)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, 1, False, None)).won
+    assert asked_words(game_db.channel) == BOSS_WORDS
+    assert prompts(game_db.channel) == [f"{number}. {template}"
+                                        for number, (_, template) in enumerate(boss.BOSS_ACTIONS, 1)]
+
+
+async def test_changed_commands_do_not_apply_to_the_mythic_boss(game_db, monkeypatch):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await modifiers.modify_modifiers(bot, modifiers.COMMANDS_CHANGED, 1)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 2 * len(boss.MYTHIC_ACTIONS))
+    walk_every_action(monkeypatch, boss.MYTHIC_ACTIONS, modifiers.CHANGED_ACTIONS, boss.BOSS_ACTIONS)
+    game_db.auto_answer(hunter)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, 4, False, None)).won
+    assert asked_words(game_db.channel) == MYTHIC_WORDS * 2
+    assert not set(asked_words(game_db.channel)) & set(CHANGED_WORDS)
+    assert (await modifiers.load_modifiers(bot))[modifiers.COMMANDS_CHANGED] == 1
+
+
+async def test_changed_commands_replace_every_word_of_the_group_fight(game_db, monkeypatch):
+    players = [game_db.add_member(name) for name in ("Ala", "Ola", "Ela", "Ula")]
+    await modifiers.modify_modifiers(game_db.bot, modifiers.COMMANDS_CHANGED, 1)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 2 * len(modifiers.CHANGED_ACTIONS))
+    walk_every_action(monkeypatch, modifiers.CHANGED_ACTIONS, boss.BOSS_ACTIONS)
+    team_answers(game_db, players)
+    result = await boss.group_fight(game_db.scene(players[0]), players, False, None)
+    assert result == fight_types.FightResult(won=True)
+    assert asked_words(game_db.channel) == CHANGED_WORDS * 2
+    names = {player.name for player in players}
+    for number, prompt in enumerate(prompts(game_db.channel), 1):
+        match = re.match(r"^(\d+)\. \*\*(.+?)\*\*: (.*)$", prompt)
+        assert match is not None and int(match.group(1)) == number and match.group(2) in names
+        template = modifiers.CHANGED_ACTIONS[(number - 1) % len(modifiers.CHANGED_ACTIONS)][1]
+        assert match.group(3) == template.format(foe="Boss")
+    assert not set(asked_words(game_db.channel)) & set(BOSS_WORDS)
+
+
+async def test_changed_commands_do_not_apply_to_duels(game_db, monkeypatch):
+    bot = game_db.bot
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    await modifiers.modify_modifiers(bot, modifiers.COMMANDS_CHANGED, 1)
+    walk_every_action(monkeypatch, boss.DUEL_ACTIONS, modifiers.CHANGED_ACTIONS)
+    duel_setup(game_db, ala, ola, starter=ala)
+    assert await boss.duel_fight(game_db.scene(), [ala, ola], False) == (True, ala)
+    asked = asked_words(game_db.channel)
+    assert len(asked) >= 5 and asked == DUEL_WORDS[:len(asked)]
+    assert not set(asked) & set(CHANGED_WORDS)
+    assert (await modifiers.load_modifiers(bot))[modifiers.COMMANDS_CHANGED] == 1
+
+
+@pytest.mark.parametrize("won", [True, False])
+async def test_changed_commands_end_with_the_boss_fight(game_db, monkeypatch, short_timeouts, won):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await modifiers.modify_modifiers(bot, modifiers.COMMANDS_CHANGED, 1)
+    assert "Komendy w walce są zmienione" in await modifiers.load_desc_modifiers(bot)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: len(modifiers.CHANGED_ACTIONS))
+    walk_every_action(monkeypatch, modifiers.CHANGED_ACTIONS, boss.BOSS_ACTIONS)
+    bot.state.boss = BossInfo(rarity=2)
+    await bot.state.set_boss_phase(BossPhase.VISIBLE)
+    game_db.auto_answer(hunter, wrong_on_round=None if won else 4)
+    await bot.boss_cycle.attack(game_db.scene(hunter, "$zaatakuj"))
+    assert bot.state.boss_phase is BossPhase.IDLE and not bot.state.busy
+    assert asked_words(game_db.channel) == (CHANGED_WORDS if won else CHANGED_WORDS[:4])
+    assert (await bot.db.fetchval("SELECT count(*) FROM RANKING")) == (1 if won else 0)
+
+    # The reset after the fight switched the modifier off - in the file as well.
+    assert (await modifiers.load_modifiers(bot))[modifiers.COMMANDS_CHANGED] == 0
+    assert bot.store.modifiers.load()[modifiers.COMMANDS_CHANGED] == 0
+    assert await modifiers.load_desc_modifiers(bot) == ""
+
+    # ...so the next boss asks for the usual words again.
+    game_db.channel.sent.clear()
+    game_db.channel.send_hooks.clear()
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: len(boss.BOSS_ACTIONS))
+    game_db.auto_answer(hunter)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, 1, False, None)).won
+    assert asked_words(game_db.channel) == BOSS_WORDS
+
+
 # -- boss slayer perks -------------------------------------------------------------------
 
 async def test_flex_gif_respects_the_upload_limit(game, monkeypatch, tmp_path):
