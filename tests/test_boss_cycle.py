@@ -117,7 +117,10 @@ async def test_full_cycle_brings_a_boss(game_db, cycle, stub):
     assert game_db.channel.ever_sent(boss_cycle.MSG_WIND)
     # The channel was wiped right before the boss appeared.
     assert [m.content for m in game_db.channel.messages] == ["Zasady gry", "BOSS rarity 1"]
-    assert game_db.announce_channel.contains("pojawił się właśnie potwór")
+    assert game_db.announce_channel.contains("właśnie pojawił się potwór")
+    assert game_db.announce_channel.messages[-1].content == (
+        f"⚔️ Przygotujcie się! Na kanale <#{game_db.bot.ids.boss_channel}> właśnie pojawił się potwór. "
+        "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
     assert ("detect", 1) in stub.calls
     row = await database.read_boss_table(bot)
     assert row.respawn_started and row.rarity == 1

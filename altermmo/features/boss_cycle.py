@@ -113,8 +113,9 @@ def somebody_was_first(rarity: int) -> str:
 
 
 def spawn_notice(boss_channel_id: int) -> str:
-    return (f"Na kanale <#{boss_channel_id}> pojawił się właśnie potwór! "
-            "Zabijcie go, żeby zgarnąć nagrody!")
+    """The notice on the general chat when a boss appears (wording refreshed on the owner's request)."""
+    return (f"⚔️ Przygotujcie się! Na kanale <#{boss_channel_id}> właśnie pojawił się potwór. "
+            "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
 
 
 def final_rarity(base_rarity: int, rarity_boost: int, now: datetime, *, debug: bool) -> int:
