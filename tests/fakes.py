@@ -157,6 +157,20 @@ class FakeGuild:
             self.roles.append(role)
         return role
 
+    #: Set to an exception to make :meth:`create_role` fail (no permission, too many roles).
+    create_role_error: BaseException | None = None
+
+    async def create_role(self, *, name: str = "new role", **kwargs: Any) -> FakeRole:
+        """Like ``discord.Guild.create_role``: a new role with a fresh id; what was asked is kept."""
+        if self.create_role_error is not None:
+            raise self.create_role_error
+        role_id = max([990_000_000_000_000_000, *(role.id for role in self.roles)]) + 1
+        role = self.add_role(role_id, name)
+        role.created_with = dict(kwargs)  # type: ignore[attr-defined]
+        if "colour" in kwargs:
+            role.colour = kwargs["colour"]
+        return role
+
 
 @dataclass
 class FakeAttachment:

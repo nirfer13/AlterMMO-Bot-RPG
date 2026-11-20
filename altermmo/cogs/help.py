@@ -66,6 +66,7 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
     ("🙏 Wspierający", f"""Komendy tylko dla wspierających ({patrons.SUPPORTERS_LONG}):
 - $modlitwa - Gdy pojawi się kapliczka, modlitwą (albo przyciskiem **Pomódl się**) można wpłynąć na statystyki kolejnego bossa.
 - $transformacja - Zmienia wygląd towarzysza (zużywa lustro wizualiów).
+- $osiagniecia - Pokazuje Twoje kolekcjonerskie osiągnięcia i ile ich już masz.
 Wszystkie benefity wspierających i sposoby wsparcia znajdziesz w przypiętym **Panelu gry**."""),
 )
 

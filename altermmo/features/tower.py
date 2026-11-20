@@ -182,10 +182,11 @@ async def _store_record(bot: "AlterBot", player_id: int, level: int, record_time
 
 async def _grant_floor_role(scene: "Scene", player: Any, level: int) -> bool:
     """Floors 3, 6 and 10 give supporters (see :mod:`patrons`) a collector's role."""
-    role_id = _FLOOR_ROLES.get(int(level))
-    if role_id is None or not patrons.check_if_patron(player):
+    if int(level) not in _FLOOR_ROLES or not patrons.check_if_patron(player):
         return False
-    return bool(await achievements.set_achiev_role(scene, player, role_id))
+    # (Not for somebody who holds this or a higher tier: the old bot gave the lower roles
+    # back, floor by floor, every week.)
+    return bool(await achievements.grant(scene, player, f"tower_{int(level)}"))
 
 
 async def update_tower_level(scene: "Scene", player: Any, level: int, record_time: Any) -> bool:
@@ -198,6 +199,9 @@ async def update_tower_level(scene: "Scene", player: Any, level: int, record_tim
     log.info("Tower: %s (%s) cleared floor %s in %s (record %s).", player, player.id, level,
              _record_text(record_time), "updated" if improved else "kept")
     await _grant_floor_role(scene, player, level)
+    taken = _as_timedelta(record_time)
+    if taken is not None:
+        await achievements.tower_sprint(scene, player, level, taken.total_seconds())
     return True
 
 
@@ -312,6 +316,9 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None) -> b
                         _store_record(bot, hunter.id, tower_level, fight_time), context=context)
     await daily.guarded(bot, f"osiągnięcie wieży <@{hunter.id}> (piętro {tower_level})",
                         _grant_floor_role(scene, hunter, tower_level), context=context)
+    await daily.guarded(bot, f"osiągnięcie za szybkie piętro {tower_level} wieży <@{hunter.id}>",
+                        achievements.tower_sprint(scene, hunter, tower_level, fight_time.total_seconds()),
+                        context=context)
     return True
 
 

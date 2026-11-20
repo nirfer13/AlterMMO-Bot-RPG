@@ -15,17 +15,23 @@ import pytest_asyncio
 from discord.ext import commands
 
 from altermmo import bot as bot_module
+from altermmo import schema
 from altermmo.cogs import help as help_cog
 from altermmo.core import challenge, guards, io, ui
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossPhase
-from altermmo.features import daily, hub, patrons, pets, skills, tower
+from altermmo.features import achievements, daily, hub, patrons, pets, skills, tower
 
 from fakes import FakeInteraction, FakeMessage
 from test_pets import add_pet
 from test_ui_daily import active_gem, collector
 
-LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Pomoc"]
+LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia", "Pomoc"]
+#: The custom ids of the panel's buttons: panels pinned long ago still send exactly these.
+BUTTON_IDS = ["altermmo:hub:hunt", "altermmo:hub:tower", "altermmo:hub:pet", "altermmo:hub:stable",
+              "altermmo:hub:gems", "altermmo:hub:rankings", "altermmo:hub:achievements", "altermmo:hub:help"]
+PATRON = patrons.PATRON_ROLES[0]
+KILL_1 = achievements.BOSS_KILL_ROLES[1]
 #: Typed words the help mentions that are not commands (answers inside a flow).
 TYPED_WORDS = {"potwierdzam", "tak"}
 #: Player commands the help leaves out on purpose.
@@ -96,6 +102,33 @@ def stamp_of(text: str) -> int:
 
 
 @pytest.fixture
+def quiet_start(monkeypatch):
+    """The achievements cog's start-up hand-out does nothing (it would make roles in the background)."""
+    started: list = []
+
+    async def start_up(bot):
+        started.append(bot)
+
+    monkeypatch.setattr(achievements, "start_up", start_up)
+    return started
+
+
+@pytest_asyncio.fixture
+async def achievements_cog(game, cog, quiet_start):
+    await game.bot.load_extension("altermmo.cogs.achievements")
+    return game.bot.get_cog("Achievements")
+
+
+class DatabaseDown:
+    """A database that cannot be reached at all."""
+
+    async def fetch(self, *args, **kwargs):
+        raise DatabaseUnavailable("test: database is down")
+
+    fetchrow = fetchval = execute = fetch
+
+
+@pytest.fixture
 def fake_hunt(monkeypatch, game):
     """``$polowanie``'s hunt without monsters: records who hunted and who held the channel."""
     hunts: list = []
@@ -139,7 +172,7 @@ async def test_every_extension_loads_and_permanent_buttons_never_share_an_id(gam
     assert {"altermmo:boss:attack", "altermmo:events:chest", "altermmo:events:pray",
             "altermmo:boss-detect-off"} <= set(ids)
     assert {hub.HUNT_ID, hub.TOWER_ID, hub.PET_ID, hub.STABLE_ID, hub.GEMS_ID, hub.RANKINGS_ID,
-            hub.HELP_ID} <= set(ids)
+            hub.ACHIEVEMENTS_ID, hub.HELP_ID} == set(BUTTON_IDS) <= set(ids)
     # Every permanent view is stateless and never times out.
     assert all(view.timeout is None for view in bot.persistent_views)
 
@@ -208,7 +241,34 @@ def test_panel_fits_discord_limits_and_stays_compact():
     # A pinned message everybody sees: the supporters' part is no longer than the game's part
     # plus the role mentions (8 x 23 characters, which Discord shows as short role names).
     assert len(hub.PANEL_SUPPORT_TEXT) <= 1300
-    assert all(len(line) <= 220 for line in hub.PANEL_BENEFITS)
+    # (240 since the achievements line also names the "Osiągnięcia" button and $osiagniecia.)
+    assert all(len(line) <= 240 for line in hub.PANEL_BENEFITS)
+
+    # One line of the game's part per button, in the order of the buttons.
+    for label in LABELS:
+        assert f"**{label}**" in hub.PANEL_GAME_TEXT, label
+    order = [hub.PANEL_GAME_TEXT.index(f"**{label}** - ") for label in ("Rankingi", "Osiągnięcia", "Pomoc")]
+    assert order == sorted(order)
+    assert "🏅 **Osiągnięcia** - Twoje kolekcjonerskie osiągnięcia (dla wspierających).\n" in hub.PANEL_GAME_TEXT
+
+
+def test_panel_buttons_fit_discord_limits_and_keep_their_ids():
+    view = hub.HubView()
+    try:
+        children = list(view.children)
+        assert [item.label for item in children] == LABELS
+        # Discord: at most 5 rows of at most 5 buttons; ids of at most 100 characters, labels of 80.
+        per_row = collections.Counter(item.row for item in children)
+        assert per_row == {0: 2, 1: 3, 2: 3} and max(per_row.values()) <= 5 and len(per_row) <= 5
+        assert all(len(item.custom_id) <= 100 and len(item.label) <= 80 for item in children)
+        # The ids of the buttons that existed before never change (old pinned panels send them);
+        # the new button got its own one.
+        assert [item.custom_id for item in children] == BUTTON_IDS
+        assert len(set(BUTTON_IDS)) == len(BUTTON_IDS) and hub.ACHIEVEMENTS_ID == "altermmo:hub:achievements"
+        button = next(item for item in children if item.custom_id == hub.ACHIEVEMENTS_ID)
+        assert str(button.emoji) == "🏅" and button.style is discord.ButtonStyle.secondary
+    finally:
+        view.stop()
 
 
 def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
@@ -226,6 +286,7 @@ def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
     benefits = "\n".join(hub.PANEL_BENEFITS)
     for words in ("Jaja premium", "**$transformacja**", "lustrem wizualiów", "**$modlitwa**", "kapliczce",
                   "zostaniesz bossem", "imprezy u Barda", "Kolekcjonerskie osiągnięcia", "piętra Wieży",
+                  "wydarzenia", "wyjątkowych towarzyszy", "przyciskiem **Osiągnięcia** (**$osiagniecia**)",
                   "Kolekcjonerskie ozdoby karty", "dopóki wspierasz"):
         assert words in benefits
     # Not spelled out (owner's decision): which species supporters can find, which ornaments exist.
@@ -295,7 +356,8 @@ async def test_panel_is_posted_pinned_remembered_and_survives_the_purge(game, co
     labels = [item.label for item in message.view.children]
     assert labels == LABELS
     rows = [item.row for item in message.view.children]
-    assert rows == [0, 0, 1, 1, 1, 2, 2]
+    assert rows == [0, 0, 1, 1, 1, 2, 2, 2]
+    assert [item.custom_id for item in message.view.children] == BUTTON_IDS
     styles = {item.label: item.style for item in message.view.children}
     assert styles["Polowanie"] is styles["Wieża"] is discord.ButtonStyle.primary
     assert message.pinned and pins == [("pin", message.id)]
@@ -518,7 +580,8 @@ async def test_buttons_of_a_panel_from_before_a_restart_still_work(game, pins, f
 # -- display buttons (the typed commands' posts, on the channel) ------------------------------
 
 DISPLAY_COMMANDS = {"Towarzysz": ["$towarzysz"], "Stajnia": ["$stajnia"], "Klejnoty": ["$klejnoty"],
-                    "Rankingi": ["$ranking", "$rankingwiezy", "$rankingtowarzyszy"], "Pomoc": ["$pomoc"]}
+                    "Rankingi": ["$ranking", "$rankingwiezy", "$rankingtowarzyszy"],
+                    "Osiągnięcia": ["$osiagniecia"], "Pomoc": ["$pomoc"]}
 
 
 def shape(message) -> tuple:
@@ -529,17 +592,20 @@ def shape(message) -> tuple:
     return message.text, list(message.files), None if view is None else type(view).__name__, items
 
 
-async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, monkeypatch):
+async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, monkeypatch, quiet_start):
     """The panel's display buttons are the typed commands: on the channel, with their buttons and menus."""
     game = game_db
     bot = game.bot
+    await schema.create_new_tables(bot.db)                               # (the bot makes them at start-up)
     monkeypatch.setattr(bot.supervisor, "start", lambda *args, **kwargs: None)
     for extension in ("altermmo.cogs.hub", "altermmo.cogs.pets", "altermmo.cogs.skills",
-                      "altermmo.cogs.ranking", "altermmo.cogs.tower", "altermmo.cogs.help"):
+                      "altermmo.cogs.ranking", "altermmo.cogs.tower", "altermmo.cogs.achievements",
+                      "altermmo.cogs.help"):
         await bot.load_extension(extension)
     for channel in bot.fake_channels.values():
         channel.type = discord.ChannelType.text
     ala = await collector(game)                                          # three gems: the pouch has a menu
+    ala.roles += [game.guild.add_role(PATRON, "Patron"), game.guild.add_role(KILL_1, "Pogromca I")]
     await add_pet(bot.db, 7, pet_name="Burek")
     await add_pet(bot.db, 8, pet_name="Mruczek")
     await bot.db.execute("UPDATE PETOWNER SET PET_ID = 7, PET_ID_ALT1 = 8 WHERE PLAYER_ID = $1", ala.id)
@@ -571,6 +637,10 @@ async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, 
     assert [m.embeds[0].title for m in clicked["Rankingi"]] == [
         "Ranking łowców potworów!", "Eksploratorzy Wieży Śmierci!", "Najbardziej utalentowani towarzysze!"]
     assert "Sezon kończy się <t:" in clicked["Rankingi"][0].embeds[0].description
+    trophies, = clicked["Osiągnięcia"]                                   # a supporter's summary, for everybody
+    assert trophies.embeds[0].title == achievements.MSG_SUMMARY_TITLE and trophies.view is None
+    assert f"<@{ala.id}>, masz **1 z {len(achievements.TROPHIES)}** osiągnięć." in trophies.text
+    assert re.findall(r"<@&(\d+)>", trophies.text) == [str(KILL_1)]
     assert [m.embeds[0].title for m in clicked["Pomoc"]] == [help_cog.HELP_TITLE]
 
     again = await game.click(panel, ala, "Pomoc")                        # a second click: the cooldown, no embed
@@ -616,6 +686,89 @@ async def test_display_buttons_follow_the_busy_policy_and_do_not_post_for_the_si
     assert game.announce_channel.messages[-1].content == "pomoc" and shown == [ala, ala, jan]
 
 
+def supporters_only_text(member=None) -> str:
+    """The answer to somebody who does not support; public, so it starts with his mention."""
+    links = " • ".join(f"[{label}](<{url}>)" for label, url in patrons.SUPPORT_LINKS)
+    text = achievements.MSG_SUPPORTERS_ONLY.format(groups=patrons.SUPPORTERS_LONG, links=links)
+    return text if member is None else f"<@{member.id}> {text}"
+
+
+async def test_achievements_button_answers_a_non_supporter_like_the_typed_command(game, achievements_cog):
+    """Owner's decision: the achievements are for supporters; the others are told how to become one."""
+    ala = game.add_member("Ala")
+    panel = await panel_on(game)
+    click = await game.click(panel, ala, "Osiągnięcia")
+    assert click.response.deferred and click.replies == []              # acknowledged, then posted
+    clicked = game.channel.messages[-1]
+    await run(game, ala, "$osiagniecia")
+    typed = game.channel.messages[-1]
+    assert typed is not clicked and shape(clicked) == shape(typed)
+    # Public, on the channel: the support links and not a word about achievements anybody has.
+    assert clicked.content == supporters_only_text(ala) and clicked.embeds == []
+    assert clicked.content.startswith(f"<@{ala.id}> Osiągnięcia kolekcjonerskie są dla wspierających")
+    assert all(url in clicked.content for _, url in patrons.SUPPORT_LINKS)
+    assert "<@&" not in clicked.content and f" z {len(achievements.TROPHIES)}" not in clicked.content
+    assert ala.roles == []
+
+
+async def test_achievements_button_follows_the_busy_policy_and_the_silenced_rule(game, achievements_cog, monkeypatch):
+    bot = game.bot
+    jan = dead_hunter(game)
+    ala = game.add_member("Ala")
+    panel = await panel_on(game)
+    text = supporters_only_text(ala)
+
+    # A dead hunter cannot make the bot post on the boss channel - told publicly, addressed to him.
+    refused = await game.click(panel, jan, "Osiągnięcia")
+    assert refused.answers == [ui.MSG_CANNOT_PLAY] and refused.public == [f"<@{jan.id}> {ui.MSG_CANNOT_PLAY}"]
+    (reply,) = refused.replies
+    assert not reply.ephemeral and reply.message is game.channel.messages[-1]
+    assert reply.allowed_mentions.users == [jan] and not reply.allowed_mentions.everyone
+    assert game.channel.count(supporters_only_text()) == 0
+
+    with bot.state.hold_busy("hunt"):
+        busy = await game.click(panel, ala, "Osiągnięcia")
+        assert busy.public == [f"<@{ala.id}> {ui.MSG_BUSY}"] and not busy.replies[0].ephemeral
+        assert busy.replies[0].allowed_mentions.users == [ala]
+        # The busy notice is shared with the typed commands: one per 20 s on the channel.
+        await run(game, ala, "$osiagniecia")
+        swallowed = await game.click(panel, ala, "Osiągnięcia")
+        assert swallowed.response.deferred and swallowed.replies == []
+        assert game.channel.count(text) == 0 and game.channel.count(ui.MSG_BUSY) == 1
+        # Under "read_only_free" display commands work while busy: the button as the typed one.
+        monkeypatch.setattr(bot, "settings", dataclasses.replace(bot.settings, busy_policy="read_only_free"))
+        assert (await game.click(panel, ala, "Osiągnięcia")).replies == []
+        await run(game, ala, "$osiagniecia")
+        assert game.channel.count(text) == 2
+
+    # On a panel elsewhere it posts there (a dead hunter is silenced on the boss channel only).
+    elsewhere = await panel_on(game, game.announce_channel)
+    assert (await game.click(elsewhere, jan, "Osiągnięcia")).replies == []
+    assert game.announce_channel.messages[-1].content == supporters_only_text(jan)
+
+
+async def test_achievements_button_when_the_database_is_down(game, achievements_cog):
+    """The roles a supporter holds are enough to answer: the summary is built from them alone."""
+    bot = game.bot
+    bot.db = DatabaseDown()
+    ala = game.add_member("Ala", roles=[PATRON, KILL_1])
+    panel = await panel_on(game)
+    click = await game.click(panel, ala, "Osiągnięcia")
+    assert click.response.deferred and click.replies == []              # acknowledged, then posted
+    summary = game.channel.messages[-1]
+    (embed,) = summary.embeds
+    assert embed.title == achievements.MSG_SUMMARY_TITLE and summary.view is None
+    assert f"<@{ala.id}>, masz **1 z {len(achievements.TROPHIES)}** osiągnięć." in embed.description
+    assert len(achievements.TROPHIES) == 39 and "**1 z 39**" in embed.description
+    assert re.findall(r"<@&(\d+)>", summary.text) == [str(KILL_1)]
+    assert not game.channel.contains(hub.MSG_DB_DOWN) and bot.owner_log == []
+
+    # The typed command answers the same.
+    await run(game, ala, "$osiagniecia")
+    typed = game.channel.messages[-1]
+    assert typed is not summary and typed.embeds[0].description == embed.description
+
+
 async def test_display_buttons_wait_while_a_typed_fight_is_on(game, cog, fake_hunt, monkeypatch):
     """A boss fight does not hold the busy flag, yet nothing but its prompts may appear between them."""
     bot = game.bot
@@ -640,7 +793,7 @@ async def test_display_buttons_wait_while_a_typed_fight_is_on(game, cog, fake_hu
         assert not bot.state.busy
         posted = len(game.channel.sent)
 
-        for player, label in ((ala, "Pomoc"), (ola, "Rankingi"), (ola, "Towarzysz")):
+        for player, label in ((ala, "Pomoc"), (ola, "Rankingi"), (ola, "Towarzysz"), (ola, "Osiągnięcia")):
             silent = await game.click(panel, player, label)             # acknowledged only: not even
             assert silent.response.deferred and silent.replies == []    # the busy notice during a fight
         hunt = await game.click(panel, ola, "Polowanie")                 # "a boss fight is on": not posted now
@@ -653,6 +806,8 @@ async def test_display_buttons_wait_while_a_typed_fight_is_on(game, cog, fake_hu
 
     assert not challenge.fight_on(game.channel)                          # (FIGHT_LINGER is 0 in the tests)
     assert (await game.click(panel, ola, "Pomoc")).replies == [] and shown == [ola]
+    assert (await game.click(panel, ola, "Osiągnięcia")).replies == []    # ... and the achievements, too
+    assert game.channel.messages[-1].content == supporters_only_text(ola)
 
 
 async def test_display_button_when_the_database_is_down_or_something_breaks(game, cog, monkeypatch):

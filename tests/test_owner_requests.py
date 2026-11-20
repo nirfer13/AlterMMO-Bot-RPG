@@ -513,10 +513,17 @@ async def test_admin_can_hand_out_gems(game_db, skills_cog):
 
 
 async def test_new_table_is_created_at_start_up_and_then_verified(db):
-    await db.execute("DROP TABLE SKILLPOUCH", idempotent=True)     # the old bot's database
-    assert "brak tabeli skillpouch" in await schema.verify(db)
-    assert await schema.create_new_tables(db) == 1
-    assert await schema.create_new_tables(db) == 1                 # again: nothing breaks, nothing is lost
+    # The old bot's database: neither the gem pouch nor the achievement counters (both new in v2).
+    await db.execute("DROP TABLE SKILLPOUCH", idempotent=True)
+    await db.execute("DROP TABLE IF EXISTS ACHIEVEMENT_COUNTERS", idempotent=True)
+    problems = await schema.verify(db)
+    assert "brak tabeli skillpouch" in problems and "brak tabeli achievement_counters" in problems
+    assert await schema.create_new_tables(db) == 2
+    await db.execute("INSERT INTO SKILLPOUCH (PLAYER_ID, SKILL_ID) VALUES (1, 2)")
+    await db.execute("INSERT INTO ACHIEVEMENT_COUNTERS (PLAYER_ID, NAME, VALUE) VALUES (1, 'duels', 3)")
+    assert await schema.create_new_tables(db) == 2                 # again: nothing breaks, nothing is lost
+    assert await db.fetchval("SELECT COUNT(*) FROM SKILLPOUCH") == 1
+    assert await db.fetchval("SELECT VALUE FROM ACHIEVEMENT_COUNTERS WHERE PLAYER_ID = 1") == 3
     assert await schema.verify(db) == []
     rows = await db.fetch(
         """SELECT column_name, data_type FROM information_schema.columns

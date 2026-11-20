@@ -164,6 +164,7 @@ EXPECTED_COLUMNS: dict[str, dict[str, str]] = {
     "skills": {"skill_id": "numeric", "gem_name": "character varying", "skill_variant": "numeric", "slow_perc": "numeric"},
     "skillpouch": {"player_id": "numeric", "skill_id": "numeric"},  # new in v2, see create_new_tables
     "achievements": {"player_id": "numeric", "boss_kills": "numeric", "hunts": "numeric", "butchers": "numeric"},
+    "achievement_counters": {"player_id": "numeric", "name": "character varying", "value": "numeric"},  # new in v2, see create_new_tables
     "tower": {"player_id": "numeric", "tower_level": "numeric", "time": "character varying"},
     "chatters_information": {"chtr_id": "integer", "chtr_name": "text", "chtr_time": "integer", "chtr_comments": "integer", "chtr_isvip": "boolean", "chtr_issub": "boolean", "chtr_ismod": "boolean", "chtr_isbroadcaster": "boolean", "discord_id": "text", "watchstreak": "integer"},
     "treasure_table": {"chtr_id": "integer", "chtr_name": "text", "windatetime": "text"},

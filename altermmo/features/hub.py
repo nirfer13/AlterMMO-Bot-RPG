@@ -74,6 +74,7 @@ PET_ID = BUTTON_PREFIX + "pet"
 STABLE_ID = BUTTON_PREFIX + "stable"
 GEMS_ID = BUTTON_PREFIX + "gems"
 RANKINGS_ID = BUTTON_PREFIX + "rankings"
+ACHIEVEMENTS_ID = BUTTON_PREFIX + "achievements"
 HELP_ID = BUTTON_PREFIX + "help"
 
 PANEL_TITLE = "🎮 Panel gry"
@@ -87,6 +88,7 @@ PANEL_GAME_TEXT = (
     "🐾 **Towarzysz**, 🐴 **Stajnia**, 💎 **Klejnoty** - podejrzyj swojego towarzysza, stajnię "
     "i klejnoty umiejętności.\n"
     "🏆 **Rankingi** - sezonowy ranking łowców, Wieża Śmierci i najbardziej utalentowani towarzysze.\n"
+    "🏅 **Osiągnięcia** - Twoje kolekcjonerskie osiągnięcia (dla wspierających).\n"
     "❓ **Pomoc** - wszystkie komendy gry.\n\n"
     "👹 **Boss** pojawia się na tym kanale co kilkanaście minut do kilkunastu godzin - kliknij "
     "**Zaatakuj** pod jego obrazkiem albo wpisz **$zaatakuj**.\n"
@@ -110,7 +112,8 @@ PANEL_BENEFITS: tuple[str, ...] = (
     "👹 **Rola bossa** - szansa, że to Ty zostaniesz bossem (i zgarniesz doświadczenie za pokonanego "
     "łowcę) albo bohaterem imprezy u Barda.",
     "🏅 **Kolekcjonerskie osiągnięcia** - role za zabite bossy, polowania, wygrane sezony, piętra "
-    "Wieży oraz legendarne i mityczne wyczyny.",
+    "Wieży, wydarzenia, wyjątkowych towarzyszy oraz legendarne i mityczne wyczyny. Swoje sprawdzisz "
+    "przyciskiem **Osiągnięcia** (**$osiagniecia**).",
     "🔖 **Kolekcjonerskie ozdoby karty** - każdy nowy towarzysz ma szansę na rzadkie ozdoby swojej "
     "karty. Zdobią ją, dopóki wspierasz (po przerwie wracają).",
 )
@@ -190,6 +193,11 @@ class HubView(ui.GameView):
                        custom_id=RANKINGS_ID)
     async def rankings(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await show_display(interaction, show_rankings)
+
+    @discord.ui.button(label="Osiągnięcia", emoji="🏅", style=discord.ButtonStyle.secondary, row=2,
+                       custom_id=ACHIEVEMENTS_ID)
+    async def achievements(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_display(interaction, show_achievements)
 
     @discord.ui.button(label="Pomoc", emoji="❓", style=discord.ButtonStyle.secondary, row=2,
                        custom_id=HELP_ID)
@@ -385,6 +393,12 @@ async def show_rankings(scene: "Scene") -> None:
     await database.read_ranking_table(scene)
     await tower.tower_ranking(scene)
     await pets.pet_ranking(scene)
+
+
+async def show_achievements(scene: "Scene") -> Any:
+    from . import achievements
+
+    return await achievements.show_achievements(scene)
 
 
 async def show_help(scene: "Scene") -> None:

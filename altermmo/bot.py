@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
+import pkgutil
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -25,6 +28,43 @@ from .settings import COMMAND_PREFIX, PROJECT_ROOT, Ids, Settings, Timings
 
 log = logging.getLogger(__name__)
 
+
+def import_all_modules() -> list[str]:
+    """Import every module of the bot now; returns the ones that could not be imported.
+
+    Several modules import each other only when they are first needed (to avoid
+    circular imports).  The bot runs from the folder its code is edited in, so
+    a module first needed hours after the start was read from the disk in
+    whatever state the files were THEN - and mixed with the older code already
+    in memory.  On 2026-11-20 that let one treasure chest be opened seven
+    times (the freshly read event code called a function the running bot did
+    not have yet; the reward was given, the error put the chest back).  With
+    everything imported before the bot logs in, a running bot never reads its
+    code again.  Never raises.
+    """
+    package = __name__.rpartition(".")[0]
+    failed: list[str] = []
+
+    def broken_package(name: str) -> None:  # (walk_packages imports the sub-packages itself)
+        log.error("Package %s cannot be imported.", name, exc_info=True)
+        failed.append(name)
+
+    try:
+        for info in pkgutil.walk_packages(sys.modules[package].__path__, package + ".", onerror=broken_package):
+            if info.name.endswith(".__main__"):
+                continue  # (the entry point: importing it is how the bot was started)
+            try:
+                importlib.import_module(info.name)
+            except Exception:  # noqa: BLE001 - reported; the bot starts with what works
+                log.exception("Module %s cannot be imported.", info.name)
+                if info.name not in failed:
+                    failed.append(info.name)
+    except Exception:  # noqa: BLE001 - whatever the walk itself runs into
+        log.exception("Could not walk the modules of %s.", package)
+        failed.append(package)
+    return failed
+
+
 #: Cogs loaded at start-up.  A cog that fails to load is logged and skipped so
 #: one broken feature cannot take the whole bot down.
 EXTENSIONS: tuple[str, ...] = (
@@ -36,6 +76,7 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.tower",
     "altermmo.cogs.ranking",
     "altermmo.cogs.slayer",
+    "altermmo.cogs.achievements",
     "altermmo.cogs.xpsteal",
     "altermmo.cogs.twitch",
     "altermmo.cogs.schedule",
@@ -56,6 +97,9 @@ def cooldown_text(retry_after: float) -> str:
     """:data:`MSG_COOLDOWN` for a cooldown that ends in ``retry_after`` seconds."""
     return MSG_COOLDOWN.format(when=ui.when(max(1.0, float(retry_after))))
 
+#: Start-up note for the owner: a module of the bot cannot be imported (see ``import_all_modules``).
+MSG_MODULES_BROKEN = ("Nie udało się wczytać części kodu bota: {modules}. Funkcje z tych plików nie "
+                      "działają - szczegóły są w logu bota.")
 #: Start-up note for the owner: ``schema.add_new_columns`` could not add what v2 needs.
 #: The only such columns are the pet cosmetics, and features/pets.py plays on without them.
 MSG_NEW_COLUMNS_FAILED = (
@@ -120,6 +164,8 @@ class Stores:
         self.runtime = JsonFile(data_dir / "runtime.json", dict)
         #: Unused "steal experience" rights won from bosses (features/xpsteal.py).
         self.xp_thefts = JsonFile(data_dir / "xpThefts.json", dict)
+        #: Roles of the achievements the bot made itself: ``{key: role id}`` (features/achievements.py).
+        self.achievement_roles = JsonFile(data_dir / "achievementRoles.json", dict)
         #: Players who switched the "a boss is coming" warnings off (features/bossdetect.py).
         self.detect_off = IdListFile(data_dir / "boss_detection_off.txt")
 
@@ -231,6 +277,9 @@ class AlterBot(commands.Bot):
         if not petcards.pillow_available():
             log.error("Pillow is not installed: pet cards (frames, seals, Holo) are off.")
             self._startup_notes.append(MSG_NO_PILLOW)
+        broken = import_all_modules()  # nothing is read from the disk later, see there
+        if broken:
+            self._startup_notes.append(MSG_MODULES_BROKEN.format(modules=", ".join(broken)))
         for extension in EXTENSIONS:
             try:
                 await self.load_extension(extension)

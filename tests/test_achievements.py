@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from altermmo import schema
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.features import achievements, patrons
 
@@ -42,6 +43,12 @@ async def stats(bot, player_id: int) -> tuple | None:
     row = await bot.db.fetchrow(
         "SELECT BOSS_KILLS, HUNTS, BUTCHERS FROM ACHIEVEMENTS WHERE PLAYER_ID = $1", player_id)
     return None if row is None else tuple(None if value is None else int(value) for value in row)
+
+
+async def counter(bot, player_id: int, name: str) -> int | None:
+    value = await bot.db.fetchval(
+        "SELECT VALUE FROM ACHIEVEMENT_COUNTERS WHERE PLAYER_ID = $1 AND NAME = $2", player_id, name)
+    return None if value is None else int(value)
 
 
 class DatabaseDown:
@@ -115,6 +122,39 @@ async def test_create_database_never_destroys_data(game_db):
     await bot.db.execute("DROP TABLE ACHIEVEMENTS")
     await achievements.create_database(game_db.scene())
     assert await bot.db.fetchval("SELECT count(*) FROM ACHIEVEMENTS") == 0
+
+
+def test_schema_has_both_tables_and_only_the_counters_are_new_in_v2():
+    assert len(achievements.SCHEMA) == 2
+    assert "TABLE IF NOT EXISTS ACHIEVEMENTS (" in achievements.SCHEMA[0]
+    assert "TABLE IF NOT EXISTS ACHIEVEMENT_COUNTERS (" in achievements.SCHEMA[1]
+    # The old bot's database has ACHIEVEMENTS; only the counters are made at start-up.
+    assert achievements.NEW_TABLES == (achievements.SCHEMA[1],)
+    assert all(statement.lstrip().startswith("CREATE TABLE IF NOT EXISTS") for statement in achievements.SCHEMA)
+    assert "altermmo.features.achievements" in schema.SCHEMA_MODULES
+
+
+async def test_counters_table_is_made_when_missing_and_never_emptied(game_db):
+    bot = game_db.bot
+    scene = game_db.scene()
+    player = game_db.add_member("Ala")
+    await achievements.add_boss_kill(scene, player)
+    assert await achievements.add_count(scene, player, "duels", 3) == 3
+    await achievements.create_database(scene)
+    assert await counter(bot, player.id, "duels") == 3        # kept
+    columns = await bot.db.fetch(
+        """SELECT column_name, data_type FROM information_schema.columns
+           WHERE table_name = 'achievement_counters' ORDER BY ordinal_position""")
+    assert [(row["column_name"], row["data_type"]) for row in columns] == [
+        ("player_id", "numeric"), ("name", "character varying"), ("value", "numeric")]
+
+    await bot.db.execute("DROP TABLE ACHIEVEMENT_COUNTERS")  # the old bot's database at the first start
+    await schema.create_new_tables(bot.db)
+    assert await achievements.add_count(scene, player, "duels") == 1
+    await bot.db.execute("DROP TABLE ACHIEVEMENT_COUNTERS")
+    await achievements.create_database(bot)
+    assert await achievements.add_count(scene, player, "chests") == 1
+    assert await stats(bot, player.id) == (1, 0, 0)          # ACHIEVEMENTS untouched throughout
 
 
 async def test_new_record_is_inserted_once(game_db):
@@ -221,17 +261,60 @@ async def test_non_patron_is_counted_but_gets_no_role(game_db, roles):
     assert not game_db.channel.contains("zdobywa osiągnięcie")
 
 
-async def test_role_is_awarded_only_when_the_milestone_is_hit_as_a_patron(game_db, roles):
-    """Legacy rule: no catching up - becoming a patron at kill 2 gives nothing until kill 10."""
+async def test_late_supporter_gets_the_highest_tier_reached_at_the_next_counted_deed(game_db, roles):
+    """Owner's decision of 2026-11-20, replacing the legacy "only when the milestone is hit exactly".
+
+    A player who starts to support after passing milestones gets the highest tier the
+    counter has reached as soon as the next deed is counted (not the lowest tier, and not
+    only at the next exact milestone); a higher tier then replaces the lower one.
+    """
+    bot = game_db.bot
     scene = game_db.scene()
     player = game_db.add_member("Ala")
-    await achievements.add_boss_kill(scene, player)
-    player.roles.append(game_db.guild.add_role(PATRON))
-    for _ in range(8):
+    for _ in range(12):
         await achievements.add_boss_kill(scene, player)
-    assert role_ids(player) == set()
+    assert role_ids(player) == set()                         # counted, but not a supporter: no role
+    assert not game_db.channel.contains("zdobywa osiągnięcie")
+
+    player.roles.append(game_db.guild.add_role(PATRON))
+    await achievements.add_boss_kill(scene, player)          # the 13th kill, the first as a supporter
+    assert role_ids(player) == {KILL_10}                     # the highest tier reached, not KILL_1
+    assert game_db.channel.count("zdobywa osiągnięcie") == 1
+    assert game_db.channel.messages[-1].content == f"<@{player.id}> zdobywa osiągnięcie: Pogromca II!"
+
+    for _ in range(16):
+        await achievements.add_boss_kill(scene, player)      # ... the 29th: nothing new
+    assert role_ids(player) == {KILL_10} and game_db.channel.count("zdobywa osiągnięcie") == 1
+    await achievements.add_boss_kill(scene, player)          # the 30th
+    assert role_ids(player) == {KILL_30}                     # replaces KILL_10
+    assert game_db.channel.count("zdobywa osiągnięcie") == 2
+    assert await stats(bot, player.id) == (30, 0, 0)
+
+
+async def test_catching_up_replaces_the_lower_tier_the_supporter_held(game_db, roles):
+    """A supporter holding a low tier while the counter is far beyond it (e.g. a lost role)."""
+    scene = game_db.scene()
+    patron = game_db.add_member("Ala", roles=[PATRON])
+    patron.roles.append(roles[HUNT_10])
+    await game_db.bot.db.execute("INSERT INTO ACHIEVEMENTS (PLAYER_ID, BOSS_KILLS, HUNTS, BUTCHERS) "
+                                 "VALUES ($1, 0, 99, 0)", patron.id)
+    await achievements.add_hunts(scene, patron)              # the 100th hunt
+    assert role_ids(patron) == {HUNT_100}                    # HUNT_10 taken away, HUNT_35 skipped
+    assert game_db.channel.count("zdobywa osiągnięcie") == 1
+
+
+async def test_player_who_stops_supporting_gets_no_new_role(game_db, roles):
+    """Deeds are still counted, but only supporters get roles; what was given stays."""
+    scene = game_db.scene()
+    player = game_db.add_member("Ala", roles=[PATRON])
     await achievements.add_boss_kill(scene, player)
-    assert role_ids(player) == {KILL_10}
+    assert role_ids(player) == {KILL_1}
+    player.roles = [role for role in player.roles if role.id != PATRON]
+    for _ in range(40):
+        await achievements.add_boss_kill(scene, player)
+    assert role_ids(player) == {KILL_1}
+    assert game_db.channel.count("zdobywa osiągnięcie") == 1
+    assert await stats(game_db.bot, player.id) == (41, 0, 0)
 
 
 async def test_simultaneous_hunts_are_all_counted_and_the_role_is_given_once(game_db, roles):
@@ -338,7 +421,7 @@ async def test_tower_tiers_replace_each_other(game, roles):
 
 
 async def test_lower_tier_is_kept_when_the_player_already_has_the_higher_one(game, roles):
-    """Legacy: lower tiers are only cleaned up at the moment the higher role is granted."""
+    """As in the legacy bot: lower tiers are only cleaned up at the moment a higher role is granted."""
     scene = game.scene()
     player = game.add_member("Ala")
     player.roles.extend([roles[KILL_1], roles[KILL_10]])
@@ -376,6 +459,32 @@ async def test_role_that_cannot_be_given_is_not_announced(game, roles):
     assert role_ids(player) == {KILL_1}                      # nothing taken away either
     assert not game.channel.contains("zdobywa osiągnięcie")
     assert any("Pogromca II" in line for line in game.bot.owner_log)
+
+
+async def test_owner_hears_about_a_missing_or_ungivable_role_once_per_run(game, roles):
+    """Not at every deed of every player: once per role until the next restart."""
+    bot = game.bot
+    scene = game.scene()
+    players = [game.add_member(f"Gracz {number}") for number in range(3)]
+    for player in players:
+        assert await achievements.set_achiev_role(scene, player, 424242) is False      # deleted on the server
+        assert await achievements.set_achiev_role(scene, player, 434343) is False
+    missing = [line for line in bot.owner_log if line.startswith("Rola osiągnięcia")]
+    assert len(missing) == 2 and "424242" in missing[0] and "434343" in missing[1]
+    assert f"<@{players[0].id}>" in missing[0]
+
+    async def forbidden(*args, **kwargs):
+        raise RuntimeError("403 Forbidden: Missing Permissions")
+
+    for player in players:
+        player.add_roles = forbidden                         # the role is above the bot's own
+        for role_id in (KILL_10, KILL_10, HUNT_10):
+            assert await achievements.set_achiev_role(scene, player, role_id) is False
+    not_given = [line for line in bot.owner_log if line.startswith("Nie udało się nadać roli osiągnięcia")]
+    assert len(not_given) == 2 and "Pogromca II" in not_given[0] and "Łowca I " in not_given[1]
+    assert len(bot.owner_log) == 4
+    assert all(role_ids(player) == set() for player in players)
+    assert not game.channel.contains("zdobywa osiągnięcie")
 
 
 async def test_lost_announcement_does_not_abort_the_caller(game, roles):

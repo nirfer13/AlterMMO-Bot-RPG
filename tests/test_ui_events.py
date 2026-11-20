@@ -256,19 +256,128 @@ async def test_shrine_waits_while_a_tower_run_is_on(game, cog, monkeypatch):
     assert not game.bot.state.event_alive
 
 
-async def test_chest_that_fails_to_open_stays(game, cog, monkeypatch):
-    ala = game.add_member("Ala")
+def owner_was_pinged(game, what: str, member, error: str) -> bool:
+    """The owner's log channel says, with a ping, whose reward failed."""
+    text = events_cog.LOG_REWARD_FAILED.format(what=what, player_id=member.id, error=error)
+    return game.bot.owner_log == [text] and game.log_channel.contains(f"<@{game.bot.ids.owner}>!   {text}")
+
+
+def fails_once(monkeypatch, module, name: str) -> list:
+    """``module.name`` raises on its first call, then works; returns the list of its calls."""
+    real = getattr(module, name)
+    calls: list = []
+
+    async def flaky(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            raise RuntimeError("test: the connection dropped")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(module, name, flaky)
+    return calls
+
+
+async def test_chest_whose_reward_fails_is_used_up(game, cog, monkeypatch):
+    """Owner's rule: a chest opens exactly once - also when its reward fails half-way.
+
+    (It used to stay for the next click; on 2026-11-20 that let one chest be
+    opened seven times, the loot handed out every time.)
+    """
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
     await cog.run_one_event(forced=EventType.CHEST)
     chest = game.channel.messages[-1]
+    handed: list = []
 
     async def broken(scene, rarity, hunter, boost):
+        handed.append(hunter)
         raise RuntimeError("database on fire")
 
     monkeypatch.setattr(events.daily, "rand_loot", broken)
-    interaction = await game.click(chest, ala, events_cog.CHEST_BUTTON_ID)
-    assert interaction.answers == [ui.MSG_FAILED]
+    opened = await game.click(chest, ala, events_cog.CHEST_BUTTON_ID)
+    assert opened.response.deferred and opened.replies == []             # no "try again": it is gone
+    assert chest.view is None and not ui.is_live(chest.id)
+    assert events_cog.MSG_CHEST_OPENED.format(mention=ala.mention) in chest.text
+    assert not game.bot.state.event_alive and game.bot.state.free_for_activity
+    assert game.channel.messages[-1].content == events_cog.MSG_REWARD_FAILED
+    assert owner_was_pinged(game, "Skrzynia", ala, "RuntimeError")
+
+    late = FakeInteraction(game.bot, ola, chest, channel=game.channel)   # a client that did not refresh yet
+    await cog.passive_clicked(late, EventType.CHEST)
+    assert late.answers == [events_cog.MSG_NO_CHEST]
+    await cog.open_chest.callback(cog, ctx_of(game, ola, "$skrzynia"))
+    assert game.channel.messages[-1].content == events_cog.MSG_NO_CHEST
+    assert handed == [ala] and game.channel.count(events_cog.MSG_REWARD_FAILED) == 1
+    assert len(game.bot.owner_log) == 1
+
+
+async def test_chest_whose_click_cannot_be_acknowledged_stays_for_the_next_player(game, cog, loot, monkeypatch):
+    """Nothing was handed out yet: the chest is put back."""
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await cog.run_one_event(forced=EventType.CHEST)
+    chest = game.channel.messages[-1]
+    acks = fails_once(monkeypatch, ui, "ack")
+    failed = await game.click(chest, ala, events_cog.CHEST_BUTTON_ID)
+    assert failed.answers == [ui.MSG_FAILED] and loot == [] and len(acks) == 1
     assert game.bot.state.event_alive and game.bot.state.event_type is EventType.CHEST
     assert chest.button_labels == [events_cog.CHEST_BUTTON]
+    assert not game.channel.contains(events_cog.MSG_REWARD_FAILED)
+
+    opened = await game.click(chest, ola, events_cog.CHEST_BUTTON_ID)
+    assert opened.response.deferred and [call[1] for call in loot] == [ola]
+    assert chest.view is None and events_cog.MSG_CHEST_OPENED.format(mention=ola.mention) in chest.text
+    assert not game.bot.state.event_alive
+
+
+@pytest.mark.parametrize("typed", [False, True])
+async def test_shrine_whose_blessing_fails_is_used_up(game, cog, monkeypatch, typed):
+    first = game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
+    second = game.add_member("Patron", roles=[patrons.CRAFTER_ROLE])
+    await cog.run_one_event(forced=EventType.SHRINE)
+    shrine = game.channel.messages[-1]
+    drawn: list = []
+
+    async def broken(scene, msg=True, sacrefice=False):
+        drawn.append(scene.author)
+        raise RuntimeError("modifiers file locked")
+
+    monkeypatch.setattr(events.modifiers, "random_modifiers", broken)
+    if typed:
+        ctx = ctx_of(game, first, "$modlitwa")
+        await cog.pray.callback(cog, ctx)                                # does not raise
+        assert ctx.message.reactions == [events_cog.PRAYGE]
+    else:
+        prayed = await game.click(shrine, first, events_cog.SHRINE_BUTTON_ID)
+        assert prayed.response.deferred and prayed.replies == []
+    assert shrine.view is None and events_cog.MSG_SHRINE_USED.format(mention=first.mention) in shrine.text
+    assert not game.bot.state.event_alive and game.bot.state.free_for_activity
+    assert game.channel.messages[-1].content == events_cog.MSG_REWARD_FAILED
+    assert owner_was_pinged(game, "Kapliczka", first, "RuntimeError")
+
+    late = FakeInteraction(game.bot, second, shrine, channel=game.channel)
+    await cog.passive_clicked(late, EventType.SHRINE)
+    assert late.answers == [events_cog.MSG_NO_SHRINE]
+    await cog.pray.callback(cog, ctx_of(game, second, "$modlitwa"))
+    assert game.channel.messages[-1].content == events_cog.MSG_NO_SHRINE
+    assert drawn == [first] and len(game.bot.owner_log) == 1
+
+
+async def test_shrine_whose_prayer_cannot_be_acknowledged_stays(game, cog, monkeypatch):
+    monkeypatch.setattr(random, "choice", lambda pool: "points_boost")
+    first = game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
+    second = game.add_member("Patron", roles=[patrons.CRAFTER_ROLE])
+    await cog.run_one_event(forced=EventType.SHRINE)
+    shrine = game.channel.messages[-1]
+    reactions = fails_once(monkeypatch, events_cog.io, "safe_react")
+    with pytest.raises(RuntimeError):                                    # (the command's error handler answers)
+        await cog.pray.callback(cog, ctx_of(game, first, "$modlitwa"))
+    assert len(reactions) == 1 and game.bot.state.event_alive
+    assert shrine.button_labels == [events_cog.SHRINE_BUTTON]
+    assert (await events.modifiers.load_modifiers(game.bot))["points_boost"] == 0
+
+    assert (await game.click(shrine, second, events_cog.SHRINE_BUTTON_ID)).response.deferred
+    assert (await events.modifiers.load_modifiers(game.bot))["points_boost"] > 0
+    assert shrine.view is None and second.mention in shrine.text and not game.bot.state.event_alive
+    assert not game.channel.contains(events_cog.MSG_REWARD_FAILED) and game.bot.owner_log == []
 
 
 async def test_unclaimed_chest_loses_its_button_when_the_next_event_comes(game, cog, hunt, quick):

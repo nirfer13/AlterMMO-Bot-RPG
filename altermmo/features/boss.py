@@ -935,7 +935,9 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
 
     await _guarded(bot, "ogłoszenie zwycięstwa", scene.send(MSG_SINGLE_WON.format(user_id=hunter.id)))
     if int(turn_time.total_seconds()) < 2:
-        await _guarded(bot, "osiągnięcie za szybkość", achievements.quickness(scene, hunter))
+        # (Under 2 s, under 1 s, under 0.75 s per turn: the best tier reached, see achievements.QUICK_LIMITS.)
+        await _guarded(bot, "osiągnięcie za szybkość",
+                       achievements.quickness(scene, hunter, turn_time.total_seconds()))
     await _guarded(bot, "czas walki", scene.send(
         f"Zabicie bossa zajęło Ci: {round(fight_time.total_seconds(), 2):.2f} sekundy! "
         f"Jedna tura zajęła Ci średnio {round(turn_time.total_seconds(), 2):.2f} sekundy!"))

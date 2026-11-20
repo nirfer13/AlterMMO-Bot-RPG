@@ -63,6 +63,11 @@ MSG_NO_CHEST = "Powiedz mi... Czy ta skrzynia jest tutaj z nami w pokoju? <:Hmm:
 # The same for everybody who clicks: one line on the channel is enough (see ui.reply).
 ui.GENERAL_NOTICES.update({MSG_NO_CHEST, MSG_NO_SHRINE, MSG_NOT_A_BELIEVER})
 MSG_CHEST_OPENED = "🗝️ Skrzynię otwiera {mention}!"
+#: The reward of a chest / shrine failed half-way: the event is used up all the same.
+MSG_REWARD_FAILED = ("Coś poszło nie tak przy wydawaniu nagrody <:Sadge:936907659142111273> "
+                     "Administracja dostała już znać.")
+LOG_REWARD_FAILED = ("{what}: błąd przy wydawaniu nagrody graczowi <@{player_id}> (`{error}`). Wydarzenie "
+                     "zostało zamknięte (nie da się go użyć drugi raz) - sprawdź w logu, co gracz dostał.")
 MSG_SHRINE_USED = "🕯️ W kapliczce modli się {mention}."
 
 PRAYGE = "<:prayge:1063891597760139304>"
@@ -326,16 +331,35 @@ class EventsCog(commands.Cog, name="Events"):
             return False
         try:
             await started()
+        except BaseException:
+            state.reopen_event(event_type)  # nothing happened - the chest / shrine stays
+            raise
+        # From here on the chest / shrine is used up, whatever happens.  Owner's rule: it works
+        # exactly once.  (It used to be put back when the reward raised - also after the loot
+        # had been handed out, so on 2026-11-20 one chest was opened seven times.)
+        failure: Exception | None = None
+        try:
             if event_type is EventType.SHRINE:
                 await modifiers.random_modifiers(scene, True)
             else:
                 await events.open_chest(scene)
-        except BaseException:
-            state.reopen_event(event_type)  # nothing happened - the chest / shrine stays
-            raise
-        state.close_event()
+        except Exception as exc:  # noqa: BLE001 - reported below; the event is over all the same
+            failure = exc
+            log.exception("%s: the reward of %s failed.", event_type.name, scene.author.id)
+        finally:
+            state.close_event()  # (also when the task is cancelled)
         line = MSG_SHRINE_USED if event_type is EventType.SHRINE else MSG_CHEST_OPENED
         await self.retire_panel(line.format(mention=scene.author.mention))
+        if failure is not None:
+            await self.bot.log_to_owner(LOG_REWARD_FAILED.format(
+                what="Kapliczka" if event_type is EventType.SHRINE else "Skrzynia",
+                player_id=scene.author.id, error=type(failure).__name__), ping=True)
+            try:
+                await io.send(scene.channel, MSG_REWARD_FAILED)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                log.warning("Could not tell the channel about the failed reward.")
         return True
 
     async def passive_clicked(self, interaction: Any, event_type: EventType) -> None:
