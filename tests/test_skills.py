@@ -509,7 +509,7 @@ async def test_rest_lets_the_guests_hunt_again(game_db, daily, monkeypatch):
     answers = rest_clicks(game_db, monkeypatch, bot.fake_user, ola, ela, ola, dead, gone, during=look)
     assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 1
 
-    picture, invitation, done = game_db.channel.bot_messages[1:]
+    picture, invitation, already, cannot, done = game_db.channel.bot_messages[1:]
     assert picture.files == ["3.png"] and (0, 4) in asked
     embed = invitation.embeds[0]
     assert embed.title == ("<:peepofat:1062666941405331507> Ala zaprasza na odpoczynek! "
@@ -528,9 +528,12 @@ async def test_rest_lets_the_guests_hunt_again(game_db, daily, monkeypatch):
     bot_click, ola_1, ela_1, ola_2, dead_click, gone_click = answers
     assert bot_click.replies == [] and not bot_click.response.is_done()      # the bot's own click: ignored
     assert ola_1.response.deferred and ola_1.replies == [] and ela_1.replies == []
-    assert ola_2.whispers == [skills.MSG_ALREADY_RESTING]                     # counted once
-    assert dead_click.whispers == [ui.MSG_CANNOT_PLAY]                        # dead hunters rest no more
-    assert gone_click.response.deferred
+    assert ola_2.answers == [skills.MSG_ALREADY_RESTING]                      # counted once
+    assert dead_click.answers == [ui.MSG_CANNOT_PLAY]                         # dead hunters rest no more
+    assert gone_click.response.deferred and gone_click.replies == []
+    # Both refusals are messages on the channel (under the invitation), each naming its clicker.
+    assert already.content == f"<@{ola.id}> {skills.MSG_ALREADY_RESTING}" and already is ola_2.replies[0].message
+    assert cannot.content == f"<@{dead.id}> {ui.MSG_CANNOT_PLAY}" and cannot is dead_click.replies[0].message
 
     assert daily.removed == [[str(ola.id), str(ela.id)]]                      # left the server: not counted
     assert bot.store.daily_cd.all() == [str(iza.id), str(olek.id), str(dead.id), str(gone.id)]
@@ -542,6 +545,22 @@ async def test_rest_lets_the_guests_hunt_again(game_db, daily, monkeypatch):
     assert game_db.channel.bot_messages[-1].content == skills.daily_cd_text() and game_db.channel.count(INVITATION) == 1
     await skills.clear_daily_skill(bot)
     assert await skills.skill_rest(game_db.scene(host)) is True
+
+
+async def test_rest_repeated_clicks_post_one_notice_per_player(game_db, daily, monkeypatch):
+    """With the real repeat filter of ui.reply the channel gets one "already resting" per player."""
+    monkeypatch.setattr(ui, "NOTICE_GAP", 10.0)
+    host, ola, ela = await with_gem(game_db, skills.REST), game_db.add_member("Ola"), game_db.add_member("Ela")
+    for tired in (ola, ela):
+        game_db.bot.store.daily_cd.add(tired.id)
+    answers = rest_clicks(game_db, monkeypatch, ola, ola, ola, ela, ela)
+    assert await skills.skill_rest(game_db.scene(host)) is True
+    assert [click.answers for click in answers] == [[], [skills.MSG_ALREADY_RESTING], [], [],
+                                                    [skills.MSG_ALREADY_RESTING]]
+    assert all(click.response.is_done() for click in answers)          # every click acknowledged
+    assert texts(game_db)[2:] == [f"<@{ola.id}> {skills.MSG_ALREADY_RESTING}",
+                                  f"<@{ela.id}> {skills.MSG_ALREADY_RESTING}", REST_DONE]
+    assert daily.removed == [[str(ola.id), str(ela.id)]]
 
 
 async def test_rest_nobody_came(game_db, daily):

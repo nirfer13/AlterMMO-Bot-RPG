@@ -564,8 +564,7 @@ def _shown_embed(player_id: int, pet: Any, items: Any) -> tuple[discord.Embed, P
 async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool:
     """Show the player's pet and his scrolls; False when he has no pet.
 
-    On a channel (not in a private answer, see :func:`ui.whisper_scene`) the
-    pet carries a :class:`PetPanel` for its owner unless ``buttons=False``.
+    The pet carries a :class:`PetPanel` for its owner unless ``buttons=False``.
     """
     bot = scene.bot
     player_id = _pid(player)
@@ -593,7 +592,7 @@ async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool
 
     embed, image = _shown_embed(player_id, pet, owner)
     files = {} if image is None else {"file_path": image}
-    if not buttons or isinstance(scene, ui.WhisperScene):
+    if not buttons:
         await scene.send(embed=embed, **files)
         return True
     panel = PetPanel(player, pet, image=image)
@@ -1367,7 +1366,7 @@ async def check_stable(scene: "Scene") -> bool:
         await scene.send(_msg_alone(player_id))
         return False
     embed, options = view
-    if not options or isinstance(scene, ui.WhisperScene):
+    if not options:
         await scene.send(embed=embed)
         return True
     panel = StablePanel(scene.author, options)
@@ -1472,7 +1471,7 @@ class PetPanel(ui.PanelView):
     cooldown), ``Stajnia`` shows the stable (display only, any channel), the
     rest start exactly the flows of ``$odrodzenie``, ``$mocneodrodzenie``,
     ``$oswiecenie``, ``$transformacja`` and ``$porzucam``.  Gameplay buttons
-    are refused (privately) outside the boss channel, while the channel is
+    are refused outside the boss channel, while the channel is
     busy and for dead hunters.  A gameplay button takes the panel's buttons
     away: the flow shows the pet anew when it changed it.  Buttons that make
     no sense for this pet (rerolling an egg, enlightening a young pet,
@@ -1480,7 +1479,7 @@ class PetPanel(ui.PanelView):
 
     The panel acts only on the pet it shows (:attr:`pet_id`): once another pet
     is active (taken out of the stable meanwhile) a click takes the buttons off
-    and is answered privately with :data:`MSG_OTHER_PET`; the flows re-check
+    and is answered with :data:`MSG_OTHER_PET`; the flows re-check
     it after their question too.  ``image``: the picture sent with the panel.
     """
 
@@ -1549,7 +1548,7 @@ class PetPanel(ui.PanelView):
     async def shows_active_pet(self, interaction: Any) -> bool:
         """True when the click may act on the active pet: it is this panel's pet (or there is none).
 
-        Otherwise the click is answered privately with :data:`MSG_OTHER_PET`
+        Otherwise the click is answered with :data:`MSG_OTHER_PET`
         and the panel's buttons are taken off.
         """
         player_id = _pid(interaction.user)

@@ -16,7 +16,7 @@ see :mod:`altermmo.core.ui`):
   panel with a "Dołącz" button.  The panel shows the deadline (Discord's live
   "za 10 minut") and the list of everybody who signed up; it is edited as
   people click, but at most once a second.  A second click of the same member
-  is answered privately and counted once;
+  is told so (``ui.reply``) and counted once;
 * volunteer events (dark forest, memory game) and the hazard cups take the
   first valid click; the panel then says who it was and loses its buttons;
 * the memory answer is ten emote buttons only the volunteer can press;
@@ -252,6 +252,8 @@ MSG_WAITING_UNTIL = "⏳ Czekam na śmiałka - czas mija {when}."
 MSG_ALREADY_SIGNED = "Już jesteś na liście <:PepoG:790963160528977980>"
 MSG_TOO_LATE = "Ktoś był szybszy <:Sadge:936907659142111273>"
 MSG_SIGN_UP_TOO_LATE = "Za późno - zapisy już się zakończyły <:Sadge:936907659142111273>"
+# The same for everybody who clicks: one line on the channel is enough (see ui.reply).
+ui.GENERAL_NOTICES.update({MSG_TOO_LATE, MSG_SIGN_UP_TOO_LATE})
 
 
 # -- small helpers -------------------------------------------------------------------
@@ -336,7 +338,7 @@ class _SignUp:
 
     Use it as ``async with`` - the button is taken off when the block ends.
     Clicks are queued by the :class:`ui.ClickView`; a member is counted once
-    (a second click is answered privately).  The roster is repainted by a
+    (a second click is told so).  The roster is repainted by a
     small background task, at most once per :data:`ROSTER_EDIT_GAP` seconds.
     """
 
@@ -516,7 +518,8 @@ async def _toast_round(scene: "Scene", toast: str) -> Any:
     prompt = '"**' + " ".join(toast.upper()) + '**"'
     limit = timing.timeout(TOAST_TIMEOUT)
     for attempt in range(1, challenge.MAX_CONSECUTIVE_DISRUPTIONS + 1):
-        with _channel_messages(bot, scene.channel) as queue:
+        # (round_running: a typed round - no answers to clicks are posted meanwhile)
+        with challenge.round_running(scene.channel), _channel_messages(bot, scene.channel) as queue:
             started = time.monotonic()
             sent = await scene.send(prompt)
             deadline = time.monotonic() + limit

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import discord
 import pytest
 
-from altermmo.core import guards, io, timing, ui
+from altermmo.core import challenge, guards, io, timing, ui
 from altermmo.core.state import BossInfo, BossPhase
 from altermmo.features import boss, boss_cycle
 from altermmo.features.fight_types import FightInterrupted, FightResult
@@ -94,32 +94,40 @@ async def test_click_attacks_like_the_typed_command(registered, fights, monkeypa
     assert game.bot.state.boss_phase is BossPhase.IDLE
 
 
-async def test_attack_button_refusals_are_private(registered, fights, monkeypatch):
+async def test_attack_button_refusals_are_public_and_addressed(registered, fights, monkeypatch):
+    """Owner's rule: nothing "visible only to you" - a refused click is answered on the channel."""
     game = registered
     bot = game.bot
     ala = game.add_member("Ala")
     dead = game.add_member("Jan", roles=[bot.ids.dead_hunter_role])
     game.channel.silenced_roles.add(bot.ids.dead_hunter_role)
 
-    # No boss: the typed command says it in public, the button privately.
+    # No boss: the same answer as the typed command - it names Ala already, so no second mention.
     await bot.state.set_boss_phase(BossPhase.WAITING)
     old = await boss_cycle.with_attack_button(lambda view: game.channel.send("stary boss", view=view))
     refused = await game.click(old, ala, "Zaatakuj")
-    assert refused.whispers == [boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ala.id)]
-    assert not game.channel.contains("Nie możesz zaatakować bossa")
+    not_attackable = boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ala.id)
+    assert refused.public == [not_attackable] and refused.whispers == []
+    assert game.channel.messages[-1] is refused.replies[0].message
+    assert game.channel.messages[-1].content == not_attackable
+    assert refused.replies[0].allowed_mentions.users == [ala]       # nobody else is pinged
 
     picture = await show_boss(game, monkeypatch)
-    assert (await game.click(picture, dead, "Zaatakuj")).whispers == [ui.MSG_CANNOT_PLAY]   # a dead hunter
+    dead_click = await game.click(picture, dead, "Zaatakuj")         # a dead hunter
+    assert dead_click.public == [f"<@{dead.id}> {ui.MSG_CANNOT_PLAY}"]
+    assert game.channel.messages[-1].content == dead_click.public[0]
     elsewhere = await boss_cycle.with_attack_button(lambda view: game.notice_channel.send("boss", view=view))
-    assert (await game.click(elsewhere, ala, "Zaatakuj")).whispers == [
-        ui.MSG_WRONG_CHANNEL.format(channel_id=bot.ids.boss_channel)]
+    wrong = await game.click(elsewhere, ala, "Zaatakuj")
+    assert wrong.public == [f"<@{ala.id}> " + ui.MSG_WRONG_CHANNEL.format(channel_id=bot.ids.boss_channel)]
+    assert game.notice_channel.messages[-1].content == wrong.public[0]   # where the click was
     assert fights.calls == [] and bot.state.boss_phase is BossPhase.VISIBLE
 
     assert bot.state.try_engage_boss()                               # somebody is choosing the fighter
-    assert (await game.click(picture, ala, "Zaatakuj")).whispers == [boss_cycle.MSG_BOSS_TAKEN]
-    await bot.state.set_boss_phase(BossPhase.FIGHTING)
-    assert (await game.click(picture, ala, "Zaatakuj")).whispers == [
-        boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ala.id)]
+    taken = await game.click(picture, ala, "Zaatakuj")
+    assert taken.public == [f"<@{ala.id}> {boss_cycle.MSG_BOSS_TAKEN}"]
+    assert game.channel.messages[-1].content == taken.public[0]
+    await bot.state.set_boss_phase(BossPhase.FIGHTING)               # (no round running: not swallowed)
+    assert (await game.click(picture, ala, "Zaatakuj")).public == [not_attackable]
     assert fights.calls == []
 
 
@@ -131,15 +139,78 @@ async def test_typed_zaatakuj_still_works_and_takes_the_button_off(game, fights,
     assert picture.view is None
 
 
+async def test_clicks_on_old_attack_buttons_post_nothing_during_the_typed_fight(registered, monkeypatch):
+    """Owner's rule: nothing may make a fight stutter - no answer between the fight's prompts."""
+    game = registered
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    seen = {}
+
+    async def single_init(scene, rarity):
+        return scene.author
+
+    async def single_fight(scene, hunter, rarity, is_player_boss, player_boss):
+        """One real round of the typed fight; Ola and the hunter click old buttons in the middle of it."""
+        clicks = [game.click_later(old, ola, "Zaatakuj", 0.05), game.click_later(old, hunter, "Zaatakuj", 0.05)]
+        game.say_later(hunter, "unik", 0.3)
+        seen["round"] = await challenge.ask(scene.bot, scene.channel, "Wpisz **U N I K**",
+                                            players=[hunter], timeout=3)
+        seen["clicks"] = await asyncio.gather(*clicks)
+        return FightResult(won=True)
+
+    async def reset_end(bot):
+        return None
+
+    monkeypatch.setattr(boss, "single_init", single_init)
+    monkeypatch.setattr(boss, "single_fight", single_fight)
+    monkeypatch.setattr(boss, "reset_end", reset_end)
+    picture = await show_boss(game, monkeypatch)
+    old = await boss_cycle.with_attack_button(lambda view: game.channel.send("stary boss", view=view))
+    await game.click(picture, ala, "Zaatakuj")
+    round_ = seen["round"]
+    assert round_.answered and round_.message.content == "unik"
+    for click in seen["clicks"]:
+        assert click.response.deferred and click.replies == []      # acknowledged, nothing posted
+    assert [m for m in game.channel.messages if round_.prompt.id < m.id < round_.message.id] == []
+    assert not game.channel.contains("Nie możesz zaatakować bossa")
+
+    monkeypatch.setattr(challenge, "FIGHT_LINGER", 15.0)             # the production value: moments after
+    lingering = await game.click(old, ola, "Zaatakuj")               # the last round it still counts as on
+    assert lingering.response.deferred and lingering.replies == []
+    monkeypatch.setattr(challenge, "FIGHT_LINGER", 0.0)              # ...and once it is over, answered again
+    assert (await game.click(old, ola, "Zaatakuj")).public == [
+        boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ola.id)]
+
+
+async def test_hammering_attack_without_a_boss_posts_one_answer_per_player(registered, monkeypatch):
+    """A player's repeated click does not repeat the notice; each player still gets an answer."""
+    game = registered
+    monkeypatch.setattr(ui, "NOTICE_GAP", 10.0)                      # the production value
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await game.bot.state.set_boss_phase(BossPhase.WAITING)
+    old = await boss_cycle.with_attack_button(lambda view: game.channel.send("stary boss", view=view))
+    clicks = [await game.click(old, member, "Zaatakuj") for member in (ala, ala, ola, ala, ola)]
+    assert [click.public for click in clicks] == [
+        [boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ala.id)], [],
+        [boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ola.id)], [], []]
+    assert all(click.response.deferred for click in clicks if not click.replies)
+    assert game.channel.count("Nie możesz zaatakować bossa") == 2
+
+
 async def test_boss_is_not_attacked_while_the_channel_is_busy(registered, fights, monkeypatch):
     """Owner's rule: no attack - button or command - in the middle of a hunt / tower run."""
     game = registered
-    monkeypatch.setattr(guards, "_last_notice", {})
-    ala = game.add_member("Ala")
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
     picture = await show_boss(game, monkeypatch)
     with game.bot.state.hold_busy("hunt"):
-        assert (await game.click(picture, ala, "Zaatakuj")).whispers == [ui.MSG_BUSY]
-        assert not game.channel.contains(guards.BUSY_NOTICE)         # the click is answered privately
+        click = await game.click(picture, ala, "Zaatakuj")
+        assert click.answers == [ui.MSG_BUSY] and ui.MSG_BUSY == guards.BUSY_NOTICE
+        assert game.channel.messages[-1].content == f"<@{ala.id}> {guards.BUSY_NOTICE}"   # on the channel
+        # One busy notice per 20 s on the channel, shared by the clicks and the typed commands:
+        await game.bot.boss_cycle.attack(game.scene(ala, "$zaatakuj"))
+        again = await game.click(picture, ola, "Zaatakuj")
+        assert again.response.deferred and again.replies == []      # acknowledged, nothing posted
+        assert game.channel.count(guards.BUSY_NOTICE) == 1
+        guards._last_notice.clear()                                  # ...20 s later
         await game.bot.boss_cycle.attack(game.scene(ala, "$zaatakuj"))
         assert game.channel.messages[-1].content == guards.BUSY_NOTICE
     assert fights.calls == [] and game.bot.state.boss_phase is BossPhase.VISIBLE
@@ -156,21 +227,21 @@ async def test_gem_or_pet_menu_does_not_keep_the_boss_away(registered, fights, m
     picture = await show_boss(game, monkeypatch)
     with game.bot.state.hold_busy(holder):
         click = await game.click(picture, ala, "Zaatakuj")
-    assert click.whispers == [] and ("fight", "Ala", 0) in fights.calls
+    assert click.replies == [] and ("fight", "Ala", 0) in fights.calls
 
 
 async def test_no_boss_is_the_answer_also_during_a_hunt(registered, fights, monkeypatch):
     """Without a boss "try again in a moment" would be a false promise."""
     game = registered
-    monkeypatch.setattr(guards, "_last_notice", {})
     ala = game.add_member("Ala")
     await game.bot.state.set_boss_phase(BossPhase.WAITING)
     old = await boss_cycle.with_attack_button(lambda view: game.channel.send("stary boss", view=view))
+    not_attackable = boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ala.id)
     with game.bot.state.hold_busy("hunt"):
-        assert (await game.click(old, ala, "Zaatakuj")).whispers == [
-            boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ala.id)]
+        assert (await game.click(old, ala, "Zaatakuj")).public == [not_attackable]
         await game.bot.boss_cycle.attack(game.scene(ala, "$zaatakuj"))
-    assert game.channel.messages[-1].content == boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ala.id)
+    assert game.channel.messages[-1].content == not_attackable
+    assert game.channel.count(not_attackable) == 2                   # the click's answer and the command's
     assert not game.channel.contains(guards.BUSY_NOTICE)
 
 
@@ -196,7 +267,7 @@ async def test_joining_a_running_lobby_is_not_stopped_by_the_busy_flag(registere
     await asyncio.sleep(0.05)
     with game.bot.state.hold_busy("hunt"):
         click = await game.click(old, ola, "Zaatakuj")
-    assert joined == ["Ola"] and click.whispers == []
+    assert joined == ["Ola"] and click.replies == []
     go.set()
     await asyncio.wait_for(encounter, 3)
 
@@ -286,7 +357,7 @@ async def test_click_right_after_another_claimed_the_legendary_boss_joins_the_lo
     encounter = game.click_later(picture, ala, "Zaatakuj")
     second = game.click_later(picture, ola, "Zaatakuj", 0.05)
     click = await asyncio.wait_for(second, 3)
-    assert click.whispers == [] and click.response.deferred        # taken by the lobby door
+    assert click.replies == [] and click.response.deferred         # taken by the lobby door
     panel = await game.wait_for_buttons("join")
     await eventually(lambda: field(panel)[0] == "Drużyna (2/4)")
     assert field(panel)[1] == f"⚔️ <@{ala.id}>\n⚔️ <@{ola.id}>"
@@ -295,34 +366,55 @@ async def test_click_right_after_another_claimed_the_legendary_boss_joins_the_lo
     await asyncio.sleep(0.3)                                         # the background notice of the cancelled fight
 
 
-async def test_click_while_the_lobby_opens_is_not_sent_away(registered, fights, monkeypatch):
-    """A click between the claim of the boss and the opening of its lobby: not "wait for the next one"."""
+@pytest.mark.parametrize("rarity", [0, 3])
+async def test_click_while_the_lobby_opens_is_not_sent_away(registered, fights, monkeypatch, rarity):
+    """A click between the claim of the boss and the opening of its lobby: not "wait for the next one".
+
+    The answer is public and names the clicker: "click **Zaatakuj**" (a rival) or
+    "click **Dołącz**" (the party panel of a legendary boss) in a moment.
+    """
     game = registered
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     opening, spell = asyncio.Event(), asyncio.Event()
+    fought = []
 
-    async def single_init(scene, rarity):
+    async def single_init(scene, rarity_):
         await opening.wait()                                         # the lobby takes a moment to open
         with boss._lobby_door(scene.bot, ui.ack):
             pass                                                     # its door was open; now the spell is typed
         await spell.wait()
         return scene.author
 
+    async def group_init(scene, rarity_):
+        return [await single_init(scene, rarity_)]
+
+    async def group_fight(scene, players, is_player_boss, player_boss):
+        fought.append([player.name for player in players])
+        return FightResult(won=True)
+
     monkeypatch.setattr(boss, "single_init", single_init)
-    picture = await show_boss(game, monkeypatch)
+    monkeypatch.setattr(boss, "group_init", group_init)
+    monkeypatch.setattr(boss, "group_fight", group_fight)
+    picture = await show_boss(game, monkeypatch, rarity=rarity)
     old = await boss_cycle.with_attack_button(lambda view: game.channel.send("boss", view=view))
     encounter = game.click_later(picture, ala, "Zaatakuj")
     await asyncio.sleep(0.05)
     assert game.bot.state.boss_phase is BossPhase.ENGAGED
-    assert (await game.click(old, ola, "Zaatakuj")).whispers == [boss_cycle.MSG_RIVAL_WELCOME]
+    first = await game.click(old, ola, "Zaatakuj")
+    expected = boss_cycle.MSG_PARTY_GATHERS if rarity == 3 else boss_cycle.MSG_RIVAL_WELCOME
+    assert first.public == [f"<@{ola.id}> {expected}"]
+    assert game.channel.messages[-1] is first.replies[0].message
     again = await game.click(old, ala, "Zaatakuj")                   # the attacker's own double click
-    assert again.whispers == [] and again.response.deferred
+    assert again.replies == [] and again.response.deferred
     opening.set()
     await asyncio.sleep(0.05)
-    assert (await game.click(old, ola, "Zaatakuj")).whispers == [boss_cycle.MSG_BOSS_TAKEN]
+    assert (await game.click(old, ola, "Zaatakuj")).answers == [boss_cycle.MSG_BOSS_TAKEN]
     spell.set()
     await asyncio.wait_for(encounter, 3)
-    assert ("fight", "Ala", 0) in fights.calls
+    if rarity == 3:
+        assert fought == [["Ala"]]
+    else:
+        assert ("fight", "Ala", 0) in fights.calls
 
 
 def test_answer_to_a_click_right_after_somebody_elses_attack_names_what_to_click():
@@ -369,8 +461,13 @@ async def test_single_lobby_rival_objects_with_a_click(registered, monkeypatch):
     game.channel.send_hooks.append(lobby_posted)
     assert await boss.single_init(game.scene(ala), 1) is ola
     lobby = game.channel.sent[0]
-    assert answers["attacker"].whispers == [boss.MSG_ALREADY_FIGHTING]
-    assert answers["dead"].whispers == [ui.MSG_CANNOT_PLAY]
+    assert "Jesteś sam?" in lobby.content
+    # The lobby is not a typed fight: its refusals are posted, addressed, under the lobby message.
+    assert answers["attacker"].public == [f"<@{ala.id}> {boss.MSG_ALREADY_FIGHTING}"]
+    assert answers["dead"].public == [f"<@{dead.id}> {ui.MSG_CANNOT_PLAY}"]
+    for refusal in (answers["attacker"], answers["dead"]):
+        posted = refusal.replies[0].message
+        assert posted in game.channel.messages and posted.id > lobby.id
     assert answers["rival"].response.deferred and answers["rival"].replies == []
     assert lobby.view is None and lobby.content == boss.MSG_SINGLE_LOBBY_RIVAL.format(user_id=ola.id)
     assert not ui.is_live(lobby.id) and game.bot.boss_cycle.lobby_door is None
@@ -428,10 +525,12 @@ async def test_legendary_lobby_by_buttons(registered, monkeypatch):
     assert panel.button_labels == ["Dołącz"] and panel.content == ""
     assert field(panel) == ("Drużyna (1/4)", f"⚔️ <@{ala.id}>")
     assert "boss odejdzie <t:" in panel.embeds[0].description
-    assert (await game.click(panel, ala, "join")).whispers == [boss.MSG_ALREADY_IN_PARTY]   # the leader
+    leader = await game.click(panel, ala, "join")                    # the leader is in already
+    assert leader.public == [f"<@{ala.id}> {boss.MSG_ALREADY_IN_PARTY}"]
+    assert game.channel.messages[-1] is leader.replies[0].message    # on the channel, under the panel
     joined = await game.click(panel, ola, "join")
     assert joined.response.deferred and joined.replies == []
-    assert (await game.click(panel, ola, "join")).whispers == [boss.MSG_ALREADY_IN_PARTY]   # not twice
+    assert (await game.click(panel, ola, "join")).answers == [boss.MSG_ALREADY_IN_PARTY]    # not twice
     await eventually(lambda: field(panel)[0] == "Drużyna (2/4)")
     assert field(panel)[1] == f"⚔️ <@{ala.id}>\n⚔️ <@{ola.id}>"
     assert "Nieźle, jest już Was 2." in panel.embeds[0].description
@@ -444,9 +543,10 @@ async def test_legendary_lobby_by_buttons(registered, monkeypatch):
     assert ready.content == "Jesteście gotowi do ataku?" + mentions  # posted anew: the party is pinged
     assert ready.button_labels == ["Gotowy"]
     assert "Czas na potwierdzenie mija <t:" in ready.embeds[0].description
-    assert (await game.click(ready, outsider, "ready")).whispers == [boss.MSG_NOT_IN_PARTY]
+    not_in_party = await game.click(ready, outsider, "ready")
+    assert not_in_party.public == [f"<@{outsider.id}> {boss.MSG_NOT_IN_PARTY}"]
     await game.click(ready, ola, "ready")
-    assert (await game.click(ready, ola, "ready")).whispers == [boss.MSG_ALREADY_READY]
+    assert (await game.click(ready, ola, "ready")).answers == [boss.MSG_ALREADY_READY]
     await eventually(lambda: "✅ <@" in field(ready)[1])
     assert field(ready)[1] == f"⏳ <@{ala.id}>\n✅ <@{ola.id}>\n⏳ <@{ela.id}>\n⏳ <@{ula.id}>"
     await game.click(ready, ala, "ready")
@@ -470,15 +570,17 @@ async def test_legendary_lobby_refusals(registered, monkeypatch):
     lobby = asyncio.ensure_future(boss.group_init(game.scene(ala, "$zaatakuj"), 3))
     panel = await game.wait_for_buttons("join")
 
-    assert (await game.click(panel, dead, "join")).whispers == [ui.MSG_CANNOT_PLAY]
-    assert (await game.click(picture, dead, "Zaatakuj")).whispers == [ui.MSG_CANNOT_PLAY]
+    assert (await game.click(panel, dead, "join")).public == [f"<@{dead.id}> {ui.MSG_CANNOT_PLAY}"]
+    assert (await game.click(picture, dead, "Zaatakuj")).answers == [ui.MSG_CANNOT_PLAY]
     door = await game.click(picture, ola, "Zaatakuj")               # an old "Zaatakuj": like "Dołącz"
     assert door.response.deferred and door.replies == []
-    assert (await game.click(picture, ola, "Zaatakuj")).whispers == [boss.MSG_ALREADY_IN_PARTY]
+    assert (await game.click(picture, ola, "Zaatakuj")).answers == [boss.MSG_ALREADY_IN_PARTY]
     for member in (ela, ula):
         await game.click(panel, member, "join")
     ready = await game.wait_for_buttons("ready")
-    assert (await game.click(picture, iza, "Zaatakuj")).whispers == [boss.MSG_PARTY_FULL]
+    full = await game.click(picture, iza, "Zaatakuj")
+    assert full.public == [f"<@{iza.id}> {boss.MSG_PARTY_FULL}"]
+    assert game.channel.messages[-1] is full.replies[0].message
     lobby.cancel()
     await asyncio.gather(lobby, return_exceptions=True)
     assert ready.view is None and bot.boss_cycle.lobby_door is None  # no buttons stay behind

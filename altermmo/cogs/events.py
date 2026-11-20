@@ -11,7 +11,7 @@ The passive events (chest, shrine) wait for a player with no coroutine
 running: their panel carries a *permanent* button ("Otwórz skrzynię" /
 "Pomódl się", fixed ``custom_id``, registered in ``cog_load``) that does
 exactly what ``$skrzynia`` / ``$modlitwa`` do - same guards, same atomic
-claim, the refusals answered privately.  The cog remembers the panel and takes
+claim, the refusals answered with ``ui.reply``.  The cog remembers the panel and takes
 its button off once the event is claimed (by a click or by the command) or
 closed by the next event / the tournament; a click on a panel the cog no longer
 knows (e.g. from before a restart) is refused and its button removed.
@@ -60,6 +60,8 @@ MSG_NO_SHRINE = "Do kogo Ty chcesz się modlić? Przecież tu nic nie ma..."
 MSG_RITUAL_BOSS_GONE = ("Przywołany potwór rozpłynął się w powietrzu - nadciąga coś innego... "
                         "<:Hmm:984767035617730620>")
 MSG_NO_CHEST = "Powiedz mi... Czy ta skrzynia jest tutaj z nami w pokoju? <:Hmm:984767035617730620>"
+# The same for everybody who clicks: one line on the channel is enough (see ui.reply).
+ui.GENERAL_NOTICES.update({MSG_NO_CHEST, MSG_NO_SHRINE, MSG_NOT_A_BELIEVER})
 MSG_CHEST_OPENED = "🗝️ Skrzynię otwiera {mention}!"
 MSG_SHRINE_USED = "🕯️ W kapliczce modli się {mention}."
 

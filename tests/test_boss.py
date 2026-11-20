@@ -16,7 +16,7 @@ import pytest
 
 import altermmo.features
 from altermmo.cogs import slayer
-from altermmo.core import challenge, timing
+from altermmo.core import challenge, io, timing
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossInfo, BossPhase
@@ -1283,12 +1283,113 @@ async def test_change_icon(game):
     assert role.edits == [{"display_icon": b"\x89PNG-icon", "reason": "Zmiana przez użytkownika."}]
     assert game.channel.messages[-1].content == "Ikona została zmieniona Wielki Wojowniku. <:peepoglad:895774173887094874>"
 
-    async def no_boosts(**kwargs):
-        raise http_error(403)
+    async def refused(**kwargs):
+        raise http_error(400)                               # Discord did not like the picture
 
-    role.edit = no_boosts
+    role.edit = refused
     assert not await boss.change_icon(scene)
-    assert game.channel.messages[-1].content == boss.MSG_ICONS_UNAVAILABLE
+    assert game.channel.messages[-1].content == boss.MSG_ICON_REJECTED
+
+
+class CountedAttachment(FakeAttachment):
+    """An attachment that knows its size (as Discord tells it) and counts its downloads."""
+
+    def __init__(self, data: bytes = b"\x89PNG", *, size: int | None = None, error: BaseException | None = None):
+        super().__init__(data=data)
+        self.size = len(data) if size is None else size
+        self.error = error
+        self.reads = 0
+
+    async def read(self) -> bytes:
+        self.reads += 1
+        if self.error is not None:
+            raise self.error
+        return self.data
+
+
+@pytest.fixture
+def quick_retries(monkeypatch):
+    """io.retry without its back-off pauses (the retries themselves still happen)."""
+    real_retry = io.retry
+
+    async def retry(factory, **kwargs):
+        return await real_retry(factory, **{**kwargs, "first_delay": 0.0})
+
+    monkeypatch.setattr(io, "retry", retry)
+
+
+async def test_change_icon_too_big_is_refused_before_the_download(game):
+    bot = game.bot
+    champion = game.add_member("Mistrz", roles=[bot.ids.boss_slayer_role])
+    role = bot.role(bot.ids.boss_slayer_role)
+    cog = slayer.SlayerCog(bot)
+    big = CountedAttachment(size=boss.ROLE_ICON_LIMIT + 1)
+    ctx, resets = make_ctx(game, champion, attachments=[big])
+    await cog.icon.callback(cog, ctx)
+    assert game.channel.messages[-1].content == boss.MSG_ICON_TOO_BIG
+    assert big.reads == 0 and role.edits == [] and resets == [ctx]      # the cooldown is given back
+
+    # Discord did not say the size: the downloaded bytes are measured instead.
+    unknown = CountedAttachment(b"\x89PNG" + b"x" * boss.ROLE_ICON_LIMIT, size=0)
+    scene = game.scene(champion, "$ikona")
+    scene.message.attachments = [unknown]
+    assert not await boss.change_icon(scene)
+    assert unknown.reads == 1 and role.edits == []
+    assert game.channel.messages[-1].content == boss.MSG_ICON_TOO_BIG
+
+
+def _icon_refusal(kind: str) -> BaseException:
+    response = SimpleNamespace(status=403 if kind == "forbidden" else 400, reason="nope")
+    if kind == "forbidden":
+        return discord.Forbidden(response, {"code": 50013, "message": "Missing Permissions"})
+    if kind == "boosts":
+        return discord.HTTPException(response, {"code": 50101, "message": "needs more boosts"})
+    if kind == "rejected":
+        return discord.HTTPException(response, {"code": 50035, "message": "Invalid Form Body"})
+    return asyncio.TimeoutError()
+
+
+@pytest.mark.parametrize("kind, answer", [
+    ("forbidden", boss.MSG_ICON_FORBIDDEN),
+    ("boosts", boss.MSG_ICONS_UNAVAILABLE),
+    ("rejected", boss.MSG_ICON_REJECTED),
+    ("network", boss.MSG_ICON_NOT_SENT),        # the picture was downloaded; sending it to Discord failed
+])
+async def test_change_icon_tells_apart_why_discord_refused(game, quick_retries, kind, answer):
+    bot = game.bot
+    champion = game.add_member("Mistrz", roles=[bot.ids.boss_slayer_role])
+    role = bot.role(bot.ids.boss_slayer_role)
+    tries = []
+
+    async def edit(**kwargs):
+        tries.append(kwargs)
+        raise _icon_refusal(kind)
+
+    role.edit = edit
+    cog = slayer.SlayerCog(bot)
+    ctx, resets = make_ctx(game, champion, attachments=[CountedAttachment()])
+    await cog.icon.callback(cog, ctx)
+    assert game.channel.messages[-1].content == answer
+    assert resets == [ctx]                                   # change_icon said False: no half-hour wait
+    assert len(tries) == (3 if kind == "network" else 1)    # only the network error is retried
+    owner_lines = [m.content for m in game.log_channel.messages]
+    if kind == "forbidden":
+        assert len(owner_lines) == 1 and owner_lines[0].startswith(f"<@{bot.ids.owner}>!")
+        assert "$ikona" in owner_lines[0]
+    else:
+        assert owner_lines == []
+
+
+async def test_change_icon_download_that_keeps_failing(game, quick_retries):
+    bot = game.bot
+    champion = game.add_member("Mistrz", roles=[bot.ids.boss_slayer_role])
+    role = bot.role(bot.ids.boss_slayer_role)
+    broken = CountedAttachment(error=asyncio.TimeoutError())
+    scene = game.scene(champion, "$ikona")
+    scene.message.attachments = [broken]
+    assert not await boss.change_icon(scene)
+    assert broken.reads == 3 and role.edits == []            # retried, then given up
+    assert game.channel.messages[-1].content == boss.MSG_ICON_DOWNLOAD_FAILED
 
 
 def make_ctx(game, author, *, attachments=None):

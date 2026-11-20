@@ -363,7 +363,7 @@ async def start_tower(scene: "Scene", *, refuse: Any = None) -> bool:
 
     The command guards (boss channel, busy notice) run before; this checks the
     busy flag again because a click (the hub panel) has no command guards.
-    ``refuse`` (``async (text) -> Any``) answers a click privately; None (a
+    ``refuse`` (``async (text) -> Any``) answers a click (``ui.reply``); None (a
     typed command) answers on the channel as before.  Returns True when a run
     took place.  The run lasts minutes inside this call: acknowledge a click
     before calling it.

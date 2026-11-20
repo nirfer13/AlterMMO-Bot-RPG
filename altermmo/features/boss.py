@@ -268,10 +268,12 @@ MSG_GROUP_REGROUP_PING = "Zbierzcie drużynę przed atakiem...{mentions}"
 MSG_GROUP_LAST_CHANCE = "Ostatnia szansa, <@&{role_id}>! Kliknij **Dołącz** albo wpisz **$zaatakuj**."
 MSG_GROUP_SET = "Do walki z legendarnym bossem stają:{mentions}"
 MSG_GROUP_NOT_GATHERED = "Drużyna się nie zebrała."
-# Private answers to clicks in the legendary lobby.
+# Answers to clicks in the legendary lobby.
 MSG_ALREADY_IN_PARTY = "Już jesteś w drużynie! ⚔️"
 MSG_PARTY_FULL = "Drużyna jest już w komplecie - poczekaj, czy wszyscy potwierdzą gotowość."
 MSG_NOT_IN_PARTY = "Ten przycisk jest dla łowców z drużyny."
+# The same for everybody who clicks: one line on the channel is enough (see ui.reply).
+ui.GENERAL_NOTICES.update({MSG_PARTY_FULL, MSG_NOT_IN_PARTY})
 MSG_ALREADY_READY = "Już potwierdziłeś gotowość ✅"
 
 JOIN_LABEL = "Dołącz"
@@ -311,6 +313,18 @@ MSG_ICON_MISSING = "Dodaj ikonę w wiadomości z komendą - format .png <:madge:
 MSG_ICON_DOWNLOAD_FAILED = "Nie udało się pobrać ikony, spróbuj ponownie <:Sadge:936907659142111273>"
 MSG_ICONS_UNAVAILABLE = ("Serwer nie może teraz używać ikon ról (potrzebny jest odpowiedni poziom "
                          "ulepszeń serwera) <:Sadge:936907659142111273>")
+MSG_ICON_TOO_BIG = ("Ta ikona jest za duża - Discord przyjmuje ikony ról do 256 KB. "
+                    "Zmniejsz obrazek i spróbuj ponownie <:madge:882184635474386974>")
+MSG_ICON_REJECTED = ("Discord nie przyjął tego obrazka (ikona roli: plik .png do 256 KB) "
+                     "<:Sadge:936907659142111273>")
+MSG_ICON_FORBIDDEN = ("Nie mam uprawnień, żeby zmienić tę rolę <:Sadge:936907659142111273> "
+                      "Dałem znać administratorowi.")
+MSG_ICON_NOT_SENT = ("Nie udało się teraz zmienić ikony (problem z połączeniem), spróbuj ponownie "
+                     "za chwilę <:Sadge:936907659142111273>")
+#: Discord's size limit for a role icon (bytes).
+ROLE_ICON_LIMIT = 256 * 1024
+#: Discord error code: "this server needs more boosts to do that".
+_NEEDS_BOOSTS = 50101
 
 _HEX_COLOUR = re.compile(r"^(?:#|0x)?([0-9a-fA-F]{1,6})$")
 
@@ -791,8 +805,9 @@ async def single_init(scene: "Scene", rarity: int) -> Any:
 
         _forget_queued(inbox)
         await scene.send('"Zaklęcie to **' + " ".join(spell.upper()) + '**"')
-        winner = await _next_message(inbox, lambda message: _says(message, spell),
-                                     timing.timeout(SPELL_TIME))
+        with challenge.round_running(channel):  # a typed contest: no answers to clicks meanwhile
+            winner = await _next_message(inbox, lambda message: _says(message, spell),
+                                         timing.timeout(SPELL_TIME))
 
     if winner is None:
         await scene.send(MSG_NOBODY_WORTHY)
@@ -1223,7 +1238,7 @@ class _GroupLobby:
                 and all(member_id != player.id for player in self.confirmed))
 
     async def _allow(self, interaction: Any, key: str) -> str | None:
-        """Who may click what - answered privately; an accepted click is queued like a typed command."""
+        """Who may click what - answered with ui.reply; an accepted click is queued like a typed command."""
         member_id = interaction.user.id
         in_party = any(member_id == player.id for player in self.players)
         if key == "join":
@@ -1641,21 +1656,45 @@ async def change_icon(scene: "Scene") -> bool:
         log.error("The boss slayer role does not exist on the server.")
         await scene.send(MSG_ICONS_UNAVAILABLE)
         return False
+    if int(getattr(attachment, "size", 0) or 0) > ROLE_ICON_LIMIT:
+        await scene.send(MSG_ICON_TOO_BIG)
+        return False
     try:
         image = await io.retry(lambda: attachment.read(), what="icon download")
-    except discord.HTTPException as exc:
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - Discord said no, or the network gave up after the retries
         log.warning("Could not download the role icon: %s: %s", type(exc).__name__, exc)
         await scene.send(MSG_ICON_DOWNLOAD_FAILED)
+        return False
+    if len(image) > ROLE_ICON_LIMIT:
+        await scene.send(MSG_ICON_TOO_BIG)
         return False
     try:
         await io.retry(lambda: role.edit(display_icon=image, reason="Zmiana przez użytkownika."),
                        what="role icon change")
+    except asyncio.CancelledError:
+        raise
     except ValueError:  # discord.py: the bytes are not a supported image
         await scene.send(MSG_ICON_BAD_FORMAT.format(user_id=scene.author.id))
         return False
-    except discord.HTTPException as exc:  # no role icons on this boost level, missing permissions...
+    except discord.HTTPException as exc:
         log.warning("Could not change the boss slayer icon: %s: %s", type(exc).__name__, exc)
-        await scene.send(MSG_ICONS_UNAVAILABLE)
+        # Too few boosts for role icons (Discord's code 50101, or the server simply has no
+        # ROLE_ICONS feature) comes first: it is not the bot's and not the picture's fault.
+        features = getattr(getattr(role, "guild", None), "features", None)
+        if getattr(exc, "code", 0) == _NEEDS_BOOSTS or (features is not None and "ROLE_ICONS" not in features):
+            await scene.send(MSG_ICONS_UNAVAILABLE)
+        elif isinstance(exc, discord.Forbidden):  # no "Manage Roles", or the bot's role is below this one
+            await scene.send(MSG_ICON_FORBIDDEN)
+            await bot.log_to_owner("Nie mogę zmienić ikony roli Rzeźnika Potworów ($ikona): brak uprawnienia "
+                                   "\"Zarządzanie rolami\" albo rola bota jest poniżej tej roli.", ping=True)
+        else:
+            await scene.send(MSG_ICON_REJECTED)
+        return False
+    except Exception as exc:  # noqa: BLE001 - the network gave up after the retries
+        log.warning("Could not change the boss slayer icon: %s: %s", type(exc).__name__, exc)
+        await scene.send(MSG_ICON_NOT_SENT)
         return False
     await scene.send(MSG_ICON_CHANGED)
     log.info("Boss slayer icon changed by %s.", scene.author)

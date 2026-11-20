@@ -10,9 +10,9 @@ import discord
 import pytest
 import pytest_asyncio
 
-from altermmo.core import ui
+from altermmo.core import challenge, guards, ui
 from altermmo.core.scene import Scene
-from altermmo.features import pets
+from altermmo.features import hub, pets
 from altermmo.features.pets import PetType
 
 from fakes import FakeInteraction, find_component
@@ -147,7 +147,9 @@ async def test_cancel_button_and_strangers(game_db, sacrifices):
     task = asyncio.ensure_future(pets.reroll_pet(game_db.scene(player), player))
     question = await game_db.wait_for_buttons("yes")
     assert question.button_labels == ["Potwierdzam", "Anuluj"]
-    assert (await game_db.click(question, other, "yes")).whispers == [not_yours(player)]
+    refused = await game_db.click(question, other, "yes")                   # on the channel, for Ola
+    assert refused.public == [f"<@{other.id}> {not_yours(player)}"]
+    assert refused.replies[0].message in game_db.channel.messages and question.view is not None
     await game_db.click(question, player, "no")
     assert await asyncio.wait_for(task, 5) is False
     assert game_db.channel.messages[-1].content == UNSURE and question.view is None
@@ -191,7 +193,7 @@ async def test_advanced_reroll_cancel_and_dead_hunters(game_db):
     game_db.channel.silenced_roles.add(game_db.bot.ids.dead_hunter_role)
     player.roles.append(game_db.guild.add_role(game_db.bot.ids.dead_hunter_role))           # died meanwhile
     refused = await game_db.click(menu, player, "pet:skip", values=["0"])
-    assert refused.whispers == [ui.MSG_CANNOT_PLAY] and "koszt: **1 zwój**" in menu.content
+    assert refused.answers == [ui.MSG_CANNOT_PLAY] and "koszt: **1 zwój**" in menu.content
     player.roles.clear()
     await game_db.click(menu, player, "pet:skip-cancel")
     assert await asyncio.wait_for(task, 5) is False
@@ -249,9 +251,9 @@ async def test_stable_list_makes_a_stabled_pet_the_active_one(game_db):
         ("3:7", "Mruczek · Kot · poziom 2", "Miejsce w stajni 3")]
     assert ui.is_live(stable.id)                                        # (slot 2 has no PETS row: not offered)
 
-    assert (await game_db.click(stable, other, "pet:stable-take", values=["3:7"])).whispers == [not_yours(player)]
+    assert (await game_db.click(stable, other, "pet:stable-take", values=["3:7"])).answers == [not_yours(player)]
     interaction = await game_db.click(stable, player, "pet:stable-take", values=["3:7"])
-    assert interaction.response.deferred and interaction.whispers == []
+    assert interaction.response.deferred and interaction.replies == []
     assert await slots(db, player) == [7, 6, 404, 5, 0]
     assert game_db.channel.contains(pets.MSG_SWAPPED)
     assert "🐾 **Przy Tobie**\n**Mruczek** · Kot · poziom 2\n" in stable.embeds[0].description  # redrawn
@@ -270,12 +272,13 @@ async def test_stable_list_has_the_guards_of_the_command(game_db):
     assert await pets.check_stable(scene_on(game_db, elsewhere, player)) is True
     far = elsewhere.messages[-1]                                        # display works anywhere ...
     refused = await game_db.click(far, player, "pet:stable-take", values=["1:6"])
-    assert refused.whispers == [ui.MSG_WRONG_CHANNEL.format(channel_id=game_db.bot.ids.boss_channel)]
+    assert refused.answers == [ui.MSG_WRONG_CHANNEL.format(channel_id=game_db.bot.ids.boss_channel)]
+    assert elsewhere.messages[-1] is refused.replies[0].message                # said where it was clicked
 
     await pets.check_stable(game_db.scene(player))
     stable = game_db.channel.messages[-1]
     with game_db.bot.state.hold_busy("hunt"):
-        assert (await game_db.click(stable, player, "pet:stable-take", values=["1:6"])).whispers == [ui.MSG_BUSY]
+        assert (await game_db.click(stable, player, "pet:stable-take", values=["1:6"])).answers == [ui.MSG_BUSY]
     pets._awaiting_confirmation.add(player.id)                          # a question is open
     redraws = len(stable.edits)
     await game_db.click(stable, player, "pet:stable-take", values=["1:6"])
@@ -284,7 +287,7 @@ async def test_stable_list_has_the_guards_of_the_command(game_db):
     assert len(stable.edits) == redraws + 1 and stable.view is not None   # redrawn: the entry is not left chosen
     game_db.channel.silenced_roles.add(game_db.bot.ids.dead_hunter_role)
     player.roles.append(game_db.guild.add_role(game_db.bot.ids.dead_hunter_role))
-    assert (await game_db.click(stable, player, "pet:stable-take", values=["1:6"])).whispers == [ui.MSG_CANNOT_PLAY]
+    assert (await game_db.click(stable, player, "pet:stable-take", values=["1:6"])).answers == [ui.MSG_CANNOT_PLAY]
     assert await slots(db, player) == [5, 6, 404, 7, 0]
 
 
@@ -353,10 +356,16 @@ async def test_panel_shows_the_buttons_that_make_sense(game_db):
     assert (await show(game_db, mythic)).button_labels == [
         "Zmień imię", "Stajnia", "Odrodzenie", "Mocne odrodzenie", "Porzuć"]
 
-    # Shown privately (e.g. from another panel): no buttons at all.
+    # Shown for a click (the pinned panel's "Towarzysz"): nothing private any more - the same
+    # pet with the same live panel, posted on the channel like $towarzysz.
     click = FakeInteraction(game_db.bot, rich, channel=game_db.channel)
-    assert await pets.show_pet(ui.whisper_scene(click), rich) is True
-    assert click.replies[0].ephemeral and click.replies[0].view is None and click.replies[0].files == ["100.png"]
+    assert await pets.show_pet(ui.scene_of(click), rich) is True
+    shown = game_db.channel.messages[-1]
+    assert shown is not panel and shown.button_labels == ALL_BUTTONS and ui.is_live(shown.id)
+    assert shown.files == ["100.png"] and click.replies == []
+    # buttons=False still shows the pet alone.
+    assert await pets.show_pet(scene_on(game_db, game_db.channel, rich), rich, buttons=False) is True
+    assert game_db.channel.messages[-1].view is None and game_db.channel.messages[-1].embeds
 
 
 async def test_panel_is_its_owners_and_display_works_anywhere(game_db, monkeypatch):
@@ -365,30 +374,34 @@ async def test_panel_is_its_owners_and_display_works_anywhere(game_db, monkeypat
     elsewhere = game_db.announce_channel
     panel = await show(game_db, player, elsewhere)
     assert panel.button_labels[:2] == ["Zmień imię", "Stajnia"]
-    assert (await game_db.click(panel, other, "pet:stable")).whispers == [not_yours(player)]
+    assert (await game_db.click(panel, other, "pet:stable")).answers == [not_yours(player)]
 
     stable_click = await game_db.click(panel, player, "pet:stable")        # display only: any channel
-    assert stable_click.response.deferred and elsewhere.messages[-1].embeds[0].title == "Stajnia"
+    assert stable_click.response.deferred and stable_click.replies == []
+    assert elsewhere.messages[-1].embeds[0].title == "Stajnia"
     for key in ("pet:reroll", "pet:adv-reroll", "pet:discard", "pet:rename"):
         refused = await game_db.click(panel, player, key)
-        assert refused.whispers == [ui.MSG_WRONG_CHANNEL.format(channel_id=game_db.bot.ids.boss_channel)]
+        assert refused.answers == [ui.MSG_WRONG_CHANNEL.format(channel_id=game_db.bot.ids.boss_channel)]
         assert refused.response.modal is None
     assert panel.button_labels[:2] == ["Zmień imię", "Stajnia"] and not game_db.channel.ever_sent(QUESTION)
 
-    # Busy: gameplay is refused privately; the stable follows the busy policy of $stajnia.
+    # Busy: gameplay is refused; the stable follows the busy policy of $stajnia.  (Each click is
+    # its own case here, so the one-busy-notice-per-20-s limiter is emptied before each.)
     panel = await show(game_db, player)
     with game_db.bot.state.hold_busy("hunt"):
         for key in ("pet:reroll", "pet:rename", "pet:stable"):
-            assert (await game_db.click(panel, player, key)).whispers == [ui.MSG_BUSY]
+            guards._last_notice.clear()
+            refused = await game_db.click(panel, player, key)
+            assert refused.public == [f"<@{player.id}> {ui.MSG_BUSY}"] and refused.response.modal is None, key
         monkeypatch.setattr(game_db.bot, "settings",
                             dataclasses.replace(game_db.bot.settings, busy_policy="read_only_free"))
-        assert (await game_db.click(panel, player, "pet:stable")).whispers == []
+        assert (await game_db.click(panel, player, "pet:stable")).replies == []
         assert game_db.channel.messages[-1].embeds[0].title == "Stajnia"
 
     game_db.channel.silenced_roles.add(game_db.bot.ids.dead_hunter_role)
     player.roles.append(game_db.guild.add_role(game_db.bot.ids.dead_hunter_role))
-    assert (await game_db.click(panel, player, "pet:reroll")).whispers == [ui.MSG_CANNOT_PLAY]
-    assert (await game_db.click(panel, player, "pet:stable")).whispers == []          # looking is allowed
+    assert (await game_db.click(panel, player, "pet:reroll")).answers == [ui.MSG_CANNOT_PLAY]
+    assert (await game_db.click(panel, player, "pet:stable")).replies == []           # looking is allowed
     assert (await owner_row(game_db.bot.db, player.id))["reroll_scroll"] == 3
 
 
@@ -443,6 +456,64 @@ async def test_panel_survives_being_purged_and_times_out(game_db, monkeypatch):
     assert panel.view is None and not ui.is_live(panel.id)
 
 
+async def test_panel_refusal_is_public_and_pings_only_the_clicker(game_db):
+    player = await grown(game_db)
+    other = game_db.add_member("Ola")
+    panel = await show(game_db, player)
+    refused = await game_db.click(panel, other, "pet:reroll")
+    (answer,) = refused.replies
+    assert answer.text == f"<@{other.id}> Ten przycisk jest dla <@{player.id}>." and not answer.ephemeral
+    assert game_db.channel.messages[-1] is answer.message
+    mentions = answer.allowed_mentions                   # the owner is named but not notified
+    assert mentions.users == [other] and mentions.everyone is False and mentions.roles is False
+    assert panel.view is not None and (await owner_row(game_db.bot.db, player.id))["reroll_scroll"] == 3
+
+
+async def test_panel_notices_are_not_posted_between_the_prompts_of_a_typed_fight(game_db, monkeypatch):
+    player = await two_pets(game_db)
+    other = game_db.add_member("Ola")
+    panel = await show(game_db, player)
+    monkeypatch.setitem(challenge._rounds_running, game_db.channel.id, 1)   # a round of a fight is on
+    before = len(game_db.channel.messages)
+    stranger = await game_db.click(panel, other, "pet:discard")
+    await game_db.bot.db.execute("UPDATE PETOWNER SET PET_ID = 7, PET_ID_ALT3 = 5")
+    stale = await game_db.click(panel, player, "pet:discard")
+    for click in (stranger, stale):                      # acknowledged, nothing said
+        assert click.response.deferred and click.replies == []
+    # Nothing at all happens to the panel during a fight (it is looked at again afterwards).
+    assert len(game_db.channel.messages) == before and panel.view is not None
+    assert await pet_row(game_db.bot.db, 5) is not None and not game_db.channel.ever_sent(QUESTION)
+
+
+async def test_pinned_panel_pet_and_stable_buttons_do_what_the_commands_do(game_db):
+    db = game_db.bot.db
+    player = await stable_setup(game_db)
+    other = game_db.add_member("Ola")
+
+    clicked = FakeInteraction(game_db.bot, player, channel=game_db.channel)
+    assert await hub.show_display(clicked, hub.show_pet) is True
+    shown = game_db.channel.messages[-1]                 # the pet with its own panel, for the clicker
+    assert clicked.replies == [] and shown.embeds[0].title == "Pies Burek" and ui.is_live(shown.id)
+    assert shown.button_labels[:2] == ["Zmień imię", "Stajnia"]
+    assert (await game_db.click(shown, other, "pet:stable")).answers == [not_yours(player)]
+
+    clicked = FakeInteraction(game_db.bot, player, channel=game_db.channel)
+    assert await hub.show_display(clicked, hub.show_stable) is True
+    stable = game_db.channel.messages[-1]                # the stable with its list, as $stajnia
+    assert stable.embeds[0].title == "Stajnia" and ui.is_live(stable.id)
+    await game_db.click(stable, player, "pet:stable-take", values=["3:7"])
+    assert await slots(db, player) == [7, 6, 404, 5, 0] and game_db.channel.contains(pets.MSG_SWAPPED)
+
+    # While a fight is typed on the channel the display buttons wait - silently.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setitem(challenge._rounds_running, game_db.channel.id, 1)
+        before = len(game_db.channel.messages)
+        clicked = FakeInteraction(game_db.bot, player, channel=game_db.channel)
+        assert await hub.show_display(clicked, hub.show_stable) is False
+        assert clicked.response.deferred and clicked.replies == []
+        assert len(game_db.channel.messages) == before
+
+
 # -- renaming ----------------------------------------------------------------------------
 
 async def rename(game, panel, player, text: str | None):
@@ -469,12 +540,13 @@ async def test_rename_in_a_pop_up_window(game_db, monkeypatch):
     assert modal.title == "Nowe imię towarzysza" and modal.field.default == "Burek"
     assert modal.field.max_length == pets.MAX_NAME_LENGTH
     assert (await pet_row(db, 5))["pet_name"] == "Sir Puszek z Wielkiego Lasu"
-    assert submitted.whispers == ["Twój towarzysz ma teraz na imię **Sir Puszek z Wielkiego Lasu** "
-                                  "<:peepoBlush:984769061340737586>"]
+    assert submitted.public == [f"<@{player.id}> Twój towarzysz ma teraz na imię **Sir Puszek z Wielkiego Lasu** "
+                                "<:peepoBlush:984769061340737586>"]
+    assert game_db.channel.messages[-1] is submitted.replies[0].message      # on the channel, after the pop-up
     assert panel.embeds[0].title == "Kot Sir Puszek z Wielkiego Lasu" and panel.button_labels[0] == "Zmień imię"
 
     _, submitted = await rename(game_db, panel, player, "   ")
-    assert submitted.whispers == [pets.MSG_RENAME_EMPTY]
+    assert submitted.answers == [pets.MSG_RENAME_EMPTY]
     interaction, _ = await rename(game_db, panel, player, None)              # closed the window
     assert interaction.replies == []
     await rename(game_db, panel, player, "Reksio")
@@ -491,11 +563,12 @@ async def test_rename_window_submitted_while_busy_or_after_the_pet_is_gone(game_
     with game_db.bot.state.hold_busy("event:TEST"):
         submitted = await game_db.submit_modal(interaction, "Reksio")
         await asyncio.wait_for(task, 5)
-    assert submitted.whispers == [ui.MSG_BUSY] and (await pet_row(db, 5))["pet_name"] == "Burek"
+    assert submitted.answers == [ui.MSG_BUSY] and (await pet_row(db, 5))["pet_name"] == "Burek"
 
     await db.execute("UPDATE PETOWNER SET PET_ID = 0")
     interaction, submitted = await rename(game_db, panel, player, "Reksio")
-    assert game_db.channel.messages[-1].content == pets.MSG_ALONE_MAD and submitted.whispers == []
+    assert game_db.channel.messages[-1].content == pets.MSG_ALONE_MAD and submitted.replies == []
+    assert submitted.response.deferred
 
 
 async def test_rename_shares_the_cooldown_of_the_command(game_db, cog, monkeypatch):
@@ -507,8 +580,9 @@ async def test_rename_shares_the_cooldown_of_the_command(game_db, cog, monkeypat
     await run(game_db, player, "$nazwij Azor")
     assert game_db.channel.messages[-1].content.startswith("Poczekaj na odnowienie komendy!")
     refused = await game_db.click(panel, player, "pet:rename")               # no window, a live countdown
-    assert refused.response.modal is None and len(refused.whispers) == 1
-    assert refused.whispers[0].startswith("Poczekaj na odnowienie komendy! Imię zmienisz ponownie <t:")
+    assert refused.response.modal is None and len(refused.public) == 1
+    assert refused.public[0].startswith(f"<@{player.id}> Poczekaj na odnowienie komendy! Imię zmienisz ponownie <t:")
+    assert game_db.channel.messages[-1] is refused.replies[0].message
     assert (await pet_row(db, 5))["pet_name"] == "Reksio"
 
     # The other way round, and a refused naming does not use the cooldown up.
@@ -518,8 +592,8 @@ async def test_rename_shares_the_cooldown_of_the_command(game_db, cog, monkeypat
     await db.execute("UPDATE PETOWNER SET PET_ID = 6 WHERE PLAYER_ID = $1", other.id)
     panel = await show(game_db, other)
     _, submitted = await rename(game_db, panel, other, "Filemon")
-    assert submitted.whispers[0].startswith("Twój towarzysz ma teraz na imię **Filemon**")
-    assert (await game_db.click(panel, other, "pet:rename")).whispers[0].startswith("Poczekaj na odnowienie")
+    assert submitted.answers[0].startswith("Twój towarzysz ma teraz na imię **Filemon**")
+    assert (await game_db.click(panel, other, "pet:rename")).answers[0].startswith("Poczekaj na odnowienie")
 
 
 async def test_typed_rename_takes_the_whole_rest_of_the_message(game_db, cog, monkeypatch):
@@ -568,12 +642,12 @@ async def test_rename_cooldown_holds_when_somebody_else_names_while_the_window_i
     assert (await pet_row(db, 6))["pet_name"] == "Filemon"
     submitted = await game_db.submit_modal(interaction, "Reksio")
     await asyncio.wait_for(task, 5)
-    assert submitted.whispers[0].startswith("Twój towarzysz ma teraz na imię **Reksio**")
+    assert submitted.answers[0].startswith("Twój towarzysz ma teraz na imię **Reksio**")
 
     await run(game_db, player, "$nazwij Azor")                               # exactly one name per 23 h
     assert game_db.channel.messages[-1].content.startswith("Poczekaj na odnowienie komendy!")
     refused = await game_db.click(panel, player, "pet:rename")
-    assert refused.response.modal is None and refused.whispers[0].startswith("Poczekaj na odnowienie")
+    assert refused.response.modal is None and refused.answers[0].startswith("Poczekaj na odnowienie")
     assert (await pet_row(db, 5))["pet_name"] == "Reksio"
 
 
@@ -588,8 +662,8 @@ async def test_rename_cooldown_holds_when_the_player_types_nazwij_while_the_wind
     assert (await pet_row(db, 5))["pet_name"] == "Azor"
     submitted = await game_db.submit_modal(interaction, "Reksio")
     await asyncio.wait_for(task, 5)
-    assert len(submitted.whispers) == 1
-    assert submitted.whispers[0].startswith("Poczekaj na odnowienie komendy! Imię zmienisz ponownie <t:")
+    assert len(submitted.answers) == 1
+    assert submitted.answers[0].startswith("Poczekaj na odnowienie komendy! Imię zmienisz ponownie <t:")
     assert (await pet_row(db, 5))["pet_name"] == "Azor"
     await run(game_db, player, "$nazwij Filemon")
     assert game_db.channel.messages[-1].content.startswith("Poczekaj na odnowienie komendy!")
@@ -642,7 +716,8 @@ async def test_stale_panel_cannot_discard_the_pet_taken_out_of_the_stable(game_d
     await game_db.click(stable, player, "pet:stable-take", values=[mruczek.value])
     assert await slots(db, player) == [7, 0, 0, 5, 0] and ui.is_live(panel.id)
     refused = await game_db.click(panel, player, "pet:discard")
-    assert refused.whispers == [pets.MSG_OTHER_PET]
+    assert refused.public == [f"<@{player.id}> {pets.MSG_OTHER_PET}"]
+    assert game_db.channel.messages[-1] is refused.replies[0].message
     assert pets.MSG_OTHER_PET == ("Ten panel pokazuje innego towarzysza - wpisz **$towarzysz**, "
                                   "żeby zobaczyć aktualnego.")
     assert panel.view is None and not ui.is_live(panel.id)
@@ -663,7 +738,7 @@ async def test_every_pet_button_of_a_stale_panel_is_refused(game_db, cog, sacrif
     await until(lambda: task.done() or refused.response.modal is not None)
     assert refused.response.modal is None
     await asyncio.wait_for(task, 5)
-    assert refused.whispers == [pets.MSG_OTHER_PET]
+    assert refused.answers == [pets.MSG_OTHER_PET]
     assert panel.view is None and not game_db.bot.state.busy
     assert not game_db.channel.ever_sent(QUESTION) and not game_db.channel.ever_sent(pets.MSG_ADV_REROLL_MENU)
     assert (await owner_row(db, player.id), await pet_row(db, 5), await pet_row(db, 7)) == before
@@ -709,7 +784,7 @@ async def test_stale_rename_window_names_nothing(game_db, cog, monkeypatch):
     await db.execute("UPDATE PETOWNER SET PET_ID = 7, PET_ID_ALT3 = 5")
     submitted = await game_db.submit_modal(interaction, "Reksio")
     await asyncio.wait_for(task, 5)
-    assert submitted.whispers == [pets.MSG_OTHER_PET] and panel.view is None
+    assert submitted.answers == [pets.MSG_OTHER_PET] and panel.view is None
     assert (await pet_row(db, 5))["pet_name"] == "Burek" and (await pet_row(db, 7))["pet_name"] == "Mruczek"
     await run(game_db, player, "$nazwij Filemon")                            # the cooldown was not used up
     assert (await pet_row(db, 7))["pet_name"] == "Filemon"
@@ -726,14 +801,15 @@ async def test_stale_stable_list_takes_out_only_the_pet_it_names(game_db):
     assert await slots(db, player) == [7, 6, 404, 5, 0]
 
     chosen = await game_db.click(stable, player, "pet:stable-take", values=["3:7"])   # still "Kot Mruczek"
-    assert chosen.whispers == [pets.MSG_STABLE_CHANGED]
+    assert chosen.public == [f"<@{player.id}> {pets.MSG_STABLE_CHANGED}"]
+    assert game_db.channel.messages[-1] is chosen.replies[0].message
     assert pets.MSG_STABLE_CHANGED == "Stajnia zmieniła się w międzyczasie - wybierz jeszcze raz."
     assert await slots(db, player) == [7, 6, 404, 5, 0]                       # nothing swapped back
     assert [(o.value, o.label) for o in stable.button("pet:stable-take").options] == [
         ("1:6", "Towarzysz · jajko"), ("3:5", "Burek · Pies · poziom 3")]    # redrawn
 
-    assert (await game_db.click(stable, player, "pet:stable-take", values=["3"])).whispers == [
+    assert (await game_db.click(stable, player, "pet:stable-take", values=["3"])).answers == [
         pets.MSG_STABLE_CHANGED]                                              # no pet in the value
     chosen = await game_db.click(stable, player, "pet:stable-take", values=["3:5"])
-    assert chosen.whispers == [] and await slots(db, player) == [5, 6, 404, 7, 0]
+    assert chosen.replies == [] and await slots(db, player) == [5, 6, 404, 7, 0]
     assert game_db.channel.messages[-1].content == pets.MSG_SWAPPED

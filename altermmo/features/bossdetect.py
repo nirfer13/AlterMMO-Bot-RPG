@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import discord
 
-from ..core import io
+from ..core import io, ui
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -111,17 +111,17 @@ async def handle_click(interaction: Any) -> None:
     owner_id = hinted_player(interaction.message)
     clicker_id = interaction.user.id
     if owner_id is not None and owner_id != clicker_id:
-        await interaction.response.send_message(MSG_NOT_YOURS.format(player_id=owner_id), ephemeral=True)
+        await ui.reply(interaction, MSG_NOT_YOURS.format(player_id=owner_id))
         return
     try:
         switch_off(bot, clicker_id)
     except Exception as exc:  # noqa: BLE001 - the click must be answered whatever the disk says
         log.exception("Could not switch the boss warnings of %s off.", clicker_id)
-        await interaction.response.send_message(MSG_NOT_SAVED, ephemeral=True)
+        await ui.reply(interaction, MSG_NOT_SAVED)
         await bot.log_to_owner(f"Nie udało się zapisać wyłączenia powiadomień o bossie gracza <@{clicker_id}>: "
                                f"`{type(exc).__name__}: {exc}`")
         return
-    await interaction.response.send_message(MSG_SWITCHED_OFF, ephemeral=True)
+    await ui.reply(interaction, MSG_SWITCHED_OFF)
     await io.safe_delete(interaction.message)  # the hint did its job
 
 

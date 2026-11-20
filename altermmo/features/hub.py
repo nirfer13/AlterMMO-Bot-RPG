@@ -20,15 +20,16 @@ Two kinds of buttons:
   Boss channel only, never for dead hunters (:func:`ui.gate`); the busy flag
   is checked by the commands' own bodies, so a click during a hunt that is
   still gathering hunters JOINS it, exactly like typing ``$polowanie``.
-  Refusals (cooldown, a boss on the way, busy...) are private; the hunt or
-  the tower run itself is public, as when typed.
-* **display** - "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Pomoc"
-  answer privately (:func:`ui.whisper_scene`), so a look at one's pet does
-  not fill the channel.  They follow the busy policy of the display commands
-  (``guards.unless_busy(read_only=True)``) and work for dead hunters too,
-  like the commands they mirror.  Shown privately, the pet, the stable and
-  the gem pouch carry no buttons of their own (the typed commands still
-  show them with buttons).
+  Refusals (cooldown, a boss on the way, busy...) are answered with
+  :func:`ui.reply`; the hunt or the tower run itself is public, as when typed.
+* **display** - "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Pomoc" show
+  exactly what ``$towarzysz``, ``$stajnia``, ``$klejnoty``, the three ranking
+  commands and ``$pomoc`` show: on the channel, for everybody, with the same
+  buttons and menus under them (owner's decision of 2026-11-20: nothing is
+  visible "only to you").  They follow the busy policy of the display commands
+  (``guards.unless_busy(read_only=True)``).  A member who may not write on
+  the channel (a dead hunter) cannot make the bot post there for him.
+  "Pomoc" shares the cooldown of ``$pomoc``.
 
 Every click is acknowledged at once; the fights themselves stay typed.  A
 click Discord has already given up on (the bot lagged for more than three
@@ -40,11 +41,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import types
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import discord
 
-from ..core import io, ui
+from ..core import challenge, io, ui
 from ..core.db import DatabaseUnavailable
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -76,8 +78,7 @@ PANEL_TEXT = (
     "🐾 **Towarzysz**, 🐴 **Stajnia**, 💎 **Klejnoty** - podejrzyj swojego towarzysza, stajnię "
     "i klejnoty umiejętności.\n"
     "🏆 **Rankingi** - sezonowy ranking łowców, Wieża Śmierci i najbardziej utalentowani towarzysze.\n"
-    "❓ **Pomoc** - wszystkie komendy gry.\n"
-    "*Odpowiedzi tych pięciu przycisków widzisz tylko Ty.*\n\n"
+    "❓ **Pomoc** - wszystkie komendy gry.\n\n"
     "👹 **Boss** pojawia się na tym kanale co kilkanaście minut do kilkunastu godzin - kliknij "
     "**Zaatakuj** pod jego obrazkiem albo wpisz **$zaatakuj**.\n"
     "⌨️ **Walki** toczą się na klawiaturze: wpisz podane słowo, zanim minie czas! "
@@ -129,30 +130,30 @@ class HubView(ui.GameView):
     @discord.ui.button(label="Towarzysz", emoji="🐾", style=discord.ButtonStyle.secondary, row=1,
                        custom_id=PET_ID)
     async def pet(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_privately(interaction, show_pet)
+        await show_display(interaction, show_pet)
 
     @discord.ui.button(label="Stajnia", emoji="🐴", style=discord.ButtonStyle.secondary, row=1,
                        custom_id=STABLE_ID)
     async def stable(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_privately(interaction, show_stable)
+        await show_display(interaction, show_stable)
 
     @discord.ui.button(label="Klejnoty", emoji="💎", style=discord.ButtonStyle.secondary, row=1,
                        custom_id=GEMS_ID)
     async def gems(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_privately(interaction, show_gems)
+        await show_display(interaction, show_gems)
 
     @discord.ui.button(label="Rankingi", emoji="🏆", style=discord.ButtonStyle.secondary, row=2,
                        custom_id=RANKINGS_ID)
     async def rankings(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_privately(interaction, show_rankings)
+        await show_display(interaction, show_rankings)
 
     @discord.ui.button(label="Pomoc", emoji="❓", style=discord.ButtonStyle.secondary, row=2,
                        custom_id=HELP_ID)
     async def help(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_privately(interaction, show_help)
+        await help_clicked(interaction)
 
 
-def _private_refusal(interaction: Any) -> Callable[[str], Awaitable[Any]]:
+def _refusal(interaction: Any) -> Callable[[str], Awaitable[Any]]:
     async def refuse(text: str) -> None:
         await ui.reply(interaction, text)
 
@@ -185,7 +186,7 @@ async def hunt_clicked(interaction: Any) -> bool:
         return False  # Discord gave the click up: the player saw "interaction failed"
     log.info("Hub: hunt clicked by %s.", interaction.user.id)
     return await _guarded(interaction, lambda: daily.start_hunt(ui.scene_of(interaction),
-                                                                refuse=_private_refusal(interaction)))
+                                                                refuse=_refusal(interaction)))
 
 
 async def tower_clicked(interaction: Any) -> bool:
@@ -198,7 +199,7 @@ async def tower_clicked(interaction: Any) -> bool:
         return False  # Discord gave the click up: the player saw "interaction failed"
     log.info("Hub: tower clicked by %s.", interaction.user.id)
     return await _guarded(interaction, lambda: tower.start_tower(ui.scene_of(interaction),
-                                                                 refuse=_private_refusal(interaction)))
+                                                                 refuse=_refusal(interaction)))
 
 
 def display_blocked_while_busy(bot: "AlterBot") -> bool:
@@ -206,15 +207,96 @@ def display_blocked_while_busy(bot: "AlterBot") -> bool:
     return getattr(getattr(bot, "settings", None), "busy_policy", "notify") != "read_only_free"
 
 
-async def show_privately(interaction: Any, show: Callable[["Scene"], Awaitable[Any]]) -> bool:
-    """A display button: run ``show`` on a scene that answers only the clicker.  True when shown."""
-    if not await ui.gate(interaction, boss_channel=False, players_only=False,
+async def show_display(interaction: Any, show: Callable[["Scene"], Awaitable[Any]]) -> bool:
+    """A display button: run ``show`` for the clicker, on the channel, like the typed command.
+
+    True when shown.
+    """
+    if not await _display_gate(interaction):
+        return False
+    if not await ui.ack(interaction):  # the database may take a moment; the answer follows on the channel
+        return False  # an expired click: the player saw "interaction failed", nothing is posted
+    await _guarded(interaction, lambda: show(ui.scene_of(interaction)))
+    return True
+
+
+async def _display_gate(interaction: Any) -> bool:
+    """May a display button show something now?  Refusals are answered here."""
+    if not await ui.gate(interaction, boss_channel=False,
                          unless_busy=display_blocked_while_busy(interaction.client)):
         return False
-    if not await ui.ack(interaction):  # the database may take a moment; the answers follow privately
-        return False  # an expired click cannot be answered any more
-    await _guarded(interaction, lambda: show(ui.whisper_scene(interaction)))
+    if challenge.fight_on(interaction.channel):
+        # (Also under the "read_only_free" policy.)  A boss fight does not hold the busy flag,
+        # but a pet card or three rankings between its prompts would be exactly the stutter
+        # the owner does not want.  During a fight this answer itself is swallowed.
+        await ui.reply(interaction, ui.MSG_BUSY)
+        return False
     return True
+
+
+def _help_bucket(bot: "AlterBot", member: Any) -> Any:
+    """The ``$pomoc`` cooldown of ``member`` (shared by the command and the button); None without one."""
+    command = bot.get_command("pomoc") if hasattr(bot, "get_command") else None
+    buckets = getattr(command, "_buckets", None)
+    if buckets is None or not getattr(buckets, "valid", False):
+        return None
+    try:
+        return buckets.get_bucket(types.SimpleNamespace(author=member, guild=getattr(member, "guild", None)))
+    except Exception:  # noqa: BLE001 - a cooldown that cannot be read is no reason to fail the click
+        log.exception("Could not read the $pomoc cooldown of %s.", getattr(member, "id", member))
+        return None
+
+
+async def help_clicked(interaction: Any) -> bool:
+    """"Pomoc": the help, as ``$pomoc`` posts it - with the same cooldown (one per player per 10 minutes).
+
+    The help is a long embed everybody sees: without the cooldown one player
+    could fill the channel with it by clicking.
+    """
+    from ..bot import cooldown_text
+
+    if not await _display_gate(interaction):
+        return False
+    bucket = _help_bucket(interaction.client, interaction.user)
+    if bucket is not None:
+        retry_after = bucket.update_rate_limit()  # (no await since the gate: charged exactly once)
+        if retry_after:
+            await ui.reply(interaction, cooldown_text(retry_after))
+            return False
+    if not await ui.ack(interaction):
+        return False
+    await _guarded(interaction, lambda: show_help(ui.scene_of(interaction)))
+    return True
+
+
+async def refresh_panel(bot: "AlterBot") -> bool:
+    """Bring the pinned panel on the boss channel up to date (text and buttons).  Never raises.
+
+    Called once after a start (``BossCycle.tidy_after_start``): a panel posted
+    by an older version of the code keeps its old text for ever otherwise
+    (pinned messages survive every clearing of the channel).  True when a
+    panel was found and edited.
+    """
+    try:
+        remembered = bot.store.runtime_get(panel_key(bot, bot.ids.boss_channel))
+        if not isinstance(remembered, dict):
+            return False
+        channel = bot.get_channel(int(remembered.get("channel") or 0))
+        if channel is None:
+            return False
+        message = await channel.fetch_message(int(remembered.get("message") or 0))
+        view = HubView()
+        try:
+            await message.edit(embed=panel_embed(), view=view)
+        finally:
+            view.stop()  # clicks are answered by the view registered at start-up
+        log.info("Hub panel %s brought up to date.", message.id)
+        return True
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - e.g. the panel was removed by hand
+        log.info("Hub panel not refreshed (%s: %s).", type(exc).__name__, exc)
+        return False
 
 
 async def _guarded(interaction: Any, run: Callable[[], Awaitable[Any]]) -> Any:

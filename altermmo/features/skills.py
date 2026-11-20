@@ -580,7 +580,7 @@ class _PouchMenu(ui.PanelView):
     Only the owner of the list may use it.  Choosing is gameplay: boss channel
     only, not while the channel is busy, not for dead hunters (:func:`ui.gate`),
     while the list itself may be shown anywhere.  A choice repaints the list
-    and is confirmed privately.
+    and is confirmed with ``ui.reply``.
     """
 
     def __init__(self, owner: Any, options: list[discord.SelectOption]) -> None:
@@ -595,7 +595,7 @@ class _PouchMenu(ui.PanelView):
         if not await ui.gate(interaction):
             return
         # Two database transactions follow (they may retry for a while): acknowledge first,
-        # the repaint and the private confirmation still work afterwards.
+        # the repaint and the confirmation still work afterwards.
         await ui.ack(interaction)
         bot = interaction.client
         player_id = int(interaction.user.id)
@@ -619,9 +619,7 @@ async def show_skills(scene: "Scene") -> bool:
     """``$klejnoty``: every gem of the author with its number; False when they have none.
 
     With two gems or more a menu under the list makes another gem the active
-    one (see :class:`_PouchMenu`).  A private scene (:class:`ui.WhisperScene`)
-    gets the list without the menu: its menu could not be told apart from a
-    stale one.
+    one (see :class:`_PouchMenu`).
     """
     bot = scene.bot
     player_id = int(scene.author.id)
@@ -629,7 +627,7 @@ async def show_skills(scene: "Scene") -> bool:
     if not gems:
         await scene.send(MSG_NO_SKILL.format(player_id=player_id))
         return False
-    menu = len(gems) > 1 and not isinstance(scene, ui.WhisperScene)
+    menu = len(gems) > 1
     embed = _pouch_embed(bot, player_id, active, gems, menu=menu)
     if not menu:
         await scene.send(embed=embed)
@@ -819,7 +817,7 @@ class _RestBoard:
     """The rest's invitation: an "Odpocznij" button, the end of the rest and who is resting.
 
     Every member who clicks while the rest lasts rests (once - a second click is
-    answered privately); dead hunters cannot click.  The members are recorded
+    told so); dead hunters cannot click.  The members are recorded
     the moment they click, so a purged invitation loses nobody.  The roster is
     repainted by a small background task, at most once per
     :data:`ROSTER_EDIT_GAP` seconds.  Use it as ``async with``: the button is

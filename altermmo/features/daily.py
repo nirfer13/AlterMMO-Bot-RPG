@@ -179,6 +179,8 @@ ROSTER_NAME = "Łowcy ({count}/{limit})"
 MSG_JOIN_UNTIL = "⏳ Dołączanie kończy się {when}."
 MSG_ALREADY_HUNTING = "Już jesteś na tym polowaniu <:PepoG:790963160528977980>"
 MSG_JOIN_TOO_LATE = "Za późno - polowanie już się zaczęło <:Sadge:936907659142111273>"
+# The same for everybody who clicks: one line on the channel is enough (see ui.reply).
+ui.GENERAL_NOTICES.add(MSG_JOIN_TOO_LATE)
 #: Seconds between two edits of the hunters' list on the monster's embed.
 ROSTER_EDIT_GAP = 1.0
 
@@ -439,7 +441,7 @@ async def set_dead_hunters(scene: "Scene", user_id: Any) -> bool:
 
 # -- the hunt --------------------------------------------------------------------------
 
-#: Answers a join request privately (a click); None for a typed ``$polowanie`` (stays silent).
+#: Answers a join request (a click, through ``ui.reply``); None for a typed ``$polowanie`` (stays silent).
 Answer = Callable[[str], Awaitable[Any]]
 
 
@@ -470,7 +472,7 @@ class _Gathering:
 _gathering: dict[int, _Gathering] = {}
 #: Channel id -> the join button of the monster shown last (taken by :func:`hunt_mobs`).
 _panels: dict[int, "_JoinPanel"] = {}
-#: Private answers still on their way (kept here so they are not garbage-collected).
+#: Answers still on their way (kept here so they are not garbage-collected).
 _answers: set[asyncio.Future] = set()
 
 
@@ -493,7 +495,7 @@ def is_hunting(channel: Any, member: Any) -> bool:
 def request_join(channel: Any, member: Any, answer: Answer | None = None) -> bool:
     """Ask to join the hunt gathering on ``channel`` (what typing ``$polowanie`` does now).
 
-    ``answer`` receives the private refusal ("already on this hunt", "too
+    ``answer`` receives the refusal ("already on this hunt", "too
     late"); an accepted member is shown on the monster's embed.  False when no
     hunt is gathering there.  A click should be refused with
     :func:`is_hunting` first: the gathering itself never waits for an answer.
@@ -506,12 +508,12 @@ def request_join(channel: Any, member: Any, answer: Answer | None = None) -> boo
 
 
 def _answer_later(answer: Answer, text: str) -> None:
-    """Deliver a private answer in the background (the join window keeps running meanwhile)."""
+    """Deliver an answer in the background (the join window keeps running meanwhile)."""
 
     def done(task: asyncio.Future) -> None:
         _answers.discard(task)
         if not task.cancelled() and task.exception() is not None:
-            log.info("A private answer to a join request failed (%s).", task.exception())
+            log.info("An answer to a join request failed (%s).", task.exception())
 
     task = asyncio.ensure_future(answer(text))
     _answers.add(task)
@@ -880,10 +882,10 @@ async def start_hunt(scene: "Scene", *, refuse: Answer | None = None) -> bool:
     everything again because a click (the hub panel) has no command guards:
 
     * while a hunt gathers hunters on the channel, a click joins it (as typing
-      ``$polowanie`` does; somebody on the list already is told so privately);
+      ``$polowanie`` does; somebody on the list already is told so);
       a typed command is silent here (the hunt's own listener has already
       seen the word);
-    * ``refuse`` answers a click privately; None (a typed command) answers on
+    * ``refuse`` answers a click (``ui.reply``); None (a typed command) answers on
       the channel as before.
 
     Returns True when a hunt took place.  The hunt itself runs to its end

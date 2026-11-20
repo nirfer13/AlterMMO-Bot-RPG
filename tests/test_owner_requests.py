@@ -17,7 +17,7 @@ from altermmo.core import clock, guards, timing
 from altermmo.core.state import BossPhase, EventType
 from altermmo.features import bossdetect, daily, events, pets, skills, xpsteal
 
-from fakes import FakeMessage
+from fakes import FakeInteraction, FakeMessage
 
 SPARKLES = "✨"
 RITUAL = "Rozpoczął się rytuał przywołania!"
@@ -41,14 +41,6 @@ async def add_owner(db, player_id: int, pet_id: int = 0, **columns) -> None:
 async def add_gem(db, skill_id: int, variant: int) -> None:
     await _insert(db, "SKILLS", {"skill_id": skill_id, "gem_name": skills.gem_name(variant),
                                  "skill_variant": variant, "slow_perc": 7})
-
-
-class FakeResponse:
-    def __init__(self) -> None:
-        self.sent: list[tuple[str, bool]] = []
-
-    async def send_message(self, content: str, *, ephemeral: bool = False, **kwargs) -> None:
-        self.sent.append((content, ephemeral))
 
 
 # ===================================== XP theft: how to use it =====================================
@@ -110,26 +102,30 @@ async def test_hint_has_a_button_that_switches_the_warnings_off(game_db, sensing
     assert button.custom_id == bossdetect.BUTTON_ID and button.label == bossdetect.BUTTON_LABEL
     assert hint.view.timeout is None and hint.view.is_persistent()
 
-    # Somebody else cannot switch Ala's warnings off.
-    stranger = SimpleNamespace(client=bot, user=ola, message=hint, response=FakeResponse())
+    # Somebody else cannot switch Ala's warnings off; the answer is on the channel, for Ola.
+    stranger = FakeInteraction(bot, ola, hint)
     await button.callback(stranger)
-    assert stranger.response.sent == [(bossdetect.MSG_NOT_YOURS.format(player_id=ala.id), True)]
+    refusal = f"<@{ola.id}> " + bossdetect.MSG_NOT_YOURS.format(player_id=ala.id)
+    assert stranger.public == [refusal] and stranger.replies[0].allowed_mentions.users == [ola]
     assert not bossdetect.is_off(bot, ala.id) and not bossdetect.is_off(bot, ola.id)
-    assert hint in game_db.notice_channel.messages
+    assert game_db.notice_channel.messages == [hint, stranger.replies[0].message]
 
-    # Ala can: the answer is private, the hint disappears, the next boss comes quietly.
-    own = SimpleNamespace(client=bot, user=ala, message=hint, response=FakeResponse())
+    # Ala can: the answer is on the channel, the hint disappears, the next boss comes quietly.
+    own = FakeInteraction(bot, ala, hint)
     await button.callback(own)
-    assert own.response.sent == [(bossdetect.MSG_SWITCHED_OFF, True)]
+    assert own.public == [f"<@{ala.id}> {bossdetect.MSG_SWITCHED_OFF}"]
     assert bossdetect.is_off(bot, ala.id) and hint.deleted
     assert bot.store.detect_off.all() == [str(ala.id)]
+    answers = [stranger.replies[0].message, own.replies[0].message]
+    assert game_db.notice_channel.messages == answers
 
     await pets.detect_boss(bot, 2)
-    assert game_db.notice_channel.messages == []             # no new hint for Ala
+    assert game_db.notice_channel.messages == answers        # no new hint for Ala
     assert ola.dms == ["Nadciąga boss! Będzie epicki."] * 2  # Ola is still warned
 
-    await button.callback(own)                               # a second click changes nothing
-    assert bot.store.detect_off.all() == [str(ala.id)]
+    again = FakeInteraction(bot, ala, hint)
+    await button.callback(again)                             # a second click changes nothing
+    assert again.answers == [bossdetect.MSG_SWITCHED_OFF] and bot.store.detect_off.all() == [str(ala.id)]
 
 
 async def test_wyczuwanie_switches_the_warnings_off_and_on(game_db, sensing):
@@ -587,9 +583,9 @@ async def test_click_is_answered_even_when_the_switch_cannot_be_saved(game, monk
         raise OSError("disk full")
 
     monkeypatch.setattr(bot.store.detect_off, "add", broken)
-    interaction = SimpleNamespace(client=bot, user=ala, message=hint, response=FakeResponse())
+    interaction = FakeInteraction(bot, ala, hint)
     await hint.view.children[0].callback(interaction)
-    assert interaction.response.sent == [(bossdetect.MSG_NOT_SAVED, True)]
+    assert interaction.answers == [bossdetect.MSG_NOT_SAVED] and interaction.replies[0].message is not None
     assert not hint.deleted and any("powiadomień o bossie" in line for line in bot.owner_log)
 
 

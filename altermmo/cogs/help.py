@@ -22,7 +22,7 @@ Jeśli brakuje Wam graczy, to warto zawołać rolę <@&985071779787730944>. Do r
 
 <@&687185998550925312> oraz Patroni mogą zostać bossami. Jest to losowe. Jednak jeśli taki boss pokona gracza, to użytkownik Discorda, który owym bossem był, zgarnia dodatkowe doświadczenie.
 
-🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży oraz pokazuje (tylko Tobie) towarzysza, stajnię, klejnoty i rankingi. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo - jak dotąd - wpisując **$potwierdzam**. Wszystkie komendy poniżej działają nadal. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
+🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży oraz pokazuje towarzysza, stajnię, klejnoty i rankingi. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo - jak dotąd - wpisując **$potwierdzam**. Wszystkie komendy poniżej działają nadal. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
 
 Gra toczy się na kanale bossa; komendy, które tylko coś pokazują (rankingi, towarzysz, klejnoty...), działają na każdym kanale serwera.
 

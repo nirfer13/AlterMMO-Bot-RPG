@@ -147,7 +147,9 @@ async def test_invasion_repelled_everybody_gets_loot(game, loot, quick, monkeypa
     assert loot == [(1, ala, 20), (1, ola, 20)]
     assert not game.channel.contains("nie udało się obronić")
     second_click = (await clicked[0])[3]
-    assert second_click.whispers == [events.MSG_ALREADY_SIGNED]
+    assert second_click.public == [f"<@{ala.id}> {events.MSG_ALREADY_SIGNED}"]   # on the channel, to Ala
+    assert game.channel.messages.index(panel(game, "Inwazja na wioskę!")) < game.channel.messages.index(
+        second_click.replies[0].message)
     assert no_listeners(game) and no_live_buttons(game)
 
 
@@ -219,8 +221,9 @@ async def test_party_with_too_few_guests(game, loot, quick, monkeypatch):
     first_choice(monkeypatch)
     patron = game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])
     ala = game.add_member("Ala")
-    clicks_on(game, "Zdrowie Mecenas!", (ala, "join"), (game.bot.user, "join"), (ala, "join"))
+    clicked = clicks_on(game, "Zdrowie Mecenas!", (ala, "join"), (game.bot.user, "join"), (ala, "join"))
     await events.spawn_party(game.scene())
+    assert (await clicked[0])[2].answers == [events.MSG_ALREADY_SIGNED]   # a second click counts once
     assert game.channel.contains("Pozostało napić się w samotności. Zdrowie Mecenas!")
     assert game.channel.sent[0].content == patron.display_avatar.url
     assert files(game) == ["0.png"]
@@ -335,7 +338,9 @@ async def test_memory_solved(game, loot, monkeypatch):
     assert all(emote in shown.content for emote in CHOSEN) and shown.deleted and shown.reactions == []
     asked = panel(game, "Zaczynam przygotowywać")
     assert f"<@{ala.id}>" in asked.content and asked.reactions == []
-    assert (await answers[0])[0].whispers == [ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)]
+    refused = (await answers[0])[0]
+    assert refused.answers == [ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)]
+    assert refused.replies[0].message in game.channel.messages        # a public line; the runes still worked
     assert game.channel.count("*Dobrze!* - Sanczo dopinguje.") == 4
     assert game.channel.contains("Zaklęcie gotowe!")
     assert files(game) == ["0.png", "2.png"]
@@ -432,9 +437,10 @@ async def test_hazard_needs_five_scrolls(game_db, loot, monkeypatch):
     clicked = clicks_on(game, "Zaryzykuj!", (poor, WINNING), (nobody, LOSING), (rich, WINNING))
     assert await events.spawn_hazard(game.scene()) is True
     poor_click, nobody_click, _ = await clicked[0]
-    # The refusal is private now; the cups stay for the others.
-    assert poor_click.whispers == [events.MSG_HAZARD_POOR] and nobody_click.whispers == [events.MSG_HAZARD_POOR]
-    assert not game.channel.ever_sent("Najpierw musisz mieć czym grać.")
+    # Each refusal is a channel message addressed to the player; the cups stay for the others.
+    assert poor_click.public == [f"<@{poor.id}> {events.MSG_HAZARD_POOR}"]
+    assert nobody_click.public == [f"<@{nobody.id}> {events.MSG_HAZARD_POOR}"]
+    assert game.channel.count(events.MSG_HAZARD_POOR) == 2
     assert await scrolls_of(game, poor) == 4
     assert await scrolls_of(game, nobody) is None
     assert await scrolls_of(game, rich) == 12
@@ -522,8 +528,11 @@ async def test_duel_two_volunteers_fight(game, loot, duels):
     assert game.channel.count("wyzywa wszystkich na pojedynek!") == 1
     assert game.channel.contains("to Ala otrzyma skarb oraz 6 punktów rankingowych!")
     assert loot == []
-    assert (await clicked[0])[2].whispers == [events.MSG_ALREADY_SIGNED]
+    again = (await clicked[0])[2]
+    assert again.answers == [events.MSG_ALREADY_SIGNED]
     arena = panel(game, "Pojedynek!")
+    # The refusal was posted under the arena before Ola joined: the sign-up went on all the same.
+    assert game.channel.messages.index(arena) < game.channel.messages.index(again.replies[0].message)
     assert "Do walki stają (2/2)" in arena.text and ala.mention in arena.text and ola.mention in arena.text
     assert no_listeners(game) and no_live_buttons(game)
 
@@ -689,8 +698,9 @@ async def test_tournament_cancelled_without_players(game, loot, duels, short_tim
 
 async def test_tournament_single_player_gets_loot(game, loot, duels, quick):
     ala = game.add_member("Ala")
-    clicks_on(game, "Tygodniowy turniej PvP!", (ala, "join"), (ala, "join"), (game.bot.user, "join"))
+    clicked = clicks_on(game, "Tygodniowy turniej PvP!", (ala, "join"), (ala, "join"), (game.bot.user, "join"))
     assert await events.spawn_pvp_tournament(game.scene()) == ala
+    assert (await clicked[0])[1].answers == [events.MSG_ALREADY_SIGNED]
     assert loot == [(2, ala, 0)]
     assert duels.calls == []
     roster = panel(game, "Tygodniowy turniej PvP!")
@@ -758,10 +768,14 @@ async def test_ritual_summons_a_boss(game, boss_image, quick, monkeypatch, roll,
     modifiers = await events.modifiers.load_modifiers(game.bot)
     game.bot.store.modifiers.save({**modifiers, "rarity_boost": boost})
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
-    clicks_on(game, "Rozpoczął się rytuał przywołania!", (ala, "join"), (ola, "join"), (game.bot.user, "join"))
+    clicked = clicks_on(game, "Rozpoczął się rytuał przywołania!", (ala, "join"), (ola, "join"),
+                        (game.bot.user, "join"), (ola, "join"))
     assert await events.spawn_ritual(game.scene()) == (True, expected, True, "Szef")
     assert boss_image == [expected]
     assert not game.channel.contains("Rozpoczął się rytuał przywołania!")  # channel cleared for the boss
+    refusal = f"<@{ola.id}> {events.MSG_ALREADY_SIGNED}"
+    assert (await clicked[0])[3].public == [refusal]
+    assert game.channel.ever_sent(refusal) and not game.channel.contains(refusal)  # cleared with the rest
     assert no_listeners(game) and no_live_buttons(game)
 
 

@@ -827,10 +827,13 @@ async def test_advanced_reroll_menu(game_db, monkeypatch):
     assert [str(option.emoji) for option in select.options] == [ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN]
     assert (select.min_values, select.max_values) == (0, 3)
 
-    # Strangers cannot use it; a changed mind counts (the list is the whole choice).
+    # Strangers cannot use it - told so on the channel, addressed to them; the menu is untouched.
+    # A changed mind counts (the list is the whole choice).
     not_yours = [f"Ten przycisk jest dla <@{player.id}>."]
-    assert (await choose(game_db, menu, other, 1)).whispers == not_yours
-    assert (await game_db.click(menu, other, "pet:skip-accept")).whispers == not_yours
+    refused = await choose(game_db, menu, other, 1)
+    assert refused.answers == not_yours and refused.public == [f"<@{other.id}> {not_yours[0]}"]
+    assert refused.replies[0].message in game_db.channel.messages and "koszt: **1 zwój**" in menu.content
+    assert (await game_db.click(menu, other, "pet:skip-accept")).answers == not_yours
     await choose(game_db, menu, player, 6, 0, 3)
     await until(lambda: "koszt: **30 zwojów**" in menu.content)
     await choose(game_db, menu, player, 6, 0)

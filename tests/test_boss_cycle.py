@@ -579,3 +579,155 @@ async def test_gem_boss_never_barges_into_an_activity_or_a_sign_up(game_db, cycl
     assert await cycle.summon(game_db.scene(player), 4)
     assert busy_while_posting == ["boss-summon"] and not state.busy and not state.event_alive
     assert state.boss_phase is BossPhase.VISIBLE
+
+
+# -- after a start of the bot: what the previous run left behind goes (owner's request) ----------
+
+OLD_NOTICE = "Na kanale <#{channel}> pojawił się właśnie potwór! Zabijcie go, żeby zgarnąć nagrody!"
+
+
+def test_spawn_notices_are_recognised_in_both_wordings():
+    channel = 970684202880204831
+    assert boss_cycle.is_spawn_notice(boss_cycle.spawn_notice(channel), channel)
+    assert boss_cycle.is_spawn_notice(OLD_NOTICE.format(channel=channel), channel)      # the old bot's text
+    assert not boss_cycle.is_spawn_notice(boss_cycle.spawn_notice(123), channel)        # another channel
+    assert not boss_cycle.is_spawn_notice("Na kanale pojawił się potwór", channel)      # no channel link
+    assert not boss_cycle.is_spawn_notice(f"Zapraszam na <#{channel}>!", channel)
+    assert not boss_cycle.is_spawn_notice(None, channel)
+
+
+async def test_start_clears_the_boss_channel_but_keeps_pins_and_the_oldest_post(game_db, cycle, stub):
+    game = game_db
+    ala = game.add_member("Ala")
+    rules = game.channel.messages[0]                                # "Zasady gry"
+    panel = await game.channel.send("Panel gry")
+    await panel.pin()
+    await game.channel.send("BOSS rarity 2")                        # a picture whose boss is not attackable
+    game.say(ala, "$zaatakuj")
+    await game.channel.send("1. Boss szarżuje na Ciebie! Wpisz **U N I K**")   # half a fight
+    await cycle.tidy_after_start()
+    assert game.channel.messages == [rules, panel]
+    assert not game.bot.state.busy                                  # the hold for the purge is released
+
+
+async def test_start_does_not_clear_under_something_that_already_runs(game_db, cycle, stub):
+    game = game_db
+    await game.channel.send("Potwór!")
+    with game.bot.state.hold_busy("hunt"):
+        await cycle.tidy_after_start()
+    assert game.channel.contains("Potwór!")
+
+
+async def test_tidy_happens_once_per_start_not_at_every_restart_of_the_loop(game_db, cycle, stub, monkeypatch):
+    game = game_db
+    calls = []
+    real = cycle.tidy_after_start
+
+    async def tidy():
+        calls.append(game.bot.state.boss_phase.name)
+        await real()
+
+    monkeypatch.setattr(cycle, "tidy_after_start", tidy)
+    game.bot.timings = SLOW_RESPAWN
+    cycle.start()
+    await wait_phase(game.bot, BossPhase.SCHEDULED, BossPhase.WAITING)
+    assert calls == ["IDLE"]                                         # before the schedule is touched
+    await cycle.enable()                                             # $startSpawnBoss restarts the loop
+    await asyncio.sleep(0.05)
+    await cycle.reset()                                              # $ResetBoss as well
+    await asyncio.sleep(0.05)
+    assert calls == ["IDLE"]                                         # the loop restarted twice: no second tidy
+
+
+async def test_tidy_never_raises(game_db, cycle, stub, monkeypatch):
+    game = game_db
+
+    async def broken(channel, **kwargs):
+        raise RuntimeError("discord is down")
+
+    monkeypatch.setattr(io, "clear_channel", broken)
+    monkeypatch.setattr(game.bot, "text_channel", lambda channel_id: (_ for _ in ()).throw(RuntimeError("no cache")))
+    await cycle.tidy_after_start()                                   # logged, not raised
+    assert not game.bot.state.busy
+
+
+async def test_start_removes_left_over_boss_notices_from_the_general_chat(game_db, cycle, stub):
+    game = game_db
+    bot = game.bot
+    chat = game.announce_channel
+    ala = game.add_member("Ala")
+    boss_channel = bot.ids.boss_channel
+    old = await chat.send(OLD_NOTICE.format(channel=boss_channel))               # left by the old bot
+    new = await chat.send(boss_cycle.spawn_notice(boss_channel))                 # left by a previous run
+    other = await chat.send("Ranking za tydzień polowań został zresetowany.")    # the bot's, but not a notice
+    quote = game.say(ala, OLD_NOTICE.format(channel=boss_channel), channel=chat)  # a player quoting it
+    pinned = await chat.send(boss_cycle.spawn_notice(boss_channel))
+    await pinned.pin()
+    await cycle.tidy_after_start()
+    assert old.deleted and new.deleted
+    assert chat.messages == [other, quote, pinned]                               # nothing else is touched
+
+
+async def test_notice_on_the_general_chat_goes_when_the_boss_is_gone(game_db, cycle, stub):
+    game = game_db
+    bot = game.bot
+    player = game.add_member("Ala")
+    bot.timings = dataclasses.replace(FAST, respawn_min=1000, respawn_max=1000, post_fight_pause=0.0)
+    await bot.state.set_boss_phase(BossPhase.PRE_SPAWN)
+    cycle.base_rarity = 1
+    await cycle._phase_pre_spawn()                                   # the boss appears and is announced
+    assert bot.state.boss_phase is BossPhase.VISIBLE
+    notice = game.announce_channel.messages[-1]
+    assert boss_cycle.is_spawn_notice(notice.content, bot.ids.boss_channel)
+    assert bot.store.runtime_get(boss_cycle._KEY_SPAWN_NOTICE) == {
+        "channel": game.announce_channel.id, "message": notice.id}
+
+    stub.fight_error = FightInterrupted("lag")                       # an interrupted fight: the boss stays...
+    await cycle.attack(game.scene(player))
+    assert bot.state.boss_phase is BossPhase.VISIBLE and not notice.deleted      # ...and so does its notice
+
+    await cycle.attack(game.scene(player))                           # fought: the boss is gone
+    assert notice.deleted and game.announce_channel.messages == []
+    assert bot.store.runtime_get(boss_cycle._KEY_SPAWN_NOTICE) is None
+
+
+async def test_notice_is_found_again_after_a_restart(game_db, cycle, stub):
+    """The process restarted while a boss stood there: the remembered notice is still removed."""
+    game = game_db
+    bot = game.bot
+    notice = await game.announce_channel.send(boss_cycle.spawn_notice(bot.ids.boss_channel))
+    bot.store.runtime_set(boss_cycle._KEY_SPAWN_NOTICE,
+                          {"channel": game.announce_channel.id, "message": notice.id})
+    fresh = boss_cycle.BossCycle(bot)                                # a new process knows no message object
+    await fresh.remove_spawn_notice()
+    assert notice.deleted and bot.store.runtime_get(boss_cycle._KEY_SPAWN_NOTICE) is None
+    await fresh.remove_spawn_notice()                                # nothing left: no error
+    bot.store.runtime_set(boss_cycle._KEY_SPAWN_NOTICE, {"channel": 1, "message": 2})   # an unknown channel
+    await fresh.remove_spawn_notice()
+    assert bot.store.runtime_get(boss_cycle._KEY_SPAWN_NOTICE) is None
+
+
+@pytest.mark.parametrize("command", ["reset", "disable"])
+async def test_reset_and_stop_take_the_notice_away(game_db, cycle, stub, command):
+    game = game_db
+    bot = game.bot
+    await bot.state.set_boss_phase(BossPhase.PRE_SPAWN)
+    await cycle._phase_pre_spawn()
+    notice = game.announce_channel.messages[-1]
+    await getattr(cycle, command)()
+    assert notice.deleted
+    await cycle.disable()                                            # (stop the loop a reset restarted)
+
+
+async def test_start_brings_the_pinned_panel_up_to_date(game_db, cycle, stub, monkeypatch):
+    from altermmo.features import hub
+
+    refreshed = []
+
+    async def refresh_panel(bot):
+        refreshed.append(bot)
+        return True
+
+    monkeypatch.setattr(hub, "refresh_panel", refresh_panel)
+    await cycle.tidy_after_start()
+    assert refreshed == [game_db.bot]

@@ -38,6 +38,66 @@ from .timing import pause as _pause
 
 log = logging.getLogger(__name__)
 
+#: A fight "is on" on a channel from its countdown / first prompt until this many seconds
+#: after its last round: nothing else should be posted between its prompts (see :func:`fight_on`).
+FIGHT_LINGER = 15.0
+#: channel id -> rounds running right now.
+_rounds_running: dict[int, int] = {}
+#: channel id -> when the fight there was last seen (``time.monotonic``).
+_fight_seen: dict[int, float] = {}
+
+
+def _mark_fight(channel: Any) -> None:
+    channel_id = getattr(channel, "id", None)
+    if channel_id is not None:
+        _fight_seen[int(channel_id)] = time.monotonic()
+
+
+def fight_on(channel: Any) -> bool:
+    """True while players are typing a fight on ``channel`` (or were, moments ago).
+
+    Owner's rule: nothing may make a fight stutter.  While this is true no
+    answer to a button click is posted on that channel: notices are swallowed
+    (:func:`altermmo.core.ui.reply`), buttons that would show or start
+    something are refused silently.  (Every extra message also uses up
+    Discord's budget of 5 messages per 5 seconds on the channel, which delays
+    the fight's own prompts.)  Typed commands keep their own busy notice
+    (one per 20 s, ``guards.notify_busy``).
+    """
+    channel_id = getattr(channel, "id", None)
+    if channel_id is None:
+        return False
+    channel_id = int(channel_id)
+    if _rounds_running.get(channel_id, 0) > 0:
+        return True
+    seen = _fight_seen.get(channel_id)
+    return seen is not None and time.monotonic() - seen < FIGHT_LINGER
+
+
+@contextlib.contextmanager
+def round_running(channel: Any) -> Iterator[None]:
+    """Mark a typed round as running on ``channel`` for the duration of the block.
+
+    :func:`ask` does it itself; contests that listen on their own (the
+    toast of a party, the spell for a boss) wrap their waiting in it, so
+    that :func:`fight_on` is true for them as well.
+    """
+    channel_id = getattr(channel, "id", None)
+    if channel_id is None:
+        yield
+        return
+    channel_id = int(channel_id)
+    _rounds_running[channel_id] = _rounds_running.get(channel_id, 0) + 1
+    _mark_fight(channel)
+    try:
+        yield
+    finally:
+        _rounds_running[channel_id] = _rounds_running.get(channel_id, 1) - 1
+        if _rounds_running[channel_id] <= 0:
+            del _rounds_running[channel_id]
+        _mark_fight(channel)
+
+
 #: Extra reaction time granted on top of the timeout, to absorb the tiny clock
 #: differences between Discord's servers stamping the prompt and the answer.
 TOLERANCE = 0.25
@@ -141,6 +201,14 @@ async def ask(
     net = getattr(bot, "net", None)
     channel_id = channel.id  # type: ignore[attr-defined]
 
+    with round_running(channel):
+        return await _ask(bot, channel, prompt_text, author_ids, net, channel_id, timeout, send_kwargs)
+
+
+async def _ask(bot: discord.Client, channel: discord.abc.Messageable, prompt_text: str,
+               author_ids: set[int] | None, net: Any, channel_id: int, timeout: float,
+               send_kwargs: dict[str, Any]) -> RoundResult:
+    """The round itself (see :func:`ask`, which also marks the fight as running)."""
     with _collect_messages(bot, channel_id, author_ids) as queue:
         started = time.monotonic()
         prompt = await io.send(channel, prompt_text, **send_kwargs)
@@ -176,19 +244,45 @@ async def ask(
         log.warning("Round disrupted: the event loop stalled for %.2fs.", overshoot)
         return RoundResult(Outcome.DISRUPTED, prompt, None, timeout)
 
-    # Safety net: an answer the gateway never delivered may still be in history.
-    late = await io.last_message(channel)
-    if (
-        late is not None
-        and late.id > prompt.id
-        and not late.author.bot
-        and (author_ids is None or late.author.id in author_ids)
-        and _reaction_time(prompt, late) <= timeout + TOLERANCE
-    ):
+    # Safety net: an answer the gateway never delivered may still be in history.  The last
+    # few messages are looked at, not only the newest one: a message of the bot (or of
+    # somebody who is not fighting) written after the answer must not hide it.
+    late = await _undelivered_answer(channel, prompt, author_ids, timeout)
+    if late is not None:
         log.info("Recovered an undelivered answer from channel history.")
         return RoundResult(Outcome.ANSWERED, prompt, late, max(_reaction_time(prompt, late), 0.0))
 
     return RoundResult(Outcome.TIMEOUT, prompt, None, timeout)
+
+
+#: How many of the newest messages the safety net of :func:`ask` reads.
+HISTORY_DEPTH = 8
+
+
+async def _undelivered_answer(channel: Any, prompt: Any, author_ids: set[int] | None,
+                              timeout: float) -> Any:
+    """The FIRST message a fighter wrote after ``prompt`` in time, as found in the history.
+
+    None when there is none (or the history cannot be read).  The first one,
+    because that is the message the round would have taken had it been delivered.
+    """
+    try:
+        recent = [message async for message in channel.history(limit=HISTORY_DEPTH)]
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        log.debug("Could not read channel history.", exc_info=True)
+        return None
+    answers = [
+        message for message in recent
+        if message.id > prompt.id
+        and not getattr(message.author, "bot", False)
+        and (author_ids is None or message.author.id in author_ids)
+    ]
+    if not answers:
+        return None
+    first = min(answers, key=lambda message: message.id)
+    return first if _reaction_time(prompt, first) <= timeout + TOLERANCE else None
 
 
 async def notify_disrupted(channel: discord.abc.Messageable) -> None:
@@ -203,6 +297,7 @@ async def countdown(channel: discord.abc.Messageable, *, pause: float = 1.0) -> 
     most of Discord's 5-messages-per-5-seconds channel budget right before the
     first fight prompts, which then stalled for seconds.
     """
+    _mark_fight(channel)  # from here on nothing else is posted on the channel (see fight_on)
     message = await io.send(channel, "Uwaga!!! 3...")
     for text in ("Uwaga!!! 3... 2...", "Uwaga!!! 3... 2... 1..."):
         await _pause(pause)

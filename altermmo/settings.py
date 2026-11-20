@@ -24,6 +24,8 @@ Environment variables (``.env`` file in the project root):
 Optional gameplay switches (see the policy fields of :class:`Settings`):
 
 ``ALTERMMO_BUSY_POLICY``              ``notify`` (default) | ``read_only_free`` | ``silent``
+``ALTERMMO_PRIVATE_ANSWERS``          ``1`` -> the bot's answers to button clicks are visible only to
+                                      the player who clicked (default ``0``: public, as in the old bot)
 ``ALTERMMO_BOSS_VISIBLE_MINUTES``     minutes before an unattacked boss leaves (0/unset = never)
 ``ALTERMMO_BOSS_RETURNS_AFTER_ERROR`` ``1`` (default) boss stays after a technical failure, ``0`` it escapes
 """
@@ -140,6 +142,9 @@ class Settings:
     #: "read_only_free" | "notify" | "silent" - see altermmo/core/guards.py.
     #: Owner's decision: everything is blocked, but the bot says so.
     busy_policy: str = "notify"
+    #: Answers to button clicks: False -> ordinary messages everybody sees (owner's decision:
+    #: as in the old bot; the channel is cleared at the events), True -> only the clicker sees them.
+    private_answers: bool = False
     #: Seconds an unattacked boss stays on the channel before it leaves and a
     #: new respawn is scheduled.  None = it waits forever (legacy behaviour).
     boss_visible_timeout: float | None = None
@@ -191,6 +196,8 @@ def load_settings(*, env_file: Path | None = None) -> Settings:
             policies["legacy_dir"] = legacy_dir
     if _env("ALTERMMO_BACKUP_KEEP").isdigit():  # (anything else: the default stays)
         policies["backup_keep"] = int(_env("ALTERMMO_BACKUP_KEEP"))
+    if _env("ALTERMMO_PRIVATE_ANSWERS"):
+        policies["private_answers"] = _flag(_env("ALTERMMO_PRIVATE_ANSWERS"))
     if _env("ALTERMMO_BUSY_POLICY"):
         policies["busy_policy"] = _env("ALTERMMO_BUSY_POLICY")
     if _env("ALTERMMO_BOSS_VISIBLE_MINUTES"):

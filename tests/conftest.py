@@ -49,9 +49,22 @@ def _fast_rounds(monkeypatch):
     Waiting times (``timing.timeout``) stay real; a test that exercises a
     "nobody answered" path shrinks them with the ``short_timeouts`` fixture.
     """
-    from altermmo.core import challenge, timing
+    from altermmo.core import challenge, guards, timing, ui
 
     monkeypatch.setattr(challenge, "MIN_GRACE", 0.05)
+    # Every click is answered in tests, unless a test switches these filters of ui.reply on
+    # to test them:
+    # * the "same notice moments ago" filter (NOTICE_GAP) is off;
+    # * a fight counts as "on" only while one of its rounds is running (no lingering
+    #   15 s after the last round, during which notices are swallowed);
+    # * the busy notice limiter (one per 20 s per channel, shared with the typed
+    #   commands) starts empty - a second busy notice within one test is still swallowed.
+    monkeypatch.setattr(ui, "NOTICE_GAP", 0.0)
+    ui._recent_notices.clear()
+    monkeypatch.setattr(challenge, "FIGHT_LINGER", 0.0)
+    challenge._rounds_running.clear()
+    challenge._fight_seen.clear()
+    guards._last_notice.clear()
     monkeypatch.setattr(timing, "PAUSE_SCALE", 0.0)
 
 

@@ -4,8 +4,14 @@ The old bot knew only typed commands and reactions.  Everything clickable goes
 through this module, so that every panel behaves the same way:
 
 * a click is ALWAYS answered - Discord shows "interaction failed" when a bot
-  stays silent for 3 seconds.  Refusals are *ephemeral* (only the clicker sees
-  them), so they never clutter the boss channel;
+  stays silent for 3 seconds;
+* answers are ordinary messages everybody sees, as in the old bot (owner's
+  decision of 2026-11-20: nothing "visible only to you" - what is on the
+  channel is what everybody reads, and the channel is cleared at the events
+  anyway).  A public answer names the player it is for.  To keep the channel
+  readable (see :func:`reply`): a player's repeated click does not repeat the
+  same notice, the busy notice is shared with the typed commands (one per 20 s),
+  and while players are typing a fight on the channel no notice is posted at all;
 * an error inside a click handler is answered, logged and reported to the owner
   (:class:`GameView`);
 * buttons of a flow that is over (also: from before a restart of the bot) say
@@ -50,7 +56,7 @@ from typing import Any, Awaitable, Callable, Iterable, Sequence
 
 import discord
 
-from . import io
+from . import challenge, guards, io
 from .scene import Scene
 
 log = logging.getLogger(__name__)
@@ -71,6 +77,20 @@ MSG_FAILED = "Coś poszło nie tak. Spróbuj ponownie za chwilę <:Sadge:9369076
 
 #: Return this from an ``allow`` callback that has answered the click itself.
 DROP = ""
+
+#: The same plain notice is not posted again for the same player within this many seconds
+#: (a double click, an impatient third one).  The click is acknowledged silently instead -
+#: the notice is still on the screen.
+NOTICE_GAP = 10.0
+#: Notices that mean the same for everybody ("this button no longer works"): one on the
+#: channel is enough for all who click within :data:`NOTICE_GAP` - twenty players clicking
+#: one dead button must not post twenty lines.  Features add their own texts.
+GENERAL_NOTICES: set[str] = {MSG_STALE, MSG_CANNOT_PLAY}
+#: Keyword arguments that make an answer more than a plain notice (it is then always posted).
+_CONTENT_KWARGS = ("embed", "embeds", "view", "file", "files")
+#: ``(channel id, player id or None for a general notice, text)`` -> when it was last
+#: posted (``time.monotonic``).
+_recent_notices: dict[tuple[int, int | None, str], float] = {}
 
 #: Ids of the messages whose flow buttons somebody is listening to right now.
 _live: set[int] = set()
@@ -93,19 +113,109 @@ def _files(kwargs: dict[str, Any]) -> dict[str, Any]:
     return built
 
 
-async def reply(interaction: Any, content: str | None = None, *, ephemeral: bool = True,
+def answers_are_private(interaction: Any) -> bool:
+    """False (the owner's decision): answers to clicks are public messages.
+
+    ``Settings.private_answers`` switches back to answers only the clicker sees.
+    """
+    settings = getattr(getattr(interaction, "client", None), "settings", None)
+    return bool(getattr(settings, "private_answers", False))
+
+
+def _addressed(interaction: Any, content: str) -> str:
+    """``content`` with the clicker's mention in front, unless it names the clicker already.
+
+    A public answer to a click does not show who clicked - without the name
+    nobody could tell whom "you cannot do that now" is for.  Not in private
+    messages (there is only one reader).
+    """
+    user_id = getattr(getattr(interaction, "user", None), "id", None)
+    if user_id is None or getattr(interaction, "guild", None) is None:
+        return content
+    if f"<@{user_id}>" in content or f"<@!{user_id}>" in content:
+        return content
+    return f"<@{user_id}> {content}"
+
+
+def _notice_key(interaction: Any, content: str) -> tuple[int, int | None, str]:
+    channel_id = getattr(getattr(interaction, "channel", None), "id", 0) or 0
+    user_id = None if content in GENERAL_NOTICES else getattr(getattr(interaction, "user", None), "id", None)
+    return channel_id, user_id, content
+
+
+def _just_said(interaction: Any, content: str) -> bool:
+    """True when this notice was posted (for this player) less than :data:`NOTICE_GAP` s ago."""
+    if NOTICE_GAP <= 0:
+        return False
+    last = _recent_notices.get(_notice_key(interaction, content))
+    return last is not None and time.monotonic() - last < NOTICE_GAP
+
+
+def _note_said(interaction: Any, content: str) -> None:
+    """Remember that the notice is on the channel now (called once it really was posted)."""
+    if NOTICE_GAP <= 0:
+        return
+    now = time.monotonic()
+    if len(_recent_notices) > 256:  # forget what is long over
+        for old in [k for k, moment in _recent_notices.items() if now - moment >= NOTICE_GAP]:
+            del _recent_notices[old]
+    _recent_notices[_notice_key(interaction, content)] = now
+
+
+def _swallowed(interaction: Any, content: str) -> bool:
+    """True when a public plain notice must not be posted now (the click is only acknowledged).
+
+    * anything while players are typing a fight on the channel
+      (``challenge.fight_on``): nothing is posted between the fight's prompts -
+      not even the busy notice;
+    * the busy notice: at most one per 20 s per channel, together with the
+      typed commands (``guards.busy_notice_due``);
+    * a notice this player (or, for :data:`GENERAL_NOTICES`, anybody) got moments ago.
+    """
+    channel = getattr(interaction, "channel", None)
+    if challenge.fight_on(channel):
+        return True
+    if content == MSG_BUSY:
+        return not guards.busy_notice_due(getattr(channel, "id", 0) or 0, note=False)
+    return _just_said(interaction, content)
+
+
+async def reply(interaction: Any, content: str | None = None, *, ephemeral: bool | None = None,
                 **kwargs: Any) -> bool:
-    """Answer a click with a message (ephemeral by default).  Never raises.
+    """Answer a click with a message.  Never raises.
+
+    The answer is an ordinary message on the channel (see the module
+    docstring).  It starts with the clicker's mention and pings nobody else.
+    A plain notice (text only) is sometimes not posted - the click is then
+    only acknowledged - see :func:`_swallowed`: a repeated one, the busy
+    notice more often than the typed commands show it, anything during a
+    typed fight.  ``ephemeral=True`` / ``False`` overrides the setting.
 
     Works before and after the interaction was acknowledged.  ``embed=``,
     ``view=``, ``file_path=`` ... are passed on.  False when Discord refused.
     """
+    private = answers_are_private(interaction) if ephemeral is None else bool(ephemeral)
     try:
         built = _files(kwargs)
+        plain = not any(built.get(name) for name in _CONTENT_KWARGS)
+        notice = content if (not private and content is not None and plain) else None
+        if notice is not None and _swallowed(interaction, notice):
+            return await ack(interaction)
+        if not private and content is not None:
+            content = _addressed(interaction, content)
+            # Only the clicker is pinged: "this button is for <@somebody>" must not
+            # notify that somebody every time another player clicks.
+            built.setdefault("allowed_mentions", discord.AllowedMentions(
+                everyone=False, roles=False, users=[interaction.user]))
+        ephemeral = private
         if not interaction.response.is_done():
             await interaction.response.send_message(content, ephemeral=ephemeral, **built)
         else:
             await interaction.followup.send(content, ephemeral=ephemeral, **built)
+        if notice == MSG_BUSY:  # (only now: a notice that failed to be sent was not seen)
+            guards.note_busy_notice(getattr(getattr(interaction, "channel", None), "id", 0) or 0)
+        elif notice is not None:
+            _note_said(interaction, notice)
         return True
     except asyncio.CancelledError:
         raise
@@ -163,30 +273,6 @@ def scene_of(interaction: Any) -> Scene:
     return Scene(bot=interaction.client, channel=interaction.channel, author=interaction.user)
 
 
-@dataclass(frozen=True)
-class WhisperScene(Scene):
-    """A scene whose :meth:`send` answers the clicker privately (ephemeral).
-
-    For display-only panels opened by a button (pet, rankings ...): the
-    answer is visible only to the player and does not fill the channel.  Only
-    ``scene.send`` whispers; code that writes to ``scene.channel`` directly
-    stays public.  ``send`` returns None (there is no message to react to).
-    """
-
-    interaction: Any = None
-
-    async def send(self, content: str | None = None, **kwargs: Any) -> Any:
-        kwargs.pop("attempts", None)
-        if not await reply(self.interaction, content, ephemeral=True, **kwargs):
-            raise RuntimeError("the private answer could not be delivered")
-        return None
-
-
-def whisper_scene(interaction: Any) -> WhisperScene:
-    return WhisperScene(bot=interaction.client, channel=interaction.channel, author=interaction.user,
-                        interaction=interaction)
-
-
 def may_play(channel: Any, member: Any) -> bool:
     """True when ``member`` may write on ``channel`` (see the module docstring: dead hunters)."""
     try:
@@ -197,10 +283,12 @@ def may_play(channel: Any, member: Any) -> bool:
 
 async def gate(interaction: Any, *, boss_channel: bool = True, unless_busy: bool = True,
                players_only: bool = True) -> bool:
-    """The guards of a gameplay command, for a click.  Refusals are answered ephemerally.
+    """The guards of a gameplay command, for a click.  Refusals are answered with :func:`reply`.
 
     ``boss_channel``  only on the boss channel (owner's rule for gameplay);
-    ``unless_busy``   not while an event / hunt / tower run holds the channel;
+    ``unless_busy``   not while an event / hunt / tower run holds the channel, and not while
+                      players are typing a fight on it (a boss fight does not hold the busy
+                      flag, but nothing may be posted between its prompts either);
     ``players_only``  only members who may write on the channel.
     Returns True when the click may go on (nothing was answered yet).
     """
@@ -211,7 +299,7 @@ async def gate(interaction: Any, *, boss_channel: bool = True, unless_busy: bool
     if players_only and not may_play(interaction.channel, interaction.user):
         await reply(interaction, MSG_CANNOT_PLAY)
         return False
-    if unless_busy and bot.state.busy:
+    if unless_busy and (bot.state.busy or challenge.fight_on(interaction.channel)):
         await reply(interaction, MSG_BUSY)
         return False
     return True
@@ -292,9 +380,9 @@ class Click:
 class ClickView(GameView):
     """Buttons whose clicks are queued for the flow that posted them.
 
-    ``only``          members (or ids) who may click; everybody else gets a private refusal;
+    ``only``          members (or ids) who may click; everybody else gets a refusal (:func:`reply`);
     ``allow``         ``async (interaction, key) -> str | None``: None accepts the click, a text
-                      refuses it with that (ephemeral) text, :data:`DROP` when the callback has
+                      refuses it with that text (:func:`reply`), :data:`DROP` when the callback has
                       answered the click itself;
     ``players_only``  refuse members who may not write on the channel (dead hunters);
     ``auto_ack``      acknowledge accepted clicks at once (default).  Switch off when the flow
@@ -545,7 +633,7 @@ async def handle_stale(interaction: Any) -> None:
             await interaction.response.edit_message(view=None)
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 - e.g. an ephemeral message that is gone
+        except Exception:  # noqa: BLE001 - e.g. the message was purged meanwhile
             log.debug("Could not remove stale buttons.", exc_info=True)
             await retire(message)
     await reply(interaction, MSG_STALE)

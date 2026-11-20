@@ -60,12 +60,32 @@ def boss_channel_only():
     return commands.check(predicate)
 
 
+def busy_notice_due(channel_id: int, *, note: bool = True) -> bool:
+    """True when the busy notice may be posted on the channel now.
+
+    One notice per :data:`_NOTICE_COOLDOWN` seconds per channel - shared by the
+    typed commands (:func:`notify_busy`) and the button clicks
+    (:func:`altermmo.core.ui.reply`), so players hammering both cannot fill
+    the channel in the middle of an event.  ``note=True`` also records that
+    the notice is being posted now; with ``note=False`` call
+    :func:`note_busy_notice` once it really was.
+    """
+    if time.monotonic() - _last_notice.get(channel_id, 0.0) < _NOTICE_COOLDOWN:
+        return False
+    if note:
+        note_busy_notice(channel_id)
+    return True
+
+
+def note_busy_notice(channel_id: int) -> None:
+    """Record that the busy notice has just been posted on the channel."""
+    _last_notice[channel_id] = time.monotonic()
+
+
 async def notify_busy(ctx: commands.Context) -> None:
     """Tell the user the bot is busy (rate limited per channel, never raises)."""
-    now = time.monotonic()
-    if now - _last_notice.get(ctx.channel.id, 0.0) < _NOTICE_COOLDOWN:
+    if not busy_notice_due(ctx.channel.id):
         return
-    _last_notice[ctx.channel.id] = now
     try:
         await io.send(ctx.channel, BUSY_NOTICE, attempts=1)
     except Exception:  # noqa: BLE001 - a notice is never worth an error

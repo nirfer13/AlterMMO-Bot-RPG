@@ -79,8 +79,8 @@ def roster(message) -> tuple[str, str]:
     return field.name, field.value
 
 
-def whisperer(game, member, channel=None) -> FakeInteraction:
-    """A click of ``member`` on some button elsewhere (the hub panel): answers are private."""
+def clicker(game, member, channel=None) -> FakeInteraction:
+    """A click of ``member`` on some button elsewhere (the hub panel): answers go to the channel."""
     return FakeInteraction(game.bot, member, channel=channel or game.channel)
 
 
@@ -120,13 +120,15 @@ async def test_button_and_typed_word_fill_the_hunt_and_the_card_shows_the_hunter
 
     starter = await game.click(card, ala, JOIN)                         # the starter is already in
     refused = await game.click(card, dead, JOIN)                        # a dead hunter cannot join
-    assert refused.whispers == [ui.MSG_CANNOT_PLAY]
+    assert refused.public == [f"<@{dead.id}> {ui.MSG_CANNOT_PLAY}"]     # on the channel, addressed
+    assert refused.replies[0].message in game.channel.messages
     joined = await game.click(card, ola, JOIN)
-    assert joined.response.deferred
-    await until(lambda: starter.whispers == [daily.MSG_ALREADY_HUNTING])
+    assert joined.response.deferred and joined.replies == []           # the roster shows the join
+    await until(lambda: starter.public == [f"<@{ala.id}> {daily.MSG_ALREADY_HUNTING}"])
+    assert starter.replies[0].message in game.channel.messages          # the gathering is no fight yet
     await until(lambda: roster(card)[0] == "Łowcy (2/3)")
     again = await game.click(card, ola, JOIN)                           # counted once
-    await until(lambda: again.whispers == [daily.MSG_ALREADY_HUNTING])
+    await until(lambda: again.answers == [daily.MSG_ALREADY_HUNTING])
     assert roster(card)[1].startswith(f"<@{ala.id}>, <@{ola.id}>\n")
 
     game.say(ela, "$polowanie")                                         # the typed way still works
@@ -211,7 +213,7 @@ async def test_repeated_clicks_of_a_hunter_do_not_push_a_joiner_past_the_deadlin
     """Review: each "already hunting" answer was awaited inside the join window."""
     game.bot.debug = False
     monkeypatch.setattr(daily, "JOIN_TIME", 0.4)
-    slow(monkeypatch, "reply", 0.15)                                    # every private answer: 150 ms
+    slow(monkeypatch, "reply", 0.15)                                    # every answer: 150 ms
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     team_answers(game, [ala, ola])
     card, task = await start_gathering(game, ala)
@@ -219,9 +221,27 @@ async def test_repeated_clicks_of_a_hunter_do_not_push_a_joiner_past_the_deadlin
     joined = game.click_later(card, ola, JOIN)                          # Ola clicks at the same moment
     assert await task is True
     assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> ")
-    assert (await joined).whispers == [] and (await joined).response.deferred
+    assert (await joined).replies == [] and (await joined).response.deferred
     for click in repeats:
-        assert (await click).whispers == [daily.MSG_ALREADY_HUNTING]
+        assert (await click).answers == [daily.MSG_ALREADY_HUNTING]
+
+
+async def test_a_hunter_clicking_again_and_again_is_told_once(game, quiet_hunt, monkeypatch):
+    """With the real repeat filter of ui.reply: one "already hunting" per player, the rest only acknowledged."""
+    game.bot.debug = False
+    monkeypatch.setattr(ui, "NOTICE_GAP", 10.0)
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    team_answers(game, [ala, ola])
+    card, task = await start_gathering(game, ala)
+    starter = [await game.click(card, ala, JOIN) for _ in range(3)]
+    assert [click.answers for click in starter] == [[daily.MSG_ALREADY_HUNTING], [], []]
+    assert all(click.response.deferred for click in starter[1:])
+    await game.click(card, ola, JOIN)
+    await until(lambda: daily.is_hunting(game.channel, ola))
+    again = await game.click(card, ola, JOIN)                           # another player: told as well
+    assert again.public == [f"<@{ola.id}> {daily.MSG_ALREADY_HUNTING}"]
+    assert await task is True
+    assert game.channel.count(daily.MSG_ALREADY_HUNTING) == 2
 
 
 async def test_clicks_queued_before_the_hunt_listens_are_refused_without_delaying_it(game, quiet_hunt, monkeypatch):
@@ -237,9 +257,9 @@ async def test_clicks_queued_before_the_hunt_listens_are_refused_without_delayin
     slow(monkeypatch, "reply", 0.15)
     assert await daily.hunt_mobs(game.scene(ala), 0, False, None) is True
     assert game.channel.contains(f"Rozpoczęliście polowanie <@{ala.id}> <@{ola.id}> ")
-    assert joined.whispers == []
+    assert joined.replies == []
     for click in repeats:
-        await until(lambda c=click: c.whispers == [daily.MSG_ALREADY_HUNTING])
+        await until(lambda c=click: c.answers == [daily.MSG_ALREADY_HUNTING])
 
 
 async def test_a_click_counts_from_the_moment_it_is_made_not_after_its_acknowledgement(game, quiet_hunt, monkeypatch):
@@ -252,7 +272,7 @@ async def test_a_click_counts_from_the_moment_it_is_made_not_after_its_acknowled
     card, task = await start_gathering(game, ala)
     await asyncio.sleep(0.25)                                           # 0.15 s before the window closes
     click = await game.click(card, ola, JOIN)                           # acknowledged only after it closed
-    assert click.response.deferred and click.whispers == []
+    assert click.response.deferred and click.replies == []
     assert await task is True
     assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> ")
 
@@ -268,8 +288,9 @@ async def test_a_click_left_over_is_told_too_late_only_after_its_acknowledgement
     assert await task is True
     assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> <@{ela.id}> ")
     ola_click, ela_click, iza_click = [await click for click in clicks]
-    assert ola_click.whispers == [] and ela_click.whispers == []
-    assert iza_click.response.deferred and iza_click.whispers == [daily.MSG_JOIN_TOO_LATE]
+    assert ola_click.replies == [] and ela_click.replies == []
+    assert iza_click.response.deferred
+    await until(lambda: iza_click.public == [f"<@{iza.id}> {daily.MSG_JOIN_TOO_LATE}"])
 
 
 async def test_a_hunt_without_a_card_still_takes_typed_joins(game, quiet_hunt):
@@ -284,7 +305,7 @@ async def test_a_hunt_without_a_card_still_takes_typed_joins(game, quiet_hunt):
 
 # -- $polowanie as one function (for the hub panel) ----------------------------------------
 
-async def test_start_hunt_from_a_click_refuses_privately(game, monkeypatch):
+async def test_start_hunt_from_a_click_refuses_on_the_channel(game, monkeypatch):
     bot = game.bot
     bot.debug = False
     ala = game.add_member("Ala")
@@ -296,7 +317,7 @@ async def test_start_hunt_from_a_click_refuses_privately(game, monkeypatch):
     monkeypatch.setattr(daily, "daily_hunt", fake_hunt)
 
     async def start() -> FakeInteraction:
-        click = whisperer(game, ala)
+        click = clicker(game, ala)
         await daily.start_hunt(ui.scene_of(click), refuse=lambda text: ui.reply(click, text))
         return click
 
@@ -304,19 +325,24 @@ async def test_start_hunt_from_a_click_refuses_privately(game, monkeypatch):
 
     daily.save_daily_to_file(bot, ala.id)
     stamp = int(daily.next_daily_reset().timestamp())
-    assert (await start()).whispers == [daily.MSG_ON_COOLDOWN.format(when=f"<t:{stamp}:R>")]
+    cooldown = daily.MSG_ON_COOLDOWN.format(when=f"<t:{stamp}:R>")
+    assert (await start()).answers == [cooldown]
 
     await bot.state.set_boss_phase(BossPhase.PRE_SPAWN)
-    assert (await start()).whispers == [daily.MSG_BOSS_COMING]
+    assert (await start()).answers == [daily.MSG_BOSS_COMING]
     await bot.state.set_boss_phase(BossPhase.VISIBLE)
-    assert (await start()).whispers == [daily.MSG_BOSS_HERE]
+    assert (await start()).answers == [daily.MSG_BOSS_HERE]
     await bot.state.set_boss_phase(BossPhase.FIGHTING)
-    assert (await start()).whispers == [daily.MSG_BOSS_FIGHT]
+    assert (await start()).answers == [daily.MSG_BOSS_FIGHT]
     await bot.state.set_boss_phase(BossPhase.WAITING)
 
     with bot.state.hold_busy("event:PARTY"):
-        assert (await start()).whispers == [ui.MSG_BUSY]
-    assert len(hunts) == 1 and game.channel.bot_messages == game.channel.bot_messages[:1]  # nothing public
+        assert (await start()).answers == [ui.MSG_BUSY]
+    assert len(hunts) == 1
+    # Every refusal is a message on the channel that names the clicker.
+    assert [m.content for m in game.channel.bot_messages[1:]] == [
+        f"<@{ala.id}> {text}" for text in (cooldown, daily.MSG_BOSS_COMING, daily.MSG_BOSS_HERE,
+                                           daily.MSG_BOSS_FIGHT, ui.MSG_BUSY)]
 
 
 async def test_start_hunt_from_a_click_joins_a_gathering_hunt(game, quiet_hunt):
@@ -325,11 +351,13 @@ async def test_start_hunt_from_a_click_joins_a_gathering_hunt(game, quiet_hunt):
     team_answers(game, [ala, ola])
     card, task = await start_gathering(game, ala)
     for member in (ola, ala):
-        click = whisperer(game, member)
+        click = clicker(game, member)
         await ui.ack(click)
         assert await daily.start_hunt(ui.scene_of(click), refuse=lambda text, c=click: ui.reply(c, text)) is False
         if member is ala:
-            await until(lambda: click.whispers == [daily.MSG_ALREADY_HUNTING])
+            await until(lambda: click.answers == [daily.MSG_ALREADY_HUNTING])
+        else:
+            assert click.replies == []
     assert await task is True
     assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> ")
 
@@ -340,10 +368,10 @@ async def test_hub_hunt_click_joins_a_real_gathering_hunt(game, quiet_hunt):
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     team_answers(game, [ala, ola])
     card, task = await start_gathering(game, ala)
-    own = whisperer(game, ala)
-    assert await hub.hunt_clicked(own) is False                         # the starter: told at once, privately
-    assert own.whispers == [daily.MSG_ALREADY_HUNTING]
-    click = whisperer(game, ola)
+    own = clicker(game, ala)
+    assert await hub.hunt_clicked(own) is False                         # the starter: told at once
+    assert own.public == [f"<@{ala.id}> {daily.MSG_ALREADY_HUNTING}"]
+    click = clicker(game, ola)
     assert await hub.hunt_clicked(click) is False                       # joined; the hunt is the starter's
     await until(lambda: roster(card)[0] == "Łowcy (2/3)")
     assert click.response.deferred and click.replies == []
@@ -352,16 +380,19 @@ async def test_hub_hunt_click_joins_a_real_gathering_hunt(game, quiet_hunt):
     assert click.replies == [] and roster(card) == ("Łowcy (2/3)", f"<@{ala.id}>, <@{ola.id}>")
 
 
-async def test_hub_hunt_click_after_the_gathering_is_refused_privately(game, quiet_hunt):
+async def test_hub_hunt_click_after_the_gathering_gets_the_busy_notice(game, quiet_hunt):
     game.bot.debug = False
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     team_answers(game, [ala])
     with game.bot.state.hold_busy("hunt"):                              # as start_hunt holds it
         card, task = await start_gathering(game, ala)
         await until(lambda: not daily.is_gathering(game.channel))      # the hunt has started
-        click = whisperer(game, ola)
+        click = clicker(game, ola)
         assert await hub.hunt_clicked(click) is False
-        assert click.whispers == [ui.MSG_BUSY]
+        assert click.answers == [ui.MSG_BUSY]                           # the busy notice is posted even now
+        late = clicker(game, ala)                                       # ... but once per 20 s
+        assert await hub.hunt_clicked(late) is False
+        assert late.response.deferred and late.replies == []
         assert await task is True
     assert game.channel.contains(f"Brawo <@{ala.id}> ") and roster(card) == ("Łowcy (1/3)", f"<@{ala.id}>")
 
@@ -372,7 +403,7 @@ async def test_hub_hunt_click_right_at_the_deadline_is_told_too_late(game, quiet
     game.bot.debug = False
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     team_answers(game, [ala])
-    click = whisperer(game, ola)
+    click = clicker(game, ola)
     real_next_joiner = daily._next_joiner
 
     async def next_joiner(*args, **kwargs):
@@ -388,7 +419,8 @@ async def test_hub_hunt_click_right_at_the_deadline_is_told_too_late(game, quiet
         task = asyncio.ensure_future(daily.hunt_mobs(game.scene(ala), 0, False, None))
     assert await task is True
     assert game.channel.contains(f"Brawo <@{ala.id}> ")
-    assert click.response.deferred and click.whispers == [daily.MSG_JOIN_TOO_LATE]
+    assert click.response.deferred
+    await until(lambda: click.answers == [daily.MSG_JOIN_TOO_LATE])
 
 
 async def test_typed_polowanie_answers_on_the_channel_with_the_live_reset_time(game):
@@ -453,20 +485,22 @@ async def test_start_tower_from_a_click_and_from_the_command(game, monkeypatch):
     monkeypatch.setattr(tower, "explore_tower", fake_run)
 
     async def start() -> FakeInteraction:
-        click = whisperer(game, ala)
+        click = clicker(game, ala)
         await tower.start_tower(ui.scene_of(click), refuse=lambda text: ui.reply(click, text))
         return click
 
     assert (await start()).replies == [] and runs == [(ala, "tower")] and not bot.state.busy
     tower.save_weekly_tower_to_file(bot, ala.id)
     monday = f"<t:{int(daily.next_season_end().timestamp())}:R>"
-    assert (await start()).whispers == [tower.MSG_ON_COOLDOWN.format(when=monday)]
+    refused = await start()
+    assert refused.public == [f"<@{ala.id}> {tower.MSG_ON_COOLDOWN.format(when=monday)}"]
+    assert refused.replies[0].message is game.channel.messages[-1]
     await bot.state.set_boss_phase(BossPhase.ENGAGED)
-    assert (await start()).whispers == [tower.MSG_BOSS_FIGHT]
+    assert (await start()).answers == [tower.MSG_BOSS_FIGHT]
     await bot.state.set_boss_phase(BossPhase.WAITING)
     with bot.state.hold_busy("hunt"):
-        assert (await start()).whispers == [ui.MSG_BUSY]
-    assert len(game.channel.bot_messages) == 1                         # nothing public so far
+        assert (await start()).answers == [ui.MSG_BUSY]
+    assert len(game.channel.bot_messages) == 4                         # the three refusals, addressed
 
     assert await tower.start_tower(game.scene(ala)) is False             # the typed command answers publicly
     assert game.channel.messages[-1].content == tower.cooldown_text()
@@ -516,16 +550,21 @@ async def test_pouch_menu_makes_another_gem_active(game_db):
     assert menu.placeholder == skills.POUCH_PLACEHOLDER and "w menu pod listą" in pouch.embeds[0].description
 
     other = await game_db.click(pouch, ola, MENU, values=["2"])            # not her list
-    assert other.whispers == [ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)]
+    # Addressed to Ola, naming Ala - and only Ola is pinged.
+    assert other.public == [f"<@{ola.id}> " + ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)]
+    assert other.replies[0].allowed_mentions.users == [ola]
     already = await game_db.click(pouch, ala, MENU, values=["1"])
-    assert already.whispers == [skills.MSG_ALREADY_ACTIVE.format(player_id=ala.id, name="Klejnot Regeneracji")]
+    already_text = skills.MSG_ALREADY_ACTIVE.format(player_id=ala.id, name="Klejnot Regeneracji")
+    assert already.public == [already_text]                                 # names Ala already: no second mention
 
     chosen = await game_db.click(pouch, ala, MENU, values=["2"])
-    assert chosen.whispers == [skills.MSG_GEM_CHOSEN.format(player_id=ala.id, name="Klejnot Przywołania")]
+    chosen_text = skills.MSG_GEM_CHOSEN.format(player_id=ala.id, name="Klejnot Przywołania")
+    assert chosen.public == [chosen_text]
     assert await active_gem(game_db, ala) == 8
     assert "**2. Klejnot Przywołania** ✅ aktywny" in pouch.embeds[0].description        # the list is repainted
     assert [o.default for o in pouch.button(MENU).options] == [False, True, False]
-    assert pouch.view is not None and len(game_db.channel.bot_messages) == 2             # nothing public
+    assert pouch.view is not None and pouch in game_db.channel.messages               # the same list, repainted
+    assert [m.content for m in game_db.channel.bot_messages[2:]] == [other.public[0], already_text, chosen_text]
 
     assert await skills.choose_skill(game_db.scene(ala), "3") is True                   # typing still works
     assert await active_gem(game_db, ala) == 9
@@ -556,7 +595,7 @@ async def test_pouch_menu_acknowledges_the_choice_before_the_database_work(game_
     chosen = await game_db.click(pouch, ala, MENU, values=["2"])
     assert seen == [("_choose", True), ("_load_pouch", True)]          # answered before the database
     assert chosen.response.deferred
-    assert chosen.whispers == [skills.MSG_GEM_CHOSEN.format(player_id=ala.id, name="Klejnot Przywołania")]
+    assert chosen.answers == [skills.MSG_GEM_CHOSEN.format(player_id=ala.id, name="Klejnot Przywołania")]
     assert "**2. Klejnot Przywołania** ✅ aktywny" in pouch.embeds[0].description        # still repainted
     assert [o.default for o in pouch.button(MENU).options] == [False, True, False]
     assert await active_gem(game_db, ala) == 8
@@ -569,35 +608,51 @@ async def test_pouch_menu_follows_the_gameplay_rules(game_db):
     assert await skills.show_skills(Scene(bot=bot, channel=elsewhere, author=ala)) is True   # shown anywhere
     pouch = elsewhere.messages[-1]
     refused = await game_db.click(pouch, ala, MENU, values=["2"])       # chosen: boss channel only
-    assert refused.whispers == [ui.MSG_WRONG_CHANNEL.format(channel_id=bot.ids.boss_channel)]
+    assert refused.answers == [ui.MSG_WRONG_CHANNEL.format(channel_id=bot.ids.boss_channel)]
+    assert refused.replies[0].message is elsewhere.messages[-1]         # said where the menu is
 
     await skills.show_skills(game_db.scene(ala))
     pouch = game_db.channel.messages[-1]
     with bot.state.hold_busy("hunt"):
-        assert (await game_db.click(pouch, ala, MENU, values=["2"])).whispers == [ui.MSG_BUSY]
+        assert (await game_db.click(pouch, ala, MENU, values=["2"])).answers == [ui.MSG_BUSY]
     ala.roles.append(game_db.guild.add_role(bot.ids.dead_hunter_role))
     game_db.channel.silenced_roles.add(bot.ids.dead_hunter_role)
-    assert (await game_db.click(pouch, ala, MENU, values=["2"])).whispers == [ui.MSG_CANNOT_PLAY]
+    assert (await game_db.click(pouch, ala, MENU, values=["2"])).answers == [ui.MSG_CANNOT_PLAY]
     assert await active_gem(game_db, ala) == 5
 
 
-async def test_pouch_with_one_gem_or_in_private_has_no_menu_and_the_menu_expires(game_db, monkeypatch):
+async def test_pouch_with_one_gem_has_no_menu_and_the_menu_expires(game_db, monkeypatch):
     lone = await collector(game_db, "Ola", gems=((3, skills.SLOW),))
     assert await skills.show_skills(game_db.scene(lone)) is True
     assert game_db.channel.messages[-1].view is None
     assert "$wybierzklejnot numer" in game_db.channel.messages[-1].embeds[0].description
 
     ala = await collector(game_db)
-    click = FakeInteraction(game_db.bot, ala, channel=game_db.channel)
-    assert await skills.show_skills(ui.whisper_scene(click)) is True                 # privately (hub panel)
-    assert click.replies[0].ephemeral and click.replies[0].view is None
-
     monkeypatch.setattr(skills, "POUCH_MENU_SECONDS", 0.05)
     await skills.show_skills(game_db.scene(ala))
     pouch = game_db.channel.messages[-1]
     assert pouch.view is not None
     await until(lambda: pouch.view is None)                                          # unused: taken away
     assert not ui.is_live(pouch.id)
+
+
+async def test_pouch_from_the_hub_panel_is_posted_with_its_menu(game_db):
+    """"Klejnoty" on the panel posts what $klejnoty posts - with the menu, usable by its owner only."""
+    ala = await collector(game_db)
+    ola = game_db.add_member("Ola")
+    click = clicker(game_db, ala)
+    assert await hub.show_display(click, hub.show_gems) is True
+    assert click.response.deferred and click.replies == []
+    pouch = game_db.channel.messages[-1]
+    assert pouch.button(MENU).placeholder == skills.POUCH_PLACEHOLDER
+    assert f"<@{ala.id}>" in pouch.embeds[0].description
+
+    assert (await game_db.click(pouch, ola, MENU, values=["3"])).answers == [
+        ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)]
+    assert await active_gem(game_db, ala) == 5
+    chosen = await game_db.click(pouch, ala, MENU, values=["3"])
+    assert chosen.answers == [skills.MSG_GEM_CHOSEN.format(player_id=ala.id, name="Klejnot Spowolnienia")]
+    assert await active_gem(game_db, ala) == 9
 
 
 async def test_pouch_and_cooldown_texts_show_the_real_reset(game_db):

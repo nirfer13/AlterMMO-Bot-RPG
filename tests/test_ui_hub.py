@@ -16,13 +16,14 @@ from discord.ext import commands
 
 from altermmo import bot as bot_module
 from altermmo.cogs import help as help_cog
-from altermmo.core import guards, io, ui
+from altermmo.core import challenge, guards, io, ui
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossPhase
 from altermmo.features import daily, hub, pets, skills, tower
 
 from fakes import FakeInteraction, FakeMessage
-from test_pets import add_owner, add_pet
+from test_pets import add_pet
+from test_ui_daily import active_gem, collector
 
 LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Pomoc"]
 #: Typed words the help mentions that are not commands (answers inside a flow).
@@ -184,6 +185,14 @@ def test_help_embed_fits_discord_limits_and_mentions_the_buttons():
     assert not any("<@" in field.name for field in embed.fields)
 
 
+@pytest.mark.parametrize("text", [hub.PANEL_TEXT, hub.PANEL_FOOTER, help_cog.HELP_TEXT])
+def test_panel_and_help_promise_no_private_answers(text):
+    """Owner's decision of 2026-11-20: nothing the bot says is "visible only to you"."""
+    lowered = text.lower()
+    for promise in ("tylko tobie", "tylko ty", "widzisz tylko", "tylko dla ciebie", "prywatnie"):
+        assert promise not in lowered
+
+
 async def test_typed_pomoc_shows_the_help_and_its_cooldown_answers_with_a_live_time(game):
     bot = game.bot
     await bot.load_extension("altermmo.cogs.help")
@@ -305,7 +314,9 @@ async def test_click_discord_gave_up_starts_nothing(game, cog, fake_hunt):
     assert fake_hunt == [] and not daily.load_daily_from_file(game.bot, ala.id)
     click = FakeInteraction(game.bot, ala, panel)
     click.response.fail_with = ConnectionError("down")
-    assert await hub.show_privately(click, hub.show_help) is False and game.bot.owner_log == []
+    posted = len(game.channel.sent)
+    assert await hub.show_display(click, hub.show_help) is False and game.bot.owner_log == []
+    assert len(game.channel.sent) == posted                             # no help embed for nobody
 
 
 async def test_panel_command_when_pinning_or_posting_fails(game, cog, monkeypatch):
@@ -338,29 +349,41 @@ async def test_hunt_button_runs_the_hunt_of_the_clicker(game, cog, fake_hunt):
     assert daily.load_daily_from_file(game.bot, ala.id)                 # the day's hunt is used up
 
     again = await game.click(panel, ala, "Polowanie")
-    assert again.whispers == [daily.cooldown_text()] and len(fake_hunt) == 1
-    assert not game.channel.ever_sent("Zregeneruj się")                  # refusals stay private
+    assert again.answers == [daily.cooldown_text()] and len(fake_hunt) == 1
+    # The refusal is an ordinary message on the channel, addressed to the clicker.
+    assert again.public == [f"<@{ala.id}> {daily.cooldown_text()}"]
+    (reply,) = again.replies
+    assert not reply.ephemeral and reply.message is game.channel.messages[-1]
+    assert reply.allowed_mentions.users == [ala] and not reply.allowed_mentions.everyone
 
 
-async def test_hunt_button_refusals_are_private(game, cog, fake_hunt):
+async def test_hunt_button_refusals_are_public_and_addressed(game, cog, fake_hunt):
     bot = game.bot
     bot.debug = False
     ala, jan = game.add_member("Ala"), dead_hunter(game)
     panel = await panel_on(game)
+    before = len(game.channel.bot_messages)                             # the pinned rules + the panel
 
-    assert (await game.click(panel, jan, "Polowanie")).whispers == [ui.MSG_CANNOT_PLAY]
+    assert (await game.click(panel, jan, "Polowanie")).answers == [ui.MSG_CANNOT_PLAY]
     with bot.state.hold_busy("tower"):
-        assert (await game.click(panel, ala, "Polowanie")).whispers == [ui.MSG_BUSY]
+        assert (await game.click(panel, ala, "Polowanie")).answers == [ui.MSG_BUSY]
+        # The busy notice is shared with the typed commands: one per 20 s on the channel.
+        swallowed = await game.click(panel, ala, "Polowanie")
+        assert swallowed.response.deferred and swallowed.replies == []
     await bot.state.set_boss_phase(BossPhase.PRE_SPAWN)
-    assert (await game.click(panel, ala, "Polowanie")).whispers == [daily.MSG_BOSS_COMING]
+    assert (await game.click(panel, ala, "Polowanie")).answers == [daily.MSG_BOSS_COMING]
     await bot.state.set_boss_phase(BossPhase.FIGHTING)
-    assert (await game.click(panel, ala, "Polowanie")).whispers == [daily.MSG_BOSS_FIGHT]
-    assert fake_hunt == [] and len(game.channel.bot_messages) == 2      # the pinned rules + the panel
+    assert (await game.click(panel, ala, "Polowanie")).answers == [daily.MSG_BOSS_FIGHT]
+    assert fake_hunt == []
+    assert [m.content for m in game.channel.bot_messages[before:]] == [
+        f"<@{jan.id}> {ui.MSG_CANNOT_PLAY}", f"<@{ala.id}> {ui.MSG_BUSY}",
+        f"<@{ala.id}> {daily.MSG_BOSS_COMING}", f"<@{ala.id}> {daily.MSG_BOSS_FIGHT}"]
 
-    # Off the boss channel (a panel posted elsewhere): gameplay is refused.
+    # Off the boss channel (a panel posted elsewhere): gameplay is refused there, on that channel.
     elsewhere = await panel_on(game, game.announce_channel)
     wrong = await game.click(elsewhere, ala, "Polowanie")
-    assert wrong.whispers == [ui.MSG_WRONG_CHANNEL.format(channel_id=bot.ids.boss_channel)]
+    assert wrong.answers == [ui.MSG_WRONG_CHANNEL.format(channel_id=bot.ids.boss_channel)]
+    assert wrong.replies[0].message is game.announce_channel.messages[-1]
 
 
 async def test_hunt_button_joins_a_hunt_that_is_gathering(game, cog, fake_hunt, monkeypatch):
@@ -381,19 +404,22 @@ async def test_typed_polowanie_still_works_next_to_the_button(game, cog, fake_hu
     assert fake_hunt == [(ala, "hunt")]
 
 
-async def test_tower_button_runs_the_tower_and_refuses_privately(game, cog, fake_tower):
+async def test_tower_button_runs_the_tower_and_refuses_publicly(game, cog, fake_tower):
     bot = game.bot
     bot.debug = False
     ala, jan = game.add_member("Ala"), dead_hunter(game)
     panel = await panel_on(game)
     click = await game.click(panel, ala, "Wieża")
     assert click.response.deferred and click.replies == [] and fake_tower == [(ala, "tower")]
-    assert (await game.click(panel, ala, "Wieża")).whispers == [tower.cooldown_text()]
-    assert (await game.click(panel, jan, "Wieża")).whispers == [ui.MSG_CANNOT_PLAY]
+    assert (await game.click(panel, ala, "Wieża")).answers == [tower.cooldown_text()]
+    assert (await game.click(panel, jan, "Wieża")).answers == [ui.MSG_CANNOT_PLAY]
     await bot.state.set_boss_phase(BossPhase.VISIBLE)
     ola = game.add_member("Ola")
-    assert (await game.click(panel, ola, "Wieża")).whispers == [tower.MSG_BOSS_HERE]
-    assert len(fake_tower) == 1 and not game.channel.ever_sent("Drzwi Wieży")
+    here = await game.click(panel, ola, "Wieża")
+    assert here.public == [f"<@{ola.id}> {tower.MSG_BOSS_HERE}"] and here.replies[0].message in game.channel.messages
+    assert len(fake_tower) == 1
+    assert game.channel.count(f"<@{ala.id}> {tower.cooldown_text()}") == 1   # everybody sees whom it is for
+    assert game.channel.count(f"<@{jan.id}> {ui.MSG_CANNOT_PLAY}") == 1
 
 
 async def test_a_long_run_survives_the_panel_being_deleted(game, cog, monkeypatch):
@@ -425,42 +451,79 @@ async def test_buttons_of_a_panel_from_before_a_restart_still_work(game, pins, f
     assert (await game.click(old, ala, "Polowanie")).replies == [] and fake_hunt == [(ala, "hunt")]
 
 
-# -- display buttons (private answers) ------------------------------------------------------
+# -- display buttons (the typed commands' posts, on the channel) ------------------------------
 
-async def test_display_buttons_answer_privately(game_db, pins, monkeypatch):
+DISPLAY_COMMANDS = {"Towarzysz": ["$towarzysz"], "Stajnia": ["$stajnia"], "Klejnoty": ["$klejnoty"],
+                    "Rankingi": ["$ranking", "$rankingwiezy", "$rankingtowarzyszy"], "Pomoc": ["$pomoc"]}
+
+
+def shape(message) -> tuple:
+    """What a post shows: its text, pictures and the kind of buttons / menus under it."""
+    view = message.view
+    items = [] if view is None else [(type(item).__name__, getattr(item, "label", None),
+                                      getattr(item, "placeholder", None)) for item in view.children]
+    return message.text, list(message.files), None if view is None else type(view).__name__, items
+
+
+async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, monkeypatch):
+    """The panel's display buttons are the typed commands: on the channel, with their buttons and menus."""
     game = game_db
-    await game.bot.load_extension("altermmo.cogs.hub")
-    ala = game.add_member("Ala")
+    bot = game.bot
+    monkeypatch.setattr(bot.supervisor, "start", lambda *args, **kwargs: None)
+    for extension in ("altermmo.cogs.hub", "altermmo.cogs.pets", "altermmo.cogs.skills",
+                      "altermmo.cogs.ranking", "altermmo.cogs.tower", "altermmo.cogs.help"):
+        await bot.load_extension(extension)
+    for channel in bot.fake_channels.values():
+        channel.type = discord.ChannelType.text
+    ala = await collector(game)                                          # three gems: the pouch has a menu
+    await add_pet(bot.db, 7, pet_name="Burek")
+    await add_pet(bot.db, 8, pet_name="Mruczek")
+    await bot.db.execute("UPDATE PETOWNER SET PET_ID = 7, PET_ID_ALT1 = 8 WHERE PLAYER_ID = $1", ala.id)
     panel = await panel_on(game)
-    public_before = len(game.channel.messages)
 
-    alone = await game.click(panel, ala, "Towarzysz")
-    assert alone.response.deferred and alone.whispers == [pets._msg_alone(ala.id)]
-    assert (await game.click(panel, ala, "Stajnia")).whispers == [pets._msg_alone(ala.id)]
-    assert (await game.click(panel, ala, "Klejnoty")).whispers == [skills.MSG_NO_SKILL.format(player_id=ala.id)]
+    clicked: dict[str, list] = {}
+    for label in DISPLAY_COMMANDS:
+        before = len(game.channel.sent)
+        click = await game.click(panel, ala, label)
+        assert click.response.deferred and click.replies == []           # acknowledged, then posted
+        clicked[label] = game.channel.sent[before:]
+        assert all(message in game.channel.messages for message in clicked[label])
+    for label, commands_typed in DISPLAY_COMMANDS.items():
+        before = len(game.channel.sent)
+        for command in commands_typed:
+            await run(game, ala, command)
+        typed = game.channel.sent[before:]
+        if label == "Pomoc":
+            # The button used up the player's $pomoc cooldown (one help per 10 minutes, typed
+            # or clicked): the typed command is answered with the cooldown notice.
+            assert [m.embeds for m in typed] == [[]] and typed[0].content.startswith("Poczekaj na odnowienie")
+            continue
+        assert [shape(m) for m in clicked[label]] == [shape(m) for m in typed], label
 
-    rankings = await game.click(panel, ala, "Rankingi")
-    titles = [reply.embeds[0].title for reply in rankings.replies]
-    assert titles == ["Ranking łowców potworów!", "Eksploratorzy Wieży Śmierci!",
-                      "Najbardziej utalentowani towarzysze!"]
-    assert all(reply.ephemeral for reply in rankings.replies)
-    assert "Sezon kończy się <t:" in rankings.replies[0].embeds[0].description
+    pet, = clicked["Towarzysz"]
+    assert "Burek" in pet.text and isinstance(pet.view, pets.PetPanel) and pet.button_labels
+    stable, = clicked["Stajnia"]
+    assert isinstance(stable.view, pets.StablePanel) and "Mruczek" in stable.text
+    assert [m.embeds[0].title for m in clicked["Rankingi"]] == [
+        "Ranking łowców potworów!", "Eksploratorzy Wieży Śmierci!", "Najbardziej utalentowani towarzysze!"]
+    assert "Sezon kończy się <t:" in clicked["Rankingi"][0].embeds[0].description
+    assert [m.embeds[0].title for m in clicked["Pomoc"]] == [help_cog.HELP_TITLE]
 
-    helped = await game.click(panel, ala, "Pomoc")
-    assert [reply.embeds[0].title for reply in helped.replies] == [help_cog.HELP_TITLE]
-    assert helped.replies[0].ephemeral
+    again = await game.click(panel, ala, "Pomoc")                        # a second click: the cooldown, no embed
+    assert len(again.answers) == 1 and again.answers[0].startswith("Poczekaj na odnowienie komendy")
+    assert game.channel.messages[-1].embeds == []
 
-    await add_owner(game.bot.db, ala.id, 7)
-    await add_pet(game.bot.db, 7, pet_name="Burek")
-    shown = await game.click(panel, ala, "Towarzysz")
-    (reply,) = shown.replies
-    assert reply.ephemeral and reply.view is None and "Burek" in reply.text
-    assert len(game.channel.messages) == public_before                  # nothing landed on the channel
+    # The pouch shown from the panel carries its own menu, and it works.
+    pouch, = clicked["Klejnoty"]
+    chosen = await game.click(pouch, ala, "skills:choose", values=["2"])
+    assert chosen.answers == [skills.MSG_GEM_CHOSEN.format(player_id=ala.id, name="Klejnot Przywołania")]
+    assert await active_gem(game, ala) == 8
 
 
-async def test_display_buttons_follow_the_busy_policy_and_let_dead_hunters_look(game, cog, monkeypatch):
+async def test_display_buttons_follow_the_busy_policy_and_do_not_post_for_the_silenced(game, cog, monkeypatch):
     bot = game.bot
     jan = dead_hunter(game)
+    ala = game.add_member("Ala")
     panel = await panel_on(game)
     shown = []
 
@@ -469,16 +532,63 @@ async def test_display_buttons_follow_the_busy_policy_and_let_dead_hunters_look(
         await scene.send("pomoc")
 
     monkeypatch.setattr(hub, "show_help", show_help)
-    assert (await game.click(panel, jan, "Pomoc")).whispers == ["pomoc"]     # looking is allowed
+    looked = await game.click(panel, ala, "Pomoc")
+    assert looked.replies == [] and game.channel.messages[-1].content == "pomoc"
+    # Somebody who may not write on the channel cannot make the bot post there for him
+    # (the answers are public now).
+    refused = await game.click(panel, jan, "Pomoc")
+    assert refused.answers == [ui.MSG_CANNOT_PLAY] and shown == [ala]
     with bot.state.hold_busy("hunt"):
-        assert (await game.click(panel, jan, "Pomoc")).whispers == [ui.MSG_BUSY]
+        busy = await game.click(panel, ala, "Pomoc")
+        assert busy.public == [f"<@{ala.id}> {ui.MSG_BUSY}"] and busy.replies[0].message in game.channel.messages
         monkeypatch.setattr(bot, "settings", dataclasses.replace(bot.settings, busy_policy="read_only_free"))
-        assert (await game.click(panel, jan, "Pomoc")).whispers == ["pomoc"]
-    assert shown == [jan, jan]
+        assert (await game.click(panel, ala, "Pomoc")).replies == []
+        assert game.channel.messages[-1].content == "pomoc"
+    assert shown == [ala, ala]
 
-    # Display buttons work on a panel anywhere (it is only a look).
+    # Display buttons work on a panel anywhere a player may write - and post there.
     elsewhere = await panel_on(game, game.announce_channel)
-    assert (await game.click(elsewhere, jan, "Pomoc")).whispers == ["pomoc"]
+    assert (await game.click(elsewhere, jan, "Pomoc")).replies == []      # (silenced on the boss channel only)
+    assert game.announce_channel.messages[-1].content == "pomoc" and shown == [ala, ala, jan]
+
+
+async def test_display_buttons_wait_while_a_typed_fight_is_on(game, cog, fake_hunt, monkeypatch):
+    """A boss fight does not hold the busy flag, yet nothing but its prompts may appear between them."""
+    bot = game.bot
+    bot.debug = False
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    panel = await panel_on(game)
+    shown = []
+
+    async def show_help(scene):
+        shown.append(scene.author)
+        await scene.send("pomoc")
+
+    monkeypatch.setattr(hub, "show_help", show_help)
+    await bot.state.set_boss_phase(BossPhase.FIGHTING)
+    fight = asyncio.ensure_future(challenge.ask(bot, game.channel, "1. **Ala**: wpisz **miecz**",
+                                                players=[ala], timeout=30))
+    try:
+        deadline = time.monotonic() + 3
+        while not challenge.fight_on(game.channel):
+            assert time.monotonic() < deadline
+            await asyncio.sleep(0.005)
+        assert not bot.state.busy
+        posted = len(game.channel.sent)
+
+        for player, label in ((ala, "Pomoc"), (ola, "Rankingi"), (ola, "Towarzysz")):
+            silent = await game.click(panel, player, label)             # acknowledged only: not even
+            assert silent.response.deferred and silent.replies == []    # the busy notice during a fight
+        hunt = await game.click(panel, ola, "Polowanie")                 # "a boss fight is on": not posted now
+        assert hunt.response.deferred and hunt.replies == []
+        assert shown == [] and fake_hunt == []
+        assert game.channel.sent[posted:] == []
+    finally:
+        fight.cancel()
+        await asyncio.gather(fight, return_exceptions=True)
+
+    assert not challenge.fight_on(game.channel)                          # (FIGHT_LINGER is 0 in the tests)
+    assert (await game.click(panel, ola, "Pomoc")).replies == [] and shown == [ola]
 
 
 async def test_display_button_when_the_database_is_down_or_something_breaks(game, cog, monkeypatch):
@@ -490,14 +600,15 @@ async def test_display_button_when_the_database_is_down_or_something_breaks(game
         raise DatabaseUnavailable("no connection")
 
     monkeypatch.setattr(pets, "show_pet", down)
-    assert (await game.click(panel, ala, "Towarzysz")).whispers == [hub.MSG_DB_DOWN]
+    assert (await game.click(panel, ala, "Towarzysz")).answers == [hub.MSG_DB_DOWN]
     assert bot.owner_log == []
 
     async def broken(scene):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(skills, "show_skills", broken)
-    assert (await game.click(panel, ala, "Klejnoty")).whispers == [ui.MSG_FAILED]
+    failed = await game.click(panel, ala, "Klejnoty")
+    assert failed.public == [f"<@{ala.id}> {ui.MSG_FAILED}"] and game.channel.messages[-1].content == failed.public[0]
     assert any("altermmo:hub:gems" in line for line in bot.owner_log)
 
 
@@ -506,3 +617,23 @@ async def test_display_button_when_the_database_is_down_or_something_breaks(game
 def test_boss_hints_of_hunting_and_tower_mention_the_attack_button():
     for text in (daily.MSG_BOSS_COMING, tower.MSG_BOSS_COMING, tower.MSG_BOSS_HERE):
         assert "liknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**" in text
+
+
+# -- the pinned panel is brought up to date after a start ---------------------------------------
+
+async def test_pinned_panel_gets_the_current_text_after_a_start(game, cog):
+    """A panel posted by older code keeps its old text for ever otherwise (pins survive every clearing)."""
+    bot = game.bot
+    panel = await panel_on(game)
+    old = discord.Embed(title="🎮 Centrum gry AlterMMO",
+                        description="*Odpowiedzi tych pięciu przycisków widzisz tylko Ty.*")
+    await panel.edit(embed=old)
+    assert await hub.refresh_panel(bot) is True
+    assert panel.embeds[0].title == hub.PANEL_TITLE == "🎮 Panel gry"
+    assert "tylko Ty" not in panel.embeds[0].description and panel.pinned
+    assert (await game.click(panel, game.add_member("Ala"), "Pomoc")).response.deferred   # the buttons work
+
+    await panel.delete()                                                 # removed by hand: no error
+    assert await hub.refresh_panel(bot) is False
+    bot.store.runtime_set(hub.panel_key(bot, bot.ids.boss_channel), None)
+    assert await hub.refresh_panel(bot) is False                         # no panel was ever posted

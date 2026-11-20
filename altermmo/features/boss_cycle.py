@@ -32,7 +32,7 @@ The "Zaatakuj" button
 The boss picture (:func:`altermmo.features.boss.send_boss_image`) carries a
 permanent button (:class:`AttackView`, fixed ``custom_id``, registered by the
 boss cog): a click is the same as typing ``$zaatakuj`` - the same guards, but
-the refusals are private.  The cycle remembers the messages that carry the
+the refusals go through ``ui.reply``.  The cycle remembers the messages that carry the
 button and takes it off as soon as the boss is engaged or leaves; when a fight
 is interrupted and the boss stays, the notice about it carries the button
 again.  While a lobby runs, a click on an old button is handed to the lobby
@@ -103,13 +103,24 @@ _KEY_QUIET_UNTIL = "boss_quiet_until"
 #: Rarity of a summoned (ritual / skill gem) boss that is on the channel; kept
 #: so that a restart of the bot does not make that boss vanish.
 _KEY_SUMMONED = "summoned_boss_rarity"
+#: Where the "a monster appeared" notice on the general chat is (``{"channel", "message"}``),
+#: so that it can be taken away when the boss is gone - also after a restart of the bot.
+_KEY_SPAWN_NOTICE = "boss_spawn_notice"
+#: How far back the general chat is searched for left-over notices after a start.
+NOTICE_SWEEP_LIMIT = 300
 #: Events that only wait for a command; everything else is an activity in progress.
 _PASSIVE_EVENTS = (EventType.SHRINE, EventType.CHEST)
 
 
 def somebody_was_first(rarity: int) -> str:
-    """Private answer to a "Zaatakuj" click that came a moment after somebody else's attack."""
+    """Answer to a "Zaatakuj" click that came a moment after somebody else's attack."""
     return MSG_PARTY_GATHERS if int(rarity) == 3 else MSG_RIVAL_WELCOME
+
+
+def is_spawn_notice(content: Any, boss_channel_id: int) -> bool:
+    """True for the text of a "a monster appeared" notice - in this bot's and in the old bot's wording."""
+    text = str(content or "")
+    return f"<#{int(boss_channel_id)}>" in text and "pojawił się" in text and "potwór" in text
 
 
 def spawn_notice(boss_channel_id: int) -> str:
@@ -156,7 +167,7 @@ async def with_attack_button(send: Callable[[AttackView], Awaitable[Any]]) -> An
 
 
 async def handle_attack_click(interaction: Any) -> None:
-    """A click on "Zaatakuj": exactly ``$zaatakuj``, with private refusals.
+    """A click on "Zaatakuj": exactly ``$zaatakuj``; the refusals go through ``ui.reply``.
 
     The click is acknowledged as soon as the boss is claimed; the encounter
     (lobby and fight) then runs inside this handler.
@@ -191,6 +202,8 @@ class BossCycle:
         #: When the summoned boss appeared (aware UTC); None without one.
         self._summoned_at: datetime | None = None
         self._restored = False
+        #: The clean-up after a start of the process was done (once, see :meth:`tidy_after_start`).
+        self._tidied = False
         self._wind_sent = False
         self._appears_at: datetime | None = None
         self._spawn_notice_message: Any = None
@@ -283,6 +296,7 @@ class BossCycle:
         self._forget_schedule()
         await self.bot.state.set_boss_phase(BossPhase.IDLE)
         await self.retire_attack_buttons()
+        await self.remove_spawn_notice()
         await self._database.update_boss_table(self.bot, 0, 0, False)
 
     async def reset(self) -> None:
@@ -295,6 +309,7 @@ class BossCycle:
         bot.state.boss = BossInfo()
         await bot.state.set_boss_phase(BossPhase.IDLE)
         await self.retire_attack_buttons()
+        await self.remove_spawn_notice()
         await self._guarded("reset boss table", self._database.update_boss_table(bot, 0, 0, False))
         await self._guarded("post-fight reset", self._boss.reset_end(bot))
         self._restored = True  # the schedule was wiped on purpose - do not resume it
@@ -329,6 +344,10 @@ class BossCycle:
         """The supervised loop.  Any exception restarts it; phases are re-entrant."""
         bot = self.bot
         await bot.wait_until_ready()
+        if not self._tidied:
+            # Once per start of the process - not when the loop is merely restarted.
+            self._tidied = True
+            await self.tidy_after_start()
         if not self.enabled:
             log.info("Boss spawning is switched off ($startSpawnBoss enables it).")
             await asyncio.Event().wait()
@@ -347,6 +366,119 @@ class BossCycle:
         }
         while True:
             await handlers[bot.state.boss_phase]()
+
+    async def tidy_after_start(self) -> None:
+        """The bot has just started: what the previous run left behind goes.  Never raises.
+
+        Owner's request.  Nothing from before a restart is alive any more - a
+        boss picture whose boss is not attackable, buttons of events and hunts
+        that died with the process, half a fight.  So:
+
+        * the boss channel is cleared exactly as it is before an event (pinned
+          messages and the oldest one - the "how to play" post - stay);
+        * "a monster appeared" notices of this bot on the general chat go: no
+          boss is standing there now (a boss that was, comes back with a fresh
+          notice - see :meth:`_restore`);
+        * the pinned game panel gets the current text and buttons (a pinned
+          message survives every clearing, also one posted by older code).
+
+        Runs before the schedule is restored, so a summoned boss that comes
+        back is posted on the clean channel.
+        """
+        bot = self.bot
+        state = bot.state
+        try:
+            if state.busy:
+                log.info("Start-up: the boss channel is not cleared - %s already runs.", state.busy_owner)
+            else:
+                # Held for the moment of the purge: a hunt started in that second would lose its first lines.
+                with state.hold_busy("startup-clear"):
+                    deleted = await io.clear_channel(bot.boss_channel)
+                log.info("Start-up: boss channel cleared (%s messages removed; pinned ones and the oldest stay).",
+                         deleted)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - tidying up must never stop the boss loop
+            log.exception("Start-up: could not clear the boss channel.")
+        try:
+            await self.remove_spawn_notice()
+            removed = await self._sweep_spawn_notices()
+            if removed:
+                log.info("Start-up: removed %s left-over boss notice(s) from the general chat.", removed)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("Start-up: could not remove left-over boss notices.")
+        try:
+            from . import hub
+            await hub.refresh_panel(bot)  # never raises
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("Start-up: could not refresh the game panel.")
+
+    async def _sweep_spawn_notices(self) -> int:
+        """Delete this bot's "a monster appeared" notices from the general chat; returns how many.
+
+        Only messages written by the bot itself whose text is such a notice
+        (:func:`is_spawn_notice`); the last :data:`NOTICE_SWEEP_LIMIT` messages
+        are looked at.  Nothing else on that channel is touched.
+        """
+        bot = self.bot
+        me = getattr(bot.user, "id", None)
+        if me is None:
+            return 0
+        announce = bot.text_channel(bot.ids.announce_channel)
+        doomed = []
+        async for message in announce.history(limit=NOTICE_SWEEP_LIMIT):
+            if (getattr(message.author, "id", None) == me and not getattr(message, "pinned", False)
+                    and is_spawn_notice(message.content, bot.ids.boss_channel)):
+                doomed.append(message)
+        removed = 0
+        for message in doomed:
+            if await io.safe_delete(message):
+                removed += 1
+        return removed
+
+    def _remember_spawn_notice(self, message: Any) -> None:
+        """Note (or forget) the notice on the general chat.  Never raises."""
+        self._spawn_notice_message = message
+        try:
+            value = None if message is None else {"channel": int(message.channel.id), "message": int(message.id)}
+            if self.bot.store.runtime_get(_KEY_SPAWN_NOTICE) != value:
+                self.bot.store.runtime_set(_KEY_SPAWN_NOTICE, value)
+        except Exception:  # noqa: BLE001 - only bookkeeping
+            log.exception("Could not persist the boss spawn notice.")
+
+    async def remove_spawn_notice(self) -> None:
+        """Take the "a monster appeared" notice off the general chat.  Never raises.
+
+        Called when the boss it announced is gone (fought, left, reset) - a
+        notice about a boss that is not there is only clutter (owner's request) -
+        and before a new one is posted.  Works after a restart too: the
+        notice is remembered in ``runtime.json``.
+        """
+        bot = self.bot
+        message = self._spawn_notice_message
+        try:
+            if message is None:
+                remembered = bot.store.runtime_get(_KEY_SPAWN_NOTICE)
+                if isinstance(remembered, dict):
+                    channel = bot.get_channel(int(remembered.get("channel") or 0))
+                    if channel is not None:
+                        try:
+                            message = await channel.fetch_message(int(remembered.get("message") or 0))
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:  # noqa: BLE001 - usually: deleted by hand meanwhile
+                            message = None
+            await io.safe_delete(message)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("Could not remove the boss spawn notice.")
+        finally:
+            self._remember_spawn_notice(None)
 
     async def _restore(self) -> None:
         """After a (re)start: continue the persisted schedule or begin a new one."""
@@ -509,13 +641,15 @@ class BossCycle:
         await pets.detect_boss(self.bot, rarity)
 
     async def _announce_spawn(self) -> None:
-        """General-chat notice; the previous one is removed.  Purely best effort."""
+        """General-chat notice; the previous one is removed.  Purely best effort.
+
+        The notice itself is removed again when its boss is gone (:meth:`remove_spawn_notice`).
+        """
         bot = self.bot
-        await io.safe_delete(self._spawn_notice_message)
-        self._spawn_notice_message = None
+        await self.remove_spawn_notice()
         try:
             announce = bot.text_channel(bot.ids.announce_channel)
-            self._spawn_notice_message = await io.send(announce, spawn_notice(bot.ids.boss_channel))
+            self._remember_spawn_notice(await io.send(announce, spawn_notice(bot.ids.boss_channel)))
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
@@ -832,6 +966,7 @@ class BossCycle:
         self._encounters += 1  # the boss is gone: a late "still here" notice is out of date
         try:
             await self.retire_attack_buttons()  # e.g. a boss that left unattacked
+            await self.remove_spawn_notice()  # the boss it announced is gone
             await self._guarded("post-fight reset", self._boss.reset_end(bot))
             for loser in result.losers_to_ban:
                 await self._guarded(f"dead hunter role for {loser}", self._boss.set_dead_hunters(bot, loser))

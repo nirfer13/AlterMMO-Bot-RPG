@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -128,6 +130,95 @@ async def test_undelivered_answer_is_recovered_from_history(game):
                                  players=[player], timeout=0.1)
     assert result.outcome is Outcome.ANSWERED
     assert result.is_correct("blok", by=player)
+
+
+def _undelivered(channel, author, text, prompt, after: float) -> FakeMessage:
+    """A message that is on the channel ``after`` s after the prompt but never reached the bot."""
+    message = FakeMessage(channel, author, text)
+    message.created_at = prompt.created_at + timedelta(seconds=after)
+    channel.messages.append(message)
+    return message
+
+
+def _prompt_then(game, write) -> None:
+    """Make the prompt be followed by what ``write(prompt, bot_send)`` puts on the channel."""
+    bot_send = game.channel.send
+
+    async def send(*args, **kwargs):
+        prompt = await bot_send(*args, **kwargs)
+        await write(prompt, bot_send)
+        return prompt
+
+    game.channel.send = send
+
+
+async def test_safety_net_finds_an_answer_behind_later_messages(game):
+    """A bot message and a bystander's message written after the answer do not hide it."""
+    player, stranger = game.add_member("Ala"), game.add_member("Obcy")
+
+    async def write(prompt, bot_send):
+        _undelivered(game.channel, player, "blok", prompt, 0.05)
+        game.say(stranger, "hej")                                    # heard, but not a fighter
+        await bot_send("Ola dołącza do walki!")                       # the bot writes last
+
+    _prompt_then(game, write)
+    result = await challenge.ask(game.bot, game.channel, "Wpisz **B L O K**", players=[player], timeout=0.1)
+    assert game.channel.messages[-1].author.bot                     # the newest message is the bot's
+    assert result.outcome is Outcome.ANSWERED and result.is_correct("blok", by=player)
+    assert result.elapsed == pytest.approx(0.05, abs=0.001)
+
+
+async def test_safety_net_takes_the_first_undelivered_answer(game):
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+
+    async def write(prompt, bot_send):
+        _undelivered(game.channel, ola, "zle", prompt, 0.03)
+        _undelivered(game.channel, ala, "blok", prompt, 0.05)
+
+    _prompt_then(game, write)
+    result = await challenge.ask(game.bot, game.channel, "Wpisz **B L O K**", players=[ala, ola], timeout=0.1)
+    assert result.answered and result.author is ola and result.text == "zle"
+    assert not result.is_correct("blok")
+
+
+async def test_safety_net_ignores_an_answer_written_too_late(game):
+    player = game.add_member("Ala")
+
+    async def write(prompt, bot_send):
+        _undelivered(game.channel, player, "blok", prompt, 0.1 + challenge.TOLERANCE + 0.2)
+
+    _prompt_then(game, write)
+    result = await challenge.ask(game.bot, game.channel, "Wpisz **B L O K**", players=[player], timeout=0.1)
+    assert result.outcome is Outcome.TIMEOUT and result.message is None
+
+
+async def test_a_fight_is_on_while_a_round_runs_and_for_a_while_after(game, monkeypatch):
+    player = game.add_member("Ala")
+    assert not challenge.fight_on(game.channel) and not challenge.fight_on(None)
+    task = asyncio.ensure_future(challenge.ask(game.bot, game.channel, "Wpisz **B L O K**",
+                                               players=[player], timeout=2))
+    while not game.channel.contains("B L O K"):
+        await asyncio.sleep(0)
+    assert challenge.fight_on(game.channel) and not challenge.fight_on(game.notice_channel)
+    game.say(player, "blok")
+    await task
+    ended = time.monotonic()
+    assert not challenge.fight_on(game.channel)                     # FIGHT_LINGER is 0 in the tests
+
+    clock = [ended + 14.0]
+    monkeypatch.setattr(challenge, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(challenge, "FIGHT_LINGER", 15.0)
+    assert challenge.fight_on(game.channel) and not challenge.fight_on(game.notice_channel)
+    clock[0] = ended + 15.0
+    assert not challenge.fight_on(game.channel)                     # the linger is over
+
+    clock[0] = ended + 100.0
+    await challenge.countdown(game.channel, pause=0)                # "Uwaga!!! 3..." starts a fight
+    assert challenge.fight_on(game.channel) and not challenge.fight_on(game.notice_channel)
+    clock[0] += 14.9
+    assert challenge.fight_on(game.channel)
+    clock[0] += 0.1
+    assert not challenge.fight_on(game.channel)
 
 
 async def test_listener_is_removed_after_the_round(game):

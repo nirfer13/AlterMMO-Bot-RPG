@@ -401,6 +401,10 @@ class FakeReply:
     embeds: list = field(default_factory=list)
     view: Any = None
     files: list = field(default_factory=list)
+    #: The channel message a PUBLIC answer became (None for an ephemeral one).
+    message: Any = None
+    #: ``allowed_mentions=`` the answer was sent with (None: Discord's default - everybody named is pinged).
+    allowed_mentions: Any = None
 
     @property
     def text(self) -> str:
@@ -422,7 +426,7 @@ def _reply_from(content: Any, kwargs: dict[str, Any]) -> FakeReply:
         if close is not None:
             close()
     return FakeReply("" if content is None else str(content), bool(kwargs.get("ephemeral", False)),
-                     embeds, kwargs.get("view"), names)
+                     embeds, kwargs.get("view"), names, allowed_mentions=kwargs.get("allowed_mentions"))
 
 
 class FakeResponse:
@@ -447,7 +451,7 @@ class FakeResponse:
 
     async def send_message(self, content: Any = None, **kwargs: Any) -> None:
         self._answer()
-        self._interaction.replies.append(_reply_from(content, kwargs))
+        self._interaction._record(_reply_from(content, kwargs))
 
     async def defer(self, **kwargs: Any) -> None:
         self._answer()
@@ -472,7 +476,7 @@ class FakeFollowup:
             raise self._interaction.response.fail_with
         assert self._interaction.response.is_done(), "followup before the interaction was answered"
         reply = _reply_from(content, kwargs)
-        self._interaction.replies.append(reply)
+        self._interaction._record(reply)
         return reply
 
 
@@ -495,10 +499,42 @@ class FakeInteraction:
         #: Everything the bot answered, in order.
         self.replies: list[FakeReply] = []
 
+    def _record(self, reply: FakeReply) -> None:
+        """Keep an answer; a public one is an ordinary message on the channel, as on Discord."""
+        self.replies.append(reply)
+        channel = self.channel
+        if reply.ephemeral or not hasattr(channel, "messages"):
+            return
+        message = FakeMessage(channel, channel._bot_user, reply.content or None,
+                              embeds=list(reply.embeds) or None, files=list(reply.files))
+        message.view = reply.view
+        channel._store_view(message.view, message.id)
+        channel.messages.append(message)
+        channel.sent.append(message)
+        reply.message = message
+        for hook in list(channel.send_hooks):
+            hook(message)
+
     @property
     def whispers(self) -> list[str]:
-        """Texts of the ephemeral answers."""
+        """Texts of the ephemeral answers (only with ``Settings.private_answers``)."""
         return [reply.text for reply in self.replies if reply.ephemeral]
+
+    @property
+    def public(self) -> list[str]:
+        """Texts of the answers everybody sees, exactly as posted (with the clicker's mention)."""
+        return [reply.text for reply in self.replies if not reply.ephemeral]
+
+    @property
+    def answers(self) -> list[str]:
+        """Texts of all answers, without the clicker's mention a public answer starts with.
+
+        The convenient form for ``== [ui.MSG_BUSY]`` assertions; use :attr:`public` to
+        check the exact text on the channel.
+        """
+        prefix = f"<@{self.user.id}> "
+        return [reply.text[len(prefix):] if reply.text.startswith(prefix) else reply.text
+                for reply in self.replies]
 
     @property
     def said(self) -> str:
