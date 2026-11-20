@@ -100,9 +100,10 @@ PANEL_GAME_TEXT = (
 #: mythic slayer role in ``boss.py``; the seals and the Holo foil rolled for a new pet in ``pets.py``
 #: (stored with the pet for good, shown only while its owner supports).
 #: (The silver / gold frames of shiny pets are for everybody, so they are not listed.)
+#: Owner's decision of 2026-11-20: the panel does not name WHICH species supporters can find nor
+#: WHICH card ornaments exist (seals, Holo) - players discover them.
 PANEL_BENEFITS: tuple[str, ...] = (
-    "🥚 **Jaja premium** - z jaj wykluwają się też rzadsze gatunki towarzyszy (smok, feniks, "
-    "jednorożec i inne).",
+    "🥚 **Jaja premium** - z jaj wykluwają się też rzadsze gatunki towarzyszy.",
     "🪞 **Transformacja** - zmiana wyglądu towarzysza lustrem wizualiów (**$transformacja**).",
     "🕯️ **Modlitwa w kapliczce** - pomodlić się mogą tylko wspierający (**$modlitwa**), a korzystają "
     "wszyscy.",
@@ -110,9 +111,8 @@ PANEL_BENEFITS: tuple[str, ...] = (
     "łowcę) albo bohaterem imprezy u Barda.",
     "🏅 **Kolekcjonerskie osiągnięcia** - role za zabite bossy, polowania, wygrane sezony, piętra "
     "Wieży oraz legendarne i mityczne wyczyny.",
-    "🔖 **Pieczęcie i folia Holo** - każdy nowy towarzysz ma szansę na kolekcjonerską pieczęć "
-    "(Tropiciela, Łowcy albo Arcyłowcy) i animowaną folię Holo. Zdobią jego kartę, dopóki wspierasz "
-    "(po przerwie wracają).",
+    "🔖 **Kolekcjonerskie ozdoby karty** - każdy nowy towarzysz ma szansę na rzadkie ozdoby swojej "
+    "karty. Zdobią ją, dopóki wspierasz (po przerwie wracają).",
 )
 #: Where to become a supporter: markdown links (they work in an embed description), the
 #: recommended way first and in bold.

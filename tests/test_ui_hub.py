@@ -226,8 +226,11 @@ def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
     benefits = "\n".join(hub.PANEL_BENEFITS)
     for words in ("Jaja premium", "**$transformacja**", "lustrem wizualiów", "**$modlitwa**", "kapliczce",
                   "zostaniesz bossem", "imprezy u Barda", "Kolekcjonerskie osiągnięcia", "piętra Wieży",
-                  "Pieczęcie i folia Holo", "Tropiciela, Łowcy albo Arcyłowcy", "dopóki wspierasz"):
+                  "Kolekcjonerskie ozdoby karty", "dopóki wspierasz"):
         assert words in benefits
+    # Not spelled out (owner's decision): which species supporters can find, which ornaments exist.
+    for secret in ("smok", "feniks", "jednoroż", "holo", "pieczę", "tropiciel", "łowcy", "arcyłowc"):
+        assert secret not in benefits.lower(), secret
     # The silver / gold frames of shiny companions are for everybody: not sold as a perk.
     assert "ramk" not in benefits.lower() and "shiny" not in benefits.lower()
 
