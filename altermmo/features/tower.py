@@ -419,19 +419,40 @@ def _tower_embed(title: str, description: str, footer: str) -> discord.Embed:
     return embed
 
 
+MSG_NOBODY_YET = "Nikt jeszcze nie zdobył żadnego piętra Wieży Śmierci."
+
+
+def shown_time(record_time: Any) -> str:
+    """A stored time as players read it: ``12,35 s``, ``1 min 05,20 s`` (not ``0:00:12.345678``).
+
+    The stored text itself when it cannot be read.
+    """
+    parsed = _as_timedelta(record_time)
+    if parsed is None:
+        return str(record_time)
+    total = round(max(parsed.total_seconds(), 0.0), 2)
+    minutes, seconds = divmod(total, 60)
+    hours, minutes = divmod(int(minutes), 60)
+    if not hours and not minutes:
+        return f"{seconds:.2f} s".replace(".", ",")
+    text = f"{minutes} min {seconds:05.2f} s".replace(".", ",")
+    return f"{hours} h {text}" if hours else text
+
+
 async def tower_ranking(scene: "Scene") -> None:
     """Post the ten best explorers of the tower (highest floor first, then the shortest time)."""
     bot = scene.bot
     rows = await bot.db.fetch(
         "SELECT PLAYER_ID, TOWER_LEVEL, TIME FROM TOWER ORDER BY TOWER_LEVEL DESC, TIME LIMIT 10")
-    ranking = ""
+    lines = []
     for place, row in enumerate(rows, start=1):
         player_id = int(row["player_id"])
         member = await bot.member(player_id)
-        who = member.name if member is not None else f"<@{player_id}>"  # left the server
-        ranking += (f"{place}. **{who}** - Poziom Wieży Śmierci: {int(row['tower_level'] or 0)} "
-                    f"- Czas: {row['time']}.\n")
-    await scene.send(embed=_tower_embed("Eksploratorzy Wieży Śmierci!", ranking,
+        # (A name is escaped; somebody who left the server is shown as a mention, as before.)
+        who = discord.utils.escape_markdown(member.name) if member is not None else f"<@{player_id}>"
+        lines.append(f"{ui.place(place)} **{who}** · piętro **{int(row['tower_level'] or 0)}** "
+                     f"· ⏱️ {shown_time(row['time'])}")
+    await scene.send(embed=_tower_embed("Eksploratorzy Wieży Śmierci!", "\n".join(lines) or MSG_NOBODY_YET,
                                         "Gratulacje dla nieustraszonych!"))
 
 
@@ -442,7 +463,7 @@ async def check_personal_tower(scene: "Scene") -> None:
         "SELECT TOWER_LEVEL, TIME FROM TOWER WHERE PLAYER_ID = $1", int(player.id))
     if row is not None:
         text = (f"<@{player.id}> udało Ci się ukończyć Wieżę Śmierci na poziomie "
-                f"**{int(row['tower_level'] or 0)}** w czasie **{row['time']}**.\n")
+                f"**{int(row['tower_level'] or 0)}** w czasie **{shown_time(row['time'])}**.\n")
     else:
         text = MSG_NO_RECORD
     await scene.send(embed=_tower_embed("Personalny rekord Wieży Śmierci!", text, "Gratulacje!"))

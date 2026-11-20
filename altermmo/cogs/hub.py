@@ -1,4 +1,4 @@
-"""The pinned "Centrum gry" panel: ``$panel`` (administrators) and its permanent buttons.
+"""The pinned "Panel gry": ``$panel`` (administrators) and its permanent buttons.
 
 ``$panel`` posts the panel on the boss channel (the channel it is typed on,
 when that is a boss channel - production or test) and pins it; typing it
@@ -27,7 +27,7 @@ class HubCog(commands.Cog, name="Hub"):
     async def cog_load(self) -> None:
         hub.register(self.bot)
 
-    @commands.command(name="panel", aliases=["centrum"], brief="Post and pin the 'Centrum gry' panel.")
+    @commands.command(name="panel", aliases=["centrum"], brief="Post and pin the 'Panel gry'.")
     @guards.owner_or_admin()
     async def post_panel(self, ctx: commands.Context) -> None:
         bot = self.bot

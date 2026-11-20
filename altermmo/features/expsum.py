@@ -40,6 +40,22 @@ def add_file_exp(bot: "AlterBot", player_id: int | str, experience: int) -> None
         log.exception("Could not record %s exp for player %s.", experience, player_id)
 
 
+def add_file_exp_many(bot: "AlterBot", changes: dict[int | str, int]) -> None:
+    """Several players at once, in ONE save of the file.  Never raises.
+
+    The Horus bot collects the file every few seconds; two separate saves
+    could be split by it (one half collected now, the other later).
+    """
+    try:
+        players = _load(bot)
+        for player_id, experience in changes.items():
+            key = str(player_id)
+            players[key] = int(players.get(key, 0)) + int(experience)
+        bot.store.exp_summary.save(players)
+    except Exception:  # noqa: BLE001 - bookkeeping must not break a fight
+        log.exception("Could not record exp for players %s.", dict(changes))
+
+
 async def show_file_exp(scene: "Scene") -> None:
     """Post the summary as ``<@id>: exp`` lines (split to fit Discord's limit)."""
     players = _load(scene.bot)

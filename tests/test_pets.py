@@ -1194,11 +1194,13 @@ async def test_stable_view(game_db):
     assert embed.title == "Stajnia" and embed.colour.value == 0x34cceb
     assert embed.description == (
         f"Oto Twoja stajnia, <@{player.id}> <:peepoBlush:984769061340737586>\n\n"
-        "Obecnie posiadany pet: Smok O'Burek (3 LVL).\n"
-        "Pet w stajni 1: Jajko Towarzysz (0 LVL).\n"
-        "Pet w stajni 2: Brak danych w tabeli PETS.\n"
-        "Pet w stajni 3: Brak.\n"
-        "Pet w stajni 4: Brak.\n")
+        "🐾 **Przy Tobie**\n"
+        "**O'Burek** · Smok · poziom 3\n\n"
+        "🐴 **W stajni**\n"
+        "**1.** **Towarzysz** · jajko\n"
+        "**2.** *brak danych w tabeli PETS*\n"
+        "**3.** *wolne miejsce*\n"
+        "**4.** *wolne miejsce*")
     assert embed.footer.text == ("Możesz schować lub wyciągnąć peta za pomocą komend $schowajtowarzysza "
                                  "oraz $wyciagnijtowarzysza.")
     assert embed.thumbnail.url == "https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png"
@@ -1220,17 +1222,18 @@ async def test_pet_ranking(game_db):
     await pets.pet_ranking(game_db.scene())
     embed = last_embed(game_db)
     lines = embed.description.splitlines()
-    assert len(lines) == 10 and embed.description.endswith(".\n")
-    assert lines[:4] == [
-        "1. **O'Neil the Magnifice** (3 lvl) - Talent: Boski - Wygląd: Premium - Shiny: Tak - "
-        "Ultra shiny: Tak - Mityczny: Nie - Typ: Smok.",
-        "2. **Pustka** (3 lvl) - Talent: Oświecony - Wygląd: Mythic - Shiny: Tak - Ultra shiny: Tak - "
-        "Mityczny: Tak - Typ: Istota pustki.",
-        "3. **Mruczek** (2 lvl) - Talent: Oświecony - Wygląd: Standard - Shiny: Nie - Ultra shiny: Nie - "
-        "Mityczny: Nie - Typ: Kot.",
-        "4. **Towarzysz** (0 lvl) - Talent: Miernota - Wygląd: Standard - Shiny: Nie - Ultra shiny: Nie - "
-        "Mityczny: Nie - Typ: .",
+    assert len(lines) == 20                                  # ten pets, two short lines each
+    assert lines[:8] == [
+        "🥇 **O'Neil the Magnifice** · Smok · poziom 3",
+        "┗ Talent: **Boski** · ✨ Shiny · 🌟 Ultra shiny · 💎 Premium",
+        "🥈 **Pustka** · Istota pustki · poziom 3",
+        "┗ Talent: **Oświecony** · ✨ Shiny · 🌟 Ultra shiny · 🔮 Mityczny",
+        "🥉 **Mruczek** · Kot · poziom 2",
+        "┗ Talent: **Oświecony**",                           # nothing special: nothing listed
+        "**4.** **Towarzysz** · jajko",                      # level 0, a type the bot has no name for
+        "┗ Talent: **Miernota**",
     ]
+    assert lines[-2].startswith("**10.** ") and "Nie" not in embed.description and "Tak" not in embed.description
     assert "Default" not in embed.description
     assert embed.title == "Najbardziej utalentowani towarzysze!" and embed.colour.value == 0xFF0000
     assert embed.footer.text == "Gratulacje dla posiadaczy!"
@@ -1240,7 +1243,7 @@ async def test_pet_ranking(game_db):
 
     await db.execute("DELETE FROM PETS")
     await pets.pet_ranking(game_db.scene())                              # an empty ranking is still an answer
-    assert not last_embed(game_db).description
+    assert last_embed(game_db).description == pets.MSG_NO_PETS_YET
 
 
 # -- boss detection -------------------------------------------------------------------

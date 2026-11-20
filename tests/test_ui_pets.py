@@ -245,8 +245,8 @@ async def test_stable_list_makes_a_stabled_pet_the_active_one(game_db):
     stable = game_db.channel.messages[-1]
     select = stable.button("pet:stable-take")
     assert [(o.value, o.label, o.description) for o in select.options] == [
-        ("1:6", "Jajko Towarzysz (0 LVL)", "Miejsce w stajni 1"),
-        ("3:7", "Kot Mruczek (2 LVL)", "Miejsce w stajni 3")]
+        ("1:6", "Towarzysz · jajko", "Miejsce w stajni 1"),
+        ("3:7", "Mruczek · Kot · poziom 2", "Miejsce w stajni 3")]
     assert ui.is_live(stable.id)                                        # (slot 2 has no PETS row: not offered)
 
     assert (await game_db.click(stable, other, "pet:stable-take", values=["3:7"])).whispers == [not_yours(player)]
@@ -254,9 +254,9 @@ async def test_stable_list_makes_a_stabled_pet_the_active_one(game_db):
     assert interaction.response.deferred and interaction.whispers == []
     assert await slots(db, player) == [7, 6, 404, 5, 0]
     assert game_db.channel.contains(pets.MSG_SWAPPED)
-    assert "Obecnie posiadany pet: Kot Mruczek (2 LVL)." in stable.embeds[0].description       # redrawn
+    assert "🐾 **Przy Tobie**\n**Mruczek** · Kot · poziom 2\n" in stable.embeds[0].description  # redrawn
     assert [o.label for o in stable.button("pet:stable-take").options] == [
-        "Jajko Towarzysz (0 LVL)", "Pies Burek (3 LVL)"]
+        "Towarzysz · jajko", "Burek · Pies · poziom 3"]
 
     # The typed command keeps working next to the list.
     await pets.unstore_pet(game_db.scene(player), 1)
@@ -301,7 +301,7 @@ async def test_stable_without_stabled_pets_has_no_list_and_the_list_times_out(ga
     stable = game_db.channel.messages[-1]
     await game_db.click(stable, player, "pet:stable-take", values=["4:5"])
     assert await slots(db, player) == [5, 0, 0, 0, 0] and game_db.channel.contains(pets.MSG_UNSTORED)
-    assert stable.view is None and "Obecnie posiadany pet: Jajko Towarzysz" in stable.embeds[0].description
+    assert stable.view is None and "**Przy Tobie**\n**Towarzysz** · jajko" in stable.embeds[0].description
 
     monkeypatch.setattr(pets, "PANEL_TIMEOUT", 0.05)
     await db.execute("UPDATE PETOWNER SET PET_ID_ALT2 = 5, PET_ID = 0")
@@ -730,7 +730,7 @@ async def test_stale_stable_list_takes_out_only_the_pet_it_names(game_db):
     assert pets.MSG_STABLE_CHANGED == "Stajnia zmieniła się w międzyczasie - wybierz jeszcze raz."
     assert await slots(db, player) == [7, 6, 404, 5, 0]                       # nothing swapped back
     assert [(o.value, o.label) for o in stable.button("pet:stable-take").options] == [
-        ("1:6", "Jajko Towarzysz (0 LVL)"), ("3:5", "Pies Burek (3 LVL)")]    # redrawn
+        ("1:6", "Towarzysz · jajko"), ("3:5", "Burek · Pies · poziom 3")]    # redrawn
 
     assert (await game_db.click(stable, player, "pet:stable-take", values=["3"])).whispers == [
         pets.MSG_STABLE_CHANGED]                                              # no pet in the value

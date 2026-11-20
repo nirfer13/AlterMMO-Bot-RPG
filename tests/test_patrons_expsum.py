@@ -29,6 +29,17 @@ async def test_exp_summary_accumulates_and_resets(game):
     assert game.bot.store.exp_summary.load() == {}
 
 
+async def test_several_players_are_saved_in_one_write(game, monkeypatch):
+    """An XP theft is +N and -N: Horus must never collect one half without the other."""
+    expsum.add_file_exp(game.bot, 1, 300)
+    saves = []
+    real_save = game.bot.store.exp_summary.save
+    monkeypatch.setattr(game.bot.store.exp_summary, "save", lambda value: (saves.append(dict(value)), real_save(value)))
+    expsum.add_file_exp_many(game.bot, {1: 2500, "2": -2500})
+    assert saves == [{"1": 2800, "2": -2500}]                              # one save, both halves
+    assert game.bot.store.exp_summary.load() == {"1": 2800, "2": -2500}
+
+
 async def test_exp_command_only_shows_the_summary(game):
     """Horus collects the file by itself: $Exp must not throw away what it has not picked up yet."""
     from types import SimpleNamespace

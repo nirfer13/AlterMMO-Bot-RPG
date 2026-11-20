@@ -198,8 +198,8 @@ async def steal(scene: "Scene", target_text: str | None) -> bool:
         await scene.send(MSG_NOTHING_TO_USE.format(thief=thief.id))
         return False
 
-    expsum.add_file_exp(bot, thief.id, amount)
-    expsum.add_file_exp(bot, victim.id, -amount)
+    # One save for both halves: Horus (which collects the file) takes the theft whole.
+    expsum.add_file_exp_many(bot, {thief.id: amount, victim.id: -amount})
     log.info("XP theft: %s (%s) stole %s exp from %s (%s).", thief, thief.id, amount, victim, victim.id)
     await bot.log_to_owner(
         f"{thief.name} (<@{thief.id}>) ukradł {amount} expa użytkownikowi {victim.name} (<@{victim.id}>). "

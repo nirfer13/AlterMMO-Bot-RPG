@@ -1,4 +1,4 @@
-"""The pinned "Centrum gry" panel: the game's front door on the boss channel.
+"""The pinned "Panel gry" (first called "Centrum gry"): the game's front door on the boss channel.
 
 An administrator posts it with ``$panel`` (see ``altermmo/cogs/hub.py``); the
 bot pins it, so the regular purge of the boss channel
@@ -66,7 +66,7 @@ GEMS_ID = BUTTON_PREFIX + "gems"
 RANKINGS_ID = BUTTON_PREFIX + "rankings"
 HELP_ID = BUTTON_PREFIX + "help"
 
-PANEL_TITLE = "🎮 Centrum gry AlterMMO"
+PANEL_TITLE = "🎮 Panel gry"
 PANEL_TEXT = (
     "Witaj, łowco! Stąd ruszysz na przygodę jednym kliknięciem. Wpisywane komendy działają tak jak "
     "dotąd - ich listę znajdziesz pod przyciskiem **Pomoc**.\n\n"
@@ -89,12 +89,12 @@ PANEL_COLOUR = 0x42F34C
 MSG_DB_DOWN = "Baza danych jest chwilowo niedostępna. Spróbuj ponownie za moment <:Sadge:936907659142111273>"
 
 # Answers of ``$panel`` (for the administrator).
-MSG_POSTED = "Panel **Centrum gry** jest na kanale <#{channel_id}> i został przypięty."
-MSG_POSTED_NOT_PINNED = ("Panel **Centrum gry** jest na kanale <#{channel_id}>, ale nie udało się go przypiąć "
+MSG_POSTED = "**Panel gry** jest na kanale <#{channel_id}> i został przypięty."
+MSG_POSTED_NOT_PINNED = ("**Panel gry** jest na kanale <#{channel_id}>, ale nie udało się go przypiąć "
                          "(bot nie ma uprawnienia **Przypinanie wiadomości** albo kanał ma już 50 przypiętych "
                          "wiadomości?). Kanał jest regularnie czyszczony - nadaj uprawnienie i wpisz **$panel** "
                          "jeszcze raz albo przypnij panel ręcznie.")
-MSG_NOT_POSTED = "Nie udało się opublikować panelu **Centrum gry** <:Sadge:936907659142111273>"
+MSG_NOT_POSTED = "Nie udało się opublikować **Panelu gry** <:Sadge:936907659142111273>"
 
 
 def panel_key(bot: "AlterBot", channel_id: int) -> str:
@@ -271,7 +271,7 @@ async def show_help(scene: "Scene") -> None:
 async def _pin(message: Any) -> bool:
     """Pin ``message``; False when Discord refused.  Never raises."""
     try:
-        await message.pin(reason="AlterMMO RPG: panel Centrum gry")
+        await message.pin(reason="AlterMMO RPG: Panel gry")
         return True
     except asyncio.CancelledError:
         raise
@@ -315,7 +315,7 @@ async def _remove(bot: "AlterBot", where: Any) -> bool:
         log.info("Previous hub panel %s is gone already (%s).", message_id, type(exc).__name__)
         return False
     try:
-        await message.unpin(reason="AlterMMO RPG: nowy panel Centrum gry")
+        await message.unpin(reason="AlterMMO RPG: nowy Panel gry")
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001 - deleting it below unpins it as well

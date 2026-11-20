@@ -217,6 +217,14 @@ async def gate(interaction: Any, *, boss_channel: bool = True, unless_busy: bool
     return True
 
 
+_MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+
+def place(position: int) -> str:
+    """Label of a position in a ranking: a medal on the podium, ``**4.**`` from there on."""
+    return _MEDALS.get(int(position)) or f"**{int(position)}.**"
+
+
 def when(moment: datetime | float | int, style: str = "R") -> str:
     """Discord time markup, e.g. ``<t:1700000000:R>`` - shown as "za 3 godziny".
 

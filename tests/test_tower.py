@@ -294,16 +294,29 @@ async def test_tower_ranking(game_db):
     assert embed.footer.text == "Gratulacje dla nieustraszonych!"
     lines = embed.description.splitlines()
     assert lines[:4] == [
-        "1. **Ala** - Poziom Wieży Śmierci: 7 - Czas: 0:00:30.000000.",
-        "2. **Ola** - Poziom Wieży Śmierci: 5 - Czas: 0:00:10.500000.",
-        "3. **O'Brien** - Poziom Wieży Śmierci: 5 - Czas: 0:00:20.000000.",
-        "4. **<@424242>** - Poziom Wieży Śmierci: 1 - Czas: 0:00:01.000000.",
+        "🥇 **Ala** · piętro **7** · ⏱️ 30,00 s",
+        "🥈 **Ola** · piętro **5** · ⏱️ 10,50 s",
+        "🥉 **O'Brien** · piętro **5** · ⏱️ 20,00 s",
+        "**4.** **<@424242>** · piętro **1** · ⏱️ 1,00 s",
     ]
-    assert len(lines) == 10 and lines[-1].startswith("10. **<@5005>**")
+    assert len(lines) == 10 and lines[-1].startswith("**10.** **<@5005>**")
 
     await bot.db.execute("DELETE FROM TOWER")
     await tower.tower_ranking(game_db.scene())
     assert game_db.channel.messages[-1].embeds[0].title == "Eksploratorzy Wieży Śmierci!"
+    assert game_db.channel.messages[-1].embeds[0].description == tower.MSG_NOBODY_YET
+
+
+def test_times_are_shown_the_way_players_read_them():
+    assert tower.shown_time("0:00:12.345678") == "12,35 s"
+    assert tower.shown_time("0:00:01.000000") == "1,00 s"
+    assert tower.shown_time("0:01:05.200000") == "1 min 05,20 s"
+    assert tower.shown_time("0:00:59.999000") == "1 min 00,00 s"           # rounded, never "60,00 s"
+    assert tower.shown_time("1:02:03.500000") == "1 h 2 min 03,50 s"
+    assert tower.shown_time("00:00:20.000") == "20,00 s"                    # an old record without microseconds
+    assert tower.shown_time("coś dziwnego") == "coś dziwnego"               # unreadable: shown as stored
+    from datetime import timedelta
+    assert tower.shown_time(timedelta(seconds=7.5)) == "7,50 s"
 
 
 async def test_personal_record(game_db):
@@ -318,7 +331,7 @@ async def test_personal_record(game_db):
     await tower.new_record_tower(bot, ala.id, 6, "0:00:12.345678")
     await tower.check_personal_tower(game_db.scene(ala))
     assert game_db.channel.messages[-1].embeds[0].description == (
-        f"<@{ala.id}> udało Ci się ukończyć Wieżę Śmierci na poziomie **6** w czasie **0:00:12.345678**.\n")
+        f"<@{ala.id}> udało Ci się ukończyć Wieżę Śmierci na poziomie **6** w czasie **12,35 s**.\n")
 
 
 # -- one floor -----------------------------------------------------------------------------
@@ -746,7 +759,7 @@ async def test_wieza_command_end_to_end(game_db, drops):
         await run_checks(command, shown)
         await command.callback(cog, shown)
         assert elsewhere.messages[-1].embeds[0].title == title
-    assert "**Ala** - Poziom Wieży Śmierci: 1" in elsewhere.bot_messages[-2].embeds[0].description
+    assert "**Ala** · piętro **1**" in elsewhere.bot_messages[-2].embeds[0].description
     assert f"<@{hunter.id}> udało Ci się ukończyć Wieżę Śmierci na poziomie **1**" in \
         elsewhere.messages[-1].embeds[0].description
 

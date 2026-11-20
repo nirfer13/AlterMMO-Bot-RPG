@@ -1,4 +1,4 @@
-"""The pinned "Centrum gry" panel, the help text and how the four areas fit together."""
+"""The pinned "Panel gry", the help text and how the four areas fit together."""
 
 from __future__ import annotations
 
@@ -175,7 +175,8 @@ def test_help_embed_fits_discord_limits_and_mentions_the_buttons():
     assert all(len(field.name) <= 256 and len(field.value) <= 1024 for field in embed.fields)
     assert len(embed) <= 6000
     text = help_cog.HELP_TEXT
-    for button in ("Centrum gry", "Zaatakuj", "Dołącz", "Potwierdzam", "Dołącz do polowania",
+    assert hub.PANEL_TITLE == "🎮 Panel gry" and "Centrum gry" not in text
+    for button in ("Panel gry", "Zaatakuj", "Dołącz", "Potwierdzam", "Dołącz do polowania",
                    "Otwórz skrzynię", "Pomódl się", "Gotowy"):
         assert f"**{button}**" in text
     assert "reakcj" not in text.lower()

@@ -1282,6 +1282,28 @@ def _unstore_message(player_id: int, status: str) -> str:
             "swapped": MSG_SWAPPED, "taken": MSG_UNSTORED}[status]
 
 
+STABLE_ACTIVE = "🐾 **Przy Tobie**"
+STABLE_PLACES = "🐴 **W stajni**"
+STABLE_NOBODY = "*brak towarzysza*"
+STABLE_FREE = "*wolne miejsce*"
+STABLE_NO_DATA = "*brak danych w tabeli PETS*"
+
+
+def _pet_brief(pet: Any) -> str:
+    """``Mruczek · Kot · poziom 2`` / ``Towarzysz · jajko`` - plain text (a menu shows no markdown)."""
+    level = _int(pet["pet_lvl"])
+    name = str(pet["pet_name"] or "")[:60]
+    if level == 0:
+        return f"{name} · jajko"
+    return " · ".join(part for part in (name, POLISH_TYPES.get(pet["type"], ""), f"poziom {level}") if part)
+
+
+def _pet_line(pet: Any) -> str:
+    """:func:`_pet_brief` for an embed: the name in bold (and safe from markdown in it)."""
+    name, _, rest = _pet_brief(pet).partition(" · ")
+    return f"**{discord.utils.escape_markdown(name)}** · {rest}"
+
+
 async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, list[ui.Option]] | None:
     """The stable embed and the stabled pets that can be taken out (None: the player has no row)."""
     owner = await _owner(bot.db, player_id, _STABLE_COLUMNS)
@@ -1297,28 +1319,32 @@ async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, 
         for row in rows:
             pets_by_id.setdefault(_int(row["pet_id"]), row)
 
-    descriptions = []
+    # Two short blocks instead of five "label: value" sentences: the pet at the player's
+    # side, then the four places of the stable (an empty place says so in italics).
+    active = STABLE_NOBODY
+    places = []
     options: list[ui.Option] = []
     for index, pet_id in enumerate(pet_ids):
-        label = "Obecnie posiadany pet" if index == 0 else f"Pet w stajni {index}"
         if pet_id <= 0:
-            descriptions.append(f"{label}: Brak.\n")
-            continue
-        pet = pets_by_id.get(pet_id)
-        if pet is None:
-            descriptions.append(f"{label}: Brak danych w tabeli PETS.\n")
-            continue
-        pet_lvl = _int(pet["pet_lvl"])
-        polish_type = "Jajko" if pet_lvl == 0 else POLISH_TYPES.get(pet["type"], "")
-        descriptions.append(f"{label}: {polish_type} {pet['pet_name']} ({pet_lvl} LVL).\n")
-        if index > 0:  # "slot:pet": a stale list cannot take out another pet than it names
-            options.append(ui.Option(f"{index}:{pet_id}", f"{polish_type} {pet['pet_name']} ({pet_lvl} LVL)",
-                                      f"Miejsce w stajni {index}", emoji="🐾"))
+            line = STABLE_NOBODY if index == 0 else STABLE_FREE
+        else:
+            pet = pets_by_id.get(pet_id)
+            if pet is None:
+                line = STABLE_NO_DATA
+            else:
+                line = _pet_line(pet)
+                if index > 0:  # "slot:pet": a stale list cannot take out another pet than it names
+                    options.append(ui.Option(f"{index}:{pet_id}", _pet_brief(pet)[:100],
+                                             f"Miejsce w stajni {index}", emoji="🐾"))
+        if index == 0:
+            active = line
+        else:
+            places.append(f"**{index}.** {line}")
 
     embed = discord.Embed(
         title="Stajnia",
         description=("Oto Twoja stajnia, <@" + str(player_id) + "> <:peepoBlush:984769061340737586>\n\n"
-                     + "".join(descriptions)),
+                     + f"{STABLE_ACTIVE}\n{active}\n\n{STABLE_PLACES}\n" + "\n".join(places)),
         color=0x34cceb,
     )
     embed.set_footer(text="Możesz schować lub wyciągnąć peta za pomocą komend $schowajtowarzysza "
@@ -1661,6 +1687,34 @@ async def rename_from_panel(panel: PetPanel, interaction: Any) -> bool:
 
 # -- ranking and boss detection -------------------------------------------------------
 
+#: What makes a pet special, as shown in the ranking - only what the pet really has.
+BADGE_SHINY, BADGE_ULTRA_SHINY = "✨ Shiny", "🌟 Ultra shiny"
+BADGE_MYTHIC, BADGE_PREMIUM = "🔮 Mityczny", "💎 Premium"
+MSG_NO_PETS_YET = "Nikt jeszcze nie ma towarzysza."
+
+
+def _ranking_entry(place: int, pet: Any) -> str:
+    """Two lines of the pet ranking: who it is, then its talent and what makes it special.
+
+    (The old single line listed every property with "Tak" / "Nie" and was hard to read.)
+    """
+    name = discord.utils.escape_markdown(str(pet["pet_name"] or "")[:20])
+    level = _int(pet["pet_lvl"])
+    about = [POLISH_TYPES.get(pet["type"], ""), "jajko" if level == 0 else f"poziom {level}"]
+    badges = []
+    if pet["shiny"] is True:
+        badges.append(BADGE_SHINY)
+    if pet["ultra_shiny"] is True:
+        badges.append(BADGE_ULTRA_SHINY)
+    if pet["mythic"] is True or pet["quality"] == "Mythic":
+        badges.append(BADGE_MYTHIC)
+    elif pet["quality"] == "Premium":
+        badges.append(BADGE_PREMIUM)
+    first = " · ".join([f"{ui.place(place)} **{name}**", *(part for part in about if part)])
+    second = " · ".join([f"Talent: **{_talent(_int(pet['pet_skills']))}**", *badges])
+    return f"{first}\n┗ {second}"
+
+
 async def pet_ranking(scene: "Scene") -> None:
     """Show the ten most talented pets."""
     rows = await scene.bot.db.fetch(
@@ -1668,19 +1722,10 @@ async def pet_ranking(scene: "Scene") -> None:
            WHERE PET_ID > 0
            ORDER BY PET_SKILLS DESC NULLS LAST, SLOW_PERC DESC NULLS LAST, PET_ID LIMIT 10""")
 
-    def yes_no(flag: Any) -> str:
-        return "Tak" if flag is True else "Nie"
-
-    ranking_string = ""
-    for place, pet in enumerate(rows, start=1):
-        ranking_string += (
-            f"{place}. **{str(pet['pet_name'] or '')[:20]}** ({_int(pet['pet_lvl'])} lvl) - "
-            f"Talent: {_talent(_int(pet['pet_skills']))} - Wygląd: {pet['quality']} - "
-            f"Shiny: {yes_no(pet['shiny'])} - Ultra shiny: {yes_no(pet['ultra_shiny'])} - "
-            f"Mityczny: {yes_no(pet['mythic'])} - Typ: {POLISH_TYPES.get(pet['type'], '')}.\n")
+    ranking_string = "\n".join(_ranking_entry(place, pet) for place, pet in enumerate(rows, start=1))
 
     emb = discord.Embed(title='Najbardziej utalentowani towarzysze!', url=RANKING_IMAGE,
-                        description=ranking_string, color=0xFF0000)
+                        description=ranking_string or MSG_NO_PETS_YET, color=0xFF0000)
     emb.set_thumbnail(url=RANKING_IMAGE)
     emb.set_footer(text='Gratulacje dla posiadaczy!')
     await scene.send(embed=emb)
