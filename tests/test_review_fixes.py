@@ -212,6 +212,48 @@ def test_owner_is_told_when_spawning_is_switched_off(game):
     assert any("$startSpawnBoss" in note for note in bot._startup_notes)
 
 
+@pytest.mark.parametrize("error, code", [
+    ("intents", 3),        # a privileged intent is off in the Developer Portal
+    ("token", 3),          # Discord refuses the token
+    (None, 0),             # the bot was simply closed
+])
+def test_start_that_discord_refuses_is_not_retried_for_ever(monkeypatch, tmp_path, error, code):
+    """run_bot.bat restarts the bot after every exit except codes 2 and 3 (see altermmo/__main__.py)."""
+    import discord
+
+    from altermmo import __main__ as entry
+    from altermmo.settings import Settings
+
+    settings = Settings(token="x", database_url="postgresql://nowhere/none", debug=True,
+                        data_dir=tmp_path / "data", log_dir=tmp_path / "logs")
+    monkeypatch.setattr(entry, "load_settings", lambda: settings)
+    monkeypatch.setattr(entry, "setup_logging", lambda *args, **kwargs: None)
+
+    def run(self, token, **kwargs):
+        if error == "intents":
+            raise discord.PrivilegedIntentsRequired(None)
+        if error == "token":
+            raise discord.LoginFailure("Improper token has been passed.")
+
+    monkeypatch.setattr(entry.AlterBot, "run", run)
+    assert entry.main() == code
+
+
+def test_incomplete_configuration_is_not_retried_either(monkeypatch, tmp_path):
+    from altermmo import __main__ as entry
+    from altermmo.settings import Settings
+
+    monkeypatch.setattr(entry, "setup_logging", lambda *args, **kwargs: None)
+    for token, url in (("", "postgresql://nowhere/none"), ("x", "")):
+        settings = Settings(token=token, database_url=url, debug=True,
+                            data_dir=tmp_path / "data", log_dir=tmp_path / "logs")
+        monkeypatch.setattr(entry, "load_settings", lambda settings=settings: settings)
+        assert entry.main() == 2
+    script = (entry.PROJECT_ROOT / "run_bot.bat").read_text(encoding="utf-8")
+    assert "if %errorlevel%==2 goto fatal" in script and "if %errorlevel%==3 goto fatal" in script
+    assert script.index("goto fatal") < script.index("goto loop") < script.index(":fatal")
+
+
 def test_debug_runs_use_their_own_data_folder(monkeypatch, tmp_path):
     from altermmo import settings
 
@@ -249,12 +291,15 @@ def test_state_files_are_taken_over_from_the_old_folder(tmp_path):
     legacy.mkdir()
     own.mkdir()
     (legacy / "daily_player_cd.txt").write_text("111\n222\n", encoding="utf-8")
+    (legacy / "bossModifier.json").write_text('{"ban_loser": 1}', encoding="utf-8")
     (legacy / "expSummary.json").write_text('{"111": 2500}', encoding="utf-8")
     store = Stores(tmp_path / "v2" / "data")
 
-    assert sorted(store.migrate_legacy([own, legacy])) == ["daily_player_cd.txt", "expSummary.json"]
+    assert sorted(store.migrate_legacy([own, legacy])) == ["bossModifier.json", "daily_player_cd.txt"]
     assert store.daily_cd.all() == ["111", "222"]
-    assert store.exp_summary.load() == {"111": 2500}
+    # The exp summary is NOT taken over: Horus collects the old file itself, a copy would be
+    # credited twice.
+    assert store.exp_summary.load() == {} and "expSummary.json" not in LEGACY_STATE_FILES
     # The old bot's files are only read.
     assert (legacy / "daily_player_cd.txt").read_text(encoding="utf-8") == "111\n222\n"
 

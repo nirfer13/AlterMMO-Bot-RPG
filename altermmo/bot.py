@@ -56,9 +56,14 @@ def cooldown_text(retry_after: float) -> str:
     return MSG_COOLDOWN.format(when=ui.when(max(1.0, float(retry_after))))
 
 #: State files carried over from the legacy bot (same names, same formats).
+#:
+#: ``expSummary.json`` is deliberately not one of them: the Horus bot collects that file
+#: every few seconds (it renames it away and credits the experience), so (1) there is
+#: nothing to carry over once the old bot is stopped, (2) a copy taken at the wrong moment
+#: would be credited twice, and (3) Horus keeps re-creating the old file, which made the
+#: "the old bot's files are newer" alarm below fire on every restart.
 LEGACY_STATE_FILES: tuple[str, ...] = (
     "bossModifier.json",
-    "expSummary.json",
     "daily_player_cd.txt",
     "weekly_tower_cd.txt",
     "skill_daily_player_cd.txt",
@@ -161,8 +166,8 @@ class AlterBot(commands.Bot):
         if migrated:
             log.info("State files taken over from the old bot: %s", ", ".join(migrated))
         if missing:
-            log.warning("No state file found for: %s - starting them empty (cooldown lists, "
-                        "shrine modifiers and the exp summary of the old bot are NOT carried over). "
+            log.warning("No state file found for: %s - starting them empty (cooldown lists "
+                        "and shrine modifiers of the old bot are NOT carried over). "
                         "Looked in: %s", ", ".join(missing), ", ".join(str(d) for d in legacy_dirs))
         self._review_saved_state()
         try:

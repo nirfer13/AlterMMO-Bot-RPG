@@ -29,6 +29,21 @@ async def test_exp_summary_accumulates_and_resets(game):
     assert game.bot.store.exp_summary.load() == {}
 
 
+async def test_exp_command_only_shows_the_summary(game):
+    """Horus collects the file by itself: $Exp must not throw away what it has not picked up yet."""
+    from types import SimpleNamespace
+
+    from altermmo.cogs.admin import AdminCog
+
+    cog = AdminCog(game.bot)
+    alter = game.add_member("Alter")
+    expsum.add_file_exp(game.bot, 7, 250)
+    ctx = SimpleNamespace(bot=game.bot, channel=game.channel, author=alter, message=game.say(alter, "$Exp"))
+    await cog.exp_summary.callback(cog, ctx)
+    assert game.channel.messages[-1].content == "<@7>: 250"
+    assert game.bot.store.exp_summary.load() == {"7": 250}                # still there for Horus
+
+
 async def test_exp_summary_reads_legacy_file(game):
     game.bot.store.exp_summary.path.parent.mkdir(parents=True, exist_ok=True)
     game.bot.store.exp_summary.path.write_text('{"1234212213": 0, "5": 300}', encoding="utf-8")

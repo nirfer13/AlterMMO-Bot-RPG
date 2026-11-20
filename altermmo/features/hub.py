@@ -91,8 +91,9 @@ MSG_DB_DOWN = "Baza danych jest chwilowo niedostępna. Spróbuj ponownie za mome
 # Answers of ``$panel`` (for the administrator).
 MSG_POSTED = "Panel **Centrum gry** jest na kanale <#{channel_id}> i został przypięty."
 MSG_POSTED_NOT_PINNED = ("Panel **Centrum gry** jest na kanale <#{channel_id}>, ale nie udało się go przypiąć "
-                         "(brak uprawnienia do zarządzania wiadomościami albo 50 przypiętych wiadomości?). "
-                         "Kanał jest regularnie czyszczony - przypnij go ręcznie.")
+                         "(bot nie ma uprawnienia **Przypinanie wiadomości** albo kanał ma już 50 przypiętych "
+                         "wiadomości?). Kanał jest regularnie czyszczony - nadaj uprawnienie i wpisz **$panel** "
+                         "jeszcze raz albo przypnij panel ręcznie.")
 MSG_NOT_POSTED = "Nie udało się opublikować panelu **Centrum gry** <:Sadge:936907659142111273>"
 
 

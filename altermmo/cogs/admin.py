@@ -37,9 +37,14 @@ class AdminCog(commands.Cog, name="Admin"):
 
     @commands.command(name="Exp")
     async def exp_summary(self, ctx: commands.Context) -> None:
-        """Show the experience to hand out, then reset the list."""
+        """Show the experience that is waiting to be collected.
+
+        Only shows it.  The old bot emptied the list afterwards (the owner then
+        handed the experience out by hand); now the Horus bot collects the file
+        by itself every few seconds, and emptying it here would throw away
+        whatever Horus has not picked up yet.
+        """
         await expsum.show_file_exp(Scene.from_ctx(ctx))
-        expsum.init_file_exp(self.bot)
 
     # -- small debug helpers ------------------------------------------------------
 
