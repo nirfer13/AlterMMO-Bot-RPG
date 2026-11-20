@@ -273,14 +273,26 @@ async def _treasure_winner(bot: "AlterBot", twitch_name: str) -> Any:
     return None
 
 
+#: One payout run at a time (the nightly job and ``$checkTreasure`` must not interleave).
+_treasure_lock = asyncio.Lock()
+
+
 async def check_treasure(bot: "AlterBot") -> int:
     """Pay out the treasures won on Twitch (run daily); returns the number of paid ones.
 
-    Every winner is paid first and only then is *their* row deleted, so one
-    failure cannot lose the other rewards: a row whose payout failed stays for
-    the next run.  A winner without a linked Discord account on the server
-    cannot be paid at all - that row is dropped, as it always was.
+    A treasure is paid once.  The winner's row is taken out of the table
+    FIRST (``DELETE ... RETURNING``: whoever gets the row back owns the
+    payout) and paid afterwards - the other way round, a failed or interrupted
+    delete let the next run pay the same treasure again.  The price: a payout
+    that fails after its row is gone is not retried; the owner is told (with a
+    ping) whom to pay by hand.  A winner without a linked Discord account on
+    the server cannot be paid at all - that row is dropped, as it always was.
     """
+    async with _treasure_lock:
+        return await _check_treasure(bot)
+
+
+async def _check_treasure(bot: "AlterBot") -> int:
     rows = await bot.db.fetch("SELECT chtr_id, chtr_name FROM treasure_table ORDER BY chtr_id ASC")
     if not rows:
         return 0
@@ -288,25 +300,68 @@ async def check_treasure(bot: "AlterBot") -> int:
     scene = bot.boss_scene()
     paid = 0
     unlinked: list[str] = []
-    for row in rows:
+    for index, row in enumerate(rows):
         name = row["chtr_name"]
         try:
+            treasure_id = int(row["chtr_id"])
+        except (TypeError, ValueError):
+            log.error("Twitch treasure of %r has no usable chtr_id (%r); skipped.", name, row["chtr_id"])
+            await bot.log_to_owner(f"Skarb z Twitcha dla `{name}` ma nieprawidłowe chtr_id "
+                                   f"({row['chtr_id']!r}) - pomijam go, popraw wiersz w treasure_table.")
+            continue
+        try:
             winner = await _treasure_winner(bot, name)
-            if winner is None:
-                unlinked.append(name)
-            else:
-                await daily.rand_loot(scene, 2, winner, random.randint(0, 25))
-                paid += 1
-                log.info("Twitch treasure of %r paid to %s (%s).", name, winner, winner.id)
         except (asyncio.CancelledError, DatabaseUnavailable):
-            raise  # the remaining rows stay in the table for the next run
+            raise  # nothing was taken or paid: the rows stay for the next run
         except Exception as exc:  # noqa: BLE001 - keep this row, go on with the other winners
-            log.exception("Twitch treasure of %r could not be paid.", name)
+            log.exception("Twitch treasure of %r: the winner could not be looked up.", name)
             await bot.log_to_owner(f"Skarb z Twitcha dla `{name}` nie został wypłacony "
                                    f"(`{type(exc).__name__}: {exc}`) - spróbuję przy następnym sprawdzeniu.")
             continue
-        await bot.db.execute("DELETE FROM treasure_table WHERE chtr_id = $1", int(row["chtr_id"]),
-                             idempotent=True)
+        # Take the row first (never re-sent by the db layer: a row that is gone is gone once).
+        # Exactly ONE row: should a viewer have two wins under one id, each is taken and paid on its own.
+        try:
+            claimed = await bot.db.fetchval(
+                """DELETE FROM treasure_table
+                   WHERE ctid = (SELECT ctid FROM treasure_table
+                                 WHERE chtr_id = $1 AND chtr_name IS NOT DISTINCT FROM $2 LIMIT 1)
+                   RETURNING chtr_id""", treasure_id, name, idempotent=False)
+        except asyncio.CancelledError:
+            log.error("Twitch treasure of %r: interrupted while its row was being taken.", name)
+            raise
+        except Exception as exc:  # noqa: BLE001 - the row may or may not be gone: the owner must look
+            log.exception("Twitch treasure of %r: could not take the row.", name)
+            await bot.log_to_owner(f"Skarb z Twitcha dla `{name}`: nie wiadomo, czy wiersz został zabrany "
+                                   f"(`{type(exc).__name__}`). Sprawdź treasure_table - jeśli wiersza nie ma, "
+                                   "przyznaj nagrodę ręcznie.", ping=True)
+            raise
+        if claimed is None:
+            continue  # somebody else took it meanwhile
+        if winner is None:
+            unlinked.append(name)
+            continue
+        try:
+            await daily.rand_loot(scene, 2, winner, random.randint(0, 25))
+            paid += 1
+            log.info("Twitch treasure of %r paid to %s (%s).", name, winner, winner.id)
+        except asyncio.CancelledError:
+            log.error("Twitch treasure of %r for %s (%s) was interrupted while being paid.", name, winner,
+                      winner.id)
+            raise
+        except Exception as exc:  # noqa: BLE001 - the row is gone: told to the owner, never paid twice
+            log.exception("Twitch treasure of %r could not be paid.", name)
+            await bot.log_to_owner(f"Skarb z Twitcha dla `{name}` (<@{winner.id}>) NIE został wypłacony w "
+                                   f"całości (`{type(exc).__name__}: {exc}`). Nie próbuję ponownie, żeby nie "
+                                   "wypłacić go dwa razy - przyznaj nagrodę ręcznie.", ping=True)
+            if isinstance(exc, DatabaseUnavailable):
+                raise  # the database is away: the rows not taken yet stay for the next run
+            # Whatever broke may break for everybody: stop here, so the rows not taken yet stay
+            # for the next run instead of being emptied one failed payout after another.
+            waiting = len(rows) - index - 1
+            if waiting > 0:
+                await bot.log_to_owner(f"Pozostałe skarby z Twitcha ({waiting}) czekają w tabeli do "
+                                       "następnego sprawdzenia (albo **$checkTreasure**).")
+            break
     if unlinked:
         log.info("Twitch treasures dropped (no linked Discord member): %s", unlinked)
         await bot.log_to_owner("Skarby z Twitcha przepadły (brak połączonego konta Discord na serwerze): "

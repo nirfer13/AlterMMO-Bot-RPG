@@ -23,7 +23,7 @@ from altermmo.core.state import BossPhase
 from altermmo.features import achievements, daily, hub, patrons, pets, skills, tower
 
 from fakes import FakeInteraction, FakeMessage
-from test_pets import add_pet
+from test_pets import add_owner, add_pet
 from test_ui_daily import active_gem, collector
 
 LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia", "Pomoc"]
@@ -31,7 +31,6 @@ LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi",
 BUTTON_IDS = ["altermmo:hub:hunt", "altermmo:hub:tower", "altermmo:hub:pet", "altermmo:hub:stable",
               "altermmo:hub:gems", "altermmo:hub:rankings", "altermmo:hub:achievements", "altermmo:hub:help"]
 PATRON = patrons.PATRON_ROLES[0]
-KILL_1 = achievements.BOSS_KILL_ROLES[1]
 #: Typed words the help mentions that are not commands (answers inside a flow).
 TYPED_WORDS = {"potwierdzam", "tak"}
 #: Player commands the help leaves out on purpose.
@@ -241,7 +240,7 @@ def test_panel_fits_discord_limits_and_stays_compact():
     # A pinned message everybody sees: the supporters' part is no longer than the game's part
     # plus the role mentions (8 x 23 characters, which Discord shows as short role names).
     assert len(hub.PANEL_SUPPORT_TEXT) <= 1300
-    # (240 since the achievements line also names the "Osiągnięcia" button and $osiagniecia.)
+    # (The achievements line also names the "Osiągnięcia" button and $osiagniecia.)
     assert all(len(line) <= 240 for line in hub.PANEL_BENEFITS)
 
     # One line of the game's part per button, in the order of the buttons.
@@ -285,13 +284,19 @@ def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
     assert lines[:len(hub.PANEL_BENEFITS)] == list(hub.PANEL_BENEFITS) and len(hub.PANEL_BENEFITS) == 6
     benefits = "\n".join(hub.PANEL_BENEFITS)
     for words in ("Jaja premium", "**$transformacja**", "lustrem wizualiów", "**$modlitwa**", "kapliczce",
-                  "zostaniesz bossem", "imprezy u Barda", "Kolekcjonerskie osiągnięcia", "piętra Wieży",
-                  "wydarzenia", "wyjątkowych towarzyszy", "przyciskiem **Osiągnięcia** (**$osiagniecia**)",
-                  "Kolekcjonerskie ozdoby karty", "dopóki wspierasz"):
+                  "zostaniesz bossem", "imprezy u Barda", "Kolekcjonerskie osiągnięcia", "mityczne zdobycze",
+                  "przyciskiem **Osiągnięcia** (**$osiagniecia**)", "Kolekcjonerskie ozdoby karty",
+                  "dopóki wspierasz"):
         assert words in benefits
     # Not spelled out (owner's decision): which species supporters can find, which ornaments exist.
     for secret in ("smok", "feniks", "jednoroż", "holo", "pieczę", "tropiciel", "łowcy", "arcyłowc"):
         assert secret not in benefits.lower(), secret
+    # Owner's decision of 2026-11-20 (evening): only the mythic achievements are left - the line
+    # no longer promises roles for the withdrawn ones.
+    (trophies,) = [line for line in hub.PANEL_BENEFITS if "**Kolekcjonerskie osiągnięcia**" in line]
+    for withdrawn in ("zabite bossy", "polowania", "sezony", "Wieży", "wydarzenia", "legendarne",
+                      "wyjątkowych towarzyszy"):
+        assert withdrawn not in trophies, withdrawn
     # The silver / gold frames of shiny companions are for everybody: not sold as a perk.
     assert "ramk" not in benefits.lower() and "shiny" not in benefits.lower()
 
@@ -605,7 +610,8 @@ async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, 
     for channel in bot.fake_channels.values():
         channel.type = discord.ChannelType.text
     ala = await collector(game)                                          # three gems: the pouch has a menu
-    ala.roles += [game.guild.add_role(PATRON, "Patron"), game.guild.add_role(KILL_1, "Pogromca I")]
+    slayer = game.guild.get_role(bot.ids.mythic_slayer_role)            # killed a mythic boss
+    ala.roles += [game.guild.add_role(PATRON, "Patron"), slayer]
     await add_pet(bot.db, 7, pet_name="Burek")
     await add_pet(bot.db, 8, pet_name="Mruczek")
     await bot.db.execute("UPDATE PETOWNER SET PET_ID = 7, PET_ID_ALT1 = 8 WHERE PLAYER_ID = $1", ala.id)
@@ -639,8 +645,8 @@ async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, 
     assert "Sezon kończy się <t:" in clicked["Rankingi"][0].embeds[0].description
     trophies, = clicked["Osiągnięcia"]                                   # a supporter's summary, for everybody
     assert trophies.embeds[0].title == achievements.MSG_SUMMARY_TITLE and trophies.view is None
-    assert f"<@{ala.id}>, masz **1 z {len(achievements.TROPHIES)}** osiągnięć." in trophies.text
-    assert re.findall(r"<@&(\d+)>", trophies.text) == [str(KILL_1)]
+    assert f"<@{ala.id}>, masz **1 z 4** osiągnięć." in trophies.text and len(achievements.TROPHIES) == 4
+    assert re.findall(r"<@&(\d+)>", trophies.text) == [str(slayer.id)] and "Nowe" not in trophies.text
     assert [m.embeds[0].title for m in clicked["Pomoc"]] == [help_cog.HELP_TITLE]
 
     again = await game.click(panel, ala, "Pomoc")                        # a second click: the cooldown, no embed
@@ -711,6 +717,34 @@ async def test_achievements_button_answers_a_non_supporter_like_the_typed_comman
     assert ala.roles == []
 
 
+async def test_achievements_button_gives_a_supporter_his_mythic_pet_role_like_the_typed_command(
+        game_db, achievements_cog):
+    """A supporter whose mythic pet is from before the roles existed: the click hands the role out quietly."""
+    game = game_db
+    bot = game.bot
+    ala = game.add_member("Ala", roles=[PATRON])
+    await add_owner(bot.db, ala.id, 5)
+    await add_pet(bot.db, 5, pet_name="Burek", mythic=True)
+    panel = await panel_on(game)
+    click = await game.click(panel, ala, "Osiągnięcia")
+    assert click.response.deferred and click.replies == []
+    summary = game.channel.messages[-1]
+    (embed,) = summary.embeds
+    mythic = achievements.role_id_of(bot, achievements.trophy("pet_mythic"))
+    assert mythic is not None and game.guild.get_role(mythic).name == "Mityczny towarzysz"
+    assert {role.id for role in ala.roles} == {PATRON, mythic}
+    assert f"<@{ala.id}>, masz **1 z 4** osiągnięć." in embed.description
+    assert achievements.MSG_SUMMARY_NEW.format(roles=f"<@&{mythic}>") in embed.description
+    assert re.findall(r"<@&(\d+)>", summary.text) == [str(mythic), str(mythic)]   # held + "Nowe"
+    assert not game.channel.contains("zdobywa osiągnięcie")                      # no announcement
+
+    # The typed command afterwards: the same summary, nothing new any more.
+    await run(game, ala, "$osiagniecia")
+    typed = game.channel.messages[-1]
+    assert typed is not summary and "Nowe" not in typed.embeds[0].description
+    assert typed.embeds[0].description == embed.description.split("\n\n🎉")[0]
+
+
 async def test_achievements_button_follows_the_busy_policy_and_the_silenced_rule(game, achievements_cog, monkeypatch):
     bot = game.bot
     jan = dead_hunter(game)
@@ -751,16 +785,16 @@ async def test_achievements_button_when_the_database_is_down(game, achievements_
     """The roles a supporter holds are enough to answer: the summary is built from them alone."""
     bot = game.bot
     bot.db = DatabaseDown()
-    ala = game.add_member("Ala", roles=[PATRON, KILL_1])
+    slayer = bot.ids.mythic_slayer_role                                  # killed a mythic boss
+    ala = game.add_member("Ala", roles=[PATRON, slayer])
     panel = await panel_on(game)
     click = await game.click(panel, ala, "Osiągnięcia")
     assert click.response.deferred and click.replies == []              # acknowledged, then posted
     summary = game.channel.messages[-1]
     (embed,) = summary.embeds
     assert embed.title == achievements.MSG_SUMMARY_TITLE and summary.view is None
-    assert f"<@{ala.id}>, masz **1 z {len(achievements.TROPHIES)}** osiągnięć." in embed.description
-    assert len(achievements.TROPHIES) == 39 and "**1 z 39**" in embed.description
-    assert re.findall(r"<@&(\d+)>", summary.text) == [str(KILL_1)]
+    assert f"<@{ala.id}>, masz **1 z 4** osiągnięć." in embed.description and len(achievements.TROPHIES) == 4
+    assert re.findall(r"<@&(\d+)>", summary.text) == [str(slayer)] and "Nowe" not in embed.description
     assert not game.channel.contains(hub.MSG_DB_DOWN) and bot.owner_log == []
 
     # The typed command answers the same.

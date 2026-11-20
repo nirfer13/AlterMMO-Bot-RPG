@@ -228,6 +228,68 @@ async def test_listener_is_removed_after_the_round(game):
     assert len(game.bot.extra_events.get("on_message", [])) == before
 
 
+# -- counting down in one line --------------------------------------------------------
+
+@pytest.fixture
+def pauses(monkeypatch, game):
+    """Record every pause of the count (seconds, and what the channel shows at that moment)."""
+    seen: list[tuple[float, list[str]]] = []
+
+    async def pause(seconds):
+        seen.append((seconds, [message.content for message in game.channel.bot_messages[1:]]))
+
+    monkeypatch.setattr(challenge, "_pause", pause)
+    return seen
+
+
+async def test_count_in_line_is_one_message_that_grows(game, pauses):
+    message = await challenge.count_in_line(game.channel, (("... 20...", 10), ("10...", 5), ("5...", 5)))
+    assert pauses == [(10, ["... 20..."]), (5, ["... 20... 10..."]), (5, ["... 20... 10... 5..."])]
+    assert [m.content for m in game.channel.bot_messages[1:]] == ["... 20... 10... 5..."]
+    assert message is game.channel.bot_messages[-1] and len(message.edits) == 2
+
+
+async def test_count_in_line_goes_on_when_a_step_cannot_be_added(game, pauses, monkeypatch):
+    recorded = challenge._pause
+
+    async def pause(seconds):
+        await recorded(seconds)
+        if len(pauses) > 1:
+            return
+        message = game.channel.bot_messages[-1]
+        real_edit, failures = message.edit, [RuntimeError("test: Discord refused the edit")]
+
+        async def flaky_edit(**kwargs):                              # the second step will not show
+            if failures:
+                raise failures.pop()
+            return await real_edit(**kwargs)
+
+        monkeypatch.setattr(message, "edit", flaky_edit, raising=False)
+
+    monkeypatch.setattr(challenge, "_pause", pause)
+    message = await challenge.count_in_line(game.channel, (("Uwaga!!! 3...", 1), ("2...", 2), ("1...", 3)))
+    assert [seconds for seconds, _shown in pauses] == [1, 2, 3]       # every pause all the same
+    assert [shown for _seconds, shown in pauses] == [
+        ["Uwaga!!! 3..."], ["Uwaga!!! 3..."], ["Uwaga!!! 3... 2... 1..."]]
+    assert message.content == "Uwaga!!! 3... 2... 1..." and len(game.channel.bot_messages) == 2
+
+
+async def test_count_in_line_raises_when_the_first_step_cannot_be_sent(game, pauses):
+    game.channel.fail_with, game.channel.fail_sends = RuntimeError("test: cannot send"), 1
+    with pytest.raises(RuntimeError):
+        await challenge.count_in_line(game.channel, (("... 20...", 10), ("10...", 5)))
+    assert pauses == [] and len(game.channel.bot_messages) == 1      # (only the pinned rules)
+
+
+async def test_countdown_marks_the_fight_and_is_one_line(game, pauses, monkeypatch):
+    monkeypatch.setattr(challenge, "FIGHT_LINGER", 15.0)
+    assert not challenge.fight_on(game.channel)
+    await challenge.countdown(game.channel, pause=0.5)
+    assert challenge.fight_on(game.channel)
+    assert [m.content for m in game.channel.bot_messages[1:]] == ["Uwaga!!! 3... 2... 1..."]
+    assert pauses == [(0.5, ["Uwaga!!! 3..."]), (0.5, ["Uwaga!!! 3... 2..."]), (0.5, ["Uwaga!!! 3... 2... 1..."])]
+
+
 def test_requested_word_helper():
     assert requested_word("3. Boss szarżuje na Ciebie! Wpisz **U N I K**") == "unik"
     assert requested_word("Boss rzuca klątwę, wpisz **Z A K L Ę C I E**") == "zaklęcie"

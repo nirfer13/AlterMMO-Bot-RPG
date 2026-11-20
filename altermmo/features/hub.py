@@ -98,7 +98,7 @@ PANEL_GAME_TEXT = (
 #: What supporters get, in player language: one line per benefit, each one checked against the
 #: code that grants it (every place that asks ``patrons.check_if_patron`` / ``patrons.get_patron``):
 #: ``pets.PATRON_EGGS``; ``pets.transform_pet``; the shrine in ``cogs/events.py``;
-#: ``boss.send_boss_image`` and ``events.spawn_party``; ``achievements.py``, ``tower.py`` and the
+#: ``boss.send_boss_image`` and ``events.spawn_party``; ``achievements.py`` and the
 #: mythic slayer role in ``boss.py``; the seals and the Holo foil rolled for a new pet in ``pets.py``
 #: (stored with the pet for good, shown only while its owner supports).
 #: (The silver / gold frames of shiny pets are for everybody, so they are not listed.)
@@ -111,8 +111,7 @@ PANEL_BENEFITS: tuple[str, ...] = (
     "wszyscy.",
     "👹 **Rola bossa** - szansa, że to Ty zostaniesz bossem (i zgarniesz doświadczenie za pokonanego "
     "łowcę) albo bohaterem imprezy u Barda.",
-    "🏅 **Kolekcjonerskie osiągnięcia** - role za zabite bossy, polowania, wygrane sezony, piętra "
-    "Wieży, wydarzenia, wyjątkowych towarzyszy oraz legendarne i mityczne wyczyny. Swoje sprawdzisz "
+    "🏅 **Kolekcjonerskie osiągnięcia** - role za najrzadsze, mityczne zdobycze. Swoje sprawdzisz "
     "przyciskiem **Osiągnięcia** (**$osiagniecia**).",
     "🔖 **Kolekcjonerskie ozdoby karty** - każdy nowy towarzysz ma szansę na rzadkie ozdoby swojej "
     "karty. Zdobią ją, dopóki wspierasz (po przerwie wracają).",

@@ -27,6 +27,9 @@ log = logging.getLogger(__name__)
 
 MSG_ROLES_MADE = "Utworzone role osiągnięć ({count}): {names}."
 MSG_ROLES_PRESENT = "Wszystkie role osiągnięć już istnieją ({count})."
+MSG_ROLES_RETIRED = "Usunięte role wycofanych osiągnięć ({count}): {names}."
+MSG_ROLES_NOT_RETIRED = ("Nie udało się usunąć ról wycofanych osiągnięć ({count}): {names}. Sprawdź, czy są "
+                         "poniżej roli bota, i spróbuj ponownie (albo usuń je ręcznie).")
 MSG_ROLES_MISSING = ("Nie udało się utworzyć ról osiągnięć ({missing_count}): {missing}. Sprawdź, czy bot ma "
                      "uprawnienie \"Zarządzanie rolami\" i czy serwer nie ma już 250 ról, a potem spróbuj "
                      "ponownie. Istniejące role: {count}.")
@@ -66,10 +69,16 @@ class AchievementsCog(commands.Cog, name="Achievements"):
     @commands.command(name="roleosiagniec", brief="Create the missing achievement roles.")
     @guards.owner_or_admin()
     async def make_roles(self, ctx: commands.Context) -> None:
+        retired = await achievements.retire_roles(self.bot)  # roles of withdrawn achievements go
         made = await achievements.ensure_roles(self.bot)  # (everything, also what failed before)
         own = [item for item in achievements.TROPHIES if item.bot_made]
         missing = [item.name for item in own if not achievements.role_exists(self.bot, item)]
         lines = []
+        if retired:
+            lines.append(MSG_ROLES_RETIRED.format(count=len(retired), names=", ".join(retired)))
+        left = achievements.retired_left(self.bot)
+        if left:
+            lines.append(MSG_ROLES_NOT_RETIRED.format(count=len(left), names=", ".join(left)))
         if made:
             lines.append(MSG_ROLES_MADE.format(count=len(made), names=", ".join(made)))
         if missing:
@@ -77,7 +86,7 @@ class AchievementsCog(commands.Cog, name="Achievements"):
                                                   count=len(own) - len(missing)))
         elif not made:
             lines.append(MSG_ROLES_PRESENT.format(count=len(own)))
-        await io.send(ctx.channel, "\n".join(lines))
+        await io.send(ctx.channel, "\n".join(lines)[:1990])
 
     @commands.command(name="nadajosiagniecia", brief="Give supporters the achievements they have earned.")
     @guards.owner_or_admin()

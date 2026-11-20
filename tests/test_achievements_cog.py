@@ -3,8 +3,13 @@
 Owner's decisions of 2026-11-20 tested here: ``$osiagniecia`` is for supporters and shows what the
 player has and "X z Y" - never which achievements are missing; somebody who does not support gets
 the support links and nothing about achievements; bot answers on the channel are public; the bot
-makes the roles of the new achievements itself; the hand-out to veterans after a start is silent
-(one summary for the owner) and can never break the start.
+makes the roles of the achievements itself; the hand-out to veterans after a start is silent (one
+summary for the owner) and can never break the start.
+
+Owner's decision of 2026-11-20 (evening): only four achievements are left - the mythic boss (the
+game's own ``mythic_slayer_role``) and three pet roles the bot makes (a mythic pet, a mythic pet
+with Holo, a mythic pet with the rarest seal).  Every other achievement role is deleted from the
+server by the bot (at the start and by ``$roleosiagniec``).
 """
 
 from __future__ import annotations
@@ -28,14 +33,18 @@ from altermmo.features import achievements, patrons
 from altermmo.features.achievements import TROPHIES, role_id_of
 
 from fakes import FakeMessage
+from test_pets import add_owner, add_pet
 
 PATRON = patrons.PATRON_ROLES[0]
-KILL_10 = achievements.BOSS_KILL_ROLES[10]
-HUNT_10, HUNT_35 = achievements.HUNT_ROLES[10], achievements.HUNT_ROLES[35]
 BOT_MADE = [item for item in TROPHIES if item.bot_made]
-FIXED = [item for item in TROPHIES if item.role_id]
+BOT_MADE_NAMES = ["Mityczny towarzysz", "Mityczny Holo", "Mityczna Pieczęć Arcyłowcy"]
 GAME_CHANNELS = ("channel", "announce_channel", "notice_channel")
 ALIASES = ["achievements", "osiagniecie", "osiągnięcia", "osiągnięcie"]
+#: Two of the old bot's achievement roles (deleted from the server since the evening of 2026-11-20).
+KILL_10, HUNT_10 = 1125799392989949973, 1125799891923374121
+#: Roles the bot made earlier on 2026-11-20 for achievements withdrawn the same evening.
+EARLIER_MADE = {"rituals_20": (990_000_000_000_000_501, "Kultysta II"),
+                "pet_holo": (990_000_000_000_000_502, "Folia Holo")}
 
 
 class DatabaseDown:
@@ -82,8 +91,16 @@ async def cog(game, started):
 
 @pytest.fixture
 def old_roles(game):
-    """The achievement roles the server had before v2 (the bot never makes these)."""
-    return {item.role_id: game.guild.add_role(item.role_id, item.name) for item in FIXED}
+    """The achievement roles the server had before the owner withdrew them (fixed ids)."""
+    return {role_id: game.guild.add_role(role_id, name) for role_id, name in achievements.RETIRED_ROLES.items()}
+
+
+@pytest.fixture
+def earlier_made(game):
+    """Roles the bot made earlier that day, remembered in ``data/achievementRoles.json``."""
+    roles = {key: game.guild.add_role(role_id, name) for key, (role_id, name) in EARLIER_MADE.items()}
+    game.bot.store.achievement_roles.save({key: role.id for key, role in roles.items()})
+    return roles
 
 
 async def run(game, member, content: str, *, channel=None) -> FakeMessage:
@@ -120,8 +137,16 @@ def role_ids(member) -> set[int]:
     return {role.id for role in member.roles} - set(patrons.SUPPORTER_ROLES)
 
 
+def guild_role_ids(game) -> set[int]:
+    return {role.id for role in game.guild.roles}
+
+
 def announcements(game) -> int:
     return sum(getattr(game, name).sent_count("zdobywa osiągnięcie") for name in GAME_CHANNELS)
+
+
+def made_role(bot, key: str) -> int | None:
+    return role_id_of(bot, achievements.trophy(key))
 
 
 def start_tasks() -> list[asyncio.Task]:
@@ -130,9 +155,14 @@ def start_tasks() -> list[asyncio.Task]:
             if getattr(task.get_coro(), "__qualname__", "") == "AchievementsCog._after_start"]
 
 
-async def set_kills(db, player_id: int, kills: int = 0, hunts: int = 0, butchers: int = 0) -> None:
-    await db.execute("INSERT INTO ACHIEVEMENTS (PLAYER_ID, BOSS_KILLS, HUNTS, BUTCHERS) VALUES ($1, $2, $3, $4)",
-                     player_id, kills, hunts, butchers)
+def forbidden() -> discord.Forbidden:
+    return discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Missing Permissions")
+
+
+async def own_pet(db, player_id: int, pet_id: int, **pet) -> None:
+    """The player owns one pet (the active one)."""
+    await add_owner(db, player_id, pet_id)
+    await add_pet(db, pet_id, **pet)
 
 
 @pytest_asyncio.fixture
@@ -143,6 +173,13 @@ async def game_db(game_db):
 
 
 # -- the extension ------------------------------------------------------------------------------
+
+def test_the_catalogue_is_the_four_mythic_achievements():
+    assert [item.key for item in TROPHIES] == ["mythic_boss", "pet_mythic", "pet_mythic_holo", "pet_mythic_seal"]
+    assert [item.name for item in BOT_MADE] == BOT_MADE_NAMES
+    assert [item.ids_attr for item in TROPHIES if not item.bot_made] == ["mythic_slayer_role"]
+    assert len(achievements.RETIRED_ROLES) == 15
+
 
 async def test_extension_registers_the_commands_with_their_aliases(cog):
     assert "altermmo.cogs.achievements" in bot_module.EXTENSIONS
@@ -180,8 +217,11 @@ async def test_supporter_sees_what_he_has_and_how_many_of_how_many_never_what_is
                                                                                         old_roles):
     game = game_db
     bot = game.bot
-    ala = game.add_member("Ala", roles=[PATRON, KILL_10])
-    await set_kills(bot.db, ala.id, kills=12, hunts=40)                 # a veteran: 35 hunts passed long ago
+    slayer = bot.ids.mythic_slayer_role
+    # A veteran: killed a mythic boss, has an old (withdrawn) role still, and a mythic Holo pet
+    # from before the roles existed.
+    ala = game.add_member("Ala", roles=[PATRON, slayer, KILL_10])
+    await own_pet(bot.db, ala.id, 5, mythic=True, holo=True)
 
     await run(game, ala, "$osiagniecia")
     (summary,) = game.channel.bot_messages[1:]                          # (after the pinned rules)
@@ -189,39 +229,59 @@ async def test_supporter_sees_what_he_has_and_how_many_of_how_many_never_what_is
     (embed,) = summary.embeds
     assert embed.title == achievements.MSG_SUMMARY_TITLE
     assert embed.footer.text == achievements.MSG_SUMMARY_FOOTER
-    # Boss kills I + II and hunts I + II: a tier counts together with the ones below it.
-    assert f"<@{ala.id}>, masz **4 z {len(TROPHIES)}** osiągnięć." in embed.description
-    # Shown: the highest tier of each family he has; the hunts tier he had earned is given now.
-    assert re.findall(r"🏅 <@&(\d+)>", embed.description) == [str(KILL_10), str(HUNT_35)]
-    assert achievements.MSG_SUMMARY_NEW.format(roles=f"<@&{HUNT_35}>") in embed.description
-    assert role_ids(ala) == {KILL_10, HUNT_35} and announcements(game) == 0
-    # Not a hint of what is missing: no other role and no name of an achievement.
-    mentioned = set(re.findall(r"<@&(\d+)>", summary.text))
-    assert mentioned == {str(KILL_10), str(HUNT_35)}
-    assert not any(item.name in summary.text for item in TROPHIES)
+    mythic, holo = made_role(bot, "pet_mythic"), made_role(bot, "pet_mythic_holo")
+    assert game.guild.get_role(mythic).name == "Mityczny towarzysz"
+    assert game.guild.get_role(holo).name == "Mityczny Holo"
+    # The withdrawn role does not count: the mythic boss + the two pet roles given now.
+    assert f"<@{ala.id}>, masz **3 z 4** osiągnięć." in embed.description
+    assert re.findall(r"🏅 <@&(\d+)>", embed.description) == [str(slayer), str(mythic), str(holo)]
+    assert achievements.MSG_SUMMARY_NEW.format(roles=f"<@&{mythic}>, <@&{holo}>") in embed.description
+    assert role_ids(ala) == {slayer, KILL_10, mythic, holo} and announcements(game) == 0
+    # Not a hint of what is missing: no other role, no name of an achievement, the seal's role not made.
+    assert set(re.findall(r"<@&(\d+)>", summary.text)) == {str(slayer), str(mythic), str(holo)}
+    assert not any(item.name in summary.text for item in TROPHIES) and "Pieczęć" not in summary.text
+    assert made_role(bot, "pet_mythic_seal") is None
+    assert KILL_10 in guild_role_ids(game)                              # (deleting is not this command's job)
 
     # Any channel: it only shows something.  Asked again: nothing new any more.
     await run(game, ala, "$osiągnięcia", channel=game.announce_channel)
     (again,) = game.announce_channel.bot_messages
-    assert f"masz **4 z {len(TROPHIES)}**" in again.embeds[0].description
-    assert "Nowe" not in again.embeds[0].description and role_ids(ala) == {KILL_10, HUNT_35}
+    assert "masz **3 z 4**" in again.embeds[0].description
+    assert "Nowe" not in again.embeds[0].description and role_ids(ala) == {slayer, KILL_10, mythic, holo}
+
+
+async def test_supporter_with_the_rarest_seal_gets_the_seal_role(game_db, cog):
+    game = game_db
+    bot = game.bot
+    ala = game.add_member("Ala", roles=[patrons.TWITCH_SUB_ROLE])
+    await add_owner(bot.db, ala.id, 5, pet_id_alt2=6)
+    await add_pet(bot.db, 5, mythic=False, seal=3, holo=True)            # not mythic: counts for nothing
+    await add_pet(bot.db, 6, mythic=True, seal=3)                        # in the stable: counts
+    await run(game, ala, "$osiagniecia")
+    (summary,) = game.channel.bot_messages[1:]
+    mythic, seal = made_role(bot, "pet_mythic"), made_role(bot, "pet_mythic_seal")
+    assert f"<@{ala.id}>, masz **2 z 4** osiągnięć." in summary.embeds[0].description
+    assert re.findall(r"🏅 <@&(\d+)>", summary.text) == [str(mythic), str(seal)]
+    assert role_ids(ala) == {mythic, seal} and made_role(bot, "pet_mythic_holo") is None
 
 
 async def test_supporter_with_nothing_yet(game_db, cog):
     game = game_db
     ala = game.add_member("Ala", roles=[patrons.TWITCH_SUB_ROLE])
+    await own_pet(game.bot.db, ala.id, 5)                                # an ordinary pet
     await run(game, ala, "$achievements", channel=game.notice_channel)
     (summary,) = game.notice_channel.bot_messages
     assert summary.embeds[0].description == (
-        f"<@{ala.id}>, masz **0 z {len(TROPHIES)}** osiągnięć.\n\n{achievements.MSG_SUMMARY_NONE}")
-    assert "<@&" not in summary.text
+        f"<@{ala.id}>, masz **0 z 4** osiągnięć.\n\n{achievements.MSG_SUMMARY_NONE}")
+    assert "<@&" not in summary.text and game.bot.store.achievement_roles.load() == {}
 
 
 async def test_non_supporter_gets_the_links_and_no_achievement_data(game_db, cog, old_roles):
     game = game_db
     bot = game.bot
-    ola = game.add_member("Ola")
-    await set_kills(bot.db, ola.id, kills=12, hunts=40)                 # counted, but no roles
+    ola = game.add_member("Ola", roles=[bot.ids.mythic_slayer_role])
+    await own_pet(bot.db, ola.id, 5, mythic=True, holo=True, seal=3)     # would earn all three
+    roles_before = guild_role_ids(game)
     await run(game, ola, "$osiagniecia")
     (answer,) = game.channel.bot_messages[1:]
     assert answer.content == supporters_only_text(ola) and answer.embeds == []
@@ -229,7 +289,8 @@ async def test_non_supporter_gets_the_links_and_no_achievement_data(game_db, cog
     assert patrons.SUPPORTERS_LONG in answer.content
     assert re.findall(r"\(<(\S+?)>\)", answer.content) == [url for _, url in patrons.SUPPORT_LINKS]
     assert "<@&" not in answer.content and " z " not in answer.content and "masz" not in answer.content
-    assert role_ids(ola) == set() and announcements(game) == 0
+    assert role_ids(ola) == {bot.ids.mythic_slayer_role} and announcements(game) == 0
+    assert guild_role_ids(game) == roles_before and bot.store.achievement_roles.load() == {}
     assert bot.owner_log == []
 
 
@@ -264,22 +325,25 @@ async def test_osiagniecia_while_busy_follows_the_busy_policy(game, cog, monkeyp
     assert answers(game.channel)[-1] == supporters_only_text(ola)
 
 
-async def test_osiagniecia_when_the_database_is_down(game, cog, old_roles, caplog):
+async def test_osiagniecia_when_the_database_is_down(game, cog, caplog):
     """The roles a supporter holds are enough to answer: the summary is built from them alone."""
-    game.bot.db = DatabaseDown()
-    ala = game.add_member("Ala", roles=[PATRON, KILL_10, HUNT_35])
+    bot = game.bot
+    bot.db = DatabaseDown()
+    slayer = bot.ids.mythic_slayer_role
+    mythic = game.guild.add_role(990_000_000_000_000_300, "Mityczny towarzysz")
+    bot.store.achievement_roles.save({"pet_mythic": mythic.id})          # made after an earlier start
+    ala = game.add_member("Ala", roles=[PATRON, mythic.id, slayer])
     with caplog.at_level(logging.ERROR, logger="altermmo.features.achievements"):
         await run(game, ala, "$osiagniecia")
     (summary,) = game.channel.bot_messages[1:]                          # (after the pinned rules)
     assert summary.content == "" and summary.view is None
     (embed,) = summary.embeds
     assert embed.title == achievements.MSG_SUMMARY_TITLE
-    # Boss kills I + II and hunts I + II: a tier counts together with the ones below it.
-    assert f"<@{ala.id}>, masz **4 z {len(TROPHIES)}** osiągnięć." in embed.description and len(TROPHIES) == 39
-    assert re.findall(r"🏅 <@&(\d+)>", embed.description) == [str(KILL_10), str(HUNT_35)]
-    assert "Nowe" not in embed.description and role_ids(ala) == {KILL_10, HUNT_35}
+    assert f"<@{ala.id}>, masz **2 z 4** osiągnięć." in embed.description
+    assert re.findall(r"🏅 <@&(\d+)>", embed.description) == [str(slayer), str(mythic.id)]  # catalogue order
+    assert "Nowe" not in embed.description and role_ids(ala) == {mythic.id, slayer}
     assert not game.channel.ever_sent("Baza danych jest chwilowo niedostępna")
-    assert game.bot.owner_log == [] and announcements(game) == 0
+    assert bot.owner_log == [] and announcements(game) == 0
     assert any("showing the roles held" in record.getMessage() for record in caplog.records)
 
 
@@ -289,52 +353,114 @@ async def test_osiagniecia_when_the_database_is_down_and_nothing_is_held(game, c
     await run(game, ala, "$osiagniecia")
     (summary,) = game.channel.bot_messages[1:]
     assert summary.embeds[0].description == (
-        f"<@{ala.id}>, masz **0 z {len(TROPHIES)}** osiągnięć.\n\n{achievements.MSG_SUMMARY_NONE}")
+        f"<@{ala.id}>, masz **0 z 4** osiągnięć.\n\n{achievements.MSG_SUMMARY_NONE}")
     assert game.bot.owner_log == []
 
 
 # -- $roleosiagniec -----------------------------------------------------------------------------------
 
-async def test_roleosiagniec_is_for_administrators_only(game, cog):
+async def test_roleosiagniec_is_for_administrators_only(game, cog, old_roles, earlier_made):
     roles_before = list(game.guild.roles)
+    saved = game.bot.store.achievement_roles.load()
     for command in ("$roleosiagniec", "$nadajosiagniecia"):
         await run(game, game.add_member("Ola"), command)
-    assert answers(game.channel) == [] and game.guild.roles == roles_before
-    assert game.bot.owner_log == [] and game.bot.store.achievement_roles.load() == {}
+    assert answers(game.channel) == [] and game.guild.roles == roles_before   # nothing made, nothing deleted
+    assert game.bot.owner_log == [] and game.bot.store.achievement_roles.load() == saved
 
 
-async def test_roleosiagniec_makes_the_missing_roles_then_reports_that_all_exist(game, cog):
+async def test_roleosiagniec_deletes_the_withdrawn_roles_and_makes_the_missing_ones(game, cog, old_roles,
+                                                                                  earlier_made, caplog):
     bot = game.bot
     alter = administrator(game)
-    names = [item.name for item in BOT_MADE]
-    await run(game, alter, "$roleosiagniec")
-    assert answers(game.channel) == [achievements_cog.MSG_ROLES_MADE.format(count=23, names=", ".join(names))]
-    made = {role.name: role for role in game.guild.roles if role.name in names}
-    assert sorted(made) == sorted(names) and len(names) == 23
+    slayer = game.guild.get_role(bot.ids.mythic_slayer_role)
+    ala = game.add_member("Ala", roles=[PATRON, KILL_10, HUNT_10, slayer.id, EARLIER_MADE["pet_holo"][0]])
+    other = game.guild.add_role(990_000_000_000_000_777, "Rzeźnik Potworów")  # not an achievement: stays
+    retired = list(achievements.RETIRED_ROLES.values()) + ["Kultysta II", "Folia Holo"]
+
+    with caplog.at_level(logging.INFO, logger="altermmo.features.achievements"):
+        await run(game, alter, "$roleosiagniec")
+    assert answers(game.channel) == ["\n".join([
+        achievements_cog.MSG_ROLES_RETIRED.format(count=17, names=", ".join(retired)),
+        achievements_cog.MSG_ROLES_MADE.format(count=3, names=", ".join(BOT_MADE_NAMES))])]
+    # Gone from the server and from every member; the mythic boss and other roles stay.
+    gone = set(old_roles) | {role_id for role_id, _ in EARLIER_MADE.values()}
+    assert not gone & guild_role_ids(game)
+    assert all(role.deleted_with == achievements.RETIRE_REASON for role in old_roles.values())
+    assert role_ids(ala) == {slayer.id} and {slayer.id, other.id, PATRON} <= guild_role_ids(game)
+    # Who held them is in the log before they went.
+    held_by = [record.getMessage() for record in caplog.records if "is being deleted" in record.getMessage()]
+    assert len(held_by) == 17 and sum(str(ala.id) in line for line in held_by) == 3
+    # The three roles are made (no permissions) and remembered; the withdrawn ids are forgotten.
+    made = {role.name: role for role in game.guild.roles if role.name in BOT_MADE_NAMES}
+    assert sorted(made) == sorted(BOT_MADE_NAMES)
     assert all(role.created_with["permissions"] == discord.Permissions.none() for role in made.values())
-    remembered = bot.store.achievement_roles.load()
-    assert remembered == {item.key: made[item.name].id for item in BOT_MADE}
-    assert any(line.startswith("Utworzyłem role osiągnięć (23)") for line in bot.owner_log)
+    assert bot.store.achievement_roles.load() == {item.key: made[item.name].id for item in BOT_MADE}
+    assert bot.owner_log == [
+        achievements.LOG_ROLES_RETIRED.format(count=17, names=", ".join(retired)),
+        achievements.LOG_ROLES_CREATED.format(count=3, names=", ".join(BOT_MADE_NAMES))]
 
     roles_before = list(game.guild.roles)
     await run(game, alter, "$roleosiagniec")
-    assert answers(game.channel)[-1] == achievements_cog.MSG_ROLES_PRESENT.format(count=23)
-    assert game.guild.roles == roles_before and len(answers(game.channel)) == 2
+    assert answers(game.channel)[-1] == achievements_cog.MSG_ROLES_PRESENT.format(count=3)
+    assert game.guild.roles == roles_before and len(answers(game.channel)) == 2 and len(bot.owner_log) == 2
+
+
+async def test_roleosiagniec_says_which_role_it_could_not_delete(game, cog, old_roles):
+    bot = game.bot
+    alter = administrator(game)
+    stubborn = old_roles[1125818642450370590]                            # "szybkość", above the bot's role
+    stubborn.delete_error = forbidden()
+    ala = game.add_member("Ala", roles=[stubborn.id])
+    deleted = [name for role_id, name in achievements.RETIRED_ROLES.items() if role_id != stubborn.id]
+
+    await run(game, alter, "$roleosiagniec")
+    (answer,) = answers(game.channel)
+    still_there = achievements_cog.MSG_ROLES_NOT_RETIRED.format(count=1, names=stubborn.name)
+    assert answer == "\n".join([
+        achievements_cog.MSG_ROLES_RETIRED.format(count=14, names=", ".join(deleted)),   # not among the deleted
+        still_there,
+        achievements_cog.MSG_ROLES_MADE.format(count=3, names=", ".join(BOT_MADE_NAMES))])
+    assert guild_role_ids(game) & set(old_roles) == {stubborn.id} and role_ids(ala) == {stubborn.id}
+    assert achievements.LOG_ROLES_NOT_RETIRED.format(names="szybkość") in bot.owner_log
+
+    # Asked again: tried again, still refused - the administrator is told again, the owner's log is not.
+    await run(game, alter, "$roleosiagniec")
+    assert answers(game.channel)[-1] == "\n".join([still_there,
+                                                   achievements_cog.MSG_ROLES_PRESENT.format(count=3)])
+    assert stubborn.id in guild_role_ids(game)
+    assert bot.owner_log.count(achievements.LOG_ROLES_NOT_RETIRED.format(names="szybkość")) == 1
+
+    # Once the bot may delete it: deleted and reported.
+    stubborn.delete_error = None
+    await run(game, alter, "$roleosiagniec")
+    assert answers(game.channel)[-1] == "\n".join([
+        achievements_cog.MSG_ROLES_RETIRED.format(count=1, names="szybkość"),
+        achievements_cog.MSG_ROLES_PRESENT.format(count=3)])
+    assert stubborn.id not in guild_role_ids(game) and role_ids(ala) == set()
+
+
+async def test_roleosiagniec_tells_the_administrator_which_withdrawn_role_is_still_there(game, cog, old_roles):
+    stubborn = old_roles[1125818642450370590]                            # "szybkość"
+    stubborn.delete_error = forbidden()
+    alter = administrator(game)
+    await run(game, alter, "$roleosiagniec")
+    await run(game, alter, "$roleosiagniec")                             # (the owner's log: told only at first)
+    assert all("szybkość" in answer for answer in answers(game.channel))
 
 
 async def test_roleosiagniec_makes_a_role_again_that_was_deleted_on_the_server(game, cog):
     bot = game.bot
     alter = administrator(game)
     await run(game, alter, "$roleosiagniec")
-    lost = game.guild.get_role(bot.store.achievement_roles.load()["rituals_20"])
-    assert lost is not None and lost.name == "Kultysta II"
+    lost = game.guild.get_role(bot.store.achievement_roles.load()["pet_mythic_holo"])
+    assert lost is not None and lost.name == "Mityczny Holo"
 
     game.guild.roles.remove(lost)                                        # somebody deletes it on the server
     assert game.guild.get_role(lost.id) is None
     await run(game, alter, "$roleosiagniec")
-    assert answers(game.channel)[-1] == achievements_cog.MSG_ROLES_MADE.format(count=1, names="Kultysta II")
-    again = game.guild.get_role(bot.store.achievement_roles.load()["rituals_20"])
-    assert again is not None and again is not lost and again.name == "Kultysta II"
+    assert answers(game.channel)[-1] == achievements_cog.MSG_ROLES_MADE.format(count=1, names="Mityczny Holo")
+    again = game.guild.get_role(bot.store.achievement_roles.load()["pet_mythic_holo"])
+    assert again is not None and again is not lost and again.name == "Mityczny Holo"
 
 
 def roles_missing_text(missing: list[str]) -> str:
@@ -345,9 +471,8 @@ def roles_missing_text(missing: list[str]) -> str:
 async def test_roleosiagniec_reports_what_is_missing_when_the_roles_cannot_be_made(game, cog):
     bot = game.bot
     alter = administrator(game)
-    names = [item.name for item in BOT_MADE]
-    game.guild.create_role_error = discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"),
-                                                      "Missing Permissions")
+    names = BOT_MADE_NAMES
+    game.guild.create_role_error = forbidden()
     await run(game, alter, "$roleosiagniec")
     assert answers(game.channel) == [roles_missing_text(names)]
     assert answers(game.channel)[0].endswith("Istniejące role: 0.")
@@ -361,76 +486,74 @@ async def test_roleosiagniec_reports_what_is_missing_when_the_roles_cannot_be_ma
 
     async def picky(self, *, name, **kwargs):
         tried.append(name)
-        if name == "Kultysta II":
+        if name == "Mityczny Holo":
             raise discord.HTTPException(SimpleNamespace(status=400, reason="Bad Request"), "Too many roles")
         return await original(self, name=name, **kwargs)
 
     game.guild.create_role = picky.__get__(game.guild)
     await run(game, alter, "$roleosiagniec")
-    made = [name for name in names if name != "Kultysta II"]
+    made = [name for name in names if name != "Mityczny Holo"]
     assert answers(game.channel)[-1] == "\n".join([
-        achievements_cog.MSG_ROLES_MADE.format(count=22, names=", ".join(made)),
-        roles_missing_text(["Kultysta II"])])
-    assert sorted(bot.store.achievement_roles.load()) == sorted(item.key for item in BOT_MADE
-                                                                if item.name != "Kultysta II")
+        achievements_cog.MSG_ROLES_MADE.format(count=2, names=", ".join(made)),
+        roles_missing_text(["Mityczny Holo"])])
+    assert sorted(bot.store.achievement_roles.load()) == ["pet_mythic", "pet_mythic_seal"]
     assert sorted(tried) == sorted(names)
 
     # Asked again: the administrator's call tries the missing one at once (no back-off), only that one.
     tried.clear()
     await run(game, alter, "$roleosiagniec")
-    assert tried == ["Kultysta II"]
-    assert answers(game.channel)[-1] == roles_missing_text(["Kultysta II"])
+    assert tried == ["Mityczny Holo"]
+    assert answers(game.channel)[-1] == roles_missing_text(["Mityczny Holo"])
     # The owner was told once about each role that could not be made, not at every attempt.
     assert sum(line.startswith(achievements.LOG_ROLES_FAILED.split("{")[0]) for line in bot.owner_log) == 1
 
     # Once it can be made: only the made line.
     game.guild.create_role = original.__get__(game.guild)
     await run(game, alter, "$roleosiagniec")
-    assert answers(game.channel)[-1] == achievements_cog.MSG_ROLES_MADE.format(count=1, names="Kultysta II")
-    assert len(bot.store.achievement_roles.load()) == 23
+    assert answers(game.channel)[-1] == achievements_cog.MSG_ROLES_MADE.format(count=1, names="Mityczny Holo")
+    assert len(bot.store.achievement_roles.load()) == 3
 
 
 async def test_roleosiagniec_does_not_claim_that_all_roles_exist_when_some_are_missing(game, cog):
-    game.guild.create_role_error = discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"),
-                                                      "Missing Permissions")
+    game.guild.create_role_error = forbidden()
     await run(game, administrator(game), "$roleosiagniec")
     (answer,) = answers(game.channel)
-    assert answer == roles_missing_text([item.name for item in BOT_MADE])
+    assert answer == roles_missing_text(BOT_MADE_NAMES)
     assert achievements_cog.MSG_ROLES_PRESENT.split("(")[0] not in answer
     assert achievements_cog.MSG_ROLES_MADE.split("(")[0] not in answer
+    assert achievements_cog.MSG_ROLES_RETIRED.split("(")[0] not in answer
 
 
 # -- $nadajosiagniecia ----------------------------------------------------------------------------
 
-async def test_nadajosiagniecia_with_nothing_to_give(game_db, cog, old_roles):
+async def test_nadajosiagniecia_with_nothing_to_give(game_db, cog):
     game = game_db
-    game.add_member("Ala", roles=[PATRON])                               # a supporter without deeds
+    ala = game.add_member("Ala", roles=[PATRON])                         # a supporter with an ordinary pet
+    await own_pet(game.bot.db, ala.id, 5, holo=True, seal=3)
     await run(game, administrator(game), "$nadajosiagniecia")
     assert answers(game.channel) == [achievements_cog.MSG_SYNC_STARTED, achievements_cog.MSG_SYNC_NOTHING]
-    assert len(game.bot.store.achievement_roles.load()) == 23            # the roles are made first
+    assert len(game.bot.store.achievement_roles.load()) == 3             # the roles are made first
+    assert role_ids(ala) == set()
     assert not any(line.startswith("Zaległe osiągnięcia") for line in game.bot.owner_log)
 
 
-async def test_nadajosiagniecia_gives_supporters_what_they_earned_quietly(game_db, cog, old_roles):
+async def test_nadajosiagniecia_gives_supporters_what_they_earned_quietly(game_db, cog):
     game = game_db
     bot = game.bot
-    ala = game.add_member("Ala", roles=[PATRON, HUNT_10])
+    ala = game.add_member("Ala", roles=[PATRON])
     ola = game.add_member("Ola")                                         # does not support
-    await set_kills(bot.db, ala.id, hunts=40)
-    await set_kills(bot.db, ola.id, hunts=40)
-    await bot.db.execute("INSERT INTO ACHIEVEMENT_COUNTERS (PLAYER_ID, NAME, VALUE) VALUES ($1, 'tournaments', 1)",
-                         ala.id)                                         # won before the role existed
-    assert role_ids(ala) == {HUNT_10}
+    await own_pet(bot.db, ala.id, 5, mythic=True, seal=3)                # from before the roles existed
+    await own_pet(bot.db, ola.id, 6, mythic=True, seal=3)
 
     await run(game, administrator(game), "$nadajosiagniecia")
     assert answers(game.channel) == [achievements_cog.MSG_SYNC_STARTED,
                                      achievements_cog.MSG_SYNC_DONE.format(roles=2, players=1)]
-    tournament = role_id_of(bot, achievements.trophy("tournaments_1"))
-    assert role_ids(ala) == {HUNT_35, tournament} and role_ids(ola) == set()
+    assert role_ids(ala) == {made_role(bot, "pet_mythic"), made_role(bot, "pet_mythic_seal")}
+    assert role_ids(ola) == set()
     assert announcements(game) == 0                                       # silent on the game channels
     (summary,) = [line for line in bot.owner_log if line.startswith("Zaległe osiągnięcia")]
-    assert summary.startswith(achievements.LOG_VETERANS.format(roles=2, players=1, lines="")) and \
-        f"<@{ala.id}>" in summary and f"<@{ola.id}>" not in summary
+    assert summary == (achievements.LOG_VETERANS.format(roles=2, players=1)
+                       + f"\n<@{ala.id}>: Mityczny towarzysz, Mityczna Pieczęć Arcyłowcy")
 
     await run(game, administrator(game, "Admin2"), "$nadajosiagniecia")  # again: nothing left
     assert answers(game.channel)[-1] == achievements_cog.MSG_SYNC_NOTHING
@@ -489,15 +612,40 @@ async def test_unloading_the_cog_cancels_the_waiting_start(game, started, not_re
     assert started == [] and start_tasks() == []
 
 
-@pytest.mark.parametrize("trouble", ["roles", "hand-out", "database"])
-async def test_trouble_inside_start_up_never_escapes_the_task(game, monkeypatch, caplog, trouble):
+async def test_start_up_deletes_the_withdrawn_roles_makes_the_new_and_hands_out_quietly(game_db, old_roles,
+                                                                                       earlier_made):
+    game = game_db
+    bot = game.bot
+    slayer = bot.ids.mythic_slayer_role
+    ala = game.add_member("Ala", roles=[PATRON, KILL_10, slayer])
+    ola = game.add_member("Ola", roles=[HUNT_10])                        # does not support
+    await own_pet(bot.db, ala.id, 5, mythic=True, holo=True)
+    await own_pet(bot.db, ola.id, 6, mythic=True, holo=True)
+
+    await bot.load_extension("altermmo.cogs.achievements")               # the real start_up
+    (task,) = start_tasks()
+    await asyncio.wait_for(task, 2)
+    assert task.exception() is None
+    assert not (set(old_roles) | {role_id for role_id, _ in EARLIER_MADE.values()}) & guild_role_ids(game)
+    assert sorted(bot.store.achievement_roles.load()) == ["pet_mythic", "pet_mythic_holo", "pet_mythic_seal"]
+    assert role_ids(ala) == {slayer, made_role(bot, "pet_mythic"), made_role(bot, "pet_mythic_holo")}
+    assert role_ids(ola) == set() and announcements(game) == 0
+    assert [line.split(" (")[0] for line in bot.owner_log] == [
+        "Usunąłem z serwera role wycofanych osiągnięć", "Utworzyłem role osiągnięć",
+        "Zaległe osiągnięcia: nadałem 2 ról 1 wspierającym.\n<@" + str(ala.id) + ">: Mityczny towarzysz, Mityczny Holo"]
+
+
+@pytest.mark.parametrize("trouble", ["retire", "roles", "hand-out", "database"])
+async def test_trouble_inside_start_up_never_escapes_the_task(game, old_roles, monkeypatch, caplog, trouble):
     bot = game.bot
     supporter = game.add_member("Ala", roles=[PATRON])
 
     async def broken(bot_):
         raise RuntimeError("test")
 
-    if trouble == "roles":
+    if trouble == "retire":
+        monkeypatch.setattr(achievements, "retire_roles", broken)
+    elif trouble == "roles":
         monkeypatch.setattr(achievements, "ensure_roles", broken)
     elif trouble == "hand-out":
         monkeypatch.setattr(achievements, "sync_veterans", broken)
@@ -517,8 +665,9 @@ async def test_trouble_inside_start_up_never_escapes_the_task(game, monkeypatch,
     assert not task.cancelled() and task.exception() is None and unhandled == []
     assert any(record.getMessage() == "Achievements at start-up failed." for record in caplog.records)
     assert announcements(game) == 0 and supporter.roles == [game.guild.get_role(PATRON)]
-    if trouble != "roles":                                                # the roles were made before the trouble
-        assert len(bot.store.achievement_roles.load()) == 23
+    # What came before the trouble was done.
+    assert (set(old_roles) <= guild_role_ids(game)) is (trouble == "retire")
+    assert len(bot.store.achievement_roles.load()) == (0 if trouble in ("retire", "roles") else 3)
     # The game goes on: the commands work.
     game.channel.type = discord.ChannelType.text
     ola = game.add_member("Ola")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -60,11 +61,20 @@ def test_no_role_the_bot_hands_out_itself_is_a_supporter_role():
     """Otherwise the bot could make somebody a "supporter" by accident (Twitch watch time, achievements...)."""
     ids = Ids()
     granted = {*twitch.VIEWER_ROLES, *twitch.MESSAGER_ROLES, twitch.VIP_ROLE, twitch.MOD_ROLE,
-               *achievements.BOSS_KILL_ROLES.values(), *achievements.HUNT_ROLES.values(),
-               *achievements.BUTCHER_ROLES.values(), *achievements.TOWER_ROLES, achievements.UNICORN_ROLE,
-               achievements.LEGEND_ROLE, achievements.QUICKNESS_ROLE, ids.hunters_role, ids.boss_slayer_role,
-               ids.dead_hunter_role, ids.mythic_slayer_role}
+               ids.hunters_role, ids.boss_slayer_role, ids.dead_hunter_role, ids.mythic_slayer_role}
     assert not granted & set(patrons.SUPPORTER_ROLES)
+
+
+def test_the_bot_deletes_no_role_it_still_needs():
+    """The withdrawn achievement roles are deleted from the server: never a supporter's or a game role."""
+    ids = Ids()
+    retired = set(achievements.RETIRED_ROLES)
+    assert len(retired) == 15
+    assert not retired & set(patrons.SUPPORTER_ROLES)
+    assert not retired & {*twitch.VIEWER_ROLES, *twitch.MESSAGER_ROLES, twitch.VIP_ROLE, twitch.MOD_ROLE,
+                          ids.hunters_role, ids.boss_slayer_role, ids.dead_hunter_role, ids.mythic_slayer_role}
+    bot = SimpleNamespace(ids=ids)  # (the mythic slayer is the one achievement whose role is not bot-made)
+    assert achievements.role_id_of(bot, achievements.trophy("mythic_boss")) == ids.mythic_slayer_role
 
 
 async def test_get_patron_keeps_the_legacy_weighting(game, monkeypatch):
@@ -129,10 +139,10 @@ async def test_shrine_and_tower_hints(game):
     await modifiers.spawn_modifier_shrine(game.scene())
     assert (f"*Tylko wspierający ({patrons.SUPPORTERS_LONG}) znają odpowiednią modlitwę, ale każdy może "
             "skorzystać z błogosławieństw rzuconych na potwora.*") in game.channel.messages[-1].embeds[0].description
+    # The tower gives no collector's role any more (withdrawn on 2026-11-20): no promise of one.
     for floor in (1, 2):
         await tower.tower_image(game.scene(), floor)
-        assert game.channel.messages[-1].embeds[0].description.endswith(
-            "*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
+        assert "osiągnięcia" not in game.channel.messages[-1].embeds[0].description
 
 
 async def test_exp_summary_accumulates_and_resets(game):

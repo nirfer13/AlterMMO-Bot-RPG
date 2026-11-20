@@ -32,7 +32,7 @@ import altermmo
 from altermmo import bot as bot_module
 from altermmo.cogs import events as events_cog
 from altermmo.core.state import EventType
-from altermmo.features import achievements, events, modifiers, patrons, petcards
+from altermmo.features import events, modifiers, patrons, petcards
 
 from fakes import FakeInteraction
 
@@ -99,16 +99,18 @@ def supporters(game, count: int) -> list:
 @pytest.mark.parametrize("failure", ["code-from-disk", "raises"])
 async def test_chest_whose_code_fails_after_the_loot_is_opened_exactly_once(game, cog, loot, monkeypatch,
                                                                             failure):
-    if failure == "code-from-disk":
-        # The new events.py calls a function the achievements module in memory does not have.
-        monkeypatch.delattr(achievements, "add_count")
-        error = "AttributeError"
-    else:
-        async def add_count(*args, **kwargs):
-            raise RuntimeError("test: counting failed")
+    # The loot is handed out, then the code after it fails (that day: the new events.py called
+    # ``achievements.add_count``, which the achievements module in memory did not have).
+    error = "AttributeError" if failure == "code-from-disk" else "RuntimeError"
+    real_open_chest = events.open_chest
 
-        monkeypatch.setattr(achievements, "add_count", add_count)
-        error = "RuntimeError"
+    async def open_chest(scene):
+        await real_open_chest(scene)
+        if failure == "code-from-disk":
+            raise AttributeError("module 'altermmo.features.achievements' has no attribute 'add_count'")
+        raise RuntimeError("test: counting failed")
+
+    monkeypatch.setattr(events, "open_chest", open_chest)
     players = [game.add_member(f"Gracz{index}") for index in range(7)]
     await cog.run_one_event(forced=EventType.CHEST)
     chest = game.channel.messages[-1]

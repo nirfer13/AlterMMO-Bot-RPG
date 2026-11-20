@@ -20,7 +20,7 @@ from altermmo.core import challenge, io, timing
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossInfo, BossPhase
-from altermmo.features import boss, database, fight_types, modifiers, patrons, xpsteal
+from altermmo.features import achievements, boss, database, fight_types, modifiers, patrons, xpsteal
 
 from fakes import FakeAttachment, FakeMember, FakeMessage, requested_word
 
@@ -807,6 +807,31 @@ async def test_group_fight_won(game_db, monkeypatch):
         assert channel.contains(f"Boss Drop - {player.name}")
     # Legacy rule: a legendary kill is not counted as a personal boss kill.
     assert await bot.db.fetchval("SELECT count(*) FROM ACHIEVEMENTS") == 0
+
+
+async def test_boss_fights_give_only_the_mythic_slayer_role(game_db, monkeypatch):
+    """Owner's decision of 2026-11-20: no speed / legendary boss role any more; the mythic slayer stays."""
+    bot = game_db.bot
+    for role_id, name in achievements.RETIRED_ROLES.items():        # (a server that was not tidied yet)
+        game_db.guild.add_role(role_id, name)
+    retired = set(achievements.RETIRED_ROLES)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 2)
+
+    # A supporter kills a mythic boss - in well under 0.75 s per turn (the old speed role).
+    slayer = game_db.add_member("Ala", roles=[patrons.CRAFTER_ROLE])
+    game_db.auto_answer(slayer)
+    assert (await boss.single_fight(game_db.scene(slayer), slayer, 4, False, None)).won
+    assert slayer in bot.role(bot.ids.mythic_slayer_role).members
+    assert not {role.id for role in slayer.roles} & retired
+
+    # A legendary party of supporters: no legendary boss role either.
+    game_db.channel.send_hooks.clear()
+    party = [game_db.add_member(name, roles=[patrons.CRAFTER_ROLE]) for name in ("Ola", "Ela", "Ula", "Iza")]
+    team_answers(game_db, party)
+    assert (await boss.group_fight(game_db.scene(party[0]), party, False, None)).won
+    assert not any({role.id for role in player.roles} & retired for player in party)
+    assert not any(player in bot.role(bot.ids.mythic_slayer_role).members for player in party)
+    assert not game_db.channel.contains("zdobywa osiągnięcie")
 
 
 async def test_group_fight_second_mistake_loses(game_db, monkeypatch):

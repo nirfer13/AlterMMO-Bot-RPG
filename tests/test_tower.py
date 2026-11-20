@@ -142,7 +142,6 @@ def test_floor_numbers():
     assert tower.random_tower_hp("3") == 6
     assert [tower.floor_loot_rarity(level) for level in range(1, 12)] == [0, 0, 1, 1, 2, 2, 2, 4, 4, 4, 2]
     assert tower.TOWER_FLOORS == 10
-    assert tower._FLOOR_ROLES == {3: 1151427369886826496, 6: 1151427619741511710, 10: 1151427790973964328}
 
 
 # -- the weekly cooldown list --------------------------------------------------------------
@@ -172,16 +171,15 @@ async def test_tower_image(game, monkeypatch, tmp_path):
     assert picture.files == ["1.png"]
     embed = card.embeds[0]
     assert embed.title == "<:AlterUp:846344753124999169> 1 piętro Wieży Śmierci! <:Loot:912797849916436570>"
-    assert embed.description == ("Rozpoczynasz eksplorację Wieży Śmierci. Strzeż się!"
-                                 "\n\n*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
+    # (No hint about collector's achievements any more: the floor roles were withdrawn.)
+    assert embed.description == "Rozpoczynasz eksplorację Wieży Śmierci. Strzeż się!"
     assert embed.colour.value == 0xF00511
 
     await tower.tower_image(game.scene(), 7)
     picture, card = game.channel.messages[-2:]
     assert picture.files == ["7.png"]
     assert card.embeds[0].title == "<:AlterUp:846344753124999169> 7 piętro Wieży Śmierci! <:Loot:912797849916436570>"
-    assert card.embeds[0].description == ("Przechodzisz na kolejne piętro. Powodzenia!"
-                                          "\n\n*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
+    assert card.embeds[0].description == "Przechodzisz na kolejne piętro. Powodzenia!"
 
     # A missing picture does not stop the run.
     monkeypatch.setattr(tower, "ASSETS_DIR", tmp_path)
@@ -250,40 +248,27 @@ async def test_update_tower_level_with_legacy_time_formats(game_db):
     assert await record(bot, ola.id) == (4, "0:00:30.000000")
 
 
-async def test_floor_roles_only_for_patrons(game_db):
+async def test_floors_give_no_roles_any_more(game_db):
+    """The collector's roles of floors 3, 6 and 10 were withdrawn on 2026-11-20 (owner: too many roles)."""
     bot = game_db.bot
-    roles = {level: game_db.guild.add_role(role_id, f"Wieża {level}") for level, role_id in
-             tower._FLOOR_ROLES.items()}
+    old_roles = [game_db.guild.add_role(role_id, name) for role_id, name in achievements.RETIRED_ROLES.items()
+                 if name.startswith("Wieża")]
+    assert len(old_roles) == 3
     crafter = game_db.add_member("Crafter", roles=[patrons.CRAFTER_ROLE])
-    plain = game_db.add_member("Zwykły")
+    before = list(crafter.roles)
+    said = len(game_db.channel.messages)
     scene = game_db.scene()
-    for level in (1, 2, 3):
-        await tower.update_tower_level(scene, crafter, level, timedelta(seconds=level))
-        await tower.update_tower_level(scene, plain, level, timedelta(seconds=level))
-    assert roles[3] in crafter.roles and roles[3] not in plain.roles
-    assert roles[6] not in crafter.roles
-    await tower.update_tower_level(scene, crafter, 6, timedelta(seconds=6))
-    await tower.update_tower_level(scene, crafter, 10, timedelta(seconds=10))
-    assert roles[10] in crafter.roles
+    for level in (1, 2, 3, 6, 10):
+        assert await tower.update_tower_level(scene, crafter, level, timedelta(seconds=level)) is True
+    assert crafter.roles == before
     assert await record(bot, crafter.id) == (10, "0:00:10.000000")
+    assert len(game_db.channel.messages) == said and bot.owner_log == []      # no role announced
 
-    # A player who left the server in the meantime: the record is stored, no role, no crash.
+    # A player who left the server in the meantime: the record is stored, no crash.
     gone = FakeMember("Uciekinier")
     gone.roles.append(game_db.guild.add_role(patrons.CRAFTER_ROLE))
     assert await tower.update_tower_level(scene, gone, 3, timedelta(seconds=2)) is True
     assert await record(bot, gone.id) == (3, "0:00:02.000000")
-
-
-@pytest.mark.parametrize("role_id", [patrons.TWITCH_SUB_ROLE, *patrons.YOUTUBE_ROLES])
-async def test_floor_roles_for_twitch_subscribers_and_youtube_supporters(game_db, role_id):
-    """Since 2026-11-20 the collector's roles are for every supporter, not only patrons and crafters."""
-    floor_3 = game_db.guild.add_role(tower._FLOOR_ROLES[3], "Wieża 3")
-    supporter = game_db.add_member("Widz", roles=[role_id])
-    other = game_db.add_member("VIP", roles=[964845150213906442])        # a Twitch VIP is no supporter
-    scene = game_db.scene()
-    await tower.update_tower_level(scene, supporter, 3, timedelta(seconds=3))
-    await tower.update_tower_level(scene, other, 3, timedelta(seconds=3))
-    assert floor_3 in supporter.roles and floor_3 not in other.roles
 
 
 async def test_tower_ranking(game_db):
@@ -491,7 +476,6 @@ async def test_repeated_disruptions_interrupt_the_floor(game, skills, drops, mon
 
 async def test_cleared_floor_stays_cleared_when_bookkeeping_fails(game_db, monkeypatch):
     bot = game_db.bot
-    game_db.guild.add_role(tower._FLOOR_ROLES[3], "Wieża 3")
     hunter = game_db.add_member("Ala", roles=[patrons.CRAFTER_ROLE])
 
     async def no_loot(scene, rarity, player, boost):
@@ -512,9 +496,8 @@ async def test_cleared_floor_stays_cleared_when_bookkeeping_fails(game_db, monke
     assert any(f"{context} (ogłoszenie zwycięstwa)" in line and "RuntimeError" in line for line in bot.owner_log)
     assert any(f"{context} (łup <@{hunter.id}> za piętro 3)" in line and "DatabaseUnavailable" in line
                for line in bot.owner_log)
-    # The record and the collector's role were still handed out.
+    # The record was still stored.
     assert (await record(bot, hunter.id))[0] == 3
-    assert bot.role(tower._FLOOR_ROLES[3]) in hunter.roles
 
     # The record cannot be stored: the floor still counts, the owner is told.
     async def no_record(*args, **kwargs):
@@ -575,9 +558,10 @@ async def test_changed_commands_do_not_apply_to_the_tower(game, skills, drops, m
 
 async def test_whole_tower_cleared(game_db, drops):
     bot = game_db.bot
-    for role_id in tower._FLOOR_ROLES.values():
-        game_db.guild.add_role(role_id, f"Wieża {role_id}")
+    for role_id in achievements.RETIRED_ROLES:
+        game_db.guild.add_role(role_id, f"Stara rola {role_id}")
     hunter = game_db.add_member("O'Brien", roles=[patrons.CRAFTER_ROLE])
+    before = list(hunter.roles)
     game_db.auto_answer(hunter)
     assert await tower.explore_tower(game_db.scene(hunter)) == 10
     channel = game_db.channel
@@ -587,9 +571,10 @@ async def test_whole_tower_cleared(game_db, drops):
     assert [rarity for rarity, _, _ in drops] == [0, 0, 1, 1, 2, 2, 2, 4, 4, 4]
     assert (await record(bot, hunter.id))[0] == 10
     assert tower.load_weekly_tower_from_file(bot, hunter.id)
-    # Each tier replaces the lower one (achievements.set_achiev_role); the top one stays.
-    assert bot.role(tower._FLOOR_ROLES[10]) in hunter.roles
+    # No floor role any more (withdrawn on 2026-11-20), not even for a supporter.
+    assert hunter.roles == before
     assert not channel.contains("problemów technicznych")
+    assert bot.owner_log == []
 
 
 async def test_run_ends_on_the_first_lost_floor_and_keeps_the_cooldown(game_db, drops):
@@ -606,7 +591,31 @@ async def test_run_ends_on_the_first_lost_floor_and_keeps_the_cooldown(game_db, 
         await tower.explore_tower(game_db.scene())
 
 
-async def test_run_gives_the_attempt_back_after_a_technical_failure(game, skills, drops, monkeypatch):
+async def test_run_gives_the_attempt_back_after_a_technical_failure_before_the_first_kill(game, skills, drops):
+    bot = game.bot
+    hunter = game.add_member("Ala")
+    game.auto_answer(hunter)
+    original = game.channel.send
+
+    async def broken_on_floor_one(content=None, **kwargs):
+        if content and content.startswith("2. "):               # the last word of floor 1
+            raise RuntimeError("discord broke")
+        return await original(content, **kwargs)
+
+    game.channel.send = broken_on_floor_one
+    with pytest.raises(RuntimeError):
+        await tower.explore_tower(game.scene(hunter))
+    assert not tower.load_weekly_tower_from_file(bot, hunter.id)
+    assert game.channel.messages[-1].content == (
+        f"<@{hunter.id}>, z powodu problemów technicznych Twoja wyprawa do Wieży Śmierci się nie liczy - "
+        "możesz spróbować ponownie w tym tygodniu!")
+    assert drops == [] and not game.channel.contains("Piętro zaliczone!")
+    assert bot.owner_log == []                                  # nothing to settle by hand
+
+
+async def test_run_keeps_the_cooldown_after_a_technical_failure_past_a_rewarded_floor(game, skills, drops,
+                                                                                      monkeypatch):
+    """Owner's rule of 2026-11-20: floor 1 was rewarded, so a second run would hand its loot out again."""
     bot = game.bot
     monkeypatch.setattr(tower, "_store_record", _stored)
     hunter = game.add_member("Ala")
@@ -619,13 +628,26 @@ async def test_run_gives_the_attempt_back_after_a_technical_failure(game, skills
         return await original(content, **kwargs)
 
     game.channel.send = broken_on_floor_two
-    with pytest.raises(RuntimeError):
-        await tower.explore_tower(game.scene(hunter))
-    assert not tower.load_weekly_tower_from_file(bot, hunter.id)
+    # Not re-raised: the player is told the run counts ("try again" would contradict it).
+    assert await tower.explore_tower(game.scene(hunter)) == 1
+    assert tower.load_weekly_tower_from_file(bot, hunter.id)
     assert game.channel.messages[-1].content == (
-        f"<@{hunter.id}>, z powodu problemów technicznych Twoja wyprawa do Wieży Śmierci się nie liczy - "
-        "możesz spróbować ponownie w tym tygodniu! Zdobyte piętra i łupy zostają.")
-    assert len(drops) == 1                                      # floor 1 was cleared and rewarded
+        f"<@{hunter.id}>, z powodu problemów technicznych Twoja wyprawa do Wieży Śmierci kończy się po 1. "
+        "piętrze. Zdobyte piętra i łupy zostają; administracja dostała znać.")
+    assert not game.channel.contains("możesz spróbować ponownie")
+    assert len(drops) == 1                                      # floor 1 was cleared and rewarded, once
+    assert bot.owner_log == [tower.LOG_RUN_CUT_SHORT.format(user_id=hunter.id, floors=1)]
+    assert game.log_channel.messages[-1].content.startswith(f"<@{bot.ids.owner}>!")    # with a ping
+
+    # A second $wieża the same week is refused: the loot of floor 1 is not handed out again.
+    game.channel.send = original
+    refused: list[str] = []
+
+    async def refuse(text):
+        refused.append(text)
+
+    assert await tower.start_tower(game.scene(hunter), refuse=refuse) is False
+    assert refused == [tower.cooldown_text()] and len(drops) == 1
 
 
 async def test_run_gives_the_attempt_back_after_disruptions_and_on_shutdown(game, skills, drops):

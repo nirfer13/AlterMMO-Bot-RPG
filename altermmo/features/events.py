@@ -43,7 +43,7 @@ import discord
 
 from ..core import challenge, io, timing, ui
 from ..settings import ASSETS_DIR
-from . import achievements, boss, daily, database, modifiers, patrons
+from . import boss, daily, database, modifiers, patrons
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -458,7 +458,6 @@ async def open_chest(scene: "Scene") -> None:
     rarity = _chest_rarity(90)
     boost_percent = random.randint(0, 25)
     await daily.rand_loot(scene, rarity, scene.author, boost_percent)
-    await achievements.add_count(scene, scene.author, "chests")  # never raises
 
 
 # -- invasion ------------------------------------------------------------------------
@@ -654,12 +653,8 @@ async def spawn_memory(scene: "Scene") -> bool:
     # The four runes are shown in the message itself and hidden by deleting it.
     shown = await scene.send(MSG_MEMORY_SHOW.format(player=player.id) + "\n\n" + "   ".join(selected))
 
-    await scene.send("... 20...")
-    await timing.pause(10)
-    await scene.send("... 10...")
-    await timing.pause(5)
-    await scene.send("... 5...")
-    await timing.pause(5)
+    # One line that grows ("... 20... 10... 5..."), like every countdown of the game.
+    await challenge.count_in_line(scene.channel, (("... 20...", 10), ("10...", 5), ("5...", 5)))
     if not await io.safe_delete(shown):
         log.warning("Memory game: the message with the emotes could not be deleted.")
 
@@ -828,9 +823,7 @@ async def spawn_duel(scene: "Scene") -> bool:
     while state.busy:
         await asyncio.sleep(2)
     with state.hold_busy("event:DUEL"):
-        finished, winner = await boss.duel_fight(scene, participants)
-    if winner is not None:
-        await achievements.add_count(scene, winner, "duels")  # never raises
+        finished, _winner = await boss.duel_fight(scene, participants)
     return bool(finished)
 
 
@@ -957,8 +950,6 @@ async def spawn_pvp_tournament(scene: "Scene") -> Any:
             if winner is None:
                 winner = random.choice([player_1, player_2])
                 await scene.send(MSG_TOURNAMENT_DRAW.format(mention=winner.mention))
-            else:
-                await achievements.add_count(scene, winner, "duels")  # a duel won by fighting; never raises
             next_round.append(winner)
             await scene.send(MSG_TOURNAMENT_DUEL_WINNER.format(mention=winner.mention))
 
@@ -969,8 +960,6 @@ async def spawn_pvp_tournament(scene: "Scene") -> Any:
     await _send_image(scene, "tournament", "1.gif")
     await scene.send(MSG_TOURNAMENT_WINNER.format(mention=tournament_winner.mention))
     log.info("PvP tournament won by %s (%s).", tournament_winner, tournament_winner.id)
-    if round_number > 1:  # (somebody who was the only one to sign up has not won a tournament)
-        await achievements.add_count(scene, tournament_winner, "tournaments")  # never raises
     return tournament_winner
 
 
@@ -989,25 +978,6 @@ def ritual_rarity(participants: int) -> int:
 def ritual_duration(bot: "AlterBot") -> float:
     """How long the ritual waits for players (seconds)."""
     return _wait(bot, RITUAL_WAIT)
-
-
-#: Achievement counting that runs on its own (kept here so the tasks are not collected mid-way).
-_counting: set[asyncio.Task] = set()
-
-
-def _count_later(scene: "Scene", players: Any, counter: str) -> None:
-    """Count an achievement deed of ``players`` without making the caller wait.
-
-    Quietly: a role earned here is given without a line on the channel - the
-    boss is standing there already and a fight may be starting.
-    """
-    async def count() -> None:
-        for player in list(players):
-            await achievements.add_count(scene, player, counter, announce=False)  # never raises
-
-    task = asyncio.ensure_future(count())
-    _counting.add(task)
-    task.add_done_callback(_counting.discard)
 
 
 async def spawn_ritual(scene: "Scene") -> tuple[bool, int, bool, Any]:
@@ -1060,5 +1030,4 @@ async def spawn_ritual(scene: "Scene") -> tuple[bool, int, bool, Any]:
         log.info("Ritual boss shown, but the scheduled boss is arriving (phase %s).", state.boss_phase.name)
         await scene.send(MSG_RITUAL_OVERTAKEN)
         return False, 0, False, None
-    _count_later(scene, users, "rituals")  # (in the background: the boss is handed over at once)
     return True, rarity, is_player_boss, player_boss

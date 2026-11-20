@@ -40,7 +40,7 @@ from ..core import challenge, guards, io, timing, ui
 from ..core.challenge import Outcome
 from ..core.state import BossPhase
 from ..settings import ASSETS_DIR
-from . import achievements, boss, daily, database, patrons
+from . import boss, daily, database
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -68,14 +68,6 @@ ROUND_TIME_BASE = 8
 _FLOOR_LOOT_RARITY: dict[int, int] = {1: 0, 2: 0, 3: 1, 4: 1, 5: 2, 6: 2, 7: 2, 8: 4, 9: 4, 10: 4}
 _FLOOR_LOOT_FALLBACK = 2
 
-#: Floor -> collector's achievement role for supporters (patrons, crafters, Twitch subscribers,
-#: YouTube supporters).
-_FLOOR_ROLES: dict[int, int] = {
-    3: achievements.TOWER_ROLES[0],
-    6: achievements.TOWER_ROLES[1],
-    10: achievements.TOWER_ROLES[2],
-}
-
 # -- texts ---------------------------------------------------------------------------
 
 TOWER_IMAGE = ("https://www.altermmo.pl/wp-content/uploads/alter0000_Huge_mystery_gloomy_tower_with_small_"
@@ -98,8 +90,14 @@ LOG_WEEKLY_RESET = "Zresetowano cooldown na weekly tower."
 MSG_TOWER_INTERRUPTED = ("Eksploracja Wieży Śmierci została przerwana z powodu problemów technicznych "
                          "<:Sadge:936907659142111273>")
 MSG_ATTEMPT_RETURNED = ("<@{user_id}>, z powodu problemów technicznych Twoja wyprawa do Wieży Śmierci się "
-                        "nie liczy - możesz spróbować ponownie w tym tygodniu! Zdobyte piętra i łupy "
-                        "zostają.")
+                        "nie liczy - możesz spróbować ponownie w tym tygodniu!")
+#: The run broke after floors were already rewarded: it counts (owner's rule of 2026-11-20 -
+#: what is done once is done once; a second run would hand out the loot of those floors again).
+MSG_RUN_CUT_SHORT = ("<@{user_id}>, z powodu problemów technicznych Twoja wyprawa do Wieży Śmierci kończy się "
+                     "po {floors}. piętrze. Zdobyte piętra i łupy zostają; administracja dostała znać.")
+LOG_RUN_CUT_SHORT = ("Wyprawa <@{user_id}> do Wieży Śmierci została przerwana z przyczyn technicznych po "
+                     "{floors}. piętrze. Próba NIE została zwrócona (łupy za zaliczone piętra są wydane - "
+                     "druga wyprawa wydałaby je ponownie). Jeśli chcesz, wynagrodź gracza ręcznie.")
 
 # Answers of ``$wieża`` (moved here from cogs/tower.py: the hub panel runs the same command).
 MSG_BOSS_COMING = ("Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, "
@@ -180,28 +178,17 @@ async def _store_record(bot: "AlterBot", player_id: int, level: int, record_time
         return True
 
 
-async def _grant_floor_role(scene: "Scene", player: Any, level: int) -> bool:
-    """Floors 3, 6 and 10 give supporters (see :mod:`patrons`) a collector's role."""
-    if int(level) not in _FLOOR_ROLES or not patrons.check_if_patron(player):
-        return False
-    # (Not for somebody who holds this or a higher tier: the old bot gave the lower roles
-    # back, floor by floor, every week.)
-    return bool(await achievements.grant(scene, player, f"tower_{int(level)}"))
-
-
 async def update_tower_level(scene: "Scene", player: Any, level: int, record_time: Any) -> bool:
-    """Store a cleared floor: the tower record and, for supporters, the achievement role.
+    """Store a cleared floor: the tower record.
 
-    ``record_time`` is the time the floor took (a ``timedelta``, or text in the
-    stored ``H:MM:SS.ffffff`` format).  Returns True, like the legacy function.
+    (The floor roles of the old bot were withdrawn on 2026-11-20, see
+    features/achievements.py.)  ``record_time`` is the time the floor took (a
+    ``timedelta``, or text in the stored ``H:MM:SS.ffffff`` format).  Returns
+    True, like the legacy function.
     """
     improved = await _store_record(scene.bot, player.id, level, record_time)
     log.info("Tower: %s (%s) cleared floor %s in %s (record %s).", player, player.id, level,
              _record_text(record_time), "updated" if improved else "kept")
-    await _grant_floor_role(scene, player, level)
-    taken = _as_timedelta(record_time)
-    if taken is not None:
-        await achievements.tower_sprint(scene, player, level, taken.total_seconds())
     return True
 
 
@@ -211,11 +198,9 @@ async def tower_image(scene: "Scene", level: int) -> None:
     """Show the picture and the announcement of a floor."""
     level = int(level)
     if level == 1:
-        description = ("Rozpoczynasz eksplorację Wieży Śmierci. Strzeż się!"
-                       "\n\n*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
+        description = "Rozpoczynasz eksplorację Wieży Śmierci. Strzeż się!"
     else:
-        description = ("Przechodzisz na kolejne piętro. Powodzenia!"
-                       "\n\n*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
+        description = "Przechodzisz na kolejne piętro. Powodzenia!"
     embed = discord.Embed(
         title=f"<:AlterUp:846344753124999169> {level} piętro Wieży Śmierci! <:Loot:912797849916436570>",
         description=description, color=0xF00511)
@@ -238,13 +223,16 @@ def floor_loot_rarity(level: int) -> int:
     return _FLOOR_LOOT_RARITY.get(int(level), _FLOOR_LOOT_FALLBACK)
 
 
-async def tower_fight(scene: "Scene", tower_level: int, player: Any = None) -> bool | None:
+async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
+                      progress: dict[str, Any] | None = None) -> bool | None:
     """One floor of the tower: ``player`` (default: ``scene.author``) types the words.
 
     Returns True when the floor was cleared, False when the player lost and
     None when the fight was interrupted by repeated connection problems (the
     player is told, nothing is lost).  Technical failures before the last word
     propagate; afterwards the floor is cleared whatever happens.
+    ``progress["rewarded"]`` is set the moment the floor is cleared, before
+    the first reward is handed out (see :func:`explore_tower`).
     """
     bot = scene.bot
     channel = scene.channel
@@ -297,12 +285,16 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None) -> b
             await scene.send(daily.MSG_TOO_SLOW_PROTECTED if timed_out else daily.MSG_MISTAKE_PROTECTED)
             continue
 
-        await scene.send(MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
+        # (Guarded: a lost floor stays lost when the message cannot be sent - it must not turn
+        # into "a technical problem" that gives the attempt back.)
+        await daily.say_lost(scene, MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
         log.info("Tower: %s lost on floor %s (%s) in turn %s.", hunter, tower_level,
                  "timeout" if timed_out else "mistake", turn)
         return False
 
     # -- the floor is cleared: from here on nothing may turn it into a failure --
+    if progress is not None:
+        progress["rewarded"] = True
     fight_time = timedelta(seconds=time.monotonic() - started)
     context = "po zaliczonym piętrze Wieży Śmierci"
     await daily.guarded(bot, "ogłoszenie zwycięstwa",
@@ -314,11 +306,6 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None) -> b
                         context=context)
     await daily.guarded(bot, f"rekord wieży <@{hunter.id}> (piętro {tower_level})",
                         _store_record(bot, hunter.id, tower_level, fight_time), context=context)
-    await daily.guarded(bot, f"osiągnięcie wieży <@{hunter.id}> (piętro {tower_level})",
-                        _grant_floor_role(scene, hunter, tower_level), context=context)
-    await daily.guarded(bot, f"osiągnięcie za szybkie piętro {tower_level} wieży <@{hunter.id}>",
-                        achievements.tower_sprint(scene, hunter, tower_level, fight_time.total_seconds()),
-                        context=context)
     return True
 
 
@@ -331,12 +318,31 @@ async def _give_back_attempt(scene: "Scene", player: Any) -> None:
     await io.send_patient(scene.channel, MSG_ATTEMPT_RETURNED.format(user_id=player.id), give_up_after=60)
 
 
+async def _end_broken_run(scene: "Scene", player: Any, cleared: int, rewarded: bool) -> None:
+    """A run ended by a technical problem (never raises).
+
+    Before any floor was rewarded the attempt is given back.  Afterwards it is
+    not: the loot of the cleared floors is out, and a second run in the same
+    week would hand it out again.  The player and the owner are told.
+    """
+    if not rewarded:
+        await _give_back_attempt(scene, player)
+        return
+    floors = max(int(cleared), 1)
+    log.warning("Tower run of %s (%s) cut short after rewarded floors (%s cleared); the attempt is NOT "
+                "given back.", player, player.id, cleared)
+    await io.send_patient(scene.channel, MSG_RUN_CUT_SHORT.format(user_id=player.id, floors=floors),
+                          give_up_after=60)
+    await scene.bot.log_to_owner(LOG_RUN_CUT_SHORT.format(user_id=player.id, floors=floors), ping=True)
+
+
 async def explore_tower(scene: "Scene") -> int:
     """The whole ``$wieża`` run of ``scene.author``; returns the number of floors cleared.
 
     The caller has already checked the cooldown and holds the busy flag.  The
-    weekly cooldown is stored before the first floor (as in the legacy bot);
-    when the run ends because of a technical problem the attempt is given back.
+    weekly cooldown is stored before the first floor (as in the legacy bot).
+    When the run ends because of a technical problem the attempt is given back
+    - but only while no floor has been rewarded yet (:func:`_end_broken_run`).
     """
     bot = scene.bot
     player = scene.author
@@ -344,24 +350,31 @@ async def explore_tower(scene: "Scene") -> int:
         raise ValueError("explore_tower needs a scene with an author")
     save_weekly_tower_to_file(bot, player.id)
     cleared = 0
+    progress: dict[str, Any] = {"rewarded": False}
     try:
         for level in range(1, TOWER_FLOORS + 1):
             await tower_image(scene, level)
-            result = await tower_fight(scene, level, player)
+            result = await tower_fight(scene, level, player, progress=progress)
             if result is None:
-                await _give_back_attempt(scene, player)
+                await _end_broken_run(scene, player, cleared, progress["rewarded"])
                 return cleared
             if not result:
                 break
             cleared = level
     except asyncio.CancelledError:
-        daily.release_cooldown(bot.store.weekly_tower_cd, player.id)  # e.g. the bot is shutting down
+        if progress["rewarded"]:
+            log.warning("Tower run of %s (%s) cancelled after rewarded floors (%s cleared); the attempt "
+                        "is kept.", player, player.id, cleared)
+        else:
+            daily.release_cooldown(bot.store.weekly_tower_cd, player.id)  # e.g. the bot is shutting down
         raise
     except Exception:
-        log.exception("Tower run of %s (%s) failed on floor %s; giving the attempt back.",
-                      player, player.id, cleared + 1)
-        await _give_back_attempt(scene, player)
-        raise
+        log.exception("Tower run of %s (%s) failed on floor %s.", player, player.id, cleared + 1)
+        await _end_broken_run(scene, player, cleared, progress["rewarded"])
+        if not progress["rewarded"]:
+            raise
+        # (Not re-raised: the player was told the run counts - "try again" would contradict it.)
+        return cleared
     log.info("Tower: %s (%s) finished the run with %s floors cleared.", player, player.id, cleared)
     return cleared
 

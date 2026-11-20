@@ -158,6 +158,11 @@ LOG_DAILY_RESET = "Zresetowano cooldown na daily."
 # New in v2 (the legacy bot had no notion of a hunt broken by technical problems).
 MSG_HUNT_INTERRUPTED = ("Polowanie zostało przerwane z powodu problemów technicznych "
                         "<:Sadge:936907659142111273> Nikt nie ponosi konsekwencji.")
+#: The hunt broke after it was decided: it counts (what is done once is done once).
+MSG_HUNT_CUT_SHORT = ("<@{user_id}>, przy rozliczaniu polowania wystąpił problem techniczny. Polowanie się "
+                      "liczy; administracja dostała znać i sprawdzi nagrody.")
+LOG_HUNT_CUT_SHORT = ("Polowanie <@{user_id}> zostało przerwane błędem (`{error}`) już po rozstrzygnięciu. "
+                      "Próba NIE została zwrócona - sprawdź w logu, czy nagród nie trzeba przyznać ręcznie.")
 MSG_ATTEMPT_RETURNED = ("<@{user_id}>, z powodu problemów technicznych Twoje dzisiejsze polowanie się nie "
                         "liczy - możesz zapolować ponownie!")
 
@@ -221,6 +226,19 @@ def fight_time_message(fight_time: timedelta, hp: int) -> str:
     turn_time = fight_time / max(int(hp), 1)
     return (f"Zabicie potwora zajęło: {round(fight_time.total_seconds(), 2):.2f} sekundy! "
             f"Jedna tura zajęła średnio {round(turn_time.total_seconds(), 2):.2f} sekundy!")
+
+
+async def say_lost(scene: "Scene", text: str) -> None:
+    """Tell the channel a fight is lost; a message that cannot be sent changes nothing.
+
+    (Only logged: the owner has no reward to hand out by hand after a lost fight.)
+    """
+    try:
+        await scene.send(text)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - the fight stays lost
+        log.exception("Could not announce the lost fight.")
 
 
 async def guarded(bot: "AlterBot", what: str, awaitable: Awaitable[Any], default: Any = None,
@@ -724,11 +742,12 @@ async def _settle_lost_hunt(scene: "Scene", hunters: Sequence[Any], rarity: int,
                           context="po przegranym polowaniu")
     if ban_losers:
         for hunter in hunters:
-            await boss.set_dead_hunters(bot, hunter)
+            await guarded(bot, f"rola martwego łowcy <@{hunter.id}>", boss.set_dead_hunters(bot, hunter),
+                          context="po przegranym polowaniu")
 
 
 async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_boss: Any,
-                    player: Any = None) -> bool | None:
+                    player: Any = None, *, progress: dict[str, Any] | None = None) -> bool | None:
     """Fight the monster shown by :func:`send_mob_image`.
 
     ``player`` (default: ``scene.author``) starts the hunt; up to two more
@@ -803,12 +822,17 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
             await scene.send(MSG_TOO_SLOW_PROTECTED if timed_out else MSG_MISTAKE_PROTECTED)
             continue
 
-        await scene.send(MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
+        # The hunt is lost - decided: from here on nothing gives the attempt back.
+        if progress is not None:
+            progress["decided"] = True
+        await say_lost(scene, MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
         log.info("Hunt lost by %s (%s) in turn %s.", hunter, "timeout" if timed_out else "mistake", turn)
         await _settle_lost_hunt(scene, hunters, rarity, mods["ban_loser"] > 0, is_player_boss, player_boss)
         return False
 
     # -- the monster is dead: from here on nothing may turn the victory into a failure --
+    if progress is not None:
+        progress["decided"] = True
     fight_time = timedelta(seconds=time.monotonic() - started)
     log.info("Hunt won by %s in %.2f s.", [str(hunter) for hunter in hunters], fight_time.total_seconds())
     await guarded(bot, "ogłoszenie zwycięstwa", scene.send(MSG_WON.format(mentions=mentions)))
@@ -818,10 +842,7 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
     for hunter in hunters:
         await guarded(bot, f"punkty rankingowe <@{hunter.id}>",
                       database.update_ranking_table(bot, hunter.id, rarity, 0))
-        await guarded(bot, f"osiągnięcie za polowania <@{hunter.id}>", achievements.add_hunts(scene, hunter))
-        if rarity == 2:
-            await guarded(bot, f"osiągnięcie za unikalnego potwora <@{hunter.id}>",
-                          achievements.unicorn(scene, hunter))
+        await guarded(bot, f"licznik polowań <@{hunter.id}>", achievements.add_hunts(scene, hunter))
         drop_boost = mods["drop_boost_perc"] + pets[hunter.id]["DROP_PERC"] + party_boost
         await guarded(bot, f"łup <@{hunter.id}>", rand_loot(scene, rarity, hunter, drop_boost))
     return True
@@ -851,7 +872,10 @@ async def daily_hunt(scene: "Scene") -> bool | None:
 
     The caller has already checked the cooldown and holds the busy flag.  The
     cooldown is stored before the monster appears (as in the legacy bot); when
-    the hunt ends because of a technical problem the attempt is given back.
+    the hunt ends because of a technical problem the attempt is given back -
+    but only while the hunt is undecided: once the monster is dead (the
+    rewards are being handed out) or the hunters have lost, the hunt counts,
+    whatever happens next (a monster is fought once).
     Returns what :func:`hunt_mobs` returned.
     """
     bot = scene.bot
@@ -859,17 +883,31 @@ async def daily_hunt(scene: "Scene") -> bool | None:
     if player is None:
         raise ValueError("daily_hunt needs a scene with an author")
     save_daily_to_file(bot, player.id)
+    progress: dict[str, Any] = {"decided": False}
     try:
         rarity = roll_hunt_rarity()
         is_player_boss, boss_player = await send_mob_image(scene, rarity)
-        result = await hunt_mobs(scene, rarity, is_player_boss, boss_player)
+        result = await hunt_mobs(scene, rarity, is_player_boss, boss_player, progress=progress)
     except asyncio.CancelledError:
-        release_cooldown(bot.store.daily_cd, player.id)  # e.g. the bot is shutting down mid-hunt
+        if progress["decided"]:
+            log.warning("Daily hunt of %s (%s) cancelled after it was decided; the attempt is kept.",
+                        player, player.id)
+        else:
+            release_cooldown(bot.store.daily_cd, player.id)  # e.g. the bot is shutting down mid-hunt
         raise
-    except Exception:
-        log.exception("Daily hunt of %s (%s) failed; giving the attempt back.", player, player.id)
-        await _give_back_attempt(scene, player)
-        raise
+    except Exception as exc:
+        if not progress["decided"]:
+            log.exception("Daily hunt of %s (%s) failed; giving the attempt back.", player, player.id)
+            await _give_back_attempt(scene, player)
+            raise
+        # Decided already: the hunt counts.  Not re-raised - "something went wrong, try again"
+        # would be the wrong thing to tell the player.
+        log.exception("Daily hunt of %s (%s) failed after it was decided; the attempt is NOT given back.",
+                      player, player.id)
+        await io.send_patient(scene.channel, MSG_HUNT_CUT_SHORT.format(user_id=player.id), give_up_after=60)
+        await bot.log_to_owner(LOG_HUNT_CUT_SHORT.format(user_id=player.id, error=type(exc).__name__),
+                               ping=True)
+        return False
     if result is None:
         await _give_back_attempt(scene, player)
     return result

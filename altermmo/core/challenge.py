@@ -29,7 +29,7 @@ import enum
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Sequence
 
 import discord
 
@@ -290,21 +290,35 @@ async def notify_disrupted(channel: discord.abc.Messageable) -> None:
     await io.send_patient(channel, MSG_DISRUPTED, give_up_after=120)
 
 
-async def countdown(channel: discord.abc.Messageable, *, pause: float = 1.0) -> None:
-    """The classic "Uwaga!!! 3... / ... 2... / ... 1..." before a fight starts.
+async def count_in_line(channel: discord.abc.Messageable, steps: Sequence[tuple[str, float]]) -> Any:
+    """Count down in ONE line: a single message that grows by a step, then waits that step's pause.
 
-    One message that is edited in place: three separate messages used to eat
-    most of Discord's 5-messages-per-5-seconds channel budget right before the
-    first fight prompts, which then stalled for seconds.
+    ``steps``: ``(text, seconds)`` pairs, e.g. ``("Uwaga!!! 3...", 1), ("2...", 1), ("1...", 1)``
+    shows "Uwaga!!! 3...", then "Uwaga!!! 3... 2...", then "Uwaga!!! 3... 2... 1...".
+    Owner's rule: every countdown of the game looks like this.  (Separate
+    messages also ate Discord's 5-messages-per-5-seconds channel budget right
+    before the first fight prompts, which then stalled for seconds.)
+    Returns the message.  Sending the first step may raise, like :func:`io.send`;
+    a step that cannot be added is skipped - the count goes on.
     """
+    message: Any = None
+    line = ""
+    for text, seconds in steps:
+        line = f"{line} {text}" if line else text
+        if message is None:
+            message = await io.send(channel, line)
+        else:
+            try:
+                await message.edit(content=line)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - cosmetic; the count goes on
+                log.debug("Could not edit the countdown message.", exc_info=True)
+        await _pause(seconds)
+    return message
+
+
+async def countdown(channel: discord.abc.Messageable, *, pause: float = 1.0) -> None:
+    """The classic "Uwaga!!! 3... 2... 1..." before a fight starts (one line, see :func:`count_in_line`)."""
     _mark_fight(channel)  # from here on nothing else is posted on the channel (see fight_on)
-    message = await io.send(channel, "Uwaga!!! 3...")
-    for text in ("Uwaga!!! 3... 2...", "Uwaga!!! 3... 2... 1..."):
-        await _pause(pause)
-        try:
-            await message.edit(content=text)
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001 - cosmetic; the fight goes on
-            log.debug("Could not edit the countdown message.", exc_info=True)
-    await _pause(pause)
+    await count_in_line(channel, (("Uwaga!!! 3...", pause), ("2...", pause), ("1...", pause)))

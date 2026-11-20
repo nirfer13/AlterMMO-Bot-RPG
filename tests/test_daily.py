@@ -389,10 +389,12 @@ async def test_party_hunt_won(game_db, monkeypatch):
     bot = game_db.bot
     bot.debug = False
     monkeypatch.setattr(daily, "JOIN_TIME", 0.3)
-    unicorn = game_db.guild.add_role(achievements.UNICORN_ROLE, "Jednorożec")
+    for role_id, name in achievements.RETIRED_ROLES.items():       # (still on a server that was not tidied)
+        game_db.guild.add_role(role_id, name)
     ala = game_db.add_member("Ala")
     ola = game_db.add_member("Ola")
     ela = game_db.add_member("Ela", roles=[patrons.CRAFTER_ROLE])
+    roles_before = {hunter.id: list(hunter.roles) for hunter in (ala, ola, ela)}
     outsider = game_db.add_member("Obcy")
     await modifiers.modify_modifiers(bot, "drop_boost_perc", 5)
     monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 4)
@@ -430,9 +432,9 @@ async def test_party_hunt_won(game_db, monkeypatch):
         assert boosts[hunter.id] == (2, 25.0)          # 5 % from the shrine + 10 % per extra hunter
         assert channel.contains(f"Drop - {hunter.name}")
     assert await bot.db.fetchval("SELECT count(*) FROM RANKING") == 3
-    # The unique monster: only the crafter gets the collector's role.
-    assert unicorn in ela.roles and unicorn not in ala.roles and unicorn not in ola.roles
-    assert channel.contains(f"<@{ela.id}> zdobywa osiągnięcie: Jednorożec!")
+    # The unique monster gives no collector's role any more (withdrawn on 2026-11-20), not even to a supporter.
+    assert {hunter.id: list(hunter.roles) for hunter in (ala, ola, ela)} == roles_before
+    assert not channel.contains("zdobywa osiągnięcie")
 
 
 async def test_debug_mode_lets_one_tester_fill_the_party(game_db, monkeypatch):

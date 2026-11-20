@@ -221,17 +221,21 @@ async def test_supporters_egg_is_stored_with_its_cosmetics(game_db, monkeypatch)
     assert len(asked) == 2
 
 
-@pytest.mark.parametrize("seal_roll, holo_roll, stored, told, achieved", [
-    (1, 500, (3, False), "pieczęć Arcyłowcy", ["Pieczęć Arcyłowcy"]),
-    (500, 0, (0, True), "folię Holo", ["Folia Holo"]),
-    (0, 0, (3, True), "pieczęć Arcyłowcy i folię Holo", ["Folia Holo", "Pieczęć Arcyłowcy"])])
+@pytest.mark.parametrize("seal_roll, holo_roll, mythic, stored, told, achieved", [
+    (1, 500, False, (3, False), "pieczęć Arcyłowcy", []),
+    (500, 0, False, (0, True), "folię Holo", []),
+    (0, 0, False, (3, True), "pieczęć Arcyłowcy i folię Holo", []),
+    (1, 500, True, (3, False), "pieczęć Arcyłowcy", ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy"]),
+    (500, 0, True, (0, True), "folię Holo", ["Mityczny towarzysz", "Mityczny Holo"]),
+    (0, 0, True, (3, True), "pieczęć Arcyłowcy i folię Holo",
+     ["Mityczny towarzysz", "Mityczny Holo", "Mityczna Pieczęć Arcyłowcy"])])
 async def test_owner_hears_about_rare_cosmetics_and_nobody_else(game_db, monkeypatch, caplog, seal_roll,
-                                                                holo_roll, stored, told, achieved):
+                                                                holo_roll, mythic, stored, told, achieved):
     db, bot = game_db.bot.db, game_db.bot
-    await achievements.ensure_roles(bot)                   # as after a start: the new achievement roles exist
+    await achievements.ensure_roles(bot)                   # as after a start: the achievement roles exist
     bot.owner_log.clear()
     game_db.log_channel.messages.clear()
-    rig(monkeypatch, randint=0)
+    rig(monkeypatch, randint=lambda low, high: 1000 if mythic and high == 1000 else 0)
     dice(monkeypatch, seal_roll, holo_roll)
     lucky = crafter(game_db)
     with caplog.at_level(logging.INFO, logger="altermmo.features.pets"):
@@ -240,9 +244,13 @@ async def test_owner_hears_about_rare_cosmetics_and_nobody_else(game_db, monkeyp
     assert bot.owner_log == [f"Rzadka kosmetyka towarzysza: jajko gracza <@{lucky.id}> (PET_ID 1) ma {told}."]
     assert game_db.log_channel.messages[-1].content == bot.owner_log[0]        # in the log channel, no ping
     assert f"<@{bot.ids.owner}>" not in game_db.log_channel.messages[-1].content
-    # The notice itself is never public.  What a supporter's egg stands for is an achievement
-    # (since 2026-11-20), announced as every achievement is - and nothing else is posted.
-    assert [message.content for message in game_db.channel.bot_messages[1:]] == [
+    # The notice itself is never public.  Since the evening of 2026-11-20 only a MYTHIC egg is an
+    # achievement (with Holo / the rarest seal one more each), announced after the mythic egg itself;
+    # a Holo or a seal on any other egg is no achievement - and nothing else is posted.
+    public = [message.content for message in game_db.channel.bot_messages[1:]]
+    mythic_news = [text for text in public if "zdobył mitycznego towarzysza" in text]
+    assert len(mythic_news) == int(mythic)
+    assert [text for text in public if text not in mythic_news] == [
         f"<@{lucky.id}> zdobywa osiągnięcie: {name}!" for name in achieved]
     assert all(told not in message.text for message in game_db.channel.sent)
     assert any("rare cosmetics" in record.message for record in caplog.records)

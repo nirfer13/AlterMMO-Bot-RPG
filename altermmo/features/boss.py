@@ -401,6 +401,28 @@ def _roll(chance_percent: float) -> bool:
     return random.random() * 100 < chance_percent
 
 
+async def _decided(bot: "AlterBot", result: "fight_types.FightResult") -> None:
+    """The fight is decided: the boss life-cycle remembers it before anything else happens.
+
+    A boss is fought once.  After this call an error, the time limit of the
+    encounter or a restart of the bot can no longer bring this boss back
+    (:meth:`BossCycle.mark_decided`).  Never raises.
+    """
+    cycle = getattr(bot, "boss_cycle", None)
+    if cycle is not None:
+        await cycle.mark_decided(result)
+
+
+async def _say_lost(scene: "Scene", text: str) -> None:
+    """Tell the channel the fight is lost; a message that cannot be sent changes nothing."""
+    try:
+        await scene.send(text)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - the fight stays lost (it used to become "interrupted": a second go)
+        log.exception("Could not announce the lost boss fight.")
+
+
 async def _guarded(bot: "AlterBot", what: str, awaitable: Awaitable[Any], default: Any = None) -> Any:
     """Await one piece of bookkeeping after a won fight.
 
@@ -918,26 +940,25 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
             await scene.send(MSG_TOO_SLOW_PROTECTED if timed_out else MSG_MISTAKE_PROTECTED)
             continue
 
+        lost = fight_types.FightResult(won=False, losers_to_ban=banned)
+        await _decided(bot, lost)
         if timed_out:
-            await scene.send(MSG_TOO_SLOW_LOST)
+            await _say_lost(scene, MSG_TOO_SLOW_LOST)
             line = hunter.name + " nie zdążył wpisać komend i boss uciekł."
         else:
-            await scene.send(MSG_MISTAKE_LOST)
+            await _say_lost(scene, MSG_MISTAKE_LOST)
             line = hunter.name + " pomylił się i nie zabił bossa."
         await _report_lost_fight(bot, line, [hunter], rarity, is_player_boss, player_boss)
         log.info("Single boss fight lost by %s (%s) in turn %s.", hunter, "timeout" if timed_out else "mistake", turn)
-        return fight_types.FightResult(won=False, losers_to_ban=banned)
+        return lost
 
     # -- the boss is dead: from here on nothing may turn the victory into a failure --
-    fight_time = timedelta(seconds=time.monotonic() - started)
+    fight_time = timedelta(seconds=time.monotonic() - started)  # (measured before anything is awaited)
     turn_time = fight_time / boss_hp
+    await _decided(bot, fight_types.FightResult(won=True))
     log.info("Single boss fight won by %s (%s) in %.2f s.", hunter, hunter.id, fight_time.total_seconds())
 
     await _guarded(bot, "ogłoszenie zwycięstwa", scene.send(MSG_SINGLE_WON.format(user_id=hunter.id)))
-    if int(turn_time.total_seconds()) < 2:
-        # (Under 2 s, under 1 s, under 0.75 s per turn: the best tier reached, see achievements.QUICK_LIMITS.)
-        await _guarded(bot, "osiągnięcie za szybkość",
-                       achievements.quickness(scene, hunter, turn_time.total_seconds()))
     await _guarded(bot, "czas walki", scene.send(
         f"Zabicie bossa zajęło Ci: {round(fight_time.total_seconds(), 2):.2f} sekundy! "
         f"Jedna tura zajęła Ci średnio {round(turn_time.total_seconds(), 2):.2f} sekundy!"))
@@ -951,7 +972,7 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
     await bot.log_to_owner(hunter.name + " otrzymał: \n" + drop, ping=True)
     if rarity == 4 and patrons.check_if_patron(hunter):
         await _guarded(bot, "rola pogromcy mitycznego bossa", set_mythic_slayer(scene, hunter.id))
-    await _guarded(bot, "osiągnięcie za zabicie bossa", achievements.add_boss_kill(scene, hunter))
+    await _guarded(bot, "licznik zabitych bossów", achievements.add_boss_kill(scene, hunter))
     return fight_types.FightResult(won=True)
 
 
@@ -1451,15 +1472,18 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
             chances -= 1  # the party's spare chance is used up silently
             continue
 
-        await scene.send(MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
+        lost = fight_types.FightResult(won=False, losers_to_ban=banned)
+        await _decided(bot, lost)
+        await _say_lost(scene, MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
         await _report_lost_fight(bot, party + " pomyliło się i nie zabili bossa.", players, rarity,
                                  is_player_boss, player_boss)
         log.info("Group boss fight lost by %s in turn %s.", party, turn)
-        return fight_types.FightResult(won=False, losers_to_ban=banned)
+        return lost
 
     # -- the boss is dead: from here on nothing may turn the victory into a failure --
-    fight_time = timedelta(seconds=time.monotonic() - started)
+    fight_time = timedelta(seconds=time.monotonic() - started)  # (measured before anything is awaited)
     turn_time = fight_time / boss_hp
+    await _decided(bot, fight_types.FightResult(won=True))
     log.info("Group boss fight won by %s in %.2f s.", party, fight_time.total_seconds())
 
     await _guarded(bot, "ogłoszenie zwycięstwa", scene.send(MSG_GROUP_WON.format(mentions=mentions)))
@@ -1471,7 +1495,6 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
     for hunter in players:
         await _guarded(bot, f"punkty rankingowe gracza {hunter}",
                        database.update_ranking_table(bot, hunter.id, rarity, mods["points_boost"]))
-        await _guarded(bot, f"osiągnięcie gracza {hunter}", achievements.legend(scene, hunter))
         drop = await _guarded(bot, f"łup gracza {hunter}", rand_loot(
             scene, rarity, hunter, mods["drop_boost_perc"] + pets[hunter.id]["DROP_PERC"]), default="")
         await bot.log_to_owner(str(hunter) + " otrzymał: " + drop, ping=True)

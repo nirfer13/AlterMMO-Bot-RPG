@@ -15,7 +15,7 @@ from altermmo import schema
 from altermmo.cogs import events as events_cog
 from altermmo.core import clock, guards, timing
 from altermmo.core.state import BossPhase, EventType
-from altermmo.features import bossdetect, daily, events, pets, skills, xpsteal
+from altermmo.features import achievements, bossdetect, daily, events, pets, skills, xpsteal
 
 from fakes import FakeInteraction, FakeMessage
 
@@ -513,22 +513,35 @@ async def test_admin_can_hand_out_gems(game_db, skills_cog):
 
 
 async def test_new_table_is_created_at_start_up_and_then_verified(db):
-    # The old bot's database: neither the gem pouch nor the achievement counters (both new in v2).
+    # The old bot's database: no gem pouch (new in v2).
     await db.execute("DROP TABLE SKILLPOUCH", idempotent=True)
     await db.execute("DROP TABLE IF EXISTS ACHIEVEMENT_COUNTERS", idempotent=True)
     problems = await schema.verify(db)
-    assert "brak tabeli skillpouch" in problems and "brak tabeli achievement_counters" in problems
-    assert await schema.create_new_tables(db) == 2
+    assert "brak tabeli skillpouch" in problems
+    # The achievement counters (made and withdrawn on 2026-11-20) are no table of the bot any more.
+    assert not any("achievement_counters" in problem for problem in problems)
+    assert await schema.create_new_tables(db) == 1
     await db.execute("INSERT INTO SKILLPOUCH (PLAYER_ID, SKILL_ID) VALUES (1, 2)")
-    await db.execute("INSERT INTO ACHIEVEMENT_COUNTERS (PLAYER_ID, NAME, VALUE) VALUES (1, 'duels', 3)")
-    assert await schema.create_new_tables(db) == 2                 # again: nothing breaks, nothing is lost
+    assert await schema.create_new_tables(db) == 1                 # again: nothing breaks, nothing is lost
     assert await db.fetchval("SELECT COUNT(*) FROM SKILLPOUCH") == 1
-    assert await db.fetchval("SELECT VALUE FROM ACHIEVEMENT_COUNTERS WHERE PLAYER_ID = 1") == 3
+    assert await db.fetchval("SELECT to_regclass('achievement_counters')") is None   # not made again
     assert await schema.verify(db) == []
     rows = await db.fetch(
         """SELECT column_name, data_type FROM information_schema.columns
            WHERE table_schema = 'public' AND table_name = 'skillpouch' ORDER BY ordinal_position""")
     assert [tuple(row) for row in rows] == [("player_id", "numeric"), ("skill_id", "numeric")]
+
+
+async def test_withdrawn_counters_table_is_left_alone(db):
+    """The table made on the morning of 2026-11-20 stays as it is: the bot never drops anything."""
+    await db.execute("""CREATE TABLE IF NOT EXISTS ACHIEVEMENT_COUNTERS (
+                            PLAYER_ID NUMERIC, NAME VARCHAR(32), VALUE NUMERIC, PRIMARY KEY (PLAYER_ID, NAME))""",
+                     idempotent=True)
+    await db.execute("INSERT INTO ACHIEVEMENT_COUNTERS (PLAYER_ID, NAME, VALUE) VALUES (1, 'duels', 3)")
+    await schema.create_new_tables(db)
+    await achievements.create_database(SimpleNamespace(db=db))     # (the legacy table only)
+    assert await schema.verify(db) == []
+    assert await db.fetchval("SELECT VALUE FROM ACHIEVEMENT_COUNTERS WHERE PLAYER_ID = 1") == 3
 
 
 # ===================================== review fixes ===============================================

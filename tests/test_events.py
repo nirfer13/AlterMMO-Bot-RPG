@@ -367,6 +367,31 @@ async def test_memory_solved(game, loot, monkeypatch):
     assert no_listeners(game) and no_live_buttons(game)
 
 
+async def test_memory_counts_down_in_one_line_and_then_hides_the_runes(game, loot, monkeypatch):
+    """Owner: every countdown is one line - "... 20... 10... 5..." in one edited message, not three."""
+    first_choice(monkeypatch)
+    ala = game.add_member("Ala")
+    join_on(game, "Mędrzec potrzebuje pomocy!", ala)
+    clicks_on(game, "Zaczynam przygotowywać zaklęcie", *[(ala, key) for key in rune_keys(*CHOSEN)])
+    seen: list[tuple[float, list[str], bool]] = []
+
+    async def pause(seconds):
+        shown = next(m for m in game.channel.sent if "Zapamiętaj je!" in m.content)
+        count = [m.content for m in game.channel.sent if m.content.startswith("...")]
+        seen.append((seconds, count, shown.deleted))
+
+    monkeypatch.setattr(challenge, "_pause", pause)
+    assert await events.spawn_memory(game.scene()) is True
+    assert seen == [(10, ["... 20..."], False),
+                    (5, ["... 20... 10..."], False),
+                    (5, ["... 20... 10... 5..."], False)]          # the runes stay up for the whole count
+    count = [m for m in game.channel.sent if m.content.startswith("...")]
+    assert [m.content for m in count] == ["... 20... 10... 5..."] and len(count[0].edits) == 2
+    shown = next(m for m in game.channel.sent if "Zapamiętaj je!" in m.content)
+    assert shown.deleted and all(emote in shown.content for emote in CHOSEN)
+    assert game.channel.contains("Zaklęcie gotowe!") and [call[1] for call in loot] == [ala]
+
+
 async def test_memory_wrong_emote(game, loot, monkeypatch):
     first_choice(monkeypatch)
     ala = game.add_member("Ala")

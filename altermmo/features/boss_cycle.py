@@ -87,6 +87,10 @@ MSG_RIVAL_WELCOME = ("Ktoś zaatakował bossa ułamek sekundy przed Tobą. Za mo
 ATTACK_BUTTON_ID = ui.PREFIX + "boss:attack"
 ATTACK_LABEL = "Zaatakuj"
 ATTACK_EMOJI = "⚔️"
+#: For the owner: a fight broke after it was decided (see ``BossCycle.mark_decided``).
+MSG_DECIDED_FIGHT_BROKE = ("Walka z bossem była już rozstrzygnięta, ale przerwał ją błąd przy ogłaszaniu wyniku "
+                           "albo wydawaniu nagród (`{error}`). Boss NIE wraca (z jednym bossem walczy się raz) - "
+                           "sprawdź w logu, czy nagród nie trzeba przyznać ręcznie.")
 MSG_FIGHT_INTERRUPTED_GONE = ("Wystąpił problem techniczny i walka została przerwana "
                               "<:Sadge:936907659142111273> Boss pojawi się później!")
 MSG_BOSS_LEFT = ("Nikt nie odważył się stanąć do walki... Potwór odchodzi znudzony. "
@@ -103,6 +107,12 @@ _KEY_QUIET_UNTIL = "boss_quiet_until"
 #: Rarity of a summoned (ritual / skill gem) boss that is on the channel; kept
 #: so that a restart of the bot does not make that boss vanish.
 _KEY_SUMMONED = "summoned_boss_rarity"
+#: ``runtime.json``: a fight was decided and its post-fight reset has not run yet -
+#: ``{"losers": [ids to ban]}``; see ``BossCycle.mark_decided`` and ``_finish_after_restart``.
+_KEY_PENDING_RESET = "boss_reset_pending"
+#: The write that makes a decided fight restart-safe may take this long (seconds): the result
+#: is announced right after it, and ``finish`` writes the same row again anyway.
+DECIDED_WRITE_TIMEOUT = 2.0
 #: Where the "a monster appeared" notice on the general chat is (``{"channel", "message"}``),
 #: so that it can be taken away when the boss is gone - also after a restart of the bot.
 _KEY_SPAWN_NOTICE = "boss_spawn_notice"
@@ -244,6 +254,11 @@ class BossCycle:
         #: Counts the encounters (claims of the boss by :meth:`attack`) and the bosses that
         #: are gone, so that a late notice about an interrupted fight can tell it is out of date.
         self._encounters = 0
+        #: ``(encounter, result)`` once the running fight is decided, see :meth:`mark_decided`.
+        self._decided: tuple[int, FightResult] | None = None
+        #: The encounter whose fight :meth:`attack` is running now (None: none), and its task.
+        self._active_encounter: int | None = None
+        self._fight_task: asyncio.Task | None = None
 
     @property
     def lobby_door(self) -> Callable[[Any], Awaitable[None]] | None:
@@ -372,6 +387,9 @@ class BossCycle:
             # Once per start of the process - not when the loop is merely restarted.
             self._tidied = True
             await self.tidy_after_start()
+            if bot.state.boss_phase < BossPhase.VISIBLE:
+                # A reset owed by a fight decided before the restart (also with spawning switched off).
+                await self._finish_after_restart()
         if not self.enabled:
             log.info("Boss spawning is switched off ($startSpawnBoss enables it).")
             await asyncio.Event().wait()
@@ -507,6 +525,9 @@ class BossCycle:
     async def _restore(self) -> None:
         """After a (re)start: continue the persisted schedule or begin a new one."""
         bot = self.bot
+        if bot.state.boss_phase < BossPhase.VISIBLE:
+            # (Normally done by run() already; here for a reset that failed then - the marker says so.)
+            await self._finish_after_restart()
         row = await self._database.read_boss_table(bot)
         if bot.state.boss_phase >= BossPhase.VISIBLE:
             # Spawning was switched on while a summoned boss is on the channel (or
@@ -875,6 +896,9 @@ class BossCycle:
             return
         self._encounters += 1
         encounter = self._encounters
+        self._decided = None
+        self._active_encounter = encounter
+        self._fight_task = asyncio.current_task()
         self._lobby_opening = encounter
         self._claimer_id = getattr(scene.author, "id", None)
         self._engaged_buttons, self._attack_buttons = self._attack_buttons, []
@@ -889,7 +913,8 @@ class BossCycle:
                                                 timeout=bot.settings.boss_fight_time_limit)
                 await asyncio.wait({claimed})
             except asyncio.CancelledError:
-                await self._interrupted(scene, "cancelled", claimed=claimed)
+                if self._decided_result(encounter) is None:  # (a decided boss never comes back)
+                    await self._interrupted(scene, "cancelled", claimed=claimed)
                 raise
             except Exception as exc:  # noqa: BLE001 - whatever happened, leave a defined state
                 if isinstance(exc, (FightInterrupted, asyncio.TimeoutError)):
@@ -897,8 +922,15 @@ class BossCycle:
                 else:
                     log.exception("Boss fight crashed.")
                 await asyncio.wait({claimed})  # the old buttons are off before the boss is attackable again
-                await self._interrupted(scene, f"{type(exc).__name__}: {exc}", claimed=claimed)
-                return
+                decided = self._decided_result(encounter)
+                if decided is None:
+                    await self._interrupted(scene, f"{type(exc).__name__}: {exc}", claimed=claimed)
+                    return
+                # The fight was decided and broke afterwards (while the result was being told or
+                # the rewards handed out): the boss is gone all the same - it is fought once.
+                await bot.log_to_owner(MSG_DECIDED_FIGHT_BROKE.format(error=f"{type(exc).__name__}: {exc}"),
+                                       ping=True)
+                result = decided
         finally:
             if self._lobby_opening == encounter:
                 self._lobby_opening = None
@@ -925,6 +957,90 @@ class BossCycle:
             return FightResult(won=False)
         await state.set_boss_phase(BossPhase.FIGHTING)
         return await boss.single_fight(scene, hunter, info.rarity, info.is_player_boss, info.player_boss)
+
+    async def mark_decided(self, result: FightResult) -> None:
+        """The running fight is decided - the boss is dead or the hunters have lost.  Never raises.
+
+        Called by the fight before it says or hands out anything.  A boss is
+        fought once: from here on neither an error, nor the time limit of the
+        encounter, nor a restart of the bot may bring this boss back.
+
+        * :meth:`attack` ends a decided encounter with :meth:`finish` instead
+          of treating a late failure as "interrupted - the boss stays".
+        * What a restart would bring the boss back from is cleared now, not
+          after the rewards: the note about a summoned boss, and for the
+          scheduled boss its row in ``BOSS`` (the paused schedule of a
+          summoned boss stays in the row - that boss is still to come).
+        """
+        if self.bot.state.boss_phase not in (BossPhase.ENGAGED, BossPhase.FIGHTING):
+            return  # (not an encounter of the cycle)
+        if self._active_encounter != self._encounters:
+            return  # (a fight left over from before $ResetBoss: the boss standing now is another one)
+        if self._fight_task is not None and asyncio.current_task() is not self._fight_task:
+            return  # (the same, when somebody has attacked the new boss meanwhile)
+        self._decided = (self._encounters, result)
+        self._remember_summoned(None)
+        # The reset after the fight (shrine modifiers, the dead, the bans) runs in finish();
+        # should the bot stop before that, the next start makes up for it.
+        self._remember_pending_reset([getattr(loser, "id", loser) for loser in result.losers_to_ban])
+        if self._resume_phase is None:
+            await self._guarded("boss table after a decided fight", asyncio.wait_for(
+                self._database.update_boss_table(self.bot, 0, 0, False), timeout=DECIDED_WRITE_TIMEOUT))
+
+    def _remember_pending_reset(self, losers: list[Any] | None) -> None:
+        """Note (None: forget) that a decided fight still owes its post-fight reset.  Never raises."""
+        try:
+            value = None if losers is None else {"losers": [int(loser) for loser in losers]}
+            if self.bot.store.runtime_get(_KEY_PENDING_RESET) != value:
+                self.bot.store.runtime_set(_KEY_PENDING_RESET, value)
+        except (OSError, TypeError, ValueError):
+            log.exception("Could not persist the pending post-fight reset (%s).", losers)
+
+    async def _finish_after_restart(self) -> None:
+        """The bot stopped between a decided fight and its reset: do the reset now.  Never raises.
+
+        Without it the shrine modifiers of the fought boss would also work for
+        the next one, the dead would stay dead and the losers unbanned.  (Not
+        the boss table: ``mark_decided`` wrote it, and for a summoned boss it
+        holds the paused schedule.)
+        """
+        bot = self.bot
+        try:
+            pending = bot.store.runtime_get(_KEY_PENDING_RESET)
+        except OSError:
+            log.exception("Could not read the pending post-fight reset.")
+            return
+        if pending is None:
+            return
+        losers = pending.get("losers", []) if isinstance(pending, dict) else []
+        log.warning("The bot stopped before the reset after a decided boss fight; doing it now (bans: %s).",
+                    losers)
+        from . import modifiers
+        steps = [("modifiers after a restart", lambda: modifiers.init_modifiers(bot)),
+                 ("dead hunters after a restart", lambda: self._boss.reset_dead_hunters(bot))]
+        steps += [(f"dead hunter role for {loser}", lambda loser=loser: self._boss.set_dead_hunters(bot, loser))
+                  for loser in losers]
+        failed: list[str] = []
+        for what, step in steps:
+            try:
+                await step()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - the others still run; the marker stays for the next start
+                failed.append(what)
+                log.exception("Step failed: %s", what)
+        if not failed:
+            self._remember_pending_reset(None)
+        else:
+            await bot.log_to_owner("Po restarcie nie udało się dokończyć resetu po walce z bossem "
+                                   f"({', '.join(failed)}) - spróbuję przy następnym starcie; szczegóły są w "
+                                   "logu bota.", ping=True)
+
+    def _decided_result(self, encounter: int) -> FightResult | None:
+        """The result of ``encounter`` when its fight was decided before something broke."""
+        if self._decided is not None and self._decided[0] == encounter:
+            return self._decided[1]
+        return None
 
     async def _interrupted(self, scene: Scene, reason: str, *, claimed: asyncio.Future | None = None) -> None:
         """A fight ended because of a technical problem, not because of the players.
@@ -999,6 +1115,7 @@ class BossCycle:
         finally:
             bot.state.boss = BossInfo()
             self._remember_summoned(None)
+            self._remember_pending_reset(None)
             self._summoned_at = None
             resume, self._resume_phase = self._resume_phase, None
             if (resume in (BossPhase.SCHEDULED, BossPhase.WAITING) and self.arrives_at is not None

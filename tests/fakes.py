@@ -71,6 +71,19 @@ class FakeRole:
     async def edit(self, **kwargs: Any) -> None:
         self.edits.append(kwargs)
 
+    #: Set to an exception to make :meth:`delete` fail (the role is above the bot's, no permission).
+    delete_error: BaseException | None = None
+
+    async def delete(self, *, reason: str | None = None) -> None:
+        """Like ``discord.Role.delete``: the role leaves the guild and every member."""
+        if self.delete_error is not None:
+            raise self.delete_error
+        self.deleted_with = reason  # type: ignore[attr-defined]
+        if self.guild is not None:
+            for member in self.guild.members:
+                member.roles[:] = [role for role in member.roles if role.id != self.id]
+            self.guild.roles[:] = [role for role in self.guild.roles if role.id != self.id]
+
     def __eq__(self, other: object) -> bool:
         return isinstance(other, FakeRole) and other.id == self.id
 

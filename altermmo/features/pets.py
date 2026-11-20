@@ -986,7 +986,7 @@ async def assign_pet(scene: "Scene", player: Any) -> bool:
     await _egg_stored(bot, player_id, pet_id, egg, cosmetics)
     if egg["MYTHIC"]:
         await _announce_mythic(scene, player_id)
-    await achievements.check_pets(scene, player)  # a mythic pet, a full stable ...; never raises
+    await achievements.check_pets(scene, player)  # a mythic pet (with Holo / the rarest seal); never raises
     return True
 
 
@@ -1111,7 +1111,6 @@ async def level_up_pet(scene: "Scene", player_id: Any) -> bool:
         await _save_pet(con, pet, stats, level=level + 1,
                         skills=_int(pet["pet_skills"]) + add_skill, variant=variant)
     log.info("Pet %s of player %s reached level %s (+%s talent).", pet["pet_id"], player_id, level + 1, add_skill)
-    await achievements.check_pets(scene, player_id)  # the highest talent; never raises
     return True
 
 
@@ -1208,7 +1207,6 @@ async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, message
     if status != _OK:
         await scene.send(messages[status])
         return False
-    await achievements.check_pets(scene, player)  # e.g. the talent grew; never raises
     await show_pet(scene, player)
     return True
 

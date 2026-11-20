@@ -85,7 +85,7 @@ class ScheduleCog(commands.Cog, name="Schedule"):
         await self._step("rola Rzeźnika Potworów", boss.set_boss_slayer(bot, winner_id))
         winner = await bot.member(winner_id)
         if winner is not None:
-            await self._step("osiągnięcie Rzeźnika", achievements.add_butcher(scene, winner))
+            await self._step("licznik wygranych sezonów", achievements.add_butcher(scene, winner))
 
         await self._step("reset dziennych polowań", daily.clear_daily_file(bot))
         await self._step("reset wieży", tower.clear_weekly_tower_file(bot))
