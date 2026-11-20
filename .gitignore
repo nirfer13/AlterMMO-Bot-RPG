@@ -11,6 +11,9 @@ logs/
 backups/
 backups-debug/
 
+# graphics waiting to be copied into assets/ (the copies in assets/ are what is tracked)
+eksport-do-gry/
+
 # python
 __pycache__/
 *.pyc
