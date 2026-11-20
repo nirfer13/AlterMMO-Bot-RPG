@@ -78,8 +78,8 @@ GROUP_SIZE = 4
 #: Mistakes the whole party may make before the boss wins.
 GROUP_SPARE_CHANCES = 1
 
-#: Single lobby: 8 steps of 15 s (1 s in debug mode) for another player to object.
-LOBBY_STEPS = 8
+#: Single lobby: 4 steps of 15 s - one minute (1 s steps in debug mode) for another player to object.
+LOBBY_STEPS = 4
 LOBBY_STEP = 15
 LOBBY_STEP_DEBUG = 1
 #: Hard limit for typing the spell, counted from the moment it is shown.
@@ -727,7 +727,9 @@ async def send_boss_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
     add_desc += await modifiers.load_desc_modifiers(bot)
 
     name = player_boss.name if is_player_boss else "boss"
-    title = f"💀 {_BOSS_ADJECTIVES.get(rarity, 'Legendarny')} {name}! 💀"
+    # The rarity is in the title in words and as its symbol (owner's request of 2026-11-20).
+    symbol = boss_cycle.rarity_emoji(rarity)
+    title = f"💀 {symbol} {_BOSS_ADJECTIVES.get(rarity, 'Legendarny')} {name}! {symbol} 💀"
     if rarity in _BOSS_KINDS:
         description = (f"Pojawił się {_BOSS_KINDS[rarity]} boss! Zabij go natychmiast, żeby zgarnąć nagrody! "
                        + _ATTACK_HINT + add_desc)
@@ -759,7 +761,7 @@ async def send_boss_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
 async def single_init(scene: "Scene", rarity: int) -> Any:
     """Decide who fights the boss alone.
 
-    Two minutes for another player to object - with ``$zaatakuj`` or the
+    One minute for another player to object - with ``$zaatakuj`` or the
     "Zaatakuj" button under the lobby message (whose deadline Discord counts
     down); when somebody does, the first one to type the spell fights.
     Returns the fighter, or None when nobody typed the spell in time (the boss

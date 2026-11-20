@@ -136,6 +136,19 @@ def _no_open_questions():
     assert not pets._awaiting_confirmation, "a $potwierdzam slot was never released"
 
 
+@pytest.fixture(autouse=True)
+def plain_cards(monkeypatch):
+    """No card is composed here: every pet is sent as its plain picture.
+
+    The cards of hatched pets (frame, seal, Holo) - which file is sent, under which name -
+    are tested in test_pet_cosmetics.py; these tests are about everything else.
+    """
+    async def card(source, look, cache_dir, *, max_bytes=None):
+        return source
+
+    monkeypatch.setattr(pets.petcards, "card", card)
+
+
 @pytest.fixture
 def sacrifices(monkeypatch):
     """Record pet sacrifices instead of drawing a real boss modifier."""
@@ -274,11 +287,13 @@ async def test_schema_is_exactly_the_production_one(game_db):
         ("quality", text), ("shiny", "boolean"), ("type", text), ("variant", text),
         ("crit_perc", "numeric"), ("replace_perc", "numeric"), ("def_perc", "numeric"),
         ("drop_perc", "numeric"), ("lowhp_perc", "numeric"), ("slow_perc", "numeric"),
-        ("init_perc", "numeric"), ("detection", "boolean"), ("ultra_shiny", "boolean"), ("mythic", "boolean")]
+        ("init_perc", "numeric"), ("detection", "boolean"), ("ultra_shiny", "boolean"), ("mythic", "boolean"),
+        ("seal", "numeric"), ("holo", "boolean")]                 # new in v2: the pet cosmetics
     by_name = {row["column_name"]: row for row in rows}
     assert all(by_name[name]["character_maximum_length"] == 255 for name in ("pet_name", "quality", "type", "variant"))
     assert by_name["mythic"]["is_nullable"] == "NO" and by_name["mythic"]["column_default"] == "false"
-    assert [name for name, row in by_name.items() if row["is_nullable"] == "NO"] == ["mythic"]
+    assert by_name["seal"]["column_default"] == "0" and by_name["holo"]["column_default"] == "false"
+    assert [name for name, row in by_name.items() if row["is_nullable"] == "NO"] == ["mythic", "seal", "holo"]
 
     for table in ("petowner", "pets"):  # neither table has a primary key or any other index
         assert await db.fetchval("SELECT COUNT(*) FROM pg_index WHERE indrelid = $1::regclass", table) == 0
@@ -325,7 +340,7 @@ async def test_first_egg_creates_the_owner_row(game_db, monkeypatch):
         "pet_id": 1, "pet_name": "Towarzysz", "pet_lvl": 0, "pet_skills": 0, "quality": "Standard",
         "shiny": True, "type": "Sheep", "variant": "7", "crit_perc": 0, "replace_perc": 0, "def_perc": 0,
         "drop_perc": 0, "lowhp_perc": 0, "slow_perc": 0, "init_perc": 0, "detection": False,
-        "ultra_shiny": False, "mythic": False}
+        "ultra_shiny": False, "mythic": False, "seal": 0, "holo": False}
     # A second egg is refused and nothing is generated for it.
     assert await pets.assign_pet(game_db.scene(), player) is False
     assert await count(db, "PETS") == 1 and await count(db, "PETOWNER") == 1
@@ -925,7 +940,8 @@ async def test_transform_refusals(game_db):
     await add_pet(db, 5, pet_lvl=1)
     assert await pets.transform_pet(game_db.scene(plain), plain) is False
     assert game_db.channel.messages[-1].content == (
-        f"Musisz mieć rangę Craftera lub Patrona <@{plain.id}>, żeby przetransformować towarzysza "
+        f"Musisz mieć rangę Patrona, Craftera, subskrybenta Twitch lub wspierającego na YouTube <@{plain.id}>, "
+        "żeby przetransformować towarzysza "
         "<:Sadge:936907659142111273> Rangi do zdobycia możesz zobaczyć na tym kanale <#688296443156365354>.")
 
     await _insert(db, "PETOWNER", {"player_id": rich.id, "pet_id": 6})            # MIRRORS is NULL
@@ -1351,7 +1367,7 @@ async def test_cog_registers_the_legacy_commands(cog):
         "stajnia": ["s"], "rankingtowarzyszy": ["rt", "towarzysze"], "nazwij": ["n"],
         "wyczuwanie": ["powiadomienia", "powiadomieniaboss"],
         "PetLvlUp": [], "AddScroll": [], "AddShard": [], "GenerateEgg": [],
-        "createPetOwnersDatabase": [], "createPetsDatabase": [], "ReassignPet": []}
+        "createPetOwnersDatabase": [], "createPetsDatabase": [], "ReassignPet": [], "DajPieczec": []}
     cooldown = cog.name_pet._buckets._cooldown
     assert (cooldown.rate, cooldown.per, cog.name_pet._buckets.type) == (1, 23 * 3600, commands.BucketType.user)
     assert all(command._buckets._cooldown is None for command in cog.get_commands() if command.name != "nazwij")
@@ -1483,7 +1499,7 @@ async def test_admin_commands(game_db, cog, monkeypatch):
     rig(monkeypatch, randint=0)
     for command in (f"$AddScroll 3 {player.id}", f"$AddShard 2 {player.id}", "$GenerateEgg",
                     f"$ReassignPet 1 {player.id}", f"$PetLvlUp {player.id}", "$createPetsDatabase",
-                    "$createPetOwnersDatabase"):
+                    "$createPetOwnersDatabase", f"$DajPieczec {player.id} 3 tak"):
         await run(game_db, player, command)                              # not an administrator: ignored
     assert await count(db, "PETOWNER") == 0 and await count(db, "PETS") == 0
     assert game_db.channel.bot_messages == [game_db.channel.messages[0]]

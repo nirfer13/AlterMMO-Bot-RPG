@@ -135,14 +135,14 @@ TOASTS = (
 CHEST_TITLE = "<:Loot:912797849916436570> Skrzynia ze skarbami! <:Loot:912797849916436570>"
 CHEST_DESCR = ('Pojawiła się skrzynia ze skarbami! Jedna osoba może ją otworzyć przyciskiem pod tym postem'
                ' albo komendą **$skrzynia**!'
-               '\n\n*Crafterzy i Patroni mogą wydropić dodatkowe, kosmetyczne przedmioty!*')
+               '\n\n*Wspierający mogą wydropić dodatkowe, kosmetyczne przedmioty!*')
 CHEST_THUMB = 'https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png'
 
 INVASION_TITLE = "<:RIP:912797982917816341> Inwazja na wioskę! <:RIP:912797982917816341>"
 INVASION_DESCR = ('Pobliska wioska została zaatakowana przez bezdusznych najeźdźców!\n\n'
                   '**Zaoferujcie im swoją pomoc, klikając „Dołącz” pod tym postem.** Im więcej Was będzie,'
                   ' tym większa szansa, że odpędzicie najeźdźców i odbijecie zrabowane przez nich łupy!'
-                  '\n\n*Crafterzy i Patroni mogą wydropić dodatkowe, kosmetyczne przedmioty!*')
+                  '\n\n*Wspierający mogą wydropić dodatkowe, kosmetyczne przedmioty!*')
 INVASION_THUMB = 'https://www.altermmo.pl/wp-content/uploads/altermmo-3-112.png'
 MSG_INVASION_LOST = ('Niestety nie udało się obronić wioski... Mężczyźni leżą w kałuży krwi, dzieci'
                      ' zostały rozszarpane na kwałki, a kobiety skończą jako kurtyzany. '
@@ -151,7 +151,7 @@ MSG_INVASION_LOST = ('Niestety nie udało się obronić wioski... Mężczyźni l
 PARTY_TITLE = "<:Drink:912798939542061086> Zdrowie {name}! <:Drink:912798939542061086>"
 PARTY_DESCR = ('Witam <@&985071779787730944>! Tutaj Wasz serwerowy Bard, Stasiek mi na imię.'
                '\nCzy za kimś chodzi **gorzałka**? Może napilibyśmy się za zdrowie jednego'
-               ' z patronów lub crafterów?\n\n'
+               ' z naszych wspierających?\n\n'
                '**To co? Za zdrowie {name}! Zapraszam do zabawy.**'
                '\n\n*Kliknij „Dołącz” pod postem, jeśli chcesz wziąć udział.*')
 MSG_PARTY_START = ("No dobra, to zaczynamy imprezę <:Drink:912798939542061086>! Przygotujcie się, zaraz podam "
@@ -543,14 +543,15 @@ async def _toast_round(scene: "Scene", toast: str) -> Any:
 
 
 async def spawn_party(scene: "Scene") -> None:
-    """Drinking party in honour of a random patron: who types the toasts first?"""
+    """Drinking party in honour of a random supporter (patron, crafter, Twitch subscriber,
+    YouTube supporter): who types the toasts first?"""
     bot = scene.bot
     channel = scene.channel
     log.info("Party spawn.")
 
     cheerer = patrons.get_patron(bot)
     if cheerer is None:
-        log.warning("Party skipped: nobody holds a patron/crafter role.")
+        log.warning("Party skipped: nobody holds a supporter role.")
         return
     honoured = cheerer.name
 

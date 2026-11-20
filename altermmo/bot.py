@@ -19,6 +19,7 @@ from .core.scene import Scene
 from .core.state import GameState
 from .core.storage import IdListFile, JsonFile, migrate_legacy_file
 from .core.supervisor import Supervisor
+from .features import petcards
 from .features.boss_cycle import BossCycle
 from .settings import COMMAND_PREFIX, PROJECT_ROOT, Ids, Settings, Timings
 
@@ -54,6 +55,25 @@ MSG_COOLDOWN = "Poczekaj na odnowienie komendy! Spróbuj ponownie {when} <:Bedge
 def cooldown_text(retry_after: float) -> str:
     """:data:`MSG_COOLDOWN` for a cooldown that ends in ``retry_after`` seconds."""
     return MSG_COOLDOWN.format(when=ui.when(max(1.0, float(retry_after))))
+
+#: Start-up note for the owner: ``schema.add_new_columns`` could not add what v2 needs.
+#: The only such columns are the pet cosmetics, and features/pets.py plays on without them.
+MSG_NEW_COLUMNS_FAILED = (
+    "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Kosmetyka towarzyszy "
+    "(pieczęcie, folia Holo) jest WYŁĄCZONA: nic nie jest losowane, a towarzysze nie mają pieczęci "
+    "ani folii (ramki Shiny / Ultra Shiny działają normalnie) - reszta gry działa normalnie. "
+    "Bot spróbuje ponownie przy następnym starcie.")
+#: Start-up note: the database did not answer, so nothing above was checked.  Queries reconnect
+#: by themselves, but the new columns are only added at a start.
+MSG_DATABASE_DOWN_AT_START = (
+    "Baza danych nie odpowiadała przy starcie bota ({error}). Bot połączy się z nią sam, ale nie "
+    "sprawdził jej struktury i nie dodał kolumn nowych w v2 - jeśli brakuje ich w bazie, kosmetyka "
+    "towarzyszy (pieczęcie, folia Holo) jest wyłączona do następnego uruchomienia bota.")
+#: Start-up note: the library that composes the pet cards is missing on this machine.
+MSG_NO_PILLOW = (
+    "Brak biblioteki Pillow - karty towarzyszy (ramki, pieczęcie, folia Holo) są WYŁĄCZONE i "
+    "towarzysze są pokazywani bez nich. Zainstaluj ją: `.venv\\Scripts\\python.exe -m pip install "
+    "-r requirements.txt` i uruchom bota ponownie.")
 
 #: State files carried over from the legacy bot (same names, same formats).
 #:
@@ -177,17 +197,40 @@ class AlterBot(commands.Bot):
             except Exception as exc:  # noqa: BLE001 - reported by verify() below
                 log.error("Could not create the tables that are new in v2 (%s: %s).",
                           type(exc).__name__, exc)
+            # Columns the old bot's tables lack (the pet cosmetics).  Never fatal: when they
+            # cannot be added the owner is told and the game goes on without that feature.
+            try:
+                not_added = await schema.add_new_columns(self.db)
+            except Exception as exc:  # noqa: BLE001 - it reports instead of raising; just in case
+                log.error("Could not add the columns that are new in v2 (%s: %s).",
+                          type(exc).__name__, exc)
+                not_added = [f"{type(exc).__name__}: {exc}"]
+            if not_added:
+                self._startup_notes.append(MSG_NEW_COLUMNS_FAILED.format(problems="; ".join(not_added)))
             problems = await schema.verify(self.db)
             for problem in problems:
                 log.error("Database structure differs from what the bot expects: %s", problem)
-            if problems:
-                self._startup_notes.append("Baza danych różni się od oczekiwanej: " + "; ".join(problems)
+            noted = problems
+            if not_added:
+                # The columns that could not be added are explained by the note above (in words
+                # that say what it means); the general note below is for everything else.
+                explained = {schema.missing_column(table, column)
+                             for table, column, _ in schema.new_columns()}
+                noted = [problem for problem in problems if problem not in explained]
+            if noted:
+                self._startup_notes.append("Baza danych różni się od oczekiwanej: " + "; ".join(noted)
                                            + ". Część komend może nie działać (spróbuj `$createAllDatabases`).")
             if not problems:
                 log.info("Database structure verified.")
         except Exception as exc:  # noqa: BLE001 - keep starting; queries reconnect lazily
             log.error("Database unreachable at start-up (%s: %s); will keep retrying on use.",
                       type(exc).__name__, exc)
+            # Nothing was verified and no column was added: the owner should know why the
+            # pet cosmetics may be off for this run (nothing retries the ALTER before a restart).
+            self._startup_notes.append(MSG_DATABASE_DOWN_AT_START.format(error=type(exc).__name__))
+        if not petcards.pillow_available():
+            log.error("Pillow is not installed: pet cards (frames, seals, Holo) are off.")
+            self._startup_notes.append(MSG_NO_PILLOW)
         for extension in EXTENSIONS:
             try:
                 await self.load_extension(extension)

@@ -230,6 +230,24 @@ async def test_party_with_too_few_guests(game, loot, quick, monkeypatch):
     assert loot == []
 
 
+@pytest.mark.parametrize("role_id", [patrons.TWITCH_SUB_ROLE, *patrons.YOUTUBE_ROLES])
+async def test_party_honours_a_twitch_subscriber_or_a_youtube_supporter(game, loot, quick, monkeypatch, role_id):
+    """Since 2026-11-20 the party is for every supporter; its invitation says "wspierający"."""
+    first_choice(monkeypatch)
+    supporter = game.add_member("Widz", roles=[role_id])
+    game.add_member("VIP", roles=[964845150213906442])                  # a Twitch VIP is no supporter
+    await events.spawn_party(game.scene())
+    assert game.channel.sent[0].content == supporter.display_avatar.url
+    invitation = panel(game, "Zdrowie Widz!")
+    assert "za zdrowie jednego z naszych wspierających?" in invitation.embeds[0].description
+    assert game.channel.contains("Pozostało napić się w samotności. Zdrowie Widz!")
+
+
+def test_chest_and_invasion_promise_cosmetics_to_supporters():
+    hint = "\n\n*Wspierający mogą wydropić dodatkowe, kosmetyczne przedmioty!*"
+    assert events.CHEST_DESCR.endswith(hint) and events.INVASION_DESCR.endswith(hint)
+
+
 async def test_party_full_flow(game, loot, quick, monkeypatch):
     first_choice(monkeypatch)
     high_rolls(monkeypatch)

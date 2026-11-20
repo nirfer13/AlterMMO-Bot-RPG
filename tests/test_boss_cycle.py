@@ -119,8 +119,8 @@ async def test_full_cycle_brings_a_boss(game_db, cycle, stub):
     assert [m.content for m in game_db.channel.messages] == ["Zasady gry", "BOSS rarity 1"]
     assert game_db.announce_channel.contains("właśnie pojawił się potwór")
     assert game_db.announce_channel.messages[-1].content == (
-        f"⚔️ Przygotujcie się! Na kanale <#{game_db.bot.ids.boss_channel}> właśnie pojawił się potwór. "
-        "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+        f"⚔️ Przygotujcie się! Na kanale <#{game_db.bot.ids.boss_channel}> właśnie pojawił się potwór: "
+        "🟦 **rzadki boss**. Kto pierwszy stanie do walki, ten zgarnie nagrody!")   # how rare, with its symbol
     assert ("detect", 1) in stub.calls
     row = await database.read_boss_table(bot)
     assert row.respawn_started and row.rarity == 1
@@ -583,6 +583,18 @@ async def test_gem_boss_never_barges_into_an_activity_or_a_sign_up(game_db, cycl
 
 # -- after a start of the bot: what the previous run left behind goes (owner's request) ----------
 
+async def test_spawn_notice_names_the_boss_that_really_appears(game_db, cycle, stub):
+    """The shrine made the boss rarer: the notice shows the final rarity, like the picture."""
+    bot = game_db.bot
+    stub.modifiers.rarity_boost = 1                              # base rarity 1 -> an epic boss
+    cycle.start()
+    await wait_phase(bot, BossPhase.VISIBLE)
+    assert game_db.channel.messages[-1].content == "BOSS rarity 2"
+    notice = game_db.announce_channel.messages[-1].content
+    assert "🟪 **epicki boss**" in notice and "rzadki" not in notice
+    assert boss_cycle.is_spawn_notice(notice, bot.ids.boss_channel)
+
+
 OLD_NOTICE = "Na kanale <#{channel}> pojawił się właśnie potwór! Zabijcie go, żeby zgarnąć nagrody!"
 
 
@@ -594,6 +606,27 @@ def test_spawn_notices_are_recognised_in_both_wordings():
     assert not boss_cycle.is_spawn_notice("Na kanale pojawił się potwór", channel)      # no channel link
     assert not boss_cycle.is_spawn_notice(f"Zapraszam na <#{channel}>!", channel)
     assert not boss_cycle.is_spawn_notice(None, channel)
+
+
+def test_spawn_notice_names_the_rarity_with_its_symbol():
+    """Owner's request: the notice says how rare the boss is and shows the symbol of that rarity."""
+    channel = 970684202880204831
+    expected = {0: "🟩 **zwykły boss**", 1: "🟦 **rzadki boss**", 2: "🟪 **epicki boss**",
+                3: "🟧 **legendarny boss**", 4: "🟥 **mityczny boss**"}
+    for rarity, words in expected.items():
+        notice = boss_cycle.spawn_notice(channel, rarity)
+        assert words in notice and f"<#{channel}>" in notice
+        assert boss_cycle.is_spawn_notice(notice, channel)          # still found (and removed) later
+        assert boss_cycle.rarity_emoji(rarity) == words.split()[0]
+    # A legendary boss needs a party; every other one goes to whoever attacks first.
+    assert boss_cycle.spawn_notice(channel, 3).endswith("Sam nikt mu nie podoła - zbierzcie drużynę!")
+    assert all(boss_cycle.spawn_notice(channel, rarity).endswith("ten zgarnie nagrody!") for rarity in (0, 1, 2, 4))
+    # No rarity (or one nobody knows): the notice as it was.
+    assert boss_cycle.spawn_notice(channel) == boss_cycle.spawn_notice(channel, 99) == (
+        f"⚔️ Przygotujcie się! Na kanale <#{channel}> właśnie pojawił się potwór. "
+        "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+    assert boss_cycle.rarity_emoji(99) == "🟧"                      # shown as legendary, like the boss embed
+    assert len(set(boss_cycle.RARITY_EMOJI.values())) == 5 and set(boss_cycle.RARITY_EMOJI) == set(boss_cycle.RARITY_NAMES)
 
 
 async def test_start_clears_the_boss_channel_but_keeps_pins_and_the_oldest_post(game_db, cycle, stub):

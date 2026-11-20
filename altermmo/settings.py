@@ -49,7 +49,7 @@ COMMAND_PREFIX = "$"
 class Ids:
     """Discord ids shared by several features.
 
-    Ids used by exactly one feature (patron tiers, Twitch roles, achievement
+    Ids used by exactly one feature (supporter roles, Twitch roles, achievement
     roles) are constants at the top of that feature's module.
     """
 
@@ -72,7 +72,7 @@ class Ids:
     boss_slayer_role: int = 983798433590673448
     #: Players banned from fights until the next boss dies.
     dead_hunter_role: int = 1091050836303544402
-    #: Patrons who killed a mythic boss.
+    #: Supporters (patrons, crafters, Twitch subscribers, YouTube supporters) who killed a mythic boss.
     mythic_slayer_role: int = 1118242273772175401
 
 

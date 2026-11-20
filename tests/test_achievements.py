@@ -35,7 +35,7 @@ def roles(game):
 
 
 def role_ids(member) -> set[int]:
-    return {role.id for role in member.roles} - {PATRON, patrons.CRAFTER_ROLE}
+    return {role.id for role in member.roles} - set(patrons.SUPPORTER_ROLES)
 
 
 async def stats(bot, player_id: int) -> tuple | None:
@@ -192,6 +192,21 @@ async def test_hunt_and_butcher_milestones(game_db, roles, function, counts, exp
         assert game_db.channel.messages[-1].content == (
             f"<@{crafter.id}> zdobywa osiągnięcie: {ROLE_NAMES[role_id]}!")
     assert game_db.channel.count("zdobywa osiągnięcie") == 3
+
+
+@pytest.mark.parametrize("role_id", [patrons.TWITCH_SUB_ROLE, *patrons.YOUTUBE_ROLES])
+async def test_twitch_subscribers_and_youtube_supporters_get_the_roles(game_db, roles, role_id):
+    """Since 2026-11-20 every supporter collects the achievement roles, not only patrons and crafters."""
+    scene = game_db.scene()
+    supporter = game_db.add_member("Widz", roles=[role_id])
+    await achievements.add_boss_kill(scene, supporter)
+    assert role_ids(supporter) == {KILL_1}
+    assert game_db.channel.messages[-1].content == f"<@{supporter.id}> zdobywa osiągnięcie: Pogromca I!"
+    for award, role in ((achievements.unicorn, achievements.UNICORN_ROLE),
+                        (achievements.legend, achievements.LEGEND_ROLE),
+                        (achievements.quickness, achievements.QUICKNESS_ROLE)):
+        await award(scene, supporter)
+        assert role in role_ids(supporter)
 
 
 async def test_non_patron_is_counted_but_gets_no_role(game_db, roles):

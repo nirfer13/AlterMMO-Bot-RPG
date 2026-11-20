@@ -61,7 +61,7 @@ class BossInfo:
 
     rarity: int = 0
     is_player_boss: bool = False
-    #: ``discord.Member`` when a player/patron poses as the boss, otherwise None.
+    #: ``discord.Member`` when a player/supporter poses as the boss, otherwise None.
     player_boss: Any = None
 
 
@@ -249,7 +249,7 @@ class GameState:
         return True
 
     def reopen_event(self, event_type: EventType) -> None:
-        """Give a claimed passive event back (e.g. a non-patron tried to pray)."""
+        """Give a claimed passive event back (e.g. a non-supporter tried to pray)."""
         if self._event_type is event_type:
             self._event_alive = True
 

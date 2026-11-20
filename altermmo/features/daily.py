@@ -145,7 +145,7 @@ MSG_GROUP_START = ("Rozpoczęliście polowanie {mentions}<:REEeee:79096316049594
                    "Wpiszcie słowa bez spacji! Przygotujcie się!")
 MSG_WON = "Brawo {mentions}<:ok:990161663053422592> Potwór pokonany!"
 MSG_MISTAKE_LOST = ("Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie jutro lub poczekaj na "
-                    "modlitwę Crafterów i Patronów! <:RIP:912797982917816341>\n\n"
+                    "modlitwę wspierających! <:RIP:912797982917816341>\n\n"
                     "*Możesz również dołączyć do polowania innych graczy.*")
 MSG_TOO_SLOW_LOST = ("Niestety nie zdążyłeś! <:Bedge:970576892874854400> Odpocznij i spróbuj jutro! "
                      "<:RIP:912797982917816341>\n\n*Możesz również dołączyć do polowania innych graczy.*")

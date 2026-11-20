@@ -207,7 +207,7 @@ async def test_boss_image_of_a_monster(game, monkeypatch):
     picture, embed_message = game.channel.messages[-2:]
     assert picture.files == ["100.gif"]
     embed = embed_message.embeds[0]
-    assert embed.title == "💀 Epicki boss! 💀"
+    assert embed.title == "💀 🟪 Epicki boss! 🟪 💀"
     assert embed.description == ("Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! "
                                  "Kliknij **Zaatakuj** albo wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️")
     assert embed.colour.value == 0x800080
@@ -221,7 +221,7 @@ async def test_boss_image_of_a_patron(game, monkeypatch):
     avatar, embed_message = game.channel.messages[-2:]
     assert avatar.content == patron.display_avatar.url
     embed = embed_message.embeds[0]
-    assert embed.title == "💀 Legendarny Patron! 💀"
+    assert embed.title == "💀 🟧 Legendarny Patron! 🟧 💀"
     assert "będziesz potrzebował kompanów spośród <@&985071779787730944>!" in embed.description
     assert embed.description.endswith("*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
                                       "to ten gracz zgarnia 2000 doświadczenia!*")
@@ -231,7 +231,7 @@ async def test_boss_image_without_patrons_falls_back_to_a_monster(game, monkeypa
     monkeypatch.setattr(random, "randint", lambda a, b: b)
     assert await boss.send_boss_image(game.scene(), 4) == (False, None)
     assert game.channel.messages[-2].files == ["10007.gif"]
-    assert game.channel.messages[-1].embeds[0].title == "💀 Mityczny boss! 💀"
+    assert game.channel.messages[-1].embeds[0].title == "💀 🟥 Mityczny boss! 🟥 💀"
     assert "Pojawił się MITYCZNY boss!" in game.channel.messages[-1].text
 
 
@@ -242,7 +242,7 @@ async def test_boss_chosen_at_the_shrine_is_a_player_boss(game, monkeypatch):
     await modifiers.modify_modifiers(game.bot, "drop_boost_perc", 20)
     assert await boss.send_boss_image(game.scene(), 1) == (True, chosen)   # ...the shrine wins
     text = game.channel.messages[-1].text
-    assert "💀 Rzadki Wybraniec! 💀" in text
+    assert "💀 🟦 Rzadki Wybraniec! 🟦 💀" in text
     assert "to ten gracz zgarnia 1000 doświadczenia!*" in text
     assert "Drop zwiększony o 20 %" in text and f"Bossem będzie gracz <@{chosen.id}>" in text
 
@@ -253,7 +253,7 @@ async def test_shrine_player_who_left_becomes_a_monster(game, monkeypatch):
     await modifiers.modify_modifiers(game.bot, "player_id", 123456789)
     assert await boss.send_boss_image(game.scene(), 0) == (False, None)
     assert game.channel.messages[-2].files == ["7.gif"]
-    assert game.channel.messages[-1].embeds[0].title == "💀 Zwykły boss! 💀"
+    assert game.channel.messages[-1].embeds[0].title == "💀 🟩 Zwykły boss! 🟩 💀"
 
 
 # -- loot --------------------------------------------------------------------------------
@@ -337,6 +337,28 @@ async def test_loot_survives_a_failed_embed_and_unknown_rarity(game, loot):
 
 
 # -- single lobby ------------------------------------------------------------------------
+
+def test_single_lobby_waits_one_minute():
+    """Owner's request of 2026-11-20: a rival has one minute (it used to be two) to object."""
+    assert boss.LOBBY_STEPS * boss.LOBBY_STEP == 60
+    assert boss.LOBBY_STEPS * boss.LOBBY_STEP_DEBUG < 60          # the test channel stays quick
+
+
+async def test_single_lobby_deadline_is_a_minute_away(game, monkeypatch):
+    """What the lobby message counts down to is that minute."""
+    attacker = game.add_member("Ala")
+    shown = []
+    monkeypatch.setattr(boss, "LOBBY_STEP_DEBUG", boss.LOBBY_STEP)   # the test bot runs in debug mode
+    monkeypatch.setattr(boss.ui, "when", lambda seconds: shown.append(seconds) or "<t:0:R>")
+
+    async def nobody(inbox, wanted, window):
+        shown.append(("waited", window))
+        return None
+
+    monkeypatch.setattr(boss, "_next_message", nobody)
+    assert await boss.single_init(game.scene(attacker, "$zaatakuj"), 0) is attacker
+    assert shown == [60, ("waited", 60)]
+
 
 async def test_single_init_nobody_objects(game, short_timeouts):
     attacker = game.add_member("Ala")

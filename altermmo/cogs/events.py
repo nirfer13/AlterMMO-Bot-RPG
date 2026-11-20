@@ -374,7 +374,7 @@ class EventsCog(commands.Cog, name="Events"):
             changes["embed"] = embed
         await ui.retire(panel, **changes)
 
-    @commands.command(name="modlitwa", brief="Patron or Creator can pray to the shrine.")
+    @commands.command(name="modlitwa", brief="Supporters can pray at the shrine.")
     @guards.boss_channel_only()
     async def pray(self, ctx: commands.Context) -> None:
         await self._claim(EventType.SHRINE, Scene.from_ctx(ctx), lambda text: io.send(ctx.channel, text),

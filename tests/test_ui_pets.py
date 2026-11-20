@@ -17,6 +17,7 @@ from altermmo.features.pets import PetType
 
 from fakes import FakeInteraction, find_component
 from test_pets import add_owner, add_pet, owner_row, patron, pet_row, rig, run, until
+from test_pets import plain_cards  # noqa: F401 - autouse: pets are sent as their plain pictures here too
 
 QUESTION = "Czy jesteś pewien"
 UNSURE = "*Twój towarzysz spogląda na Ciebie niepewnie.*"

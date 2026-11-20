@@ -8,6 +8,10 @@ answered by the views themselves, nothing to register here).
 
 ``$nazwij`` takes the whole rest of the message as the name
 (``$nazwij Sir Burek``); quotes around it are still accepted and dropped.
+
+``$DajPieczec <player_id> <0-3> [tak/nie]`` (administrators) sets the seal and
+Holo of a member's active pet: the owner's way to look at the cards and to put
+a mistake right - players get their cosmetics only from the rolls of a new egg.
 """
 
 from __future__ import annotations
@@ -19,12 +23,30 @@ from discord.ext import commands
 
 from ..core import guards, io, ui
 from ..core.scene import Scene
-from ..features import bossdetect, pets
+from ..features import bossdetect, patrons, petcards, pets
 
 log = logging.getLogger(__name__)
 
 
 MSG_NAME_MISSING = "Po spacji podaj imię towarzysza np. **$nazwij Burek**."
+
+# -- $DajPieczec (administrators) -------------------------------------------------------
+MSG_SEAL_SET = ("Towarzysz gracza <@{player_id}> (PET_ID {pet_id}) ma teraz: pieczęć - **{seal}**, "
+                "folia Holo - **{holo}**. Widać to na karcie towarzysza (**$towarzysz**).")
+MSG_SEAL_RANGE = "Pieczęć: 0-3 (0 = brak, {names})."
+MSG_SEAL_HOLO = "Folia Holo: **tak** albo **nie** (pominięta - bez zmian), np. **$DajPieczec {player_id} 3 tak**."
+MSG_SEAL_NO_PET = "<@{player_id}> nie ma przy sobie towarzysza - nie ma komu dać pieczęci."
+MSG_SEAL_NO_COLUMNS = ("W tabeli PETS nie ma kolumn SEAL i HOLO (nie udało się ich dodać przy starcie bota), "
+                       "więc kosmetyka towarzyszy jest wyłączona. Uruchom bota ponownie - kolumny dodaje "
+                       "sam przy starcie.")
+#: Added to the answer when the player is not a supporter right now.
+MSG_SEAL_NOT_SHOWN = (" Uwaga: ten gracz nie ma teraz rangi wspierającego, więc pieczęci i folii nie widać - "
+                      "pojawią się, gdy ją zdobędzie.")
+SEAL_NONE = "brak"
+
+#: What ``$DajPieczec`` takes for Holo.
+_YES_NO = {"tak": True, "t": True, "yes": True, "y": True, "true": True, "1": True, "holo": True,
+           "nie": False, "n": False, "no": False, "false": False, "0": False}
 
 #: Opening -> closing quote pairs accepted around a name given to ``$nazwij``.
 _QUOTES = {'"': '"', "„": "”", "“": "”", "”": "”", "«": "»", "‘": "’", "'": "'"}
@@ -202,6 +224,34 @@ class PetsCog(commands.Cog, name="Pets"):
     async def generate_egg(self, ctx: commands.Context) -> None:
         pet_id = await pets.generate_pet_egg(Scene.from_ctx(ctx))
         await io.send(ctx.channel, f"Wygenerowano jajko (PET_ID {pet_id}).")
+
+    @commands.command(name="DajPieczec",
+                      brief="Set the seal (0-3) and Holo (tak/nie) of a member's active pet (admin).")
+    @guards.owner_or_admin()
+    async def give_seal(self, ctx: commands.Context, player_id: int, seal: int,
+                        holo: str | None = None) -> None:
+        # Holo left out: only the seal changes.
+        wanted = None if holo is None else _YES_NO.get(holo.strip().lower())
+        if holo is not None and wanted is None:
+            await io.send(ctx.channel, MSG_SEAL_HOLO.format(player_id=player_id))
+            return
+        status, now = await pets.set_cosmetics(self.bot, player_id, seal, wanted)
+        if status == "bad_seal":
+            await io.send(ctx.channel, MSG_SEAL_RANGE.format(names=", ".join(
+                f"{tier} = {name}" for tier, name in sorted(petcards.SEAL_NAMES.items()))))
+        elif status == "no_columns":
+            await io.send(ctx.channel, MSG_SEAL_NO_COLUMNS)
+        elif now is None:
+            await io.send(ctx.channel, MSG_SEAL_NO_PET.format(player_id=player_id))
+        else:
+            text = MSG_SEAL_SET.format(
+                player_id=player_id, pet_id=now["pet_id"],
+                seal=petcards.SEAL_NAMES.get(now["seal"], SEAL_NONE), holo="tak" if now["holo"] else "nie")
+            # Cosmetics are shown only while the pet's owner supports: say so, or the owner
+            # of the server looks for a seal that is stored but hidden.
+            if (now["seal"] or now["holo"]) and not patrons.check_if_patron(await self.bot.member(player_id)):
+                text += MSG_SEAL_NOT_SHOWN
+            await io.send(ctx.channel, text)
 
     @commands.command(name="createPetOwnersDatabase",
                       brief="Create table PETOWNER table with one default record.")

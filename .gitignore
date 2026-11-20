@@ -13,6 +13,8 @@ backups-debug/
 
 # graphics waiting to be copied into assets/ (the copies in assets/ are what is tracked)
 eksport-do-gry/
+# the owner's package with the pet card graphics (its files live in assets/petcards/)
+/pieczecie-dla-bota.zip
 
 # python
 __pycache__/

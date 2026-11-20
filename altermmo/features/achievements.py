@@ -5,8 +5,9 @@ shared with the legacy bot):
 
 ``ACHIEVEMENTS`` (PLAYER_ID NUMERIC PRIMARY KEY, BOSS_KILLS NUMERIC, HUNTS NUMERIC, BUTCHERS NUMERIC)
 
-Everybody's deeds are counted, but only patrons / crafters get the roles, and
-only at the moment a counter reaches a milestone exactly (legacy rule).
+Everybody's deeds are counted, but only supporters (patrons, crafters, Twitch
+subscribers, YouTube supporters - :func:`patrons.check_if_patron`) get the
+roles, and only at the moment a counter reaches a milestone exactly (legacy rule).
 
 Differences from the legacy code:
 
@@ -181,7 +182,7 @@ async def new_record_achievements(bot: "AlterBot", player_id: int, boss_kills: i
 # -- counted achievements -----------------------------------------------------------
 
 async def add_boss_kill(scene: "Scene", player: Any) -> bool:
-    """Count a killed boss; patrons get a role at 1, 10 and 30 kills.
+    """Count a killed boss; supporters get a role at 1, 10 and 30 kills.
 
     Returns True when the kill was counted (False only when ``player`` is None).
     """
@@ -189,33 +190,33 @@ async def add_boss_kill(scene: "Scene", player: Any) -> bool:
 
 
 async def add_butcher(scene: "Scene", player: Any) -> bool:
-    """Count a won season; patrons get a role at 1, 3 and 10 seasons."""
+    """Count a won season; supporters get a role at 1, 3 and 10 seasons."""
     return await _count(scene, player, "BUTCHERS", BUTCHER_ROLES)
 
 
 async def add_hunts(scene: "Scene", player: Any) -> bool:
-    """Count a won hunt; patrons get a role at 10, 35 and 100 hunts."""
+    """Count a won hunt; supporters get a role at 10, 35 and 100 hunts."""
     return await _count(scene, player, "HUNTS", HUNT_ROLES)
 
 
 # -- one-off achievements -----------------------------------------------------------
 
 async def unicorn(scene: "Scene", player: Any) -> bool:
-    """A patron hunted down a legendary monster."""
+    """A supporter hunted down a legendary monster."""
     if patrons.check_if_patron(player):
         await set_achiev_role(scene, player, UNICORN_ROLE)
     return True
 
 
 async def legend(scene: "Scene", player: Any) -> bool:
-    """A patron took part in killing a legendary boss."""
+    """A supporter took part in killing a legendary boss."""
     if patrons.check_if_patron(player):
         await set_achiev_role(scene, player, LEGEND_ROLE)
     return True
 
 
 async def quickness(scene: "Scene", player: Any) -> bool:
-    """A patron beat a boss with an average turn time under 2 seconds."""
+    """A supporter beat a boss with an average turn time under 2 seconds."""
     if patrons.check_if_patron(player):
         await set_achiev_role(scene, player, QUICKNESS_ROLE)
     return True
@@ -229,7 +230,7 @@ async def set_achiev_role(scene: "Scene", player: Any, role_id: int) -> bool:
     A higher tier takes the lower tiers of the same achievement away.  Returns
     True when the role was granted now; False when the player already had it,
     left the server, or the role cannot be given (the owner is told why).
-    Whether the player deserves the role (patron check) is the caller's job.
+    Whether the player deserves the role (supporter check) is the caller's job.
     """
     bot = scene.bot
     player_id = _player_id(player)

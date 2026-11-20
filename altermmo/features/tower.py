@@ -68,7 +68,8 @@ ROUND_TIME_BASE = 8
 _FLOOR_LOOT_RARITY: dict[int, int] = {1: 0, 2: 0, 3: 1, 4: 1, 5: 2, 6: 2, 7: 2, 8: 4, 9: 4, 10: 4}
 _FLOOR_LOOT_FALLBACK = 2
 
-#: Floor -> collector's achievement role for patrons and crafters.
+#: Floor -> collector's achievement role for supporters (patrons, crafters, Twitch subscribers,
+#: YouTube supporters).
 _FLOOR_ROLES: dict[int, int] = {
     3: achievements.TOWER_ROLES[0],
     6: achievements.TOWER_ROLES[1],
@@ -180,7 +181,7 @@ async def _store_record(bot: "AlterBot", player_id: int, level: int, record_time
 
 
 async def _grant_floor_role(scene: "Scene", player: Any, level: int) -> bool:
-    """Floors 3, 6 and 10 give patrons and crafters a collector's role."""
+    """Floors 3, 6 and 10 give supporters (see :mod:`patrons`) a collector's role."""
     role_id = _FLOOR_ROLES.get(int(level))
     if role_id is None or not patrons.check_if_patron(player):
         return False
@@ -188,7 +189,7 @@ async def _grant_floor_role(scene: "Scene", player: Any, level: int) -> bool:
 
 
 async def update_tower_level(scene: "Scene", player: Any, level: int, record_time: Any) -> bool:
-    """Store a cleared floor: the tower record and, for patrons, the achievement role.
+    """Store a cleared floor: the tower record and, for supporters, the achievement role.
 
     ``record_time`` is the time the floor took (a ``timedelta``, or text in the
     stored ``H:MM:SS.ffffff`` format).  Returns True, like the legacy function.
@@ -207,10 +208,10 @@ async def tower_image(scene: "Scene", level: int) -> None:
     level = int(level)
     if level == 1:
         description = ("Rozpoczynasz eksplorację Wieży Śmierci. Strzeż się!"
-                       "\n\n*Crafterzy i Patroni mogą zdobyć kolekcjonerskie osiągnięcia!*")
+                       "\n\n*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
     else:
         description = ("Przechodzisz na kolejne piętro. Powodzenia!"
-                       "\n\n*Crafterzy i Patroni mogą zdobyć kolekcjonerskie osiągnięcia!*")
+                       "\n\n*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
     embed = discord.Embed(
         title=f"<:AlterUp:846344753124999169> {level} piętro Wieży Śmierci! <:Loot:912797849916436570>",
         description=description, color=0xF00511)

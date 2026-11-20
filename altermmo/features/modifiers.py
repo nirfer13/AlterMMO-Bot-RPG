@@ -7,7 +7,10 @@ the legacy format - one flat JSON object with the keys of
 :data:`INIT_MODIFIERS` - so the file of the production bot can be copied over
 as it is (a key the old file does not have yet simply counts as 0).  They are filled by prayers at the shrine (``$modlitwa``), by pet
 sacrifices and by skill gems, used by the next boss fight and by hunts, and
-zeroed again when the boss fight is over (``boss.reset_end``).
+zeroed again when the boss fight is over (``boss.reset_end``).  Only supporters
+(patrons, crafters, Twitch subscribers, YouTube supporters - see
+:mod:`altermmo.features.patrons`) may pray; the events cog checks that, this
+module only says so on the shrine.
 
 Differences from the legacy code:
 
@@ -36,6 +39,7 @@ from typing import TYPE_CHECKING, Any
 import discord
 
 from ..settings import ASSETS_DIR
+from . import patrons
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -213,8 +217,8 @@ async def spawn_modifier_shrine(scene: "Scene", *, view: discord.ui.View | None 
     e_descr = 'Oto kapliczka zmian, która wpłynie na następnego bossa! '\
         'Jeśli chcesz wpłynąć na następnego bossa, to pomódl się przyciskiem pod tym postem '\
         'albo wpisując **$modlitwa**.\n\n'\
-        '*Tylko Crafterzy i Patroni znają odpowiednią modlitwę, ale każdy może skorzystać'\
-        ' z błogosławieństw rzuconych na potwora.*'
+        f'*Tylko {patrons.SUPPORTERS_SHORT} ({patrons.SUPPORTERS_LONG}) znają odpowiednią modlitwę,'\
+        ' ale każdy może skorzystać z błogosławieństw rzuconych na potwora.*'
 
     embed = discord.Embed(title=e_title, description=e_descr, color=SHRINE_COLOR)
     embed.set_thumbnail(url=SHRINE_THUMBNAIL)

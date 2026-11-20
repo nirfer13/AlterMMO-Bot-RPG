@@ -1,6 +1,19 @@
 from __future__ import annotations
 
-from altermmo.features import expsum, patrons
+import random
+import re
+from pathlib import Path
+
+import pytest
+
+import altermmo
+from altermmo.cogs import help as help_cog
+from altermmo.features import achievements, daily, events, expsum, hub, modifiers, patrons, tower, twitch
+from altermmo.settings import Ids
+
+#: The roles the owner named on 2026-11-20 (Twitch subscribers, members of the two YouTube channels).
+TWITCH_SUB = 1199797849660063834
+YOUTUBE_1, YOUTUBE_2 = 891314182459371520, 1546795477176025120
 
 
 async def test_patron_detection_and_random_pick(game):
@@ -14,6 +27,112 @@ async def test_patron_detection_and_random_pick(game):
 
 async def test_get_patron_without_patrons_returns_none(game):
     assert patrons.get_patron(game.bot) is None
+
+
+def test_supporter_roles_are_patrons_crafters_twitch_subscribers_and_youtube_supporters():
+    assert patrons.TWITCH_SUB_ROLE == TWITCH_SUB
+    assert patrons.YOUTUBE_ROLES == (YOUTUBE_1, YOUTUBE_2)
+    assert set(patrons.SUPPORTER_ROLES) == {patrons.CRAFTER_ROLE, *patrons.PATRON_ROLES, TWITCH_SUB,
+                                            YOUTUBE_1, YOUTUBE_2}
+    assert len(patrons.SUPPORTER_ROLES) == len(set(patrons.SUPPORTER_ROLES)) == 8
+    assert len(patrons.PATRON_ROLES) == 4                                # the legacy tiers are untouched
+
+
+@pytest.mark.parametrize("role_id", [TWITCH_SUB, YOUTUBE_1, YOUTUBE_2])
+async def test_twitch_subscribers_and_youtube_supporters_are_supporters(game, role_id):
+    """Owner's decision of 2026-11-20: holding only one of these roles is enough."""
+    game.add_member("Zwykly")
+    member = game.add_member("Widz", roles=[role_id])
+    assert [role.id for role in member.roles] == [role_id]
+    assert patrons.check_if_patron(member)
+    assert patrons.get_patron(game.bot) is member                        # the only supporter on the server
+
+
+async def test_an_unrelated_role_makes_nobody_a_supporter(game):
+    others = [twitch.VIP_ROLE, twitch.MOD_ROLE, twitch.VIEWER_ROLES[-1], twitch.MESSAGER_ROLES[0],
+              game.bot.ids.hunters_role, game.bot.ids.boss_slayer_role, 123456789]
+    member = game.add_member("Widz", roles=others)
+    assert not patrons.check_if_patron(member)
+    assert patrons.get_patron(game.bot) is None
+
+
+def test_no_role_the_bot_hands_out_itself_is_a_supporter_role():
+    """Otherwise the bot could make somebody a "supporter" by accident (Twitch watch time, achievements...)."""
+    ids = Ids()
+    granted = {*twitch.VIEWER_ROLES, *twitch.MESSAGER_ROLES, twitch.VIP_ROLE, twitch.MOD_ROLE,
+               *achievements.BOSS_KILL_ROLES.values(), *achievements.HUNT_ROLES.values(),
+               *achievements.BUTCHER_ROLES.values(), *achievements.TOWER_ROLES, achievements.UNICORN_ROLE,
+               achievements.LEGEND_ROLE, achievements.QUICKNESS_ROLE, ids.hunters_role, ids.boss_slayer_role,
+               ids.dead_hunter_role, ids.mythic_slayer_role}
+    assert not granted & set(patrons.SUPPORTER_ROLES)
+
+
+async def test_get_patron_keeps_the_legacy_weighting(game, monkeypatch):
+    """The member lists of the roles are concatenated: two supporter roles, two tickets."""
+    both = game.add_member("Oba", roles=[patrons.PATRON_ROLES[0], TWITCH_SUB])
+    youtube = game.add_member("YouTube", roles=[YOUTUBE_2])
+    pools = []
+    monkeypatch.setattr(random, "choice", lambda pool: pools.append(list(pool)) or pool[-1])
+    assert patrons.get_patron(game.bot) is youtube
+    assert sorted(member.name for member in pools[0]) == ["Oba", "Oba", "YouTube"]
+
+
+def test_supporter_mentions_list_every_role_once():
+    text = patrons.supporter_mentions()
+    assert re.findall(r"<@&(\d+)>", text) == [str(role_id) for role_id in patrons.SUPPORTER_ROLES]
+    assert text.endswith(f" i <@&{patrons.SUPPORTER_ROLES[-1]}>") and text.count(", ") == 6
+    # Patronite - the way the owner recommends - comes first, everywhere.
+    assert patrons.SUPPORTER_ROLES[:4] == patrons.PATRON_ROLES
+    assert patrons.SUPPORT_LINKS[0] == ("Patronite", "https://patronite.pl/altermmo")
+    assert [url for _, url in patrons.SUPPORT_LINKS] == [
+        "https://patronite.pl/altermmo", "http://youtube.com/@AlterMMO/join",
+        "http://youtube.com/@Surowe_AlterMMO/join", "https://www.twitch.tv/products/altermmo_pl"]
+
+
+# -- one vocabulary in every text ------------------------------------------------------
+
+def test_the_shared_wording():
+    assert patrons.SUPPORTERS_SHORT == "wspierający"
+    assert patrons.SUPPORTERS_LONG == "Patroni, Crafterzy, subskrybenci Twitch i wspierający na YouTube"
+
+
+def test_short_hints_speak_of_supporters():
+    hint = "*Wspierający mogą wydropić dodatkowe, kosmetyczne przedmioty!*"
+    assert events.CHEST_DESCR.endswith(hint) and events.INVASION_DESCR.endswith(hint)
+    assert "za zdrowie jednego z naszych wspierających?" in events.PARTY_DESCR
+    assert "poczekaj na modlitwę wspierających!" in daily.MSG_MISTAKE_LOST
+
+
+def test_the_groups_are_spelled_out_where_there_is_room():
+    assert f"Wspierający ({patrons.SUPPORTERS_LONG}) mogą zostać bossami." in help_cog.HELP_INTRO
+    name, value = help_cog.HELP_FIELDS[-1]
+    assert name == "🙏 Wspierający"
+    assert value.startswith(f"Komendy tylko dla wspierających ({patrons.SUPPORTERS_LONG}):")
+    assert "$modlitwa" in value and "$transformacja" in value and "**Panelu gry**" in value
+    for role_id in patrons.SUPPORTER_ROLES:                              # the roles themselves: on the panel
+        assert f"<@&{role_id}>" in hub.PANEL_SUPPORT_TEXT
+
+
+def test_no_text_names_only_patrons_and_crafters_any_more():
+    """Every module of the game: the old phrases are gone (they were true before 2026-11-20)."""
+    old = re.compile(r"Crafterzy i Patroni|Crafterów i Patronów|patronów lub crafterów|oraz Patroni|i patronów")
+    sources = {path.name: path.read_text(encoding="utf-8")
+               for path in sorted(Path(altermmo.__file__).parent.rglob("*.py"))}
+    assert [name for name, source in sources.items() if old.search(source)] == []
+    # ... and no module but patrons.py knows a supporter role by its id (role lists, hard-coded mentions).
+    known = [name for name, source in sources.items()
+             if any(str(role_id) in source for role_id in patrons.SUPPORTER_ROLES)]
+    assert known == ["patrons.py"]
+
+
+async def test_shrine_and_tower_hints(game):
+    await modifiers.spawn_modifier_shrine(game.scene())
+    assert (f"*Tylko wspierający ({patrons.SUPPORTERS_LONG}) znają odpowiednią modlitwę, ale każdy może "
+            "skorzystać z błogosławieństw rzuconych na potwora.*") in game.channel.messages[-1].embeds[0].description
+    for floor in (1, 2):
+        await tower.tower_image(game.scene(), floor)
+        assert game.channel.messages[-1].embeds[0].description.endswith(
+            "*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
 
 
 async def test_exp_summary_accumulates_and_resets(game):

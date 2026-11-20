@@ -188,7 +188,8 @@ async def test_shrine_posts_picture_and_embed(game, monkeypatch):
         "Oto kapliczka zmian, która wpłynie na następnego bossa! "
         "Jeśli chcesz wpłynąć na następnego bossa, to pomódl się przyciskiem pod tym postem "
         "albo wpisując **$modlitwa**.\n\n"
-        "*Tylko Crafterzy i Patroni znają odpowiednią modlitwę, ale każdy może skorzystać"
+        "*Tylko wspierający (Patroni, Crafterzy, subskrybenci Twitch i wspierający na YouTube) znają odpowiednią "
+        "modlitwę, ale każdy może skorzystać"
         " z błogosławieństw rzuconych na potwora.*")
     assert embed.colour.value == 0x609AF7
     assert embed.thumbnail.url == "https://www.altermmo.pl/wp-content/uploads/Prayge.png"

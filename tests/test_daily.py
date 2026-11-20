@@ -510,7 +510,7 @@ async def test_mistake_loses_pays_the_player_monster_and_bans(game_db, monkeypat
     assert await daily.hunt_mobs(game_db.scene(ala), 1, True, patron) is False
     assert game_db.channel.messages[-1].content == (
         "Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie jutro lub poczekaj na modlitwę "
-        "Crafterów i Patronów! <:RIP:912797982917816341>\n\n*Możesz również dołączyć do polowania innych graczy.*")
+        "wspierających! <:RIP:912797982917816341>\n\n*Możesz również dołączyć do polowania innych graczy.*")
     assert len(prompts(game_db.channel)) == 2
     # The player who posed as the monster gets rarity + 1 scrolls.
     assert (await owner_row(bot, patron.id))["reroll_scroll"] == 2

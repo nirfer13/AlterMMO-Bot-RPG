@@ -77,7 +77,7 @@ MSG_FIGHT_INTERRUPTED_STAYS = ("Wystąpił problem techniczny i walka została p
                                "albo wpisz **$zaatakuj**, żeby spróbować ponownie!")
 MSG_BOSS_TAKEN = "Ktoś już walczy z tym bossem - poczekaj na kolejnego! <:Bedge:970576892874854400>"
 #: A click in the split second between somebody's attack and the message where the
-#: others sign up (the party panel of a legendary boss / the two minutes for a rival).
+#: others sign up (the party panel of a legendary boss / the minute for a rival).
 MSG_PARTY_GATHERS = ("Ktoś zaatakował bossa ułamek sekundy przed Tobą. Za moment pojawi się tu panel "
                      "drużyny - kliknij na nim **Dołącz**, żeby walczyć razem! ⚔️")
 MSG_RIVAL_WELCOME = ("Ktoś zaatakował bossa ułamek sekundy przed Tobą. Za moment pojawi się tu wiadomość "
@@ -123,10 +123,34 @@ def is_spawn_notice(content: Any, boss_channel_id: int) -> bool:
     return f"<#{int(boss_channel_id)}>" in text and "pojawił się" in text and "potwór" in text
 
 
-def spawn_notice(boss_channel_id: int) -> str:
-    """The notice on the general chat when a boss appears (wording refreshed on the owner's request)."""
-    return (f"⚔️ Przygotujcie się! Na kanale <#{boss_channel_id}> właśnie pojawił się potwór. "
-            "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+#: Symbol and name of a boss rarity (the usual loot colours; the first three are the
+#: squares of the boss embed's thumbnail).  Shown wherever a boss is announced.
+RARITY_EMOJI: dict[int, str] = {0: "🟩", 1: "🟦", 2: "🟪", 3: "🟧", 4: "🟥"}
+RARITY_NAMES: dict[int, str] = {0: "zwykły", 1: "rzadki", 2: "epicki", 3: "legendarny", 4: "mityczny"}
+#: Rarity of a boss that needs a party (see ``boss.GROUP_RARITY``).
+_PARTY_RARITY = 3
+
+
+def rarity_emoji(rarity: int) -> str:
+    """The symbol of ``rarity``; an unknown one is shown as legendary (as the boss embed does)."""
+    return RARITY_EMOJI.get(int(rarity), RARITY_EMOJI[_PARTY_RARITY])
+
+
+def spawn_notice(boss_channel_id: int, rarity: int | None = None) -> str:
+    """The notice on the general chat when a boss appears (wording refreshed on the owner's request).
+
+    With ``rarity`` it also says how rare the boss is, with the symbol of that
+    rarity (owner's request of 2026-11-20).  Whatever is added, the words
+    :func:`is_spawn_notice` looks for must stay.
+    """
+    if rarity is None or int(rarity) not in RARITY_NAMES:
+        return (f"⚔️ Przygotujcie się! Na kanale <#{boss_channel_id}> właśnie pojawił się potwór. "
+                "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+    rarity = int(rarity)
+    ending = ("Sam nikt mu nie podoła - zbierzcie drużynę!" if rarity == _PARTY_RARITY
+              else "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+    return (f"⚔️ Przygotujcie się! Na kanale <#{boss_channel_id}> właśnie pojawił się potwór: "
+            f"{RARITY_EMOJI[rarity]} **{RARITY_NAMES[rarity]} boss**. {ending}")
 
 
 def final_rarity(base_rarity: int, rarity_boost: int, now: datetime, *, debug: bool) -> int:
@@ -649,7 +673,9 @@ class BossCycle:
         await self.remove_spawn_notice()
         try:
             announce = bot.text_channel(bot.ids.announce_channel)
-            self._remember_spawn_notice(await io.send(announce, spawn_notice(bot.ids.boss_channel)))
+            rarity = getattr(bot.state.boss, "rarity", None)
+            self._remember_spawn_notice(
+                await io.send(announce, spawn_notice(bot.ids.boss_channel, rarity)))
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

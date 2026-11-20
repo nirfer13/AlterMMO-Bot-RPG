@@ -8,6 +8,13 @@ it.  Posting it again replaces the previous panel: its id is remembered in
 out on the test channel never removes the real one) and the old message is
 deleted - a panel somebody already removed by hand is simply skipped.
 
+Its text has two parts: how the game is played (:data:`PANEL_GAME_TEXT`) and,
+since 2026-11-20, what supporters get on top and where one becomes a
+supporter (:data:`PANEL_SUPPORT_TEXT`: the supporter roles of
+:mod:`altermmo.features.patrons` as role mentions, the benefits, the links).
+A panel that is already pinned gets the current text by itself after the next
+start of the bot (:func:`refresh_panel`); nobody has to type ``$panel`` again.
+
 The buttons are *permanent* (fixed ``custom_id``\\ s ``altermmo:hub:...``, no
 timeout, no state in the view): the cog registers one :class:`HubView` at
 start-up, so the panel keeps working after every restart.
@@ -48,6 +55,7 @@ import discord
 
 from ..core import challenge, io, ui
 from ..core.db import DatabaseUnavailable
+from . import patrons
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -69,12 +77,13 @@ RANKINGS_ID = BUTTON_PREFIX + "rankings"
 HELP_ID = BUTTON_PREFIX + "help"
 
 PANEL_TITLE = "🎮 Panel gry"
-PANEL_TEXT = (
+#: What the buttons do and how the game is played.
+PANEL_GAME_TEXT = (
     "Witaj, łowco! Stąd ruszysz na przygodę jednym kliknięciem. Wpisywane komendy działają tak jak "
     "dotąd - ich listę znajdziesz pod przyciskiem **Pomoc**.\n\n"
     "⚔️ **Polowanie** - zapoluj na zwykłe stwory (raz dziennie, modlitwa w kapliczce może to odnowić). "
     "Inni łowcy dołączą przyciskiem pod potworem.\n"
-    "🗼 **Wieża** - wyrusz na eksplorację Wieży Śmierci (raz w tygodniu). Im wyżej, tym trudniej!\n"
+    "🏰 **Wieża** - wyrusz na eksplorację Wieży Śmierci (raz w tygodniu). Im wyżej, tym trudniej!\n"
     "🐾 **Towarzysz**, 🐴 **Stajnia**, 💎 **Klejnoty** - podejrzyj swojego towarzysza, stajnię "
     "i klejnoty umiejętności.\n"
     "🏆 **Rankingi** - sezonowy ranking łowców, Wieża Śmierci i najbardziej utalentowani towarzysze.\n"
@@ -84,6 +93,41 @@ PANEL_TEXT = (
     "⌨️ **Walki** toczą się na klawiaturze: wpisz podane słowo, zanim minie czas! "
     "<:PepoG:790963160528977980>"
 )
+#: What supporters get, in player language: one line per benefit, each one checked against the
+#: code that grants it (every place that asks ``patrons.check_if_patron`` / ``patrons.get_patron``):
+#: ``pets.PATRON_EGGS``; ``pets.transform_pet``; the shrine in ``cogs/events.py``;
+#: ``boss.send_boss_image`` and ``events.spawn_party``; ``achievements.py``, ``tower.py`` and the
+#: mythic slayer role in ``boss.py``; the seals and the Holo foil rolled for a new pet in ``pets.py``
+#: (stored with the pet for good, shown only while its owner supports).
+#: (The silver / gold frames of shiny pets are for everybody, so they are not listed.)
+PANEL_BENEFITS: tuple[str, ...] = (
+    "🥚 **Jaja premium** - z jaj wykluwają się też rzadsze gatunki towarzyszy (smok, feniks, "
+    "jednorożec i inne).",
+    "🪞 **Transformacja** - zmiana wyglądu towarzysza lustrem wizualiów (**$transformacja**).",
+    "🕯️ **Modlitwa w kapliczce** - pomodlić się mogą tylko wspierający (**$modlitwa**), a korzystają "
+    "wszyscy.",
+    "👹 **Rola bossa** - szansa, że to Ty zostaniesz bossem (i zgarniesz doświadczenie za pokonanego "
+    "łowcę) albo bohaterem imprezy u Barda.",
+    "🏅 **Kolekcjonerskie osiągnięcia** - role za zabite bossy, polowania, wygrane sezony, piętra "
+    "Wieży oraz legendarne i mityczne wyczyny.",
+    "🔖 **Pieczęcie i folia Holo** - każdy nowy towarzysz ma szansę na kolekcjonerską pieczęć "
+    "(Tropiciela, Łowcy albo Arcyłowcy) i animowaną folię Holo. Zdobią jego kartę, dopóki wspierasz "
+    "(po przerwie wracają).",
+)
+#: Where to become a supporter: markdown links (they work in an embed description), the
+#: recommended way first and in bold.
+PANEL_LINKS = " • ".join(
+    f"**[{label}]({url})** (polecane)" if url == patrons.PATRONITE_URL else f"[{label}]({url})"
+    for label, url in patrons.SUPPORT_LINKS)
+#: The supporters' section.  The roles are role mentions: inside an embed they show the names
+#: the server gives them and notify nobody.
+PANEL_SUPPORT_TEXT = (
+    f"💜 **Dodatkowe benefity dla** {patrons.supporter_mentions()}:\n"
+    + "\n".join(PANEL_BENEFITS)
+    + f"\n\n**Wesprzyj AlterMMO:** {PANEL_LINKS}"
+)
+#: The whole description of the panel (Discord's limit: 4096 characters; ``tests/test_ui_hub.py``).
+PANEL_TEXT = PANEL_GAME_TEXT + "\n\n" + PANEL_SUPPORT_TEXT
 PANEL_FOOTER = "Polowanie i Wieża ruszają tylko na tym kanale i nie wtedy, gdy trwa inne wydarzenie."
 PANEL_COLOUR = 0x42F34C
 
@@ -122,7 +166,7 @@ class HubView(ui.GameView):
     async def hunt(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await hunt_clicked(interaction)
 
-    @discord.ui.button(label="Wieża", emoji="🗼", style=discord.ButtonStyle.primary, row=0,
+    @discord.ui.button(label="Wieża", emoji="🏰", style=discord.ButtonStyle.primary, row=0,
                        custom_id=TOWER_ID)
     async def tower(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await tower_clicked(interaction)
@@ -295,7 +339,8 @@ async def refresh_panel(bot: "AlterBot") -> bool:
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - e.g. the panel was removed by hand
-        log.info("Hub panel not refreshed (%s: %s).", type(exc).__name__, exc)
+        log.warning("Hub panel not refreshed (%s: %s) - it keeps its old text until the next start "
+                    "or $panel.", type(exc).__name__, exc)
         return False
 
 

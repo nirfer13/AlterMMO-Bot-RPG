@@ -323,6 +323,31 @@ async def test_only_believers_pray_with_the_button(game, cog, monkeypatch):
     assert not game.bot.state.event_alive
 
 
+@pytest.mark.parametrize("role_id", [patrons.TWITCH_SUB_ROLE, *patrons.YOUTUBE_ROLES])
+@pytest.mark.parametrize("typed", [False, True])
+async def test_twitch_subscribers_and_youtube_supporters_pray(game, cog, monkeypatch, role_id, typed):
+    """Since 2026-11-20 every supporter knows the prayer - the button and ``$modlitwa`` alike."""
+    monkeypatch.setattr(random, "choice", lambda pool: "points_boost")
+    supporter = game.add_member("Widz", roles=[role_id])
+    vip = game.add_member("VIP", roles=[964845150213906442])            # a Twitch VIP is no supporter
+    await cog.run_one_event(forced=EventType.SHRINE)
+    shrine = game.channel.messages[-1]
+    assert "Tylko wspierający (Patroni, Crafterzy, subskrybenci Twitch i wspierający na YouTube)" in (
+        shrine.embeds[0].description)
+
+    refused = await game.click(shrine, vip, events_cog.SHRINE_BUTTON_ID)
+    assert refused.public == [f"<@{vip.id}> {events_cog.MSG_NOT_A_BELIEVER}"] and game.bot.state.event_alive
+
+    if typed:
+        ctx = ctx_of(game, supporter, "$modlitwa")
+        await cog.pray.callback(cog, ctx)
+        assert ctx.message.reactions == [events_cog.PRAYGE]
+    else:
+        assert (await game.click(shrine, supporter, events_cog.SHRINE_BUTTON_ID)).response.deferred
+    assert (await events.modifiers.load_modifiers(game.bot))["points_boost"] > 0
+    assert shrine.view is None and supporter.mention in shrine.text and not game.bot.state.event_alive
+
+
 async def test_pray_command_still_works_and_takes_the_button_away(game, cog, monkeypatch):
     monkeypatch.setattr(random, "choice", lambda pool: "points_boost")
     patron = game.add_member("Mecenas", roles=[patrons.CRAFTER_ROLE])

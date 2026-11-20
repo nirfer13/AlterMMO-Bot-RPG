@@ -173,7 +173,7 @@ async def test_tower_image(game, monkeypatch, tmp_path):
     embed = card.embeds[0]
     assert embed.title == "<:AlterUp:846344753124999169> 1 piętro Wieży Śmierci! <:Loot:912797849916436570>"
     assert embed.description == ("Rozpoczynasz eksplorację Wieży Śmierci. Strzeż się!"
-                                 "\n\n*Crafterzy i Patroni mogą zdobyć kolekcjonerskie osiągnięcia!*")
+                                 "\n\n*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
     assert embed.colour.value == 0xF00511
 
     await tower.tower_image(game.scene(), 7)
@@ -181,7 +181,7 @@ async def test_tower_image(game, monkeypatch, tmp_path):
     assert picture.files == ["7.png"]
     assert card.embeds[0].title == "<:AlterUp:846344753124999169> 7 piętro Wieży Śmierci! <:Loot:912797849916436570>"
     assert card.embeds[0].description == ("Przechodzisz na kolejne piętro. Powodzenia!"
-                                          "\n\n*Crafterzy i Patroni mogą zdobyć kolekcjonerskie osiągnięcia!*")
+                                          "\n\n*Wspierający mogą zdobyć kolekcjonerskie osiągnięcia!*")
 
     # A missing picture does not stop the run.
     monkeypatch.setattr(tower, "ASSETS_DIR", tmp_path)
@@ -272,6 +272,18 @@ async def test_floor_roles_only_for_patrons(game_db):
     gone.roles.append(game_db.guild.add_role(patrons.CRAFTER_ROLE))
     assert await tower.update_tower_level(scene, gone, 3, timedelta(seconds=2)) is True
     assert await record(bot, gone.id) == (3, "0:00:02.000000")
+
+
+@pytest.mark.parametrize("role_id", [patrons.TWITCH_SUB_ROLE, *patrons.YOUTUBE_ROLES])
+async def test_floor_roles_for_twitch_subscribers_and_youtube_supporters(game_db, role_id):
+    """Since 2026-11-20 the collector's roles are for every supporter, not only patrons and crafters."""
+    floor_3 = game_db.guild.add_role(tower._FLOOR_ROLES[3], "Wieża 3")
+    supporter = game_db.add_member("Widz", roles=[role_id])
+    other = game_db.add_member("VIP", roles=[964845150213906442])        # a Twitch VIP is no supporter
+    scene = game_db.scene()
+    await tower.update_tower_level(scene, supporter, 3, timedelta(seconds=3))
+    await tower.update_tower_level(scene, other, 3, timedelta(seconds=3))
+    assert floor_3 in supporter.roles and floor_3 not in other.roles
 
 
 async def test_tower_ranking(game_db):

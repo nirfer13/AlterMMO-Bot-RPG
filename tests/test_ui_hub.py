@@ -19,7 +19,7 @@ from altermmo.cogs import help as help_cog
 from altermmo.core import challenge, guards, io, ui
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossPhase
-from altermmo.features import daily, hub, pets, skills, tower
+from altermmo.features import daily, hub, patrons, pets, skills, tower
 
 from fakes import FakeInteraction, FakeMessage
 from test_pets import add_pet
@@ -183,6 +183,10 @@ def test_help_embed_fits_discord_limits_and_mentions_the_buttons():
     assert "reakcj" not in text.lower()
     # Mentions render only in field values, never in names.
     assert not any("<@" in field.name for field in embed.fields)
+    # The supporters' section (before 2026-11-20: "🙏 Patroni", crafters and patrons only).
+    assert [field.name for field in embed.fields][-1] == "🙏 Wspierający"
+    assert patrons.SUPPORTERS_LONG in embed.fields[-1].value and patrons.SUPPORTERS_LONG in embed.description
+    assert "Patroni mogą" not in text and str(patrons.CRAFTER_ROLE) not in text
 
 
 @pytest.mark.parametrize("text", [hub.PANEL_TEXT, hub.PANEL_FOOTER, help_cog.HELP_TEXT])
@@ -191,6 +195,63 @@ def test_panel_and_help_promise_no_private_answers(text):
     lowered = text.lower()
     for promise in ("tylko tobie", "tylko ty", "widzisz tylko", "tylko dla ciebie", "prywatnie"):
         assert promise not in lowered
+
+
+# -- the panel's second part: what supporters get -----------------------------------------------
+
+def test_panel_fits_discord_limits_and_stays_compact():
+    embed = hub.panel_embed()
+    assert embed.title == hub.PANEL_TITLE and embed.footer.text == hub.PANEL_FOOTER
+    assert embed.description == hub.PANEL_TEXT == hub.PANEL_GAME_TEXT + "\n\n" + hub.PANEL_SUPPORT_TEXT
+    assert len(embed.description) <= 4096 and len(embed) <= 6000         # Discord's limits
+    assert len(embed.title) <= 256 and len(embed.footer.text) <= 2048 and not embed.fields
+    # A pinned message everybody sees: the supporters' part is no longer than the game's part
+    # plus the role mentions (8 x 23 characters, which Discord shows as short role names).
+    assert len(hub.PANEL_SUPPORT_TEXT) <= 1300
+    assert all(len(line) <= 220 for line in hub.PANEL_BENEFITS)
+
+
+def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
+    header, *lines = hub.PANEL_SUPPORT_TEXT.split("\n")
+    # "Dodatkowe benefity dla" + every supporter role as a role mention (rendered as the server's
+    # role names; a mention inside an embed notifies nobody).
+    assert header.startswith("💜 **Dodatkowe benefity dla** <@&") and header.endswith(":")
+    assert re.findall(r"<@&(\d+)>", header) == [str(role_id) for role_id in patrons.SUPPORTER_ROLES]
+    assert {patrons.TWITCH_SUB_ROLE, *patrons.YOUTUBE_ROLES, patrons.CRAFTER_ROLE,
+            *patrons.PATRON_ROLES} == set(patrons.SUPPORTER_ROLES)
+    assert "<@" not in hub.PANEL_GAME_TEXT and "@everyone" not in hub.PANEL_TEXT and "@here" not in hub.PANEL_TEXT
+
+    # One line per benefit - what the code really gives supporters.
+    assert lines[:len(hub.PANEL_BENEFITS)] == list(hub.PANEL_BENEFITS) and len(hub.PANEL_BENEFITS) == 6
+    benefits = "\n".join(hub.PANEL_BENEFITS)
+    for words in ("Jaja premium", "**$transformacja**", "lustrem wizualiów", "**$modlitwa**", "kapliczce",
+                  "zostaniesz bossem", "imprezy u Barda", "Kolekcjonerskie osiągnięcia", "piętra Wieży",
+                  "Pieczęcie i folia Holo", "Tropiciela, Łowcy albo Arcyłowcy", "dopóki wspierasz"):
+        assert words in benefits
+    # The silver / gold frames of shiny companions are for everybody: not sold as a perk.
+    assert "ramk" not in benefits.lower() and "shiny" not in benefits.lower()
+
+    # The links: Patronite first and recommended, exactly the owner's addresses, as markdown links.
+    assert lines[-2] == "" and lines[-1] == hub.PANEL_TEXT.rsplit("\n", 1)[-1] == (
+        "**Wesprzyj AlterMMO:** **[Patronite](https://patronite.pl/altermmo)** (polecane)"
+        " • [YouTube AlterMMO](http://youtube.com/@AlterMMO/join)"
+        " • [YouTube Surowe AlterMMO](http://youtube.com/@Surowe_AlterMMO/join)"
+        " • [Twitch](https://www.twitch.tv/products/altermmo_pl)")
+    assert re.findall(r"\]\((\S+?)\)", lines[-1]) == [url for _, url in patrons.SUPPORT_LINKS]
+    assert hub.PANEL_TEXT.count("http") == 4                             # no bare address anywhere else
+
+
+async def test_every_command_the_panel_names_exists_and_is_for_players(game, monkeypatch):
+    bot = game.bot
+    monkeypatch.setattr(bot.supervisor, "start", lambda *args, **kwargs: None)
+    for extension in bot_module.EXTENSIONS:
+        await bot.load_extension(extension)
+    named = set(re.findall(r"\$(\w+)", hub.PANEL_TEXT))
+    assert {"zaatakuj", "transformacja", "modlitwa"} <= named
+    for word in named:
+        command = bot.get_command(word)
+        assert command is not None and command.cog_name != "Admin", word
+        assert not any("has_permissions" in getattr(check, "__qualname__", "") for check in command.checks)
 
 
 async def test_typed_pomoc_shows_the_help_and_its_cooldown_answers_with_a_live_time(game):
@@ -631,9 +692,19 @@ async def test_pinned_panel_gets_the_current_text_after_a_start(game, cog):
     assert await hub.refresh_panel(bot) is True
     assert panel.embeds[0].title == hub.PANEL_TITLE == "🎮 Panel gry"
     assert "tylko Ty" not in panel.embeds[0].description and panel.pinned
+    # ... so the supporters' part (2026-11-20) reaches a panel pinned earlier without a new $panel.
+    assert panel.embeds[0].description == hub.PANEL_TEXT and "Dodatkowe benefity dla" in hub.PANEL_TEXT
     assert (await game.click(panel, game.add_member("Ala"), "Pomoc")).response.deferred   # the buttons work
 
     await panel.delete()                                                 # removed by hand: no error
     assert await hub.refresh_panel(bot) is False
     bot.store.runtime_set(hub.panel_key(bot, bot.ids.boss_channel), None)
     assert await hub.refresh_panel(bot) is False                         # no panel was ever posted
+
+
+def test_tower_has_a_fantasy_icon():
+    """Owner's request of 2026-11-20: a castle instead of the Tokyo Tower emoji."""
+    button = next(item for item in hub.HubView().children if item.custom_id == hub.TOWER_ID)
+    assert str(button.emoji) == "🏰" and button.label == "Wieża"
+    assert "🏰 **Wieża**" in hub.PANEL_TEXT and "🗼" not in hub.PANEL_TEXT
+

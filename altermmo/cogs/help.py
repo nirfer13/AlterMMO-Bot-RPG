@@ -12,15 +12,17 @@ import discord
 from discord.ext import commands
 
 from ..core import io
+from ..features import patrons
 
 HELP_TITLE = "<:PepoG:790963160528977980> Komendy dostępne w grze <:PepoG:790963160528977980>"
 HELP_COLOUR = 0x42F34C
 
-HELP_INTRO = """Respawn bossa może trwać od kilkunastu minut do kilkunastu godzin, więc warto zaglądać co jakiś czas na Discorda. Im dłużej boss się respi, tym potężniejszy będzie i tym lepszy drop zaoferuje.
+#: (An f-string only for the shared wording of the supporter groups - see ``features/patrons.py``.)
+HELP_INTRO = f"""Respawn bossa może trwać od kilkunastu minut do kilkunastu godzin, więc warto zaglądać co jakiś czas na Discorda. Im dłużej boss się respi, tym potężniejszy będzie i tym lepszy drop zaoferuje.
 
 Jeśli brakuje Wam graczy, to warto zawołać rolę <@&985071779787730944>. Do roli tej można przypisać się na kanale <#719989249956380793>.
 
-<@&687185998550925312> oraz Patroni mogą zostać bossami. Jest to losowe. Jednak jeśli taki boss pokona gracza, to użytkownik Discorda, który owym bossem był, zgarnia dodatkowe doświadczenie.
+Wspierający ({patrons.SUPPORTERS_LONG}) mogą zostać bossami. Jest to losowe. Jednak jeśli taki boss pokona gracza, to użytkownik Discorda, który owym bossem był, zgarnia dodatkowe doświadczenie.
 
 🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży oraz pokazuje towarzysza, stajnię, klejnoty i rankingi. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo - jak dotąd - wpisując **$potwierdzam**. Wszystkie komendy poniżej działają nadal. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
 
@@ -60,9 +62,11 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
 - $flex - Pokaż innym jakim jesteś koxem.
 - $kolor kolor_hex - Zmienia kolor rangi <@&983798433590673448>, np. $kolor 00FFFF.
 - $ikona - Zmienia ikonę rangi: wyślij komendę z dołączonym obrazkiem .png."""),
-    ("🙏 Patroni", """Komendy dla <@&687185998550925312> i patronów:
+    # Before 2026-11-20: "🙏 Patroni" (crafters and patrons only).
+    ("🙏 Wspierający", f"""Komendy tylko dla wspierających ({patrons.SUPPORTERS_LONG}):
 - $modlitwa - Gdy pojawi się kapliczka, modlitwą (albo przyciskiem **Pomódl się**) można wpłynąć na statystyki kolejnego bossa.
-- $transformacja - Zmienia wygląd towarzysza."""),
+- $transformacja - Zmienia wygląd towarzysza (zużywa lustro wizualiów).
+Wszystkie benefity wspierających i sposoby wsparcia znajdziesz w przypiętym **Panelu gry**."""),
 )
 
 #: The whole help as one text (kept for code and tests that read it as before).
