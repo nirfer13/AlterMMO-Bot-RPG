@@ -1228,9 +1228,9 @@ async def test_pet_ranking(game_db):
     assert len(lines) == 20                                  # ten pets, two short lines each
     assert lines[:8] == [
         "🥇 **O'Neil the Magnifice** · Smok · poziom 3",
-        "┗ Talent: **Boski** · ✨ Shiny · 🌟 Ultra shiny · 💎 Premium",
+        "┗ Talent: **Boski** · 🌟 Ultra shiny · 💎 Premium",
         "🥈 **Pustka** · Istota pustki · poziom 3",
-        "┗ Talent: **Oświecony** · ✨ Shiny · 🌟 Ultra shiny · 🔮 Mityczny",
+        "┗ Talent: **Oświecony** · 🔮 Mityczny",
         "🥉 **Mruczek** · Kot · poziom 2",
         "┗ Talent: **Oświecony**",                           # nothing special: nothing listed
         "**4.** **Towarzysz** · jajko",                      # level 0, a type the bot has no name for

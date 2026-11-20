@@ -1701,14 +1701,16 @@ def _ranking_entry(place: int, pet: Any) -> str:
     level = _int(pet["pet_lvl"])
     about = [POLISH_TYPES.get(pet["type"], ""), "jajko" if level == 0 else f"poziom {level}"]
     badges = []
-    if pet["shiny"] is True:
-        badges.append(BADGE_SHINY)
-    if pet["ultra_shiny"] is True:
-        badges.append(BADGE_ULTRA_SHINY)
+    # Only the highest badge: mythic already says (ultra) shiny, ultra shiny says shiny.
     if pet["mythic"] is True or pet["quality"] == "Mythic":
         badges.append(BADGE_MYTHIC)
-    elif pet["quality"] == "Premium":
-        badges.append(BADGE_PREMIUM)
+    else:
+        if pet["ultra_shiny"] is True:
+            badges.append(BADGE_ULTRA_SHINY)
+        elif pet["shiny"] is True:
+            badges.append(BADGE_SHINY)
+        if pet["quality"] == "Premium":
+            badges.append(BADGE_PREMIUM)
     first = " · ".join([f"{ui.place(place)} **{name}**", *(part for part in about if part)])
     second = " · ".join([f"Talent: **{_talent(_int(pet['pet_skills']))}**", *badges])
     return f"{first}\n┗ {second}"
