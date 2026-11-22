@@ -126,7 +126,10 @@ PANEL_GAME_TEXT = (
 #: Owner's decision of 2026-11-20: the panel does not name WHICH species supporters can find nor
 #: WHICH card ornaments exist (seals, Holo) - players discover them.
 PANEL_BENEFITS: tuple[str, ...] = (
-    "🥚 **Jaja premium** - z jaj wykluwają się też rzadsze gatunki towarzyszy.",
+    # (Owner, 2026-11-22: "Jaja premium też dopisz, że to element kosmetyczny." True: what a
+    # talent point gives depends on the pet's class - pets._GAINS - never on its species.)
+    "🥚 **Jaja premium** - z jaj wykluwają się też rzadsze gatunki towarzyszy. **To tylko element "
+    "kosmetyczny**: inny wygląd, te same statystyki.",
     "🪞 **Transformacja** - zmiana wyglądu towarzysza lustrem wizualiów (**$transformacja**).",
     "🕯️ **Modlitwa w kapliczce** - pomodlić się mogą tylko wspierający (**$modlitwa**), a korzystają "
     "wszyscy.",
