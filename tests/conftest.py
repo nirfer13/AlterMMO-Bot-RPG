@@ -59,10 +59,12 @@ def _fast_rounds(monkeypatch):
     Waiting times (``timing.timeout``) stay real; a test that exercises a
     "nobody answered" path shrinks them with the ``short_timeouts`` fixture.
     """
-    from altermmo.core import challenge, guards, timing, ui, waiting
+    from altermmo.core import challenge, fightlog, guards, timing, ui, waiting
 
     monkeypatch.setattr(waiting, "NOTICE_DELAY", 24 * 3600.0)
     waiting._notices.clear()
+    # The fight journal starts empty: no fight, no late-answer watch of an earlier test.
+    fightlog.reset()
 
     monkeypatch.setattr(challenge, "MIN_GRACE", 0.05)
     # Every click is answered in tests, unless a test switches these filters of ui.reply on
@@ -97,6 +99,9 @@ async def game(tmp_path):
     finally:
         await bundle.cleanup()
         await bundle.bot.supervisor.stop_all()
+        from altermmo.core import fightlog
+
+        await fightlog.stop()  # (as AlterBot.close does: watches and pending answers to "lag")
 
 
 async def _ensure_test_database() -> bool:

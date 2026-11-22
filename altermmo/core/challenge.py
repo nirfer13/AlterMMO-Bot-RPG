@@ -33,7 +33,7 @@ from typing import Any, Iterable, Iterator, Sequence
 
 import discord
 
-from . import io
+from . import fightlog, io
 from .timing import pause as _pause
 
 log = logging.getLogger(__name__)
@@ -184,6 +184,9 @@ async def ask(
     *,
     players: Iterable[Any] | None,
     timeout: float,
+    word: str | None = None,
+    asked: Any = None,
+    turn: int | None = None,
     **send_kwargs: Any,
 ) -> RoundResult:
     """Send ``prompt_text`` and wait up to ``timeout`` s for a message from ``players``.
@@ -193,6 +196,12 @@ async def ask(
     returned, whatever its content: the caller decides whether it is the right
     word (:meth:`RoundResult.is_correct`) or the right person.
 
+    ``word`` / ``asked`` / ``turn`` - for the fight journal only
+    (:mod:`altermmo.core.fightlog`): the expected word, the player the prompt
+    is addressed to and the number of the round.  A fight that began a journal
+    on this channel passes them and the round is recorded there (with the
+    answer that comes after the time is up); they change nothing in the round.
+
     Never raises ``asyncio.TimeoutError``; sending the prompt may raise when
     Discord is unreachable for several attempts (callers treat that as a
     disrupted fight).
@@ -200,15 +209,21 @@ async def ask(
     author_ids = None if players is None else {int(getattr(p, "id", p)) for p in players}
     net = getattr(bot, "net", None)
     channel_id = channel.id  # type: ignore[attr-defined]
+    entry = fightlog.open_round(channel_id, turn=turn, asked=asked, word=word, prompt=prompt_text,
+                                limit=timeout, players=author_ids)
 
     with round_running(channel):
-        return await _ask(bot, channel, prompt_text, author_ids, net, channel_id, timeout, send_kwargs)
+        return await _ask(bot, channel, prompt_text, author_ids, net, channel_id, timeout, send_kwargs, entry)
 
 
 async def _ask(bot: discord.Client, channel: discord.abc.Messageable, prompt_text: str,
                author_ids: set[int] | None, net: Any, channel_id: int, timeout: float,
-               send_kwargs: dict[str, Any]) -> RoundResult:
-    """The round itself (see :func:`ask`, which also marks the fight as running)."""
+               send_kwargs: dict[str, Any], entry: Any = fightlog.NO_ROUND) -> RoundResult:
+    """The round itself (see :func:`ask`, which also marks the fight as running).
+
+    ``entry`` is the round's record in the fight journal; telling it what
+    happens never raises and never waits (``fightlog.NO_ROUND`` does nothing).
+    """
     with _collect_messages(bot, channel_id, author_ids) as queue:
         started = time.monotonic()
         prompt = await io.send(channel, prompt_text, **send_kwargs)
@@ -216,6 +231,7 @@ async def _ask(bot: discord.Client, channel: discord.abc.Messageable, prompt_tex
         if latency != latency:  # NaN before the first heartbeat
             latency = 0.0
         grace = min(MAX_GRACE, max(MIN_GRACE, 3 * latency))
+        entry.sent(prompt, latency=latency, grace=grace, send_time=time.monotonic() - started)
         deadline = time.monotonic() + timeout + grace
 
         while True:
@@ -230,18 +246,25 @@ async def _ask(bot: discord.Client, channel: discord.abc.Messageable, prompt_tex
                 continue  # written before the prompt existed - not an answer to it
             elapsed = _reaction_time(prompt, message)
             if elapsed <= timeout + TOLERANCE:
+                entry.answered(message, max(elapsed, 0.0), net=net, since=started)
                 return RoundResult(Outcome.ANSWERED, prompt, message, max(elapsed, 0.0))
             log.debug("Answer arrived %.2fs after the prompt (limit %.2fs).", elapsed, timeout)
+            entry.late_in_grace(message, elapsed)
             break
         overshoot = time.monotonic() - deadline
+        # From here on this round hears nothing; the journal listens on for the answer that
+        # comes after the time (without a gap: no await since the last look at the queue).
+        entry.silent(net)
 
     # Nobody answered in time - make sure it was not our fault.
     if net is not None and net.disrupted_since(started):
         log.warning("Round disrupted: the gateway connection dropped while waiting.")
+        entry.disrupted(gateway=True, stall=overshoot)
         await net.wait_connected(timeout=120)
         return RoundResult(Outcome.DISRUPTED, prompt, None, timeout)
     if overshoot > STALL_LIMIT:
         log.warning("Round disrupted: the event loop stalled for %.2fs.", overshoot)
+        entry.disrupted(stall=overshoot)
         return RoundResult(Outcome.DISRUPTED, prompt, None, timeout)
 
     # Safety net: an answer the gateway never delivered may still be in history.  The last
@@ -250,8 +273,10 @@ async def _ask(bot: discord.Client, channel: discord.abc.Messageable, prompt_tex
     late = await _undelivered_answer(channel, prompt, author_ids, timeout)
     if late is not None:
         log.info("Recovered an undelivered answer from channel history.")
+        entry.answered(late, max(_reaction_time(prompt, late), 0.0))
         return RoundResult(Outcome.ANSWERED, prompt, late, max(_reaction_time(prompt, late), 0.0))
 
+    entry.timed_out(stall=overshoot)
     return RoundResult(Outcome.TIMEOUT, prompt, None, timeout)
 
 

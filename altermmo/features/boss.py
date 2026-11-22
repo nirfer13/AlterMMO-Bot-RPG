@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, Sequence
 
 import discord
 
-from ..core import challenge, io, timing, ui
+from ..core import challenge, fightlog, io, timing, ui
 from ..core.challenge import Outcome
 from ..settings import ASSETS_DIR, CONFIG_DIR
 from . import achievements, boss_cycle, database, expsum, fight_types, general, modifiers, patrons, xpsteal
@@ -544,27 +544,30 @@ async def _answer_door(allow: Callable[[Any, str], Awaitable[str | None]], inter
 
 
 async def _ask(bot: "AlterBot", channel: Any, prompt: str, *, players: Sequence[Any],
-               limit: float) -> challenge.RoundResult | None:
+               limit: float, **journal: Any) -> challenge.RoundResult | None:
     """One "type the word" round that never blames the players for our lag.
 
     A disrupted round is announced and asked again; None after
-    ``challenge.MAX_CONSECUTIVE_DISRUPTIONS`` disrupted rounds in a row.
+    ``challenge.MAX_CONSECUTIVE_DISRUPTIONS`` disrupted rounds in a row (the
+    fight journal then has the fight as interrupted).  ``journal``: what
+    ``challenge.ask`` records about the round (``word=``, ``asked=``, ``turn=``).
     """
     for attempt in range(1, challenge.MAX_CONSECUTIVE_DISRUPTIONS + 1):
         result = await challenge.ask(bot, channel, prompt, players=players,
-                                     timeout=timing.timeout(max(float(limit), 0.0)))
+                                     timeout=timing.timeout(max(float(limit), 0.0)), **journal)
         if result.outcome is not Outcome.DISRUPTED:
             return result
         log.warning("Fight round disrupted (%d/%d in a row).", attempt, challenge.MAX_CONSECUTIVE_DISRUPTIONS)
         if attempt < challenge.MAX_CONSECUTIVE_DISRUPTIONS:
             await challenge.notify_disrupted(channel)
+    fightlog.interrupted(channel, f"{challenge.MAX_CONSECUTIVE_DISRUPTIONS} rounds in a row were disrupted")
     return None
 
 
 async def _boss_round(bot: "AlterBot", channel: Any, prompt: str, *, players: Sequence[Any],
-                      limit: float) -> challenge.RoundResult:
+                      limit: float, **journal: Any) -> challenge.RoundResult:
     """:func:`_ask` for boss fights: repeated disruptions interrupt the fight."""
-    result = await _ask(bot, channel, prompt, players=players, limit=limit)
+    result = await _ask(bot, channel, prompt, players=players, limit=limit, **journal)
     if result is None:
         raise fight_types.FightInterrupted(
             f"{challenge.MAX_CONSECUTIVE_DISRUPTIONS} fight rounds in a row were disrupted")
@@ -935,6 +938,7 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
     log.info("Single boss fight: %s (%s) vs rarity %s, hp %s, %.2f s per word.",
              hunter, hunter.id, rarity, boss_hp, round_time)
 
+    fightlog.begin(channel, fightlog.KIND_BOSS, [hunter], detail=rarity)
     started = time.monotonic()
     turn = 0
     while True:
@@ -943,10 +947,12 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
 
         if not _roll(pet["REPLACE_PERC"]):
             limit = FIRST_ROUND_TIME if turn == 1 else round_time
-            result = await _boss_round(bot, channel, str(turn) + ". " + prompt, players=[hunter], limit=limit)
+            result = await _boss_round(bot, channel, str(turn) + ". " + prompt, players=[hunter], limit=limit,
+                                       word=word, asked=hunter, turn=turn)
             timed_out = result.outcome is Outcome.TIMEOUT
             correct = result.is_correct(word)
         else:
+            fightlog.pet_attack(channel, turn, hunter, word)
             await scene.send("~~" + str(turn) + ". " + prompt + "~~. " + MSG_PET_ATTACKS)
             timed_out = False
             correct = True
@@ -959,9 +965,11 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
             continue
 
         if _roll(pet["DEF_PERC"]):
+            fightlog.saved(channel)
             await scene.send(MSG_TOO_SLOW_PROTECTED if timed_out else MSG_MISTAKE_PROTECTED)
             continue
 
+        fightlog.lost(channel, timed_out=timed_out)
         lost = fight_types.FightResult(won=False, losers_to_ban=banned)
         await _decided(bot, lost)
         if timed_out:
@@ -977,6 +985,7 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
     # -- the boss is dead: from here on nothing may turn the victory into a failure --
     fight_time = timedelta(seconds=time.monotonic() - started)  # (measured before anything is awaited)
     turn_time = fight_time / boss_hp
+    fightlog.won(channel)
     await _decided(bot, fight_types.FightResult(won=True))
     log.info("Single boss fight won by %s (%s) in %.2f s.", hunter, hunter.id, fight_time.total_seconds())
 
@@ -1065,10 +1074,12 @@ async def duel_fight(scene: "Scene", participants: Sequence[Any], ban: bool = Tr
     await challenge.countdown(channel)
     log.info("Duel: %s vs %s, %s starts.", first, second, duelers[starter])
 
+    fightlog.begin(channel, fightlog.KIND_DUEL, duelers)
     turn = 0
     while True:
         turn += 1
         if turn > DUEL_MAX_TURNS:
+            fightlog.draw(channel)
             await scene.send(MSG_DUEL_DRAW)
             log.info("Duel %s vs %s: draw after %d turns.", first, second, DUEL_MAX_TURNS)
             return False, None
@@ -1082,7 +1093,7 @@ async def duel_fight(scene: "Scene", participants: Sequence[Any], ban: bool = Tr
         if not _roll(pet["REPLACE_PERC"]):
             limit = DUEL_ROUND_TIME * (100 + pet["SLOW_PERC"]) / 100
             result = await _ask(bot, channel, str(turn) + ". **" + str(fighter.name) + "**: " + prompt,
-                                players=duelers, limit=limit)
+                                players=duelers, limit=limit, word=word, asked=fighter, turn=turn)
             if result is None:
                 await io.send_patient(channel, MSG_DUEL_INTERRUPTED, give_up_after=120)
                 log.warning("Duel %s vs %s interrupted by connection problems.", first, second)
@@ -1093,6 +1104,7 @@ async def duel_fight(scene: "Scene", participants: Sequence[Any], ban: bool = Tr
                 if not _roll(pet["DEF_PERC"]):
                     await scene.send(MSG_DUEL_TOO_SLOW)
                 else:
+                    fightlog.saved(channel)
                     await scene.send(MSG_DUEL_TOO_SLOW_WEAK)
             elif result.author.id != fighter.id:
                 if not _roll(pet["DEF_PERC"]):
@@ -1109,10 +1121,12 @@ async def duel_fight(scene: "Scene", participants: Sequence[Any], ban: bool = Tr
                 damage = 0.0
                 await scene.send(MSG_DUEL_MISTAKE)
             else:
+                fightlog.saved(channel)
                 damage = (limit - result.elapsed) / 3
                 await scene.send(MSG_DUEL_MISTAKE_WEAK)
         else:
             limit = DUEL_ROUND_TIME
+            fightlog.pet_attack(channel, turn, fighter, word)
             sent_at = time.monotonic()
             await scene.send("~~" + str(turn) + ". " + str(fighter.name) + ":" + prompt + "~~ " + MSG_PET_ATTACKS)
             damage = limit - (time.monotonic() - sent_at)
@@ -1132,6 +1146,7 @@ async def duel_fight(scene: "Scene", participants: Sequence[Any], ban: bool = Tr
             continue
 
         loser = duelers[foe]
+        fightlog.won(channel, winner=fighter, loser=loser)
         log.info("Duel: %s beat %s in turn %d.", fighter, loser, turn)
         await _guarded(bot, "ogłoszenie wyniku pojedynku",
                        scene.send("**" + str(fighter) + "** wygrał walkę z **" + str(loser) + "**."))
@@ -1457,6 +1472,7 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
     log.info("Group boss fight: %s, hp %s.", party, boss_hp)
     await challenge.countdown(channel)
 
+    fightlog.begin(channel, fightlog.KIND_GROUP, players, detail=rarity)
     started = time.monotonic()
     turn = 0
     while True:
@@ -1472,10 +1488,11 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
                 limit = GROUP_ROUND_TIME * (100 - mods["time_reduced_perc"] + mods["time_increased_perc"]
                                             + pet["SLOW_PERC"]) / 100
             result = await _boss_round(bot, channel, str(turn) + ". **" + str(hunter) + "**: " + prompt,
-                                       players=players, limit=limit)
+                                       players=players, limit=limit, word=word, asked=hunter, turn=turn)
             timed_out = result.outcome is Outcome.TIMEOUT
             correct = result.is_correct(word, by=hunter)
         else:
+            fightlog.pet_attack(channel, turn, hunter, word)
             await scene.send("~~" + str(turn) + ". " + str(hunter) + ":" + prompt + "~~ " + MSG_PET_ATTACKS)
             timed_out = False
             correct = True
@@ -1488,12 +1505,15 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
             continue
 
         if _roll(pet["DEF_PERC"]):
+            fightlog.saved(channel)
             await scene.send(MSG_TOO_SLOW_PROTECTED if timed_out else MSG_MISTAKE_PROTECTED)
             continue
         if chances > 0:
             chances -= 1  # the party's spare chance is used up silently
+            fightlog.saved(channel, fightlog.SAVED_BY_SPARE)
             continue
 
+        fightlog.lost(channel, timed_out=timed_out)
         lost = fight_types.FightResult(won=False, losers_to_ban=banned)
         await _decided(bot, lost)
         await _say_lost(scene, MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
@@ -1505,6 +1525,7 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
     # -- the boss is dead: from here on nothing may turn the victory into a failure --
     fight_time = timedelta(seconds=time.monotonic() - started)  # (measured before anything is awaited)
     turn_time = fight_time / boss_hp
+    fightlog.won(channel)
     await _decided(bot, fight_types.FightResult(won=True))
     log.info("Group boss fight won by %s in %.2f s.", party, fight_time.total_seconds())
 

@@ -63,5 +63,14 @@
         "changes": [
             "Dla wspierających: rzadkie ozdoby kart towarzyszy trafiają się teraz trzy razy częściej. Powodzenia przy nowych jajkach!"
         ]
+    },
+    {
+        "id": 6,
+        "date": "2026-11-22",
+        "title": "Zapis walki na życzenie",
+        "changes": [
+            "Po przegranej walce na słowa możesz napisać na kanale „lag” - bot pokaże zapis tej walki i wyjaśni, co się stało w decydującej turze: jaki był limit, kiedy dotarła odpowiedź i o ile minęła się z czasem.",
+            "Bot sprawdza teraz także odpowiedź, która przyszła już po czasie, więc widać dokładnie, ile zabrakło."
+        ]
     }
 ]

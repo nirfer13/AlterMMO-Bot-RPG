@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 import discord
 
-from ..core import challenge, guards, io, timing, ui
+from ..core import challenge, fightlog, guards, io, timing, ui
 from ..core.challenge import Outcome
 from ..core.state import BossPhase
 from ..settings import ASSETS_DIR
@@ -251,6 +251,7 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
     log.info("Tower: %s (%s) on floor %s, hp %s, %.2f s per word.", hunter, hunter.id, tower_level,
              floor_hp, round_time)
 
+    fightlog.begin(channel, fightlog.KIND_TOWER, [hunter], detail=tower_level)
     started = time.monotonic()
     turn = 0
     while True:
@@ -261,7 +262,8 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
             limit = FIRST_ROUND_TIME if turn == 1 else round_time
             result = await daily.fight_round(bot, channel,
                                              str(turn) + ". **" + str(hunter) + "**: " + prompt,
-                                             players=[hunter], limit=limit)
+                                             players=[hunter], limit=limit,
+                                             word=word, asked=hunter, turn=turn)
             if result is None:
                 log.warning("Tower fight interrupted: too many disrupted rounds in a row.")
                 await io.send_patient(channel, MSG_TOWER_INTERRUPTED, give_up_after=120)
@@ -269,6 +271,7 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
             timed_out = result.outcome is Outcome.TIMEOUT
             correct = result.is_correct(word, by=hunter)
         else:
+            fightlog.pet_attack(channel, turn, hunter, word)
             await scene.send("~~" + str(turn) + ". " + str(hunter) + ": " + prompt + "~~ "
                              + daily.MSG_PET_ATTACKS)
             timed_out = False
@@ -282,9 +285,11 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
             continue
 
         if daily.roll(pet["DEF_PERC"]):
+            fightlog.saved(channel)
             await scene.send(daily.MSG_TOO_SLOW_PROTECTED if timed_out else daily.MSG_MISTAKE_PROTECTED)
             continue
 
+        fightlog.lost(channel, timed_out=timed_out)
         # (Guarded: a lost floor stays lost when the message cannot be sent - it must not turn
         # into "a technical problem" that gives the attempt back.)
         await daily.say_lost(scene, MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
@@ -293,6 +298,7 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
         return False
 
     # -- the floor is cleared: from here on nothing may turn it into a failure --
+    fightlog.won(channel)
     if progress is not None:
         progress["rewarded"] = True
     fight_time = timedelta(seconds=time.monotonic() - started)

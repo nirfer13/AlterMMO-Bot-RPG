@@ -15,7 +15,7 @@ import discord
 from discord.ext import commands
 
 from . import schema
-from .core import io, scheduler, ui
+from .core import fightlog, io, scheduler, ui
 from .core.db import Database, DatabaseUnavailable
 from .core.net import ConnectionMonitor
 from .core.scene import Scene
@@ -83,6 +83,7 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.schedule",
     "altermmo.cogs.backup",
     "altermmo.cogs.patchnotes",
+    "altermmo.cogs.fightlog",
     "altermmo.cogs.admin",
     "altermmo.cogs.general",
     "altermmo.cogs.moderation",
@@ -462,9 +463,21 @@ class AlterBot(commands.Bot):
             notes, self._startup_notes = self._startup_notes, []
             await self.log_to_owner("Uwagi po starcie bota:\n- " + "\n- ".join(notes), ping=True)
 
+    async def on_message(self, message: discord.Message) -> None:
+        """Every message: the fight journal looks at it, then the commands run as always.
+
+        The journal only notes the answer a player owes a round that timed
+        out (:func:`altermmo.core.fightlog.heard`: a dictionary look-up, it
+        never raises and keeps nothing for itself); commands, the answers of a
+        running round and every other listener get the message as before.
+        """
+        fightlog.heard(message)
+        await self.process_commands(message)
+
     async def close(self) -> None:
         log.info("Shutting down...")
         await self.supervisor.stop_all()
+        await fightlog.stop()  # the late-answer watches and the answers to "lag" still waiting
         await super().close()
         await self.db.close()
 

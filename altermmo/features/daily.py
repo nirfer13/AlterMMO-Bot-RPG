@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterable, Sequence
 
 import discord
 
-from ..core import challenge, clock, guards, io, timing, ui
+from ..core import challenge, clock, fightlog, guards, io, timing, ui
 from ..core.challenge import Outcome
 from ..core.state import BossPhase
 from ..settings import ASSETS_DIR, CONFIG_DIR
@@ -260,21 +260,24 @@ async def guarded(bot: "AlterBot", what: str, awaitable: Awaitable[Any], default
 
 
 async def fight_round(bot: "AlterBot", channel: Any, prompt: str, *, players: Sequence[Any],
-                      limit: float) -> challenge.RoundResult | None:
+                      limit: float, **journal: Any) -> challenge.RoundResult | None:
     """One "type the word" round that never blames the players for our lag.
 
     A disrupted round is announced and asked again; None after
     ``challenge.MAX_CONSECUTIVE_DISRUPTIONS`` disrupted rounds in a row (the
-    caller then ends the activity without punishing anybody).
+    caller then ends the activity without punishing anybody; the fight journal
+    has the fight as interrupted).  ``journal``: what ``challenge.ask`` records
+    about the round (``word=``, ``asked=``, ``turn=``).
     """
     for attempt in range(1, challenge.MAX_CONSECUTIVE_DISRUPTIONS + 1):
         result = await challenge.ask(bot, channel, prompt, players=players,
-                                     timeout=timing.timeout(max(float(limit), 0.0)))
+                                     timeout=timing.timeout(max(float(limit), 0.0)), **journal)
         if result.outcome is not Outcome.DISRUPTED:
             return result
         log.warning("Fight round disrupted (%d/%d in a row).", attempt, challenge.MAX_CONSECUTIVE_DISRUPTIONS)
         if attempt < challenge.MAX_CONSECUTIVE_DISRUPTIONS:
             await challenge.notify_disrupted(channel)
+    fightlog.interrupted(channel, f"{challenge.MAX_CONSECUTIVE_DISRUPTIONS} rounds in a row were disrupted")
     return None
 
 
@@ -806,6 +809,7 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
     actions = modifiers.fight_actions(mods, MOB_ACTIONS, "Potwór")
     log.info("Hunt: %s vs a monster of rarity %s, hp %s.", [str(hunter) for hunter in hunters], rarity, mob_hp)
 
+    fightlog.begin(channel, fightlog.KIND_HUNT, hunters, detail=rarity)
     started = time.monotonic()
     turn = 0
     while True:
@@ -820,7 +824,7 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
             else:
                 limit = (5 - rarity) * (100 - mods["time_reduced_perc"] + pet["SLOW_PERC"]) / 100
             result = await fight_round(bot, channel, str(turn) + ". **" + str(hunter) + "**: " + prompt,
-                                       players=hunters, limit=limit)
+                                       players=hunters, limit=limit, word=word, asked=hunter, turn=turn)
             if result is None:
                 log.warning("Hunt interrupted: too many disrupted rounds in a row.")
                 await io.send_patient(channel, MSG_HUNT_INTERRUPTED, give_up_after=120)
@@ -828,6 +832,7 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
             timed_out = result.outcome is Outcome.TIMEOUT
             correct = result.is_correct(word, by=hunter)
         else:
+            fightlog.pet_attack(channel, turn, hunter, word)
             await scene.send("~~" + str(turn) + ". " + str(hunter) + ": " + prompt + "~~. " + MSG_PET_ATTACKS)
             timed_out = False
             correct = True
@@ -840,10 +845,12 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
             continue
 
         if roll(pet["DEF_PERC"]):
+            fightlog.saved(channel)
             await scene.send(MSG_TOO_SLOW_PROTECTED if timed_out else MSG_MISTAKE_PROTECTED)
             continue
 
         # The hunt is lost - decided: from here on nothing gives the attempt back.
+        fightlog.lost(channel, timed_out=timed_out)
         if progress is not None:
             progress["decided"] = True
         await say_lost(scene, MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
@@ -852,6 +859,7 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
         return False
 
     # -- the monster is dead: from here on nothing may turn the victory into a failure --
+    fightlog.won(channel)
     if progress is not None:
         progress["decided"] = True
     fight_time = timedelta(seconds=time.monotonic() - started)
