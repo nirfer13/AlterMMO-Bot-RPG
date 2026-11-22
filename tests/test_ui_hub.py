@@ -20,17 +20,18 @@ from altermmo.cogs import help as help_cog
 from altermmo.core import challenge, guards, io, ui
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossPhase
-from altermmo.features import achievements, album, daily, hub, patrons, pets, skills, tower
+from altermmo.features import achievements, album, albumrank, daily, hub, patrons, pets, skills, tower
 
-from fakes import FakeInteraction, FakeMessage
+from fakes import FakeInteraction, FakeMember, FakeMessage
 from test_pets import add_owner, add_pet
 from test_ui_daily import active_gem, collector
 
-LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia", "Album", "Pomoc"]
+LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia", "Album", "Pomoc",
+          "Powiadomienia"]
 #: The custom ids of the panel's buttons: panels pinned long ago still send exactly these.
 BUTTON_IDS = ["altermmo:hub:hunt", "altermmo:hub:tower", "altermmo:hub:pet", "altermmo:hub:stable",
               "altermmo:hub:gems", "altermmo:hub:rankings", "altermmo:hub:achievements", "altermmo:hub:album",
-              "altermmo:hub:help"]
+              "altermmo:hub:help", "altermmo:hub:notify"]
 PATRON = patrons.PATRON_ROLES[0]
 #: Typed words the help mentions that are not commands (answers inside a flow).
 TYPED_WORDS = {"potwierdzam", "tak"}
@@ -43,6 +44,8 @@ NOT_IN_HELP = {"ping", "pomoc"}
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch):
     monkeypatch.setattr(guards, "_last_notice", {})
+    monkeypatch.setattr(hub, "_notify_reported", {})
+    monkeypatch.setattr(hub, "_notify_locks", {})
     daily._gathering.clear()
     yield
     daily._gathering.clear()
@@ -172,7 +175,7 @@ async def test_every_extension_loads_and_permanent_buttons_never_share_an_id(gam
     assert {"altermmo:boss:attack", "altermmo:events:chest", "altermmo:events:pray",
             "altermmo:boss-detect-off"} <= set(ids)
     assert {hub.HUNT_ID, hub.TOWER_ID, hub.PET_ID, hub.STABLE_ID, hub.GEMS_ID, hub.RANKINGS_ID,
-            hub.ACHIEVEMENTS_ID, hub.ALBUM_ID, hub.HELP_ID} == set(BUTTON_IDS) <= set(ids)
+            hub.ACHIEVEMENTS_ID, hub.ALBUM_ID, hub.HELP_ID, hub.NOTIFY_ID} == set(BUTTON_IDS) <= set(ids)
     # Every permanent view is stateless and never times out.
     assert all(view.timeout is None for view in bot.persistent_views)
 
@@ -248,7 +251,7 @@ def test_panel_fits_discord_limits_and_stays_compact():
     for label in LABELS:
         assert f"**{label}**" in hub.PANEL_GAME_TEXT, label
     order = [hub.PANEL_GAME_TEXT.index(f"**{label}** - ")
-             for label in ("Rankingi", "Osiągnięcia", "Album", "Pomoc")]
+             for label in ("Rankingi", "Osiągnięcia", "Album", "Pomoc", "Powiadomienia")]
     assert order == sorted(order)
     assert "🏅 **Osiągnięcia** - Twoje kolekcjonerskie osiągnięcia (dla wspierających).\n" in hub.PANEL_GAME_TEXT
     assert "📖 **Album** - kolekcja Twoich poświęconych towarzyszy (dla wspierających).\n" in hub.PANEL_GAME_TEXT
@@ -261,7 +264,7 @@ def test_panel_buttons_fit_discord_limits_and_keep_their_ids():
         assert [item.label for item in children] == LABELS
         # Discord: at most 5 rows of at most 5 buttons; ids of at most 100 characters, labels of 80.
         per_row = collections.Counter(item.row for item in children)
-        assert per_row == {0: 2, 1: 3, 2: 4} and max(per_row.values()) <= 5 and len(per_row) <= 5
+        assert per_row == {0: 2, 1: 3, 2: 4, 3: 1} and max(per_row.values()) <= 5 and len(per_row) <= 5
         assert all(len(item.custom_id) <= 100 and len(item.label) <= 80 for item in children)
         # The ids of the buttons that existed before never change (old pinned panels send them);
         # the new button got its own one.
@@ -272,6 +275,12 @@ def test_panel_buttons_fit_discord_limits_and_keep_their_ids():
         shelf = next(item for item in children if item.custom_id == hub.ALBUM_ID)
         assert hub.ALBUM_ID == "altermmo:hub:album" and shelf.label == "Album" and shelf.row == 2
         assert str(shelf.emoji) == "📖" and shelf.style is discord.ButtonStyle.secondary
+        # "Powiadomienia" (2026-11-22): the last button, alone on a row under the others.
+        bell = children[-1]
+        assert bell.custom_id == hub.NOTIFY_ID == "altermmo:hub:notify" and bell.label == "Powiadomienia"
+        assert str(bell.emoji) == "🔔" and bell.style is discord.ButtonStyle.secondary
+        assert bell.row == 3 > max(item.row for item in children[:-1])
+        assert not bell.custom_id.startswith(ui.FLOW_PREFIX) and view.is_persistent()
     finally:
         view.stop()
 
@@ -294,8 +303,10 @@ def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
                   "przyciskiem **Osiągnięcia** (**$osiagniecia**)", "Kolekcjonerskie ozdoby karty",
                   "dopóki wspierasz", "📖 **Album**", "poświęceni towarzysze", "(**$album**)"):
         assert words in benefits
-    # The album's line (2026-11-21): one line, no species, no ornaments (checked below as well).
-    assert hub.PANEL_BENEFITS[-1] == "📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**)."
+    # The album's line (2026-11-21): one line, no species, no ornaments (checked below as well);
+    # since 2026-11-22 it names the ranking of the collections.
+    assert hub.PANEL_BENEFITS[-1] == ("📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**) "
+                                      "i liczą się w rankingu kolekcji.")
     # Not spelled out (owner's decision): which species supporters can find, which ornaments exist.
     for secret in ("smok", "feniks", "jednoroż", "holo", "pieczę", "tropiciel", "łowcy", "arcyłowc"):
         assert secret not in benefits.lower(), secret
@@ -369,7 +380,7 @@ async def test_panel_is_posted_pinned_remembered_and_survives_the_purge(game, co
     labels = [item.label for item in message.view.children]
     assert labels == LABELS
     rows = [item.row for item in message.view.children]
-    assert rows == [0, 0, 1, 1, 1, 2, 2, 2, 2]
+    assert rows == [0, 0, 1, 1, 1, 2, 2, 2, 2, 3]
     assert [item.custom_id for item in message.view.children] == BUTTON_IDS
     styles = {item.label: item.style for item in message.view.children}
     assert styles["Polowanie"] is styles["Wieża"] is discord.ButtonStyle.primary
@@ -593,7 +604,7 @@ async def test_buttons_of_a_panel_from_before_a_restart_still_work(game, pins, f
 # -- display buttons (the typed commands' posts, on the channel) ------------------------------
 
 DISPLAY_COMMANDS = {"Towarzysz": ["$towarzysz"], "Stajnia": ["$stajnia"], "Klejnoty": ["$klejnoty"],
-                    "Rankingi": ["$ranking", "$rankingwiezy", "$rankingtowarzyszy"],
+                    "Rankingi": ["$ranking", "$rankingwiezy", "$rankingtowarzyszy", "$rankingalbumow"],
                     "Osiągnięcia": ["$osiagniecia"], "Album": ["$album"], "Pomoc": ["$pomoc"]}
 
 
@@ -648,8 +659,9 @@ async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, 
     assert "Burek" in pet.text and isinstance(pet.view, pets.PetPanel) and pet.button_labels
     stable, = clicked["Stajnia"]
     assert isinstance(stable.view, pets.StablePanel) and "Mruczek" in stable.text
-    assert [m.embeds[0].title for m in clicked["Rankingi"]] == [
-        "Ranking łowców potworów!", "Eksploratorzy Wieży Śmierci!", "Najbardziej utalentowani towarzysze!"]
+    assert [m.embeds[0].title for m in clicked["Rankingi"]] == [            # (a supporter: four rankings)
+        "Ranking łowców potworów!", "Eksploratorzy Wieży Śmierci!", "Najbardziej utalentowani towarzysze!",
+        albumrank.MSG_TITLE]
     assert "Sezon kończy się <t:" in clicked["Rankingi"][0].embeds[0].description
     trophies, = clicked["Osiągnięcia"]                                   # a supporter's summary, for everybody
     assert trophies.embeds[0].title == achievements.MSG_SUMMARY_TITLE and trophies.view is None
@@ -910,4 +922,288 @@ def test_tower_has_a_fantasy_icon():
     button = next(item for item in hub.HubView().children if item.custom_id == hub.TOWER_ID)
     assert str(button.emoji) == "🏰" and button.label == "Wieża"
     assert "🏰 **Wieża**" in hub.PANEL_TEXT and "🗼" not in hub.PANEL_TEXT
+
+
+# -- "Powiadomienia": the hunters' role on / off (owner's request of 2026-11-22) -------------------
+
+NOTIFY = "Powiadomienia"
+
+
+def hunters(game, name: str = "Łowca Potworów"):
+    """The role the bot pings for bosses, events and patch notes, named as on the server."""
+    role = game.guild.get_role(game.bot.ids.hunters_role)
+    role.name = name
+    return role
+
+
+def on_text(name: str = "Łowca Potworów") -> str:
+    return hub.MSG_NOTIFY_ON.format(role=name)
+
+
+def off_text(name: str = "Łowca Potworów") -> str:
+    return hub.MSG_NOTIFY_OFF.format(role=name)
+
+
+def http_error(kind, status: int, code: int, message: str):
+    return kind(SimpleNamespace(status=status, reason=message), {"code": code, "message": message})
+
+
+def test_panel_names_the_notifications_button():
+    (line,) = [line for line in hub.PANEL_GAME_TEXT.split("\n") if "**Powiadomienia**" in line]
+    assert line.startswith("🔔 **Powiadomienia** - ") and "**Łowca Potworów**" in line
+    for what in ("bossach", "wydarzeniach", "nowościach"):                # bosses, events, patch notes
+        assert what in line
+    # It says what a click does AND that the next one takes the role away again.
+    assert "kliknij, żeby dostać rolę" in line and "kolejne kliknięcie ją zdejmuje" in line
+    assert len(line) <= 200 and "<@" not in line
+    assert hub.MSG_NOTIFY_ON.startswith("🔔") and hub.MSG_NOTIFY_OFF.startswith("🔕")
+    # The help names it next to the role it gives.
+    assert "przyciskiem **Powiadomienia** na **Panelu gry**" in help_cog.HELP_TEXT
+
+
+async def test_notifications_button_gives_and_takes_the_hunters_role(game, cog):
+    bot = game.bot
+    role = hunters(game)
+    ala = game.add_member("Ala")                                         # no supporter: it is for everybody
+    assert not patrons.check_if_patron(ala)
+    panel = await panel_on(game)
+
+    on = await game.click(panel, ala, NOTIFY)
+    assert on.response.deferred and on.answers == [on_text()] and role in ala.roles
+    # An ordinary message on the channel, addressed to the clicker; the role is named, never pinged.
+    assert on.public == [f"<@{ala.id}> {on_text()}"]
+    (reply,) = on.replies
+    assert not reply.ephemeral and reply.message is game.channel.messages[-1]
+    assert reply.allowed_mentions.users == [ala] and not reply.allowed_mentions.roles
+    assert "<@&" not in reply.text
+
+    off = await game.click(panel, ala, NOTIFY)
+    assert off.answers == [off_text()] and role not in ala.roles
+    # On again seconds later: the answer is posted again (the last word on the channel is the truth).
+    again = await game.click(panel, ala, NOTIFY)
+    assert again.answers == [on_text()] and ala.roles == [role]
+    assert game.channel.count(f"<@{ala.id}> {on_text()}") == 2
+
+    # The server's own name of the role; the usual one when it has none.
+    role.name = "Łowcy"
+    assert (await game.click(panel, ala, NOTIFY)).answers == [off_text("Łowcy")]
+    role.name = ""
+    assert (await game.click(panel, ala, NOTIFY)).answers == [on_text(hub.NOTIFY_ROLE_NAME)]
+    assert bot.owner_log == [] and hub._notify_locks == {}
+
+
+async def test_notifications_button_reads_the_members_current_roles(game, cog):
+    """``interaction.user`` is the member as he was when he clicked: the API's answer decides."""
+    role = hunters(game)
+    ala = game.add_member("Ala")
+    panel = await panel_on(game)
+    snapshot = FakeMember("Ala", member_id=ala.id, guild=game.guild)
+    snapshot.roles = [role]                                              # "still has it" - he does not
+    assert (await game.click(panel, snapshot, NOTIFY)).answers == [on_text()] and role in ala.roles
+    snapshot.roles = []                                                  # "still without it" - he has it
+    assert (await game.click(panel, snapshot, NOTIFY)).answers == [off_text()] and role not in ala.roles
+
+
+async def test_two_quick_clicks_end_in_a_consistent_state_with_true_answers(game, cog, monkeypatch):
+    role = hunters(game)
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    panel = await panel_on(game)
+    calls = []
+    add, remove = FakeMember.add_roles, FakeMember.remove_roles
+
+    async def slow_add(self, *roles, reason=None):
+        calls.append(("add", self.name))
+        await asyncio.sleep(0.05)                                        # Discord takes its time
+        await add(self, *roles, reason=reason)
+
+    async def slow_remove(self, *roles, reason=None):
+        calls.append(("remove", self.name))
+        await asyncio.sleep(0.05)
+        await remove(self, *roles, reason=reason)
+
+    monkeypatch.setattr(FakeMember, "add_roles", slow_add)
+    monkeypatch.setattr(FakeMember, "remove_roles", slow_remove)
+    first, second = await asyncio.gather(game.click(panel, ala, NOTIFY), game.click(panel, ala, NOTIFY))
+    assert first.response.deferred and second.response.deferred      # both acknowledged at once
+    assert first.answers == [on_text()] and second.answers == [off_text()]
+    assert calls == [("add", "Ala"), ("remove", "Ala")] and role not in ala.roles
+
+    # Different players do not wait for each other; each ends with the role.
+    calls.clear()
+    clicks = await asyncio.gather(game.click(panel, ala, NOTIFY), game.click(panel, ola, NOTIFY))
+    assert [click.answers for click in clicks] == [[on_text()], [on_text()]]
+    assert role in ala.roles and role in ola.roles and sorted(calls) == [("add", "Ala"), ("add", "Ola")]
+    assert hub._notify_locks == {}
+
+
+async def test_notifications_button_waits_while_a_typed_fight_is_on(game, cog):
+    """Nothing may make a fight stutter: not posted and NOT switched (no silent change either)."""
+    bot = game.bot
+    bot.debug = False
+    role = hunters(game)
+    ala = game.add_member("Ala")
+    panel = await panel_on(game)
+    await bot.state.set_boss_phase(BossPhase.FIGHTING)
+    fight = asyncio.ensure_future(challenge.ask(bot, game.channel, "1. **Ala**: wpisz **miecz**",
+                                                players=[ala], timeout=30))
+    try:
+        deadline = time.monotonic() + 3
+        while not challenge.fight_on(game.channel):
+            assert time.monotonic() < deadline
+            await asyncio.sleep(0.005)
+        posted = len(game.channel.sent)
+        silent = await game.click(panel, ala, NOTIFY)
+        assert silent.response.deferred and silent.replies == [] and role not in ala.roles
+        assert game.channel.sent[posted:] == []
+    finally:
+        fight.cancel()
+        await asyncio.gather(fight, return_exceptions=True)
+    assert (await game.click(panel, ala, NOTIFY)).answers == [on_text()] and role in ala.roles
+
+
+async def test_notifications_button_follows_the_busy_policy_and_the_silenced_rule(game, cog, monkeypatch):
+    bot = game.bot
+    role = hunters(game)
+    ala, jan = game.add_member("Ala"), dead_hunter(game)
+    panel = await panel_on(game)
+    with bot.state.hold_busy("hunt"):
+        busy = await game.click(panel, ala, NOTIFY)
+        assert busy.public == [f"<@{ala.id}> {ui.MSG_BUSY}"] and role not in ala.roles
+        monkeypatch.setattr(bot, "settings", dataclasses.replace(bot.settings, busy_policy="read_only_free"))
+        assert (await game.click(panel, ala, NOTIFY)).answers == [on_text()] and role in ala.roles
+
+    # A dead hunter cannot make the bot post on the boss channel (as with every display button)...
+    refused = await game.click(panel, jan, NOTIFY)
+    assert refused.answers == [ui.MSG_CANNOT_PLAY] and role not in jan.roles
+    # ... but on a panel where he may write, the button works for him.
+    elsewhere = await panel_on(game, game.announce_channel)
+    there = await game.click(elsewhere, jan, NOTIFY)
+    assert there.answers == [on_text()] and role in jan.roles
+    assert there.replies[0].message is game.announce_channel.messages[-1]
+
+
+async def test_notifications_button_when_discord_refuses(game, cog, monkeypatch):
+    """No permission / the role above the bot's: the player is told, the owner once per 10 minutes."""
+    bot = game.bot
+    role = hunters(game)
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    panel = await panel_on(game)
+    forbidden = http_error(discord.Forbidden, 403, 50013, "Missing Permissions")
+
+    async def refused(self, *roles, reason=None):
+        raise forbidden
+
+    monkeypatch.setattr(FakeMember, "add_roles", refused)
+    monkeypatch.setattr(FakeMember, "remove_roles", refused)
+    first = await game.click(panel, ala, NOTIFY)
+    assert first.response.deferred and first.public == [f"<@{ala.id}> {hub.MSG_NOTIFY_FAILED}"]
+    assert (await game.click(panel, ola, NOTIFY)).answers == [hub.MSG_NOTIFY_FAILED]
+    (note,) = bot.owner_log                                              # two players, one note
+    assert "Zarządzanie rolami" in note and "nadać" in note and str(role.id) in note and "Ala" in note
+    assert "<@" not in note                                              # nobody is pinged in the log
+    assert role not in ala.roles and role not in ola.roles
+
+    hub._notify_reported["forbidden"] -= hub.NOTIFY_REPORT_GAP          # ten minutes later
+    ola.roles.append(role)
+    assert (await game.click(panel, ola, NOTIFY)).answers == [hub.MSG_NOTIFY_FAILED]
+    assert len(bot.owner_log) == 2 and "zdjąć" in bot.owner_log[-1] and role in ola.roles
+    assert not any("Błąd przycisku" in line for line in bot.owner_log)  # never an error in the view
+
+
+async def test_notifications_button_when_the_role_or_the_member_is_gone(game, cog, monkeypatch):
+    bot = game.bot
+    role = hunters(game)
+    ala = game.add_member("Ala")
+    panel = await panel_on(game)
+
+    game.guild.roles.remove(role)                                        # deleted on the server
+    assert (await game.click(panel, ala, NOTIFY)).answers == [hub.MSG_NOTIFY_FAILED]
+    assert bot.owner_log == [hub.MSG_OWNER_NOTIFY_NO_ROLE.format(role_id=role.id)]
+    game.guild.roles.append(role)
+
+    async def unknown_role(self, *roles, reason=None):                   # deleted while the click ran
+        raise http_error(discord.NotFound, 404, 10011, "Unknown Role")
+
+    monkeypatch.setattr(FakeMember, "add_roles", unknown_role)
+    assert (await game.click(panel, ala, NOTIFY)).answers == [hub.MSG_NOTIFY_FAILED]
+    assert len(bot.owner_log) == 1                                       # the same problem: told once
+
+    async def gone(member_id):
+        raise http_error(discord.NotFound, 404, 10007, "Unknown Member")
+
+    monkeypatch.setattr(game.guild, "fetch_member", gone)                 # left right after the click
+    assert (await game.click(panel, ala, NOTIFY)).answers == [hub.MSG_NOTIFY_FAILED]
+    assert len(bot.owner_log) == 2 and "Ala" in bot.owner_log[-1] and "Unknown Member" in bot.owner_log[-1]
+    assert role not in ala.roles and hub._notify_locks == {}
+
+
+async def test_notifications_button_after_a_network_hiccup_or_an_unexpected_error(game, cog, monkeypatch):
+    bot = game.bot
+    monkeypatch.setattr(hub, "NOTIFY_RETRY_DELAY", 0.0)
+    role = hunters(game)
+    ala = game.add_member("Ala")
+    panel = await panel_on(game)
+    add = FakeMember.add_roles
+    failures = [ConnectionError("reset by peer")]
+
+    async def flaky(self, *roles, reason=None):
+        if failures:
+            raise failures.pop()
+        await add(self, *roles, reason=reason)
+
+    monkeypatch.setattr(FakeMember, "add_roles", flaky)
+    # One hiccup: repeated at once, the player notices nothing.
+    assert (await game.click(panel, ala, NOTIFY)).answers == [on_text()] and role in ala.roles
+    ala.roles.clear()
+    # Discord stays away (every attempt fails): try again - nothing changed, the owner is not bothered.
+    failures[:] = [discord.DiscordServerError(SimpleNamespace(status=503, reason="Unavailable"), "down")] * 3
+    assert (await game.click(panel, ala, NOTIFY)).answers == [hub.MSG_NOTIFY_RETRY] and role not in ala.roles
+    fetch = game.guild.fetch_member
+
+    async def slow_network(member_id):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(game.guild, "fetch_member", slow_network)
+    assert (await game.click(panel, ala, NOTIFY)).answers == [hub.MSG_NOTIFY_RETRY] and role not in ala.roles
+    assert bot.owner_log == []
+    monkeypatch.setattr(game.guild, "fetch_member", fetch)
+
+    async def broken(self, *roles, reason=None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(FakeMember, "add_roles", broken)
+    failed = await game.click(panel, ala, NOTIFY)
+    assert failed.answers == [hub.MSG_NOTIFY_FAILED] and len(failed.replies) == 1
+    (note,) = bot.owner_log
+    assert "RuntimeError: boom" in note and "Błąd przycisku" not in note   # answered here, not in on_error
+
+    # A click Discord gave up on changes nothing and posts nothing.
+    monkeypatch.setattr(FakeMember, "add_roles", add)
+    expired = FakeInteraction(bot, ala, panel)
+    expired.response.fail_with = http_error(discord.NotFound, 404, 10062, "Unknown interaction")
+    posted = len(game.channel.sent)
+    assert await hub.notify_clicked(expired) is None and role not in ala.roles
+    assert len(game.channel.sent) == posted
+
+
+async def test_an_old_panel_gets_the_notifications_button_after_a_start(game, cog):
+    """A panel pinned before the button existed: its buttons keep working, the start adds the new one."""
+    bot = game.bot
+    role = hunters(game)
+    ala = game.add_member("Ala")
+    old_view = hub.HubView()
+    old_view.remove_item(next(item for item in old_view.children if item.custom_id == hub.NOTIFY_ID))
+    old_embed = discord.Embed(title=hub.PANEL_TITLE, description="Stary opis panelu")
+    panel = await io.send(game.channel, embed=old_embed, view=old_view)
+    old_view.stop()                                                      # the process that sent it is gone
+    bot.store.runtime_set(hub.PANEL_KEY, {"channel": game.channel.id, "message": panel.id})
+    assert NOTIFY not in panel.button_labels and len(panel.button_labels) == len(LABELS) - 1
+
+    # Not brought up to date (yet): the old buttons still answer.
+    assert (await game.click(panel, ala, "Pomoc")).replies == []
+    assert game.channel.messages[-1].embeds[0].title == help_cog.HELP_TITLE
+
+    assert await hub.refresh_panel(bot) is True
+    assert panel.button_labels == LABELS and panel.embeds[0].description == hub.PANEL_TEXT
+    assert (await game.click(panel, ala, NOTIFY)).answers == [on_text()] and role in ala.roles
 

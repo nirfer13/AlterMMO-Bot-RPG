@@ -915,3 +915,77 @@ async def make_game(tmp_path, *, debug: bool = True, database_url: str = "") -> 
         announce_channel=channels["announce_channel"],
         notice_channel=channels["notice_channel"],
     )
+
+
+# -- XP thefts settled by Horus (features/xpsteal.py, protocol version 1) -------------------------
+
+_TRANSFER_FILE = re.compile(r"[0-9a-f]{32}\.json")
+
+
+def xp_transfer_requests(bot: Any) -> list[dict[str, Any]]:
+    """The theft requests lying in the request folder, as Horus would read them (by name)."""
+    import json
+
+    folder = bot.store.xp_transfers_dir
+    if not folder.is_dir():
+        return []
+    paths = sorted(path for path in folder.iterdir() if path.is_file() and _TRANSFER_FILE.fullmatch(path.name))
+    return [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+
+
+def write_xp_transfer_result(bot: Any, *, thief: Any = None, victim: Any = None, requested: Any = 10000,
+                             moved: Any = 10000, transfer_id: str | None = None, error: str | None = None,
+                             written: bool = True, **changes: Any) -> Any:
+    """Write a result file the way Horus does (``ids`` of members or raw values); returns its path.
+
+    ``changes`` replace / add fields (``version=2`` ...); a value of ``...`` drops the field.
+    ``written``: the id is noted as a request of this bot (as ``xpsteal.steal`` notes every id it
+    writes); False = a result for an id the bot never wrote.
+    """
+    import json
+    import time
+    import uuid
+
+    transfer_id = transfer_id or uuid.uuid4().hex
+    if written:
+        noted = bot.store.xp_transfers_written.load()
+        noted.setdefault(transfer_id, time.time())
+        bot.store.xp_transfers_written.save(noted)
+    result: dict[str, Any] = {
+        "version": 1, "id": transfer_id,
+        "from": str(victim.id) if hasattr(victim, "id") else victim,
+        "to": str(thief.id) if hasattr(thief, "id") else thief,
+        "requested": requested, "moved": moved,
+        "applied": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    if error is not None:
+        result["error"] = error
+    for key, value in changes.items():
+        if value is ...:
+            result.pop(key, None)
+        else:
+            result[key] = value
+    folder = bot.store.xp_transfer_results_dir
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{transfer_id}.json"
+    path.write_text(json.dumps(result), encoding="utf-8")
+    return path
+
+
+def settle_xp_transfers(bot: Any, xp: dict[int, int]) -> list[dict[str, Any]]:
+    """Do what Horus does with every request: move ``min(amount, victim's xp)`` in ``xp``
+    (``{member id: xp}``), write the result, delete the request.  Returns the results."""
+    import json
+
+    results = []
+    folder = bot.store.xp_transfers_dir
+    for request in xp_transfer_requests(bot):
+        victim, thief = int(request["from"]), int(request["to"])
+        moved = max(0, min(request["amount"], xp.get(victim, 0)))
+        xp[victim] = xp.get(victim, 0) - moved
+        xp[thief] = xp.get(thief, 0) + moved
+        path = write_xp_transfer_result(bot, thief=request["to"], victim=request["from"],
+                                        requested=request["amount"], moved=moved, transfer_id=request["id"])
+        results.append(json.loads(path.read_text(encoding="utf-8")))
+        (folder / f"{request['id']}.json").unlink()
+    return results

@@ -605,9 +605,8 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool
     if loot_id == LOOT_SKILL_GEM:
         return bool(await _skills().assign_skill(scene, hunter))
     if loot_id == xpsteal.LOOT_ID:
-        before = len(xpsteal.pending(bot, hunter.id))
-        xpsteal.grant(bot, hunter.id, xpsteal.amount_from_description(loot["descr"]))
-        return len(xpsteal.pending(bot, hunter.id)) > before
+        # (A right that cannot be stored is reported to the owner with the $DajKradziez line.)
+        return await xpsteal.grant_drop(bot, hunter, xpsteal.amount_from_description(loot["descr"]))
     return True
 
 

@@ -20,11 +20,11 @@ HELP_COLOUR = 0x42F34C
 #: (An f-string only for the shared wording of the supporter groups - see ``features/patrons.py``.)
 HELP_INTRO = f"""Respawn bossa może trwać od kilkunastu minut do kilkunastu godzin, więc warto zaglądać co jakiś czas na Discorda. Im dłużej boss się respi, tym potężniejszy będzie i tym lepszy drop zaoferuje.
 
-Jeśli brakuje Wam graczy, to warto zawołać rolę <@&985071779787730944>. Do roli tej można przypisać się na kanale <#719989249956380793>.
+Jeśli brakuje Wam graczy, to warto zawołać rolę <@&985071779787730944>. Do roli tej można przypisać się przyciskiem **Powiadomienia** na **Panelu gry** (drugie kliknięcie ją zdejmuje) albo na kanale <#719989249956380793>.
 
 Wspierający ({patrons.SUPPORTERS_LONG}) mogą zostać bossami. Jest to losowe. Jednak jeśli taki boss pokona gracza, to użytkownik Discorda, który owym bossem był, zgarnia dodatkowe doświadczenie.
 
-🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży oraz pokazuje towarzysza, stajnię, klejnoty, rankingi i album. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo - jak dotąd - wpisując **$potwierdzam**. Wszystkie komendy poniżej działają nadal. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
+🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży oraz pokazuje towarzysza, stajnię, klejnoty, rankingi (wspierającym także ranking kolekcji) i album. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo - jak dotąd - wpisując **$potwierdzam**. Wszystkie komendy poniżej działają nadal. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
 
 Gra toczy się na kanale bossa; komendy, które tylko coś pokazują (rankingi, towarzysz, klejnoty...), działają na każdym kanale serwera.
 
@@ -68,6 +68,7 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
 - $transformacja - Zmienia wygląd towarzysza (zużywa lustro wizualiów).
 - $osiagniecia - Pokazuje Twoje kolekcjonerskie osiągnięcia i ile ich już masz.
 - $album - Album Twoich poświęconych towarzyszy (każdy trafia tam po **$porzucam**): przeglądaj go i kompletuj kolekcję. Skrót $kolekcja.
+- $rankingalbumow - Ranking najcenniejszych kolekcji wspierających (album pokazuje też wartość Twojej kolekcji i miejsce). Skróty $rankingkolekcji, $ra.
 Wszystkie benefity wspierających i sposoby wsparcia znajdziesz w przypiętym **Panelu gry**."""),
 )
 

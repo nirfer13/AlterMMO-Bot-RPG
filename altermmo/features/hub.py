@@ -31,13 +31,24 @@ Two kinds of buttons:
   :func:`ui.reply`; the hunt or the tower run itself is public, as when typed.
 * **display** - "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia",
   "Album", "Pomoc" show exactly what ``$towarzysz``, ``$stajnia``, ``$klejnoty``,
-  the three ranking commands, ``$osiagniecia``, ``$album`` and ``$pomoc`` show
+  the ranking commands (the fourth, ``$rankingalbumow``, only for a supporter - a member
+  who does not support gets the three open ones), ``$osiagniecia``, ``$album`` and ``$pomoc`` show
   (:func:`display_gate` is also the gate of the album's own buttons): on the
   channel, for everybody, with the same buttons and menus under them (owner's
   decision of 2026-11-20: nothing is visible "only to you").  They follow the busy policy of the display commands
   (``guards.unless_busy(read_only=True)``).  A member who may not write on
   the channel (a dead hunter) cannot make the bot post there for him.
   "Pomoc" shares the cooldown of ``$pomoc``.
+* **notifications** - "Powiadomienia" (owner's request of 2026-11-22, a row of
+  its own) switches the hunters' role (``bot.ids.hunters_role``, "Łowca
+  Potworów": the role the bot pings for bosses, events and patch notes) on
+  and off for the clicker (:func:`notify_clicked`).  It is not gameplay, but
+  it posts an answer, so it goes through :func:`display_gate` like the display
+  buttons: refused while the channel is busy (busy policy), while a fight is
+  typed (then not even the refusal is posted and NOTHING changes - a role
+  switched silently would leave the player guessing, and a second blind click
+  would switch it back), and for a dead hunter on the boss channel (he cannot
+  make the bot post there; after the next boss he can click again).
 
 Every click is acknowledged at once; the fights themselves stay typed.  A
 click Discord has already given up on (the bot lagged for more than three
@@ -48,7 +59,9 @@ and no tower run is spent behind the player's back.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import time
 import types
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -78,6 +91,7 @@ RANKINGS_ID = BUTTON_PREFIX + "rankings"
 ACHIEVEMENTS_ID = BUTTON_PREFIX + "achievements"
 ALBUM_ID = BUTTON_PREFIX + "album"
 HELP_ID = BUTTON_PREFIX + "help"
+NOTIFY_ID = BUTTON_PREFIX + "notify"
 
 PANEL_TITLE = "🎮 Panel gry"
 #: What the buttons do and how the game is played.
@@ -89,10 +103,13 @@ PANEL_GAME_TEXT = (
     "🏰 **Wieża** - wyrusz na eksplorację Wieży Śmierci (raz w tygodniu). Im wyżej, tym trudniej!\n"
     "🐾 **Towarzysz**, 🐴 **Stajnia**, 💎 **Klejnoty** - podejrzyj swojego towarzysza, stajnię "
     "i klejnoty umiejętności.\n"
-    "🏆 **Rankingi** - sezonowy ranking łowców, Wieża Śmierci i najbardziej utalentowani towarzysze.\n"
+    "🏆 **Rankingi** - sezonowy ranking łowców, Wieża Śmierci, najbardziej utalentowani towarzysze "
+    "i ranking kolekcji albumów (dla wspierających).\n"
     "🏅 **Osiągnięcia** - Twoje kolekcjonerskie osiągnięcia (dla wspierających).\n"
     "📖 **Album** - kolekcja Twoich poświęconych towarzyszy (dla wspierających).\n"
-    "❓ **Pomoc** - wszystkie komendy gry.\n\n"
+    "❓ **Pomoc** - wszystkie komendy gry.\n"
+    "🔔 **Powiadomienia** - kliknij, żeby dostać rolę **Łowca Potworów** i wiedzieć o bossach, "
+    "wydarzeniach i nowościach w grze; kolejne kliknięcie ją zdejmuje.\n\n"
     "👹 **Boss** pojawia się na tym kanale co kilkanaście minut do kilkunastu godzin - kliknij "
     "**Zaatakuj** pod jego obrazkiem albo wpisz **$zaatakuj**.\n"
     "⌨️ **Walki** toczą się na klawiaturze: wpisz podane słowo, zanim minie czas! "
@@ -119,7 +136,8 @@ PANEL_BENEFITS: tuple[str, ...] = (
     "przyciskiem **Osiągnięcia** (**$osiagniecia**).",
     "🔖 **Kolekcjonerskie ozdoby karty** - każdy nowy towarzysz ma szansę na rzadkie ozdoby swojej "
     "karty. Zdobią ją, dopóki wspierasz (po przerwie wracają).",
-    "📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**).",
+    "📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**) i liczą się w rankingu "
+    "kolekcji.",
 )
 #: Where to become a supporter: markdown links (they work in an embed description), the
 #: recommended way first and in bold.
@@ -139,6 +157,33 @@ PANEL_FOOTER = "Polowanie i Wieża ruszają tylko na tym kanale i nie wtedy, gdy
 PANEL_COLOUR = 0x42F34C
 
 MSG_DB_DOWN = "Baza danych jest chwilowo niedostępna. Spróbuj ponownie za moment <:Sadge:936907659142111273>"
+
+# Answers of "Powiadomienia" (the role's name comes from the server; this one when it cannot be read).
+NOTIFY_ROLE_NAME = "Łowca Potworów"
+MSG_NOTIFY_ON = ("🔔 Od teraz dostajesz powiadomienia o grze (rola **{role}**). Kliknij **Powiadomienia** "
+                 "jeszcze raz, żeby je wyłączyć.")
+MSG_NOTIFY_OFF = ("🔕 Nie dostajesz już powiadomień o grze (rola **{role}** zdjęta). Kliknij **Powiadomienia**, "
+                  "żeby wrócić.")
+MSG_NOTIFY_FAILED = ("Nie udało się zmienić Twoich powiadomień o grze <:Sadge:936907659142111273> "
+                     "Administracja już wie o problemie.")
+MSG_NOTIFY_RETRY = ("Discord nie odpowiedział na czas, więc Twoje powiadomienia zostały bez zmian. "
+                    "Spróbuj ponownie za chwilę <:Sadge:936907659142111273>")
+# What the owner is told (once per problem per :data:`NOTIFY_REPORT_GAP`).
+MSG_OWNER_NOTIFY_FORBIDDEN = ("Przycisk **Powiadomienia**: Discord nie pozwolił {action} roli **{role}** (`{role_id}`) "
+                              "graczowi {player} (`{error}`). Bot potrzebuje uprawnienia **Zarządzanie rolami**, "
+                              "a jego najwyższa rola musi stać nad tą rolą.")
+MSG_OWNER_NOTIFY_NO_ROLE = ("Przycisk **Powiadomienia**: roli Łowców Potworów (`{role_id}`) nie ma na serwerze "
+                            "(usunięta?). Ustaw właściwe id `hunters_role`.")
+MSG_OWNER_NOTIFY_GONE = ("Przycisk **Powiadomienia**: Discord nie zna już gracza {player} (`{error}`) - "
+                         "opuścił serwer zaraz po kliknięciu?")
+MSG_OWNER_NOTIFY_ERROR = "Przycisk **Powiadomienia** ({player}): nieoczekiwany błąd `{error}`."
+#: The same problem of the notifications button reaches the owner at most once per this many
+#: seconds: every player who clicks would otherwise report a missing permission again.
+NOTIFY_REPORT_GAP = 600.0
+#: Longest wait for one Discord call of the toggle (the click is acknowledged before; retried twice).
+NOTIFY_ATTEMPT_TIMEOUT = 15.0
+#: Pause before the first repetition of such a call (then three times longer).
+NOTIFY_RETRY_DELAY = 0.5
 
 # Answers of ``$panel`` (for the administrator).
 MSG_POSTED = "**Panel gry** jest na kanale <#{channel_id}> i został przypięty."
@@ -212,6 +257,11 @@ class HubView(ui.GameView):
                        custom_id=HELP_ID)
     async def help(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await help_clicked(interaction)
+
+    @discord.ui.button(label="Powiadomienia", emoji="🔔", style=discord.ButtonStyle.secondary, row=3,
+                       custom_id=NOTIFY_ID)
+    async def notifications(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await notify_clicked(interaction)
 
 
 def _refusal(interaction: Any) -> Callable[[str], Awaitable[Any]]:
@@ -334,6 +384,153 @@ async def help_clicked(interaction: Any) -> bool:
     return True
 
 
+# -- "Powiadomienia": the hunters' role on / off ----------------------------------------
+
+#: Per player: ``[lock, how many clicks use it]`` - his clicks on "Powiadomienia" run one after another.
+_notify_locks: dict[int, list[Any]] = {}
+#: Problem of the notifications button -> when the owner was last told about it (``time.monotonic``).
+_notify_reported: dict[str, float] = {}
+
+
+@contextlib.asynccontextmanager
+async def _one_at_a_time(player_id: int):
+    """Serialise the toggles of one player (two quick clicks: on, then off - never both "on")."""
+    entry = _notify_locks.setdefault(player_id, [asyncio.Lock(), 0])
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            yield
+    finally:
+        entry[1] -= 1
+        if entry[1] <= 0 and _notify_locks.get(player_id) is entry:
+            del _notify_locks[player_id]
+
+
+async def _tell_owner_once(bot: Any, problem: str, text: str) -> None:
+    """``bot.log_to_owner(text)`` unless the same ``problem`` was reported less than 10 minutes ago."""
+    now = time.monotonic()
+    last = _notify_reported.get(problem)
+    if last is not None and now - last < NOTIFY_REPORT_GAP:
+        log.info("Notifications button: %s again (the owner was told %.0f s ago).", problem, now - last)
+        return
+    _notify_reported[problem] = now
+    report = getattr(bot, "log_to_owner", None)
+    if report is not None:
+        await report(text)
+
+
+def _player(interaction: Any) -> str:
+    """The clicker for the owner's log: name and id, no mention (nobody is pinged in the log)."""
+    user = interaction.user
+    return f"{user} ({getattr(user, 'id', '?')})"
+
+
+async def _notify_failed(interaction: Any, problem: str, owner_text: str) -> None:
+    await ui.reply(interaction, MSG_NOTIFY_FAILED)
+    await _tell_owner_once(interaction.client, problem, owner_text)
+
+
+async def notify_clicked(interaction: Any) -> bool | None:
+    """"Powiadomienia": give the clicker the hunters' role, or take it away when he has it.
+
+    Returns True when he holds the role now, False when it was taken away,
+    None when nothing changed (refused, expired click, a failure - always answered).
+
+    * The member's CURRENT roles decide, read from Discord's API after the
+      acknowledgement (``guild.fetch_member``): ``interaction.user`` is the
+      member as he was when he clicked, and the cache learns about a role
+      change only when the gateway reports it - a second quick click could
+      otherwise see the role "still missing" and give it twice.
+    * One player's clicks run one after another (:func:`_one_at_a_time`), so
+      two quick clicks end in a consistent state with two true answers (on,
+      off); the answers are posted even when the same one was on the channel
+      seconds ago (``ui.reply(repeat=True)``).
+    * Anybody who may click the panel may use it: it is not a supporters'
+      benefit and not gameplay (the gate is :func:`display_gate`, see the
+      module docstring).
+    * A role that cannot be changed (no permission, the role above the bot's,
+      the role deleted, the member gone) is answered in Polish and reported
+      to the owner once per :data:`NOTIFY_REPORT_GAP`; a network hiccup asks
+      the player to try again.  Never raises into the view.
+    """
+    if not await display_gate(interaction):
+        return None
+    if not await ui.ack(interaction):  # within the 3 s; the role calls may take longer
+        return None  # an expired click: the player saw "interaction failed", nothing changes
+    try:
+        async with _one_at_a_time(int(interaction.user.id)):
+            return await _toggle_hunters_role(interaction)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the click is answered, the owner told
+        log.exception("Notifications button of %s failed.", getattr(interaction.user, "id", "?"))
+        await _notify_failed(interaction, f"error:{type(exc).__name__}", MSG_OWNER_NOTIFY_ERROR.format(
+            player=_player(interaction), error=f"{type(exc).__name__}: {exc}"))
+        return None
+
+
+async def _toggle_hunters_role(interaction: Any) -> bool | None:
+    """The work of :func:`notify_clicked` (under the player's lock, the click acknowledged)."""
+    bot = interaction.client
+    role_id = int(bot.ids.hunters_role)
+    guild = getattr(interaction, "guild", None) or bot.get_guild(bot.ids.guild)
+    role = guild.get_role(role_id) if guild is not None else None
+    if role is None:
+        await _notify_failed(interaction, "no-role", MSG_OWNER_NOTIFY_NO_ROLE.format(role_id=role_id))
+        return None
+    user_id = int(interaction.user.id)
+    try:
+        member = await io.retry(lambda: guild.fetch_member(user_id), what="fetch_member",
+                                attempt_timeout=NOTIFY_ATTEMPT_TIMEOUT, first_delay=NOTIFY_RETRY_DELAY)
+    except asyncio.CancelledError:
+        raise
+    except discord.NotFound as exc:
+        await _notify_failed(interaction, "member-gone", MSG_OWNER_NOTIFY_GONE.format(
+            player=_player(interaction), error=f"{type(exc).__name__}: {exc}"))
+        return None
+    except Exception as exc:  # noqa: BLE001
+        if not io.is_transient(exc):
+            raise
+        log.warning("Notifications button: member %s not fetched (%s: %s).", user_id, type(exc).__name__, exc)
+        await ui.reply(interaction, MSG_NOTIFY_RETRY)
+        return None
+
+    had = any(getattr(held, "id", None) == role_id for held in getattr(member, "roles", ()))
+    reason = "AlterMMO RPG: przycisk Powiadomienia"
+    try:
+        if had:
+            await io.retry(lambda: member.remove_roles(role, reason=reason), what="remove_roles",
+                           attempt_timeout=NOTIFY_ATTEMPT_TIMEOUT, first_delay=NOTIFY_RETRY_DELAY)
+        else:
+            await io.retry(lambda: member.add_roles(role, reason=reason), what="add_roles",
+                           attempt_timeout=NOTIFY_ATTEMPT_TIMEOUT, first_delay=NOTIFY_RETRY_DELAY)
+    except asyncio.CancelledError:
+        raise
+    except discord.Forbidden as exc:
+        await _notify_failed(interaction, "forbidden", MSG_OWNER_NOTIFY_FORBIDDEN.format(
+            action="zdjąć" if had else "nadać", role=role.name, role_id=role_id,
+            player=_player(interaction), error=f"{type(exc).__name__}: {exc}"))
+        return None
+    except discord.NotFound as exc:
+        if getattr(exc, "code", None) == 10011:  # Unknown Role: deleted a moment ago
+            await _notify_failed(interaction, "no-role", MSG_OWNER_NOTIFY_NO_ROLE.format(role_id=role_id))
+        else:  # Unknown Member (10007): left the server
+            await _notify_failed(interaction, "member-gone", MSG_OWNER_NOTIFY_GONE.format(
+                player=_player(interaction), error=f"{type(exc).__name__}: {exc}"))
+        return None
+    except Exception as exc:  # noqa: BLE001
+        if not io.is_transient(exc):
+            raise
+        log.warning("Notifications button: role of %s not changed (%s: %s).", user_id, type(exc).__name__, exc)
+        await ui.reply(interaction, MSG_NOTIFY_RETRY)
+        return None
+
+    name = getattr(role, "name", None) or NOTIFY_ROLE_NAME
+    log.info("Hub: hunters' role %s for %s.", "taken from" if had else "given to", user_id)
+    await ui.reply(interaction, (MSG_NOTIFY_OFF if had else MSG_NOTIFY_ON).format(role=name), repeat=True)
+    return not had
+
+
 async def refresh_panel(bot: "AlterBot") -> bool:
     """Bring the pinned panel on the boss channel up to date (text and buttons).  Never raises.
 
@@ -400,12 +597,20 @@ async def show_gems(scene: "Scene") -> Any:
 
 
 async def show_rankings(scene: "Scene") -> None:
-    """The season's hunters, the Death Tower and the most talented pets (three answers)."""
-    from . import database, pets, tower
+    """The season's hunters, the Death Tower, the most talented pets (for everybody) and, for a
+    supporter, the supporters' album collections (four answers).
+
+    A member who does not support gets the three open rankings and nothing about the collection
+    ranking: most players are not supporters, and a "this is for supporters" line with his ping
+    under every click would only fill the channel (the typed ``$rankingalbumow`` still answers it).
+    """
+    from . import albumrank, database, pets, tower
 
     await database.read_ranking_table(scene)
     await tower.tower_ranking(scene)
     await pets.pet_ranking(scene)
+    if scene.author is not None and patrons.check_if_patron(scene.author):
+        await albumrank.show_ranking(scene)
 
 
 async def show_achievements(scene: "Scene") -> Any:

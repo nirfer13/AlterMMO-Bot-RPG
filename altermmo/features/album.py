@@ -49,7 +49,10 @@ API (everything takes a database / a connection, nothing caches):
 * :func:`entries` (album order), :func:`entry`, :func:`remove`;
 * :func:`collected`, :func:`progress`, :func:`complete` - the collection maths;
 * :func:`show_album` - ``$album`` / the hub's "Album" button: an overview and a
-  :class:`AlbumPanel` to page through the entries (one card per page).
+  :class:`AlbumPanel` to page through the entries (one card per page).  Since
+  2026-11-22 the overview also shows the collection's value and the place in
+  the ranking of the supporters' collections, and an entry's page the card's
+  value (the score and the ranking: :mod:`altermmo.features.albumrank`).
 
 Owner's rules for what is shown: species the player has nothing of are never
 named (only how many are still undiscovered), and nothing explains which card
@@ -441,11 +444,27 @@ def supporters_only_text(member: Any) -> str:
     return f"<@{member.id}> {text}" if member is not None else text
 
 
-def overview_embed(player_id: int, rows: Sequence[Any]) -> discord.Embed:
-    """The album at a glance: how many entries, the collection, what lies outside it.
+def _value_lines(value: Any) -> list[str]:
+    """The collection's value and the place in the ranking (:class:`albumrank.Overview`; None:
+    nothing).  No line for an album that scores nothing, no place line when there is none."""
+    from . import albumrank
+
+    if value is None or value.points <= 0:
+        return []
+    lines = [albumrank.MSG_VALUE.format(points=albumrank.points_text(value.points))]
+    if not value.available:
+        lines.append(albumrank.MSG_PLACE_UNKNOWN)
+    elif value.place is not None:
+        lines.append(albumrank.MSG_PLACE.format(place=value.place, total=value.total))
+    return lines
+
+
+def overview_embed(player_id: int, rows: Sequence[Any], value: Any = None) -> discord.Embed:
+    """The album at a glance: how many entries, the collection, its value, what lies outside it.
 
     A species of the collection is named only when the player has at least one
-    stage of it; the others are only counted.
+    stage of it; the others are only counted.  ``value`` is what
+    :func:`albumrank.overview_of` says (the points and the place; None: no such lines).
     """
     total = slot_count()
     if not rows:
@@ -453,7 +472,7 @@ def overview_embed(player_id: int, rows: Sequence[Any]) -> discord.Embed:
                              color=ALBUM_COLOUR)
     state = progress(rows)
     lines = [MSG_OVERVIEW.format(player_id=player_id, entries=_plural_pets(len(rows)),
-                                 count=state.count, total=state.total), ""]
+                                 count=state.count, total=state.total), *_value_lines(value), ""]
     discovered = [species for species in collection_species() if state.stages_of(species)]
     for species in discovered:
         have = state.stages_of(species)
@@ -493,10 +512,26 @@ def _frame_text(row: Any) -> str:
     return str(getattr(frame, "label", "") or getattr(frame, "name", ""))
 
 
-def entry_embed(row: Any, position: int, total: int) -> discord.Embed:
+def _card_value_lines(row: Any, rows: Sequence[Any] | None) -> list[str]:
+    """The card's value and - when the album (``rows``, the player's entries) holds a card of the
+    same species and stage worth more - that this one does not count (so the player knows which
+    duplicates matter before he removes one).  Nothing for an entry that scores nothing."""
+    from . import albumrank
+
+    points = albumrank.card_points(row)
+    if points <= 0:
+        return []
+    lines = [albumrank.MSG_CARD_VALUE.format(points=albumrank.points_text(points))]
+    if rows and albumrank.collection(rows).beaten(row, points):
+        lines.append(albumrank.MSG_NOT_COUNTED)
+    return lines
+
+
+def entry_embed(row: Any, position: int, total: int, rows: Sequence[Any] | None = None) -> discord.Embed:
     """One entry: what it is and what it has (its picture is set by :func:`entry_view`).
 
     The pet's name is plain text in the title and the description (:func:`shown_name`).
+    ``rows`` (the player's entries) tell whether a better card of the slot makes this one not count.
     """
     species = species_name(str(row["type"]))
     name = shown_name(row)
@@ -521,6 +556,7 @@ def entry_embed(row: Any, position: int, total: int) -> discord.Embed:
     added = row["added_at"]
     if added is not None:
         lines.append(MSG_ADDED.format(when=ui.when(added, "f")))
+    lines += _card_value_lines(row, rows)
     lines += ["", MSG_POSITION.format(position=position + 1, total=total)]
     embed = discord.Embed(title=title[:256], description="\n".join(lines), color=CLASS_COLOURS[tier])
     embed.set_footer(text=MSG_ENTRY_FOOTER)
@@ -528,7 +564,8 @@ def entry_embed(row: Any, position: int, total: int) -> discord.Embed:
 
 
 async def entry_view(bot: "AlterBot", guild: Any, row: Any, position: int, total: int, *,
-                     wait: waiting.Waiting | None = None) -> tuple[discord.Embed, Path | None]:
+                     wait: waiting.Waiting | None = None,
+                     rows: Sequence[Any] | None = None) -> tuple[discord.Embed, Path | None]:
     """The embed of an entry and its card (None: shown without a picture).
 
     The card has everything the pet had (the viewer is a supporter: the album
@@ -536,9 +573,9 @@ async def entry_view(bot: "AlterBot", guild: Any, row: Any, position: int, total
     acknowledged its interaction; it is composed in a worker thread
     (:func:`petcards.card`), and ``wait`` (the caller's :func:`waiting.notice`)
     shows "🐾 Nadchodzi towarzysz..." while it is slow.  A card that cannot be
-    made never fails the page.
+    made never fails the page.  ``rows``: the player's entries (:func:`entry_embed`).
     """
-    embed = entry_embed(row, position, total)
+    embed = entry_embed(row, position, total, rows)
     try:
         source = pets._pet_image(row)
         if source is None or not source.is_file():
@@ -565,8 +602,11 @@ async def show_album(scene: "Scene") -> bool:
     if member is None or not patrons.check_if_patron(member):
         await scene.send(supporters_only_text(member))
         return False
+    from . import albumrank
+
     rows = await entries(scene.bot.db, member.id)
-    embed = overview_embed(member.id, rows)
+    value = await albumrank.overview_of(scene.bot, member, rows) if rows else None
+    embed = overview_embed(member.id, rows, value)
     if not rows:
         await scene.send(embed=embed)
         return True
@@ -696,13 +736,16 @@ class AlbumPanel(ui.PanelView):
         if position is not None:
             position = max(0, min(int(position), len(rows) - 1))  # (a _Gap is shown as its index)
         if position is None:
+            from . import albumrank
+
             entry_id = None
-            embed, image = overview_embed(self.owner_id or 0, rows), None
+            value = await albumrank.overview_of(bot, self.player, rows)  # (read anew: after a removal too)
+            embed, image = overview_embed(self.owner_id or 0, rows, value), None
         else:
             row = rows[position]
             entry_id = int(row["entry_id"])
             guild = getattr(self.message, "guild", None) or getattr(self.player, "guild", None)
-            embed, image = await entry_view(bot, guild, row, position, len(rows), wait=wait)
+            embed, image = await entry_view(bot, guild, row, position, len(rows), wait=wait, rows=rows)
         self._arrange(rows, position)
         if self.is_finished():
             return False

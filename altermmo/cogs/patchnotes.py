@@ -12,6 +12,10 @@ The rules live in :mod:`altermmo.features.patchnotes`.  This cog decides *when*:
   message and wants it back); the remembered number is then the highest one sent.  It never
   jumps over entries that were not announced yet (it refuses and says which ones), and a run
   that stops in the middle never lowers the remembered number.
+
+The first message of a run that announces something for the first time pings the hunters' role
+(not in debug mode, not when ``od`` only posts old entries again); the command's own answers
+never ping anybody.
 """
 
 from __future__ import annotations

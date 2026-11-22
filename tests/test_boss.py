@@ -289,8 +289,9 @@ async def test_loot_normal_drop(game, pets, loot, monkeypatch):
     assert embed.description == "Boss wydropił:\n" + message
     # Right under the drop: how to use the theft (a ping), and the same privately.
     how_to = game.channel.messages[-1].content
-    assert how_to == xpsteal.MSG_HOW_TO.format(thief=player.id, amount=2500) and "$kradnijxp nick" in how_to
-    assert player.dms == [xpsteal.DM_HOW_TO.format(amount=2500, channel=game.bot.ids.boss_channel)]
+    shown = xpsteal.number(2500)                             # "2 500", as in the confirmation and the result
+    assert how_to == xpsteal.MSG_HOW_TO.format(thief=player.id, amount=shown) and "$kradnijxp nick" in how_to
+    assert player.dms == [xpsteal.DM_HOW_TO.format(amount=shown, channel=game.bot.ids.boss_channel)]
 
 
 async def test_loot_bonus_drops_really_grant_a_second_item(game, pets, loot, monkeypatch):

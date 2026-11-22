@@ -55,6 +55,27 @@ def test_the_real_notes_file_is_valid_ordered_and_spoiler_free():
     assert all(set(item) <= {"id", "date", "title", "changes"} for item in raw)
 
 
+def test_the_notes_promise_only_what_the_game_does(game):
+    """Two lines the reviewers found promising too much (the notes are final once posted)."""
+    from altermmo.features import petcards, xpsteal
+
+    text = {item.id: " ".join(item.changes) for item in patchnotes.load_notes()}
+    # An ordinary pet (no class) of a player who does not support stays the plain picture: only
+    # the rarer ones are always cards.
+    assert petcards.base_look({}).plain
+    assert "towarzysze i jajka pokazują się jako karty" not in text[1]
+    assert "rzadsze odmiany towarzyszy i ich jajka pokazują się jako karty" in text[1]
+    # A right won before the update keeps its stored amount: the 10 000 is for drops from now on.
+    xpsteal.grant(game.bot, 77, 2500)
+    assert xpsteal.pending(game.bot, 77) == [2500]
+    assert "Kradzież doświadczenia zdobyta od teraz w łupie z bossa jest warta 10 000" in text[4]
+    assert "Każda kradzież zabiera tylko tyle, ile ofiara naprawdę ma" in text[4]
+    # The pet panel: renaming opens a window, rebirth and transformation ask first, and some buttons
+    # show only for some pets - not "everything with one click".
+    assert "jednym kliknięciem" not in text[1]
+    assert "Akcje towarzysza są teraz dostępne jako przyciski pod nim" in text[1]
+
+
 def test_a_good_file_is_read_with_stripped_texts_and_an_optional_title(tmp_path):
     path = write(tmp_path, [entry(1, "  Pierwsza zmiana.  ", title=" Nowości "),
                             {"id": 2, "date": "2026-12-01", "changes": ["Druga."]}])
@@ -368,6 +389,64 @@ def test_only_the_bots_own_patch_notes_messages_count():
     assert patchnotes.marker_of(message(embeds=0), BOT_ID) is None
     assert patchnotes.marker_of(message(embeds=2), BOT_ID) is None
     assert patchnotes.marker_of(SimpleNamespace(author=None, content="", embeds=[]), BOT_ID) is None
+
+
+ROLE = 985071779787730944
+MENTION = f"<@&{ROLE}>"
+
+
+def test_a_marker_message_may_carry_exactly_the_hunters_mention():
+    """Owner, 2026-11-22: "W patch notesach oznaczaj rolę łowca potworów." - the first message of a run
+    pings the role in its text; it must still count as the bot's patch-notes message."""
+    assert patchnotes.marker_of(message(content=MENTION), BOT_ID, ROLE) == 3
+    assert patchnotes.marker_of(message(), BOT_ID, ROLE) == 3              # old ones without text stay valid
+    assert patchnotes.marker_of(message(), BOT_ID) == 3
+    assert patchnotes.marker_of(message(content=MENTION), BOT_ID) is None  # (which role is unknown)
+    assert patchnotes.marker_of(message(content=MENTION, author_id=8), BOT_ID, ROLE) is None
+
+
+@pytest.mark.parametrize("content", [
+    f"<@&{ROLE + 1}>",                       # a foreign role
+    "<@291836779495948288>", f"<@{ROLE}>",   # a player
+    "@everyone", "@here",
+    f"{MENTION} Nowości!", f"Nowości {MENTION}", f"{MENTION}{MENTION}", f"{MENTION} <@&1>",
+    f"{MENTION} ", f" {MENTION}", f"<@&{ROLE}>.", f"<@& {ROLE}>", f"<@&０{ROLE}>",
+    "Patch notes nr 3", " ",
+])
+def test_any_other_content_is_not_a_marker_message(content):
+    assert patchnotes.marker_of(message(content=content), BOT_ID, ROLE) is None
+
+
+@pytest.mark.parametrize("role_id", [None, 0, -5, True, "985071779787730944", 1.5])
+def test_a_mention_never_counts_without_a_usable_role(role_id):
+    assert not patchnotes.content_allowed(MENTION, role_id)
+    assert patchnotes.content_allowed("", role_id) and patchnotes.content_allowed(None, role_id)
+
+
+def test_a_post_with_a_ping_carries_only_the_mention_and_allows_only_that_role():
+    plain = patchnotes.Post("📅 **21.11.2026**\n• Zmiana.", "Patch notes nr 1", (1,))
+    assert plain.content == "" and plain.allowed_mentions.to_dict() == discord.AllowedMentions.none().to_dict()
+    pinged = patchnotes.Post(plain.description, plain.footer, (1,), ping_role=ROLE)
+    assert pinged.content == MENTION
+    mentions = pinged.allowed_mentions
+    assert mentions.to_dict() == {"parse": [], "roles": [ROLE]}
+    assert mentions.everyone is False and mentions.users is False and mentions.replied_user is False
+    assert pinged.embed().to_dict() == plain.embed().to_dict()                    # the embed is the same
+
+
+def _sent(content: str, post) -> SimpleNamespace:
+    embed = post.embed()
+    return SimpleNamespace(author=SimpleNamespace(id=BOT_ID), content=content, embeds=[embed], created_at=None)
+
+
+def test_two_messages_that_differ_only_in_the_mention_are_not_the_same_message():
+    plain = patchnotes.Post("📅 **21.11.2026**\n• Zmiana.", "Patch notes nr 1", (1,))
+    pinged = patchnotes.Post(plain.description, plain.footer, (1,), ping_role=ROLE)
+    assert patchnotes._same_post(_sent("", plain), plain, BOT_ID, None)
+    assert patchnotes._same_post(_sent(MENTION, pinged), pinged, BOT_ID, None)
+    assert not patchnotes._same_post(_sent("", plain), pinged, BOT_ID, None)
+    assert not patchnotes._same_post(_sent(MENTION, pinged), plain, BOT_ID, None)
+    assert not patchnotes._same_post(_sent(f"<@&{ROLE + 1}>", pinged), pinged, BOT_ID, None)
 
 
 def test_the_posted_embed_carries_the_marker_and_nothing_technical_besides():

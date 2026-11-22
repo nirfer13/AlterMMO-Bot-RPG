@@ -808,7 +808,8 @@ async def test_a_spoiler_in_the_last_entry(game, channel, notes_file):
     assert outcome.problems == [patchnotes.MSG_OWNER_SPOILER.format(id=2, word="2%", after="")]
 
 
-async def test_nobody_is_ever_pinged(game, channel, notes_file):
+async def test_nobody_is_ever_pinged_in_debug_mode(game, channel, notes_file):
+    assert game.bot.debug                                                 # (the test bot runs in debug mode)
     notes_file([entry(1, text="@everyone <@&985071779787730944> <@291836779495948288> @here"), entry(2)])
     channel.script = [("arrived", OSError("reset"))]
     await patchnotes.announce(game.bot)
@@ -819,6 +820,136 @@ async def test_nobody_is_ever_pinged(game, channel, notes_file):
         assert mentions.to_dict() == discord.AllowedMentions.none().to_dict()
         assert not (mentions.everyone or mentions.users or mentions.roles or mentions.replied_user)
     assert all(message.content == "" for message in patch_messages(channel))
+
+
+# -- the ping of the hunters' role (owner, 2026-11-22: "W patch notesach oznaczaj rolę łowca potworów.") --
+
+HUNTERS = Ids().hunters_role
+MENTION = f"<@&{HUNTERS}>"
+ONLY_HUNTERS = {"parse": [], "roles": [HUNTERS]}
+NOBODY = discord.AllowedMentions.none().to_dict()
+
+
+@pytest.fixture
+def live(game):
+    """The bot as it runs for the players (not in debug mode: there it never pings)."""
+    game.bot.debug = False
+    return game
+
+
+def contents(channel) -> list[str]:
+    return [message.content for message in patch_messages(channel)]
+
+
+def mentions(channel) -> list[dict]:
+    return [attempt["allowed_mentions"].to_dict() for attempt in channel.attempts]
+
+
+async def test_the_first_message_of_a_run_pings_the_hunters_once(live, channel, notes_file):
+    content = entries(1, 2, 3, lines=BIG, size=990)                       # one entry per message
+    notes_file(content)
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.sent == [1, 2, 3] and outcome.messages == 3 and outcome.problems == []
+    assert contents(channel) == [MENTION, "", ""]                          # the later ones: no ping
+    assert mentions(channel) == [ONLY_HUNTERS, NOBODY, NOBODY]
+    first = channel.attempts[0]["allowed_mentions"]
+    assert first.everyone is False and first.users is False and first.replied_user is False
+    assert posted_lines(channel) == lines_of(content) and remembered(live) == 3
+
+
+async def test_the_second_message_of_a_split_entry_does_not_ping(live, channel, notes_file):
+    notes_file([entry(1, lines=12, size=900)])
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.sent == [1] and outcome.messages >= 3
+    assert contents(channel) == [MENTION] + [""] * (outcome.messages - 1)
+    assert mentions(channel) == [ONLY_HUNTERS] + [NOBODY] * (outcome.messages - 1)
+
+
+async def test_a_pinged_marker_message_is_read_back_and_nothing_new_posts_nothing(live, channel, notes_file):
+    notes_file(entries(1, 2))
+    await patchnotes.announce(live.bot)
+    assert contents(channel) == [MENTION]
+    lose_local(live)                                                      # only the channel tells now
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.channel_value == 2 and outcome.sent == [] and len(channel.attempts) == 1
+    notes_file(entries(1, 2, 3))                                          # the next update pings again
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.sent == [3] and contents(channel) == [MENTION, MENTION]
+
+
+async def test_a_mention_of_another_role_is_no_marker_message(live, channel, notes_file):
+    other = patchnotes.Post("x", "Patch notes nr 2", (2,)).embed()
+    await FakeChannel.send(channel, f"<@&{HUNTERS + 1}>", embed=other)
+    await FakeChannel.send(channel, f"{MENTION} Nowości!", embed=other)
+    notes_file(entries(1, 2))
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.channel_value is None and outcome.sent == [1, 2]
+
+
+async def test_od_over_entries_announced_before_pings_nobody(live, channel, notes_file):
+    notes_file(entries(1, 2, 3))
+    await patchnotes.announce(live.bot)
+    await load_cog(live)
+    await run(live, administrator(live), "$patchnotes od 2")
+    assert footers(channel) == ["Patch notes nr 1-3", "Patch notes nr 2-3"]
+    assert contents(channel) == [MENTION, ""] and mentions(channel) == [ONLY_HUNTERS, NOBODY]
+
+
+async def test_od_that_reaches_new_entries_pings(live, channel, notes_file):
+    notes_file(entries(1, 2))
+    await patchnotes.announce(live.bot)
+    notes_file(entries(1, 2, 3))
+    outcome = await patchnotes.announce(live.bot, from_id=2)
+    assert outcome.sent == [2, 3] and footers(channel) == ["Patch notes nr 1-2", "Patch notes nr 2-3"]
+    assert contents(channel) == [MENTION, MENTION] and mentions(channel) == [ONLY_HUNTERS, ONLY_HUNTERS]
+
+
+async def test_od_that_reaches_new_entries_pings_only_its_first_message(live, channel, notes_file):
+    notes_file(entries(1, 2, lines=BIG, size=990))
+    await patchnotes.announce(live.bot)
+    notes_file(entries(1, 2, 3, lines=BIG, size=990))
+    outcome = await patchnotes.announce(live.bot, from_id=1)              # 1 and 2 again, 3 for the first time
+    assert outcome.sent == [1, 2, 3]
+    assert contents(channel) == [MENTION, "", MENTION, "", ""]
+
+
+async def test_in_debug_mode_nobody_is_pinged(game, channel, notes_file):
+    game.bot.debug = True
+    notes_file(entries(1, 2, lines=BIG, size=990))
+    await patchnotes.announce(game.bot)
+    assert contents(channel) == ["", ""] and mentions(channel) == [NOBODY, NOBODY]
+
+
+async def test_a_note_text_with_mentions_still_pings_nobody_but_the_hunters(live, channel, notes_file):
+    notes_file([entry(1, text="@everyone <@&123456789012345678> <@291836779495948288> @here"), entry(2)])
+    channel.script = [("arrived", OSError("reset"))]                      # (the check after a lost answer)
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.sent == [1, 2] and len(channel.attempts) == 1          # it did arrive: not sent again
+    assert mentions(channel) == [ONLY_HUNTERS]
+    (message,) = patch_messages(channel)
+    assert message.content == MENTION and "@everyone" in message.embeds[0].description
+
+
+async def test_a_pinged_copy_made_by_discord_pys_own_repeat_is_deleted(live, channel, notes_file):
+    notes_file(entries(1))
+    channel.script = ["twice"]
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.sent == [1] and len(patch_messages(channel)) == 2 and len(visible(channel)) == 1
+    assert visible(channel)[0].content == MENTION
+
+
+async def test_an_unpinged_twin_is_not_taken_for_the_pinged_message(live, channel, notes_file):
+    """The check after a lost answer compares the content too: the same embed without the mention
+    (posted by ``od`` a moment ago, say) is another message, so the pinged one is sent again."""
+    notes_file([entry(1, lines=12, size=900)])                            # split: its first part is no marker
+    plan = patchnotes.plan_posts(patchnotes.load_notes())
+    assert plan[0].footer == patchnotes.FOOTER_TO_BE_CONTINUED
+    await FakeChannel.send(channel, embed=plan[0].embed())                # the same part, without the mention
+    channel.script = [OSError("reset")]                                    # lost, NOT arrived
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.sent == [1] and outcome.problems == []
+    assert len(channel.attempts) == len(plan) + 1                          # the first part was sent again
+    assert contents(channel) == ["", MENTION] + [""] * (len(plan) - 1)
 
 
 def test_debug_mode_posts_into_the_log_channel_not_the_players_channel(tmp_path, monkeypatch):

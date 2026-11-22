@@ -2,6 +2,27 @@
     {
         "id": 1,
         "date": "2026-11-20",
+        "title": "Gra napisana od nowa",
+        "changes": [
+            "Gra została napisana od nowa i działa stabilniej. W walce liczy się Twój prawdziwy czas odpowiedzi (opóźnienie bota się nie wlicza), a walka przerwana przez problem techniczny nie jest liczona jako przegrana.",
+            "Obok komend pojawiły się przyciski: atak na bossa, dołączanie do polowania i do walki z legendarnym bossem, skrzynia, kapliczka, wydarzenia i potwierdzenia.",
+            "Na kanale gry jest przypięty „Panel gry”: polowanie, wieża, towarzysz, stajnia, klejnoty, rankingi, osiągnięcia i pomoc w jednym miejscu.",
+            "Akcje towarzysza są teraz dostępne jako przyciski pod nim (np. zmiana imienia, stajnia, odrodzenie); widać te, które pasują do Twojego towarzysza.",
+            "Czas do końca zapisów, do kolejnego polowania, do odnowienia klejnotu czy do końca sezonu Discord odlicza teraz na żywo (np. „za 5 minut”).",
+            "Gdy trwa wydarzenie, polowanie albo wyprawa do wieży, bot odpowiada, że trzeba chwilę poczekać, zamiast milczeć.",
+            "Klejnoty umiejętności zbierasz teraz w sakwie i sam wybierasz, który jest aktywny ($klejnoty, $wybierzklejnot). Jednego dnia działa tylko jeden klejnot.",
+            "Przywołany boss, którego nikt nie zaatakował, ustępuje miejsca zwykłemu bossowi, gdy przychodzi jego pora.",
+            "Wróciło wydarzenie z rytuałem, a kapliczka ma nowy możliwy efekt.",
+            "Nowa komenda $kradnijxp: tak wykorzystasz kradzież doświadczenia zdobytą w łupie z bossa.",
+            "Nowe grafiki bossów, potworów, towarzyszy, jajek, wydarzeń, klejnotów i wieży; rzadsze odmiany towarzyszy i ich jajka pokazują się jako karty.",
+            "Rankingi i stajnia są czytelniejsze, a rankingi sprawdzisz na każdym kanale.",
+            "Do wspierających liczą się teraz też subskrybenci na Twitchu i wspierający na YouTube.",
+            "Powiadomienie o bossie na czacie ogólnym podaje jego rzadkość i znika, gdy bossa już nie ma."
+        ]
+    },
+    {
+        "id": 2,
+        "date": "2026-11-20",
         "title": "Osiągnięcia i porządki w walkach",
         "changes": [
             "Osiągnięcia zostały uproszczone: zostają tylko te za najrzadsze, mityczne zdobycze. Role wycofanych osiągnięć znikają z serwera.",
@@ -10,7 +31,7 @@
         ]
     },
     {
-        "id": 2,
+        "id": 3,
         "date": "2026-11-21",
         "title": "Karty towarzyszy, album i kilka udogodnień",
         "changes": [
@@ -24,11 +45,15 @@
         ]
     },
     {
-        "id": 3,
+        "id": 4,
         "date": "2026-11-22",
-        "title": "Towarzysz już idzie",
+        "title": "Kolekcje, kradzież i wygoda",
         "changes": [
-            "Gdy karta towarzysza potrzebuje chwili, żeby się pojawić, bot pokazuje teraz, że towarzysz jest już w drodze - nie trzeba klikać ponownie."
+            "Gdy karta towarzysza potrzebuje chwili, żeby się pojawić, bot pokazuje teraz, że towarzysz jest już w drodze - nie trzeba klikać ponownie.",
+            "Dla wspierających: album pokazuje teraz wartość Twojej kolekcji i miejsce w rankingu. Liczy się najrzadsza karta każdego gatunku na każdym etapie - im rzadsza, tym więcej punktów.",
+            "Nowy ranking kolekcji wspierających: komenda $rankingalbumow albo przycisk Rankingi w Panelu gry.",
+            "W Panelu gry jest nowy przycisk Powiadomienia: jedno kliknięcie nadaje rolę Łowca Potworów (powiadomienia o bossach, wydarzeniach i nowościach w grze), a kolejne ją zdejmuje.",
+            "Kradzież doświadczenia zdobyta od teraz w łupie z bossa jest warta 10 000 doświadczenia na Discordzie zamiast 2 500. Każda kradzież zabiera tylko tyle, ile ofiara naprawdę ma: złodziej dostaje dokładnie tyle, ile ofiara straciła - więc wybierajcie ofiary z głową!"
         ]
     }
 ]

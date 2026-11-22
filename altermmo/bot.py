@@ -222,6 +222,12 @@ LEGACY_STATE_FILES: tuple[str, ...] = (
 )
 
 
+#: Folders shared with Horus inside the data folder (the folder of Horus's ``external_xp_file``):
+#: XP theft requests written by this bot, results written by Horus (features/xpsteal.py).
+XP_TRANSFERS_FOLDER = "xp_transfers"
+XP_TRANSFER_RESULTS_FOLDER = "xp_transfer_results"
+
+
 #: ``runtime.json`` older than this at start-up = the bot has not been running
 #: (a running bot rewrites it every night at 02:30 and 04:00).
 STALE_STATE_AFTER = 36 * 3600.0
@@ -251,6 +257,16 @@ class Stores:
         self.runtime = JsonFile(data_dir / "runtime.json", dict)
         #: Unused "steal experience" rights won from bosses (features/xpsteal.py).
         self.xp_thefts = JsonFile(data_dir / "xpThefts.json", dict)
+        #: XP thefts settled by Horus (features/xpsteal.py, protocol version 1): one request file
+        #: per theft written here, one result file per settled theft written there by Horus.
+        #: Sub-folders: the backup copies only the files lying directly in ``data_dir``.
+        self.xp_transfers_dir = data_dir / XP_TRANSFERS_FOLDER
+        self.xp_transfer_results_dir = data_dir / XP_TRANSFER_RESULTS_FOLDER
+        #: Results already told to the thief: ``{"<transfer id>": unix time}`` (never told twice).
+        self.xp_transfers_announced = JsonFile(data_dir / "xpTransfersAnnounced.json", dict)
+        #: Requests this bot wrote whose result is not announced yet: ``{"<transfer id>": unix time}``.
+        #: A result for any other id is not announced (a request copy back from a backup...).
+        self.xp_transfers_written = JsonFile(data_dir / "xpTransfersWritten.json", dict)
         #: Roles of the achievements the bot made itself: ``{key: role id}`` (features/achievements.py).
         self.achievement_roles = JsonFile(data_dir / "achievementRoles.json", dict)
         #: Players who switched the "a boss is coming" warnings off (features/bossdetect.py).

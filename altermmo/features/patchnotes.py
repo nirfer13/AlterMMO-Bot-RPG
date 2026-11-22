@@ -16,8 +16,9 @@ the owner is told exactly what is wrong.
 * the bot's OWN newest patch-notes message on the channel ("które zmiany w ostatniej
   wiadomości zostały wysłane"): the footer of each one carries the marker ``Patch notes nr
   4-6`` (:func:`marker`) - the entries whose LAST line is in that message.  Only messages
-  written by the bot itself with exactly that footer under the patch-notes title count
-  (:func:`marker_of`); somebody quoting it, another bot, an edited-looking text never do.  A
+  written by the bot itself with exactly that footer under the patch-notes title, and with no
+  text or exactly the hunters' mention (see below), count (:func:`marker_of`); somebody quoting
+  it, another bot, an edited-looking text never do.  A
   short network problem while reading is waited out (:data:`HISTORY_PATIENCE`) before the bot
   falls back to the local number alone;
 * the number remembered locally (``runtime.json``, key :data:`RUNTIME_KEY`).
@@ -56,6 +57,13 @@ run (``$patchnotes od`` twice in a row) counts as the same message (one copy sta
 back file that gets its new entries BEFORE the next start (the number is then not higher than
 the file) cannot be told from an ordinary one, and those entries are not posted.
 
+**The ping** (owner, 2026-11-22: "W patch notesach oznaczaj rolę łowca potworów."): the FIRST
+message of a run that announces at least one entry for the first time carries the mention of
+the hunters' role (``bot.ids.hunters_role``) as its whole text content and is sent with allowed
+mentions for exactly that role (:func:`only_role`) - one ping per update, nobody else, whatever
+a note says.  The later messages of the run, a ``$patchnotes od`` over entries announced before
+and debug mode ping nobody (:data:`NO_MENTIONS`).  Old marker messages without text stay valid.
+
 **No spoilers** ("Bez spoilerów"; the owner's rule for this game: players discover things
 themselves - no species of pets, no names of card frames / seals / foils, no drop chances):
 :func:`spoiler_in` refuses an entry with a percentage or a word of :data:`FORBIDDEN_WORDS`
@@ -72,7 +80,7 @@ import json
 import logging
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date as Date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
@@ -114,7 +122,8 @@ VERIFY_MAX_DELAY = 60.0
 VERIFY_CLOCK_SLACK = timedelta(minutes=2)
 
 # Discord's limits of one embed (characters, counted by Discord in UTF-16 code units - an emoji
-# is two - so :func:`discord_len` counts the same way; a message has no content here).
+# is two - so :func:`discord_len` counts the same way; the message's content, at most the role's
+# mention, does not count towards them).
 EMBED_TITLE_LIMIT = 256
 EMBED_DESCRIPTION_LIMIT = 4096
 EMBED_FOOTER_LIMIT = 2048
@@ -139,6 +148,21 @@ MARKER_PREFIX = "Patch notes nr "
 _MARKER = re.compile(r"Patch notes nr ([1-9][0-9]{0,8})(?:-([1-9][0-9]{0,8}))?")
 #: Never ping anybody, whatever a note says (``@everyone``, a role, a player).
 NO_MENTIONS = discord.AllowedMentions.none()
+
+
+def role_mention(role_id: int) -> str:
+    """The text content of a patch-notes message that pings the hunters' role: ``<@&id>``, nothing else."""
+    return f"<@&{role_id}>"
+
+
+def only_role(role_id: int) -> discord.AllowedMentions:
+    """Allowed mentions for exactly that one role: no ``@everyone`` / ``@here``, no player, no other role.
+
+    (A note's text sits in the embed, which never pings; this makes sure that even the content of
+    the message can wake nobody but the hunters.)
+    """
+    return discord.AllowedMentions(everyone=False, users=False, roles=[discord.Object(id=role_id)],
+                                   replied_user=False)
 
 # -- what the owner / the administrator is told (Polish) --------------------------------------
 
@@ -484,15 +508,32 @@ def parse_marker(text: Any) -> int | None:
     return last if last > first else None  # "6-4" / "4-4" are never written by the bot
 
 
-def marker_of(message: Any, bot_user_id: int | None) -> int | None:
+def content_allowed(content: Any, role_id: int | None) -> bool:
+    """True when a message's text content is what a patch-notes message may carry.
+
+    Nothing at all, or exactly the mention of the hunters' role (the first message of a run that
+    announces something new pings it - owner, 2026-11-22: "W patch notesach oznaczaj rolę łowca
+    potworów.").  Strict: another role, a player, extra words - not a patch-notes message.
+    """
+    if not content:
+        return True
+    return isinstance(content, str) and _usable_role(role_id) and content == role_mention(role_id)
+
+
+def _usable_role(role_id: Any) -> bool:
+    return type(role_id) is int and role_id > 0
+
+
+def marker_of(message: Any, bot_user_id: int | None, role_id: int | None = None) -> int | None:
     """The highest entry id a message announced, or None when it is not one of the bot's patch notes.
 
-    Only a message written by the bot itself, without text, with one embed titled
-    :data:`MARKER_TITLES` whose footer is exactly a marker.
+    Only a message written by the bot itself, with no text or exactly the mention of the role
+    ``role_id`` (:func:`content_allowed`), with one embed titled :data:`MARKER_TITLES` whose
+    footer is exactly a marker.
     """
     if bot_user_id is None or getattr(getattr(message, "author", None), "id", None) != bot_user_id:
         return None
-    if getattr(message, "content", ""):
+    if not content_allowed(getattr(message, "content", ""), role_id):
         return None
     embeds = list(getattr(message, "embeds", None) or ())
     if len(embeds) != 1:
@@ -516,10 +557,22 @@ class Post:
     covers: tuple[int, ...] = ()
     #: For a part of an entry too long for one message: that entry's id.
     part_of: int | None = None
+    #: The role this message pings (its whole text content is then the mention); None: no text.
+    ping_role: int | None = None
 
     @property
     def last_id(self) -> int | None:
         return max(self.covers) if self.covers else None
+
+    @property
+    def content(self) -> str:
+        """The message's text: the role's mention, or nothing."""
+        return role_mention(self.ping_role) if self.ping_role is not None else ""
+
+    @property
+    def allowed_mentions(self) -> discord.AllowedMentions:
+        """Exactly the pinged role (:func:`only_role`), else nobody (:data:`NO_MENTIONS`)."""
+        return only_role(self.ping_role) if self.ping_role is not None else NO_MENTIONS
 
     def embed(self) -> discord.Embed:
         embed = discord.Embed(title=MSG_TITLE, description=self.description, colour=COLOUR)
@@ -716,6 +769,23 @@ def _describe(exc: BaseException) -> str:
     return type(exc).__name__
 
 
+def hunters_role(bot: Any) -> int | None:
+    """The id of the hunters' role ("łowca potworów"), None when the settings have no usable one."""
+    role_id = getattr(getattr(bot, "ids", None), "hunters_role", None)
+    return role_id if _usable_role(role_id) else None
+
+
+def ping_role(bot: Any) -> int | None:
+    """The role the first message of a run with something new pings: the hunters; None in debug mode.
+
+    Like every other game announcement (``pets._announce_mythic``, the tournament ...): a test
+    run of the bot never pings the players.
+    """
+    if getattr(bot, "debug", False):
+        return None
+    return hunters_role(bot)
+
+
 def local_value(bot: Any) -> int | None:
     """The remembered highest announced id; None when nothing (usable) is remembered."""
     try:
@@ -764,10 +834,11 @@ async def read_channel_marker(bot: Any, channel: Any) -> int | None:
     bot_id = getattr(getattr(bot, "user", None), "id", None)
     if bot_id is None:
         raise LookupError("the bot's own user is unknown")
+    role_id = hunters_role(bot)
 
     async def scan() -> int | None:
         async for message in channel.history(limit=HISTORY_LIMIT):
-            value = marker_of(message, bot_id)
+            value = marker_of(message, bot_id, role_id)
             if value is not None:
                 return value
         return None
@@ -790,8 +861,13 @@ async def read_channel_marker(bot: Any, channel: Any) -> int | None:
 
 
 def _same_post(message: Any, post: Post, bot_id: int | None, since: Any) -> bool:
-    """True when ``message`` is the bot's ``post`` (the same footer and text) created after ``since``."""
+    """True when ``message`` is the bot's ``post`` (the same content, footer and text) created after ``since``.
+
+    The content counts too: a message that differs only in the role's mention is another message.
+    """
     if bot_id is None or getattr(getattr(message, "author", None), "id", None) != bot_id:
+        return False
+    if (getattr(message, "content", "") or "") != post.content:
         return False
     created = getattr(message, "created_at", None)
     if created is not None and created < since:
@@ -863,7 +939,8 @@ async def _deliver(bot: Any, channel: Any, post: Post, kept: set[int] | None = N
     bot_id = getattr(getattr(bot, "user", None), "id", None)
     while True:
         try:
-            sent = await io.send(channel, embed=post.embed(), allowed_mentions=NO_MENTIONS, attempts=1)
+            sent = await io.send(channel, post.content or None, embed=post.embed(),
+                                 allowed_mentions=post.allowed_mentions, attempts=1)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - sorted below
@@ -978,6 +1055,10 @@ async def _announce(bot: Any, outcome: Outcome) -> None:
             break
         postable.append(note)
     posts = plan_posts(postable)
+    if posts and any(note.id > floor for note in postable):
+        role_id = ping_role(bot)
+        if role_id is not None:  # (the first message only: one ping per update, never in debug mode)
+            posts[0] = replace(posts[0], ping_role=role_id)
     delivered: set[int] = set()
     kept: set[int] = set()
     for post in posts:

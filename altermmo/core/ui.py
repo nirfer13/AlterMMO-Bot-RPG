@@ -162,7 +162,7 @@ def _note_said(interaction: Any, content: str) -> None:
     _recent_notices[_notice_key(interaction, content)] = now
 
 
-def _swallowed(interaction: Any, content: str) -> bool:
+def _swallowed(interaction: Any, content: str, *, repeat: bool = False) -> bool:
     """True when a public plain notice must not be posted now (the click is only acknowledged).
 
     * anything while players are typing a fight on the channel
@@ -170,18 +170,19 @@ def _swallowed(interaction: Any, content: str) -> bool:
       not even the busy notice;
     * the busy notice: at most one per 20 s per channel, together with the
       typed commands (``guards.busy_notice_due``);
-    * a notice this player (or, for :data:`GENERAL_NOTICES`, anybody) got moments ago.
+    * a notice this player (or, for :data:`GENERAL_NOTICES`, anybody) got moments ago -
+      unless ``repeat`` (see :func:`reply`).
     """
     channel = getattr(interaction, "channel", None)
     if challenge.fight_on(channel):
         return True
     if content == MSG_BUSY:
         return not guards.busy_notice_due(getattr(channel, "id", 0) or 0, note=False)
-    return _just_said(interaction, content)
+    return not repeat and _just_said(interaction, content)
 
 
 async def reply(interaction: Any, content: str | None = None, *, ephemeral: bool | None = None,
-                **kwargs: Any) -> bool:
+                repeat: bool = False, **kwargs: Any) -> bool:
     """Answer a click with a message.  Never raises.
 
     The answer is an ordinary message on the channel (see the module
@@ -190,6 +191,10 @@ async def reply(interaction: Any, content: str | None = None, *, ephemeral: bool
     only acknowledged - see :func:`_swallowed`: a repeated one, the busy
     notice more often than the typed commands show it, anything during a
     typed fight.  ``ephemeral=True`` / ``False`` overrides the setting.
+    ``repeat=True`` posts the notice even when this player got the same text
+    moments ago: for an answer that reports a NEW state (a toggle switched on,
+    off and on again within seconds), where staying silent would leave the
+    previous, now wrong, answer as the last word on the channel.
 
     Works before and after the interaction was acknowledged.  ``embed=``,
     ``view=``, ``file_path=`` ... are passed on.  False when Discord refused.
@@ -199,7 +204,7 @@ async def reply(interaction: Any, content: str | None = None, *, ephemeral: bool
         built = _files(kwargs)
         plain = not any(built.get(name) for name in _CONTENT_KWARGS)
         notice = content if (not private and content is not None and plain) else None
-        if notice is not None and _swallowed(interaction, notice):
+        if notice is not None and _swallowed(interaction, notice, repeat=repeat):
             return await ack(interaction)
         if not private and content is not None:
             content = _addressed(interaction, content)

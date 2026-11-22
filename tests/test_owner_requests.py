@@ -47,12 +47,17 @@ async def add_gem(db, skill_id: int, variant: int) -> None:
 
 async def test_theft_winner_is_told_how_to_steal_on_the_channel_and_privately(game):
     thief = game.add_member("Zlodziej")
-    xpsteal.grant(game.bot, thief.id, 2500)
+    xpsteal.grant(game.bot, thief.id, 10000)
     await xpsteal.remind(game.scene(), thief)
     hint = game.channel.messages[-1].content
-    assert f"<@{thief.id}>" in hint and "**$kradnijxp nick**" in hint and "2500" in hint
+    shown = "10" + chr(0xA0) + "000"                         # one way everywhere: xpsteal.number
+    assert f"<@{thief.id}>" in hint and "**$kradnijxp nick**" in hint and f"do {shown} doświadczenia" in hint
     assert len(thief.dms) == 1 and "$kradnijxp nick" in thief.dms[0]
     assert f"<#{game.bot.ids.boss_channel}>" in thief.dms[0]
+    # Owner's decision of 2026-11-22: the theft takes what the victim has, up to the amount.
+    assert "tyle, ile ofiara ma" in hint and "tyle, ile ofiara ma" in thief.dms[0]
+    assert f"do {shown} doświadczenia" in thief.dms[0]
+    assert len(hint) < 400 and len(thief.dms[0]) < 400                # still short
 
 
 async def test_theft_hint_survives_closed_private_messages_and_a_dead_channel(game):
@@ -615,3 +620,5 @@ def test_broken_theft_file_entries_are_ignored(game):
     bot = game.bot
     bot.store.xp_thefts.save({"1": None, "2": 2500, "3": ["x", 1000, None], "4": [2500]})
     assert [xpsteal.pending(bot, player) for player in (1, 2, 3, 4, 5)] == [[], [], [1000], [2500], []]
+    assert xpsteal._consume(bot, 3) == 1000 and xpsteal._consume(bot, 1) is None   # broken ones skipped
+    assert bot.store.xp_thefts.load() == {"1": None, "2": 2500, "4": [2500]}
