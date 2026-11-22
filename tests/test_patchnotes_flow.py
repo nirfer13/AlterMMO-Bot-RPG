@@ -502,6 +502,7 @@ async def test_a_crash_between_posting_and_remembering_does_not_post_again(game,
     assert patchnotes.MSG_OWNER_REMEMBER_FAILED.format(error="OSError") in outcome.problems
     monkeypatch.undo()
     quick(monkeypatch)
+    monkeypatch.setattr(patchnotes, "NOTES_FILE", notes_file.path)        # (undone too: not the real file)
     outcome = await patchnotes.announce(game.bot)                         # "the next start"
     assert outcome.sent == [] and footers(channel) == ["Patch notes nr 1-2"] and remembered(game) == 2
 

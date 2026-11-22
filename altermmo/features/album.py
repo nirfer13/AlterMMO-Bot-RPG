@@ -67,7 +67,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
 import asyncpg
 import discord
 
-from ..core import challenge, ui
+from ..core import challenge, ui, waiting
 from ..core.db import DatabaseUnavailable
 from . import hub, patrons, petcards, pets
 
@@ -527,14 +527,16 @@ def entry_embed(row: Any, position: int, total: int) -> discord.Embed:
     return embed
 
 
-async def entry_view(bot: "AlterBot", guild: Any, row: Any, position: int,
-                     total: int) -> tuple[discord.Embed, Path | None]:
+async def entry_view(bot: "AlterBot", guild: Any, row: Any, position: int, total: int, *,
+                     wait: waiting.Waiting | None = None) -> tuple[discord.Embed, Path | None]:
     """The embed of an entry and its card (None: shown without a picture).
 
     The card has everything the pet had (the viewer is a supporter: the album
     is for supporters).  A cold card can take seconds - the caller has
     acknowledged its interaction; it is composed in a worker thread
-    (:func:`petcards.card`).  A card that cannot be made never fails the page.
+    (:func:`petcards.card`), and ``wait`` (the caller's :func:`waiting.notice`)
+    shows "🐾 Nadchodzi towarzysz..." while it is slow.  A card that cannot be
+    made never fails the page.
     """
     embed = entry_embed(row, position, total)
     try:
@@ -543,7 +545,7 @@ async def entry_view(bot: "AlterBot", guild: Any, row: Any, position: int,
             log.warning("Album entry %s (%s, %s, level %s, variant %s) has no picture (%s).", row["entry_id"],
                         row["quality"], row["type"], row["pet_lvl"], row["variant"], source)
             return embed, None
-        image = await pets._pet_card(bot, guild, row, source, cosmetics=True)
+        image = await pets._pet_card(bot, guild, row, source, cosmetics=True, wait=wait)
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001 - the entry is shown without its picture
@@ -676,13 +678,15 @@ class AlbumPanel(ui.PanelView):
         self.species.options = self._options(rows)
         self.species.disabled = not rows
 
-    async def _show(self, bot: "AlterBot", rows: Sequence[Any], position: int | None) -> bool:
+    async def _show(self, bot: "AlterBot", rows: Sequence[Any], position: int | None, *,
+                    wait: waiting.Waiting | None = None) -> bool:
         """Edit the message to show page ``position`` (None: the overview).  Never raises on Discord.
 
         :attr:`entry_id` / :attr:`position` change only when the edit went
         through: while the card is drawn, and after an edit Discord refused,
         the message still shows the page before - and that is the entry
-        "Usuń z albumu" means.
+        "Usuń z albumu" means.  ``wait`` is :meth:`_go`'s notice: while a slow
+        card is drawn, "🐾 Nadchodzi towarzysz..." stands under the panel.
         """
         if not rows:
             self.entry_id = self.position = None
@@ -698,7 +702,7 @@ class AlbumPanel(ui.PanelView):
             row = rows[position]
             entry_id = int(row["entry_id"])
             guild = getattr(self.message, "guild", None) or getattr(self.player, "guild", None)
-            embed, image = await entry_view(bot, guild, row, position, len(rows))
+            embed, image = await entry_view(bot, guild, row, position, len(rows), wait=wait)
         self._arrange(rows, position)
         if self.is_finished():
             return False
@@ -761,6 +765,10 @@ class AlbumPanel(ui.PanelView):
         shown, the picks that waited are applied together (five "Następny" =
         five entries on) and only the page they lead to is drawn - a cold card
         takes seconds, and the bot draws one card at a time for everybody.
+        While a slow card is drawn, "🐾 Nadchodzi towarzysz..." stands under the
+        panel (:mod:`altermmo.core.waiting`); ONE notice covers the pages drawn
+        in a row and goes after the last of them is edited in (a notice per page
+        would blink off and on, and the next page would wait for its deletion).
         Raises :class:`DatabaseUnavailable` (the picks that waited are dropped).
         """
         self._pending.append(where)
@@ -768,13 +776,15 @@ class AlbumPanel(ui.PanelView):
             return
         async with self._lock:
             try:
-                while self._pending:
-                    picks, self._pending = self._pending, []
-                    rows = await entries(bot.db, self.owner_id or 0)
-                    position = self._current(rows)
-                    for pick in picks:
-                        position = pick(rows, position)
-                    await self._show(bot, rows, position)
+                while self._pending:  # (again: clicks that came while the notice was deleted)
+                    async with waiting.notice(getattr(self.message, "channel", None)) as wait:
+                        while self._pending:
+                            picks, self._pending = self._pending, []
+                            rows = await entries(bot.db, self.owner_id or 0)
+                            position = self._current(rows)
+                            for pick in picks:
+                                position = pick(rows, position)
+                            await self._show(bot, rows, position, wait=wait)
             finally:
                 self._pending.clear()
 

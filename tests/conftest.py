@@ -52,12 +52,17 @@ def _fast_rounds(monkeypatch):
     """Keep simulated gameplay fast.
 
     * no dramatic pauses (``timing.pause`` returns immediately),
-    * a short post-timeout listening window in fight rounds.
+    * a short post-timeout listening window in fight rounds,
+    * no "Nadchodzi towarzysz..." notice (core/waiting.py) while a card is drawn,
+      however slow the machine: its delay is out of reach unless a test sets it.
 
     Waiting times (``timing.timeout``) stay real; a test that exercises a
     "nobody answered" path shrinks them with the ``short_timeouts`` fixture.
     """
-    from altermmo.core import challenge, guards, timing, ui
+    from altermmo.core import challenge, guards, timing, ui, waiting
+
+    monkeypatch.setattr(waiting, "NOTICE_DELAY", 24 * 3600.0)
+    waiting._notices.clear()
 
     monkeypatch.setattr(challenge, "MIN_GRACE", 0.05)
     # Every click is answered in tests, unless a test switches these filters of ui.reply on

@@ -22,5 +22,13 @@
             "Prywatna wiadomość, w której towarzysz ostrzega o nadciągającym bossie, ma teraz przycisk wyłączający takie powiadomienia. Włączysz je z powrotem komendą $wyczuwanie.",
             "Od teraz informacje o zmianach w grze będą pojawiać się tutaj po każdej aktualizacji."
         ]
+    },
+    {
+        "id": 3,
+        "date": "2026-11-22",
+        "title": "Towarzysz już idzie",
+        "changes": [
+            "Gdy karta towarzysza potrzebuje chwili, żeby się pojawić, bot pokazuje teraz, że towarzysz jest już w drodze - nie trzeba klikać ponownie."
+        ]
     }
 ]

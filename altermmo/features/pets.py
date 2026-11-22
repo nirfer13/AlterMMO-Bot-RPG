@@ -100,7 +100,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, NamedTuple
 import asyncpg
 import discord
 
-from ..core import io, timing, ui
+from ..core import io, timing, ui, waiting
 from ..settings import ASSETS_DIR
 from . import achievements, bossdetect, modifiers, patrons, petcards
 
@@ -930,7 +930,7 @@ async def _is_supporter(bot: "AlterBot", player: Any) -> bool:
 
 
 async def _pet_card(bot: "AlterBot", guild: Any, pet: Any, source: Path | None, *,
-                    cosmetics: bool = True) -> Path | None:
+                    cosmetics: bool = True, wait: waiting.Waiting | None = None) -> Path | None:
     """The file to send for ``pet`` whose plain picture is ``source``.
 
     A pet is shown as its card: illustration, foil, its frame, seal
@@ -943,15 +943,17 @@ async def _pet_card(bot: "AlterBot", guild: Any, pet: Any, source: Path | None, 
     look of the class (``petcards.base_look``): the seal, the foil and a rarer
     frame are left out, the base frame of the class stays.
     A cold Holo / animated card can take seconds - every caller has
-    acknowledged its interaction before it gets here.  Never raises for a card
-    problem.
+    acknowledged its interaction before it gets here, and when it is slow the
+    player sees "🐾 Nadchodzi towarzysz..." (``wait``: the caller's
+    :func:`waiting.notice` around drawing and sending the card; None: no
+    notice).  Never raises for a card problem.
     """
     if source is None:
         return source
     try:
         look = petcards.look_of(pet) if cosmetics else petcards.base_look(pet)
-        card = await petcards.card(source, look, _card_cache(bot),
-                                   max_bytes=_card_max_bytes(guild))
+        drawing = petcards.card(source, look, _card_cache(bot), max_bytes=_card_max_bytes(guild))
+        card = await (drawing if wait is None else wait.run(drawing))
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001 - the card is decoration, the pet is shown in any case
@@ -965,18 +967,19 @@ async def _pet_card(bot: "AlterBot", guild: Any, pet: Any, source: Path | None, 
     return Path(card)
 
 
-async def _shown(bot: "AlterBot", guild: Any, player: Any, pet: Any,
-                 items: Any) -> tuple[discord.Embed, Path | None]:
+async def _shown(bot: "AlterBot", guild: Any, player: Any, pet: Any, items: Any, *,
+                 wait: waiting.Waiting | None = None) -> tuple[discord.Embed, Path | None]:
     """The pet's embed and the file to send with it (its card, see :func:`_pet_card`).
 
     ``player``: the pet's owner (a member or a bare id) - a rarer frame, his
     seal and foil are shown only while he is a supporter (:func:`_is_supporter`).
-    The embed's image always names the file returned here.
+    The embed's image always names the file returned here.  ``wait``: see
+    :func:`_pet_card`.
     """
     # Only a pet (or an egg) with something to show needs the answer (a bare id costs a lookup).
     cosmetics = ornaments_of(pet).any and await _is_supporter(bot, player)
     embed, source = _shown_embed(_pid(player), pet, items, cosmetics=cosmetics)
-    image = await _pet_card(bot, guild, pet, source, cosmetics=cosmetics)
+    image = await _pet_card(bot, guild, pet, source, cosmetics=cosmetics, wait=wait)
     if image is not None and image != source:
         embed.set_image(url=f"attachment://{image.name}")
     return embed, image
@@ -986,6 +989,8 @@ async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool
     """Show the player's pet and his scrolls; False when he has no pet.
 
     The pet carries a :class:`PetPanel` for its owner unless ``buttons=False``.
+    While a slow card is drawn the channel sees "🐾 Nadchodzi towarzysz..."
+    (:mod:`altermmo.core.waiting`), taken away once the pet is posted.
     """
     bot = scene.bot
     player_id = _pid(player)
@@ -1011,17 +1016,19 @@ async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool
         await scene.send(MSG_NO_PET_DATA)
         return False
 
-    embed, image = await _shown(bot, getattr(scene.channel, "guild", None), player, pet, owner)
-    files = {} if image is None else {"file_path": image}
-    if not buttons:
-        await scene.send(embed=embed, **files)
-        return True
-    panel = PetPanel(player, pet, image=image)
-    try:
-        await panel.send(scene.channel, embed=embed, **files)
-    except BaseException:
-        panel.stop()
-        raise
+    async with waiting.notice(scene.channel) as wait:
+        embed, image = await _shown(bot, getattr(scene.channel, "guild", None), player, pet, owner,
+                                    wait=wait)
+        files = {} if image is None else {"file_path": image}
+        if not buttons:
+            await scene.send(embed=embed, **files)
+            return True
+        panel = PetPanel(player, pet, image=image)
+        try:
+            await panel.send(scene.channel, embed=embed, **files)
+        except BaseException:
+            panel.stop()
+            raise
     return True
 
 
@@ -2293,7 +2300,9 @@ class PetPanel(ui.PanelView):
         message carries this pet's picture).  A changed picture is sent along
         with the embed: the pet grew meanwhile, or its card is another one now
         (the new name made it shiny, so it has a frame).  The caller has
-        acknowledged its interaction - a new card may take a moment.
+        acknowledged its interaction - a new card may take a moment (and the
+        channel sees "🐾 Nadchodzi towarzysz..." while it does, see
+        :mod:`altermmo.core.waiting`).
         """
         player_id = _pid(self.player)
         status, items, pet = await _load_shown_pet(bot, player_id)
@@ -2303,8 +2312,13 @@ class PetPanel(ui.PanelView):
             await self.finish()
             return False
         self.pet_name = str(pet["pet_name"] or "")
+        async with waiting.notice(getattr(self.message, "channel", None)) as wait:
+            return await self._redraw(bot, pet, items, wait)
+
+    async def _redraw(self, bot: "AlterBot", pet: Any, items: Any, wait: waiting.Waiting) -> bool:
+        """:meth:`redraw` once the pet is read: draw its card, edit the message."""
         guild = getattr(self.message, "guild", None) or getattr(self.player, "guild", None)
-        embed, image = await _shown(bot, guild, self.player, pet, items)
+        embed, image = await _shown(bot, guild, self.player, pet, items, wait=wait)
         if image == self.image:
             return await _edit_panel(self.message, embed=embed)
         try:
