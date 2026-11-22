@@ -209,6 +209,13 @@ class PetsCog(commands.Cog, name="Pets"):
         else:
             await ctx.bot.on_command_error(ctx, error, force=True)
 
+    @commands.command(name="wyjmijjajko", aliases=["wyjmij", "wj"],
+                      brief="Takes the egg out of the egg pouch.")
+    @guards.boss_channel_only()
+    @guards.unless_busy(stable=True)
+    async def take_egg_from_pouch(self, ctx: commands.Context) -> None:
+        await pets.take_egg_from_pouch(Scene.from_ctx(ctx))
+
     @commands.command(name="nazwij", aliases=['n'], brief="Set the name of author's pet.")
     @commands.cooldown(1, 60*60*23, commands.BucketType.user)
     @guards.boss_channel_only()

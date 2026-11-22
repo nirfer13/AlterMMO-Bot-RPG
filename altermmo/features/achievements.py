@@ -123,8 +123,6 @@ ROLE_REASON = "AlterMMO RPG: rola osiągnięcia"
 RETIRE_REASON = "AlterMMO RPG: osiągnięcie wycofane"
 #: ``PETS.SEAL`` of the rarest seal ("Pieczęć Arcyłowcy").
 RAREST_SEAL = 3
-#: The active pet and the four places of the stable.
-_PET_COLUMNS = ("PET_ID", "PET_ID_ALT1", "PET_ID_ALT2", "PET_ID_ALT3", "PET_ID_ALT4")
 
 
 @dataclass(frozen=True)
@@ -748,12 +746,10 @@ async def add_hunts(scene: "Scene", player: Any) -> bool:
 # -- what the pets stand for -----------------------------------------------------------
 
 async def _pet_keys(bot: "AlterBot", player_id: int) -> set[str]:
-    """Achievements the player's pets (the active one and the stable) stand for."""
-    owner = await bot.db.fetchrow(
-        f"SELECT {', '.join(_PET_COLUMNS)} FROM PETOWNER WHERE PLAYER_ID = $1", player_id)
-    if owner is None:
-        return set()
-    owned = [pet_id for pet_id in (_number(owner[column.lower()]) for column in _PET_COLUMNS) if pet_id > 0]
+    """Achievements the player's pets (the active one, the stable, the egg pouch) stand for."""
+    from . import pets  # (lazily: features/pets.py imports this module)
+
+    owned = await pets.owned_pet_ids(bot, player_id)
     if not owned:
         return set()
     keys: set[str] = set()

@@ -293,7 +293,10 @@ async def test_assign_skill_creates_the_row_of_a_new_player(game_db, monkeypatch
     assert await skills.assign_skill(game_db.scene(), player) is True
     assert await owner_rows(game_db.bot.db, player.id) == [
         dict(player_id=player.id, pet_id=0, pet_owned=False, reroll_scroll=0, reroll_scroll_shard=0,
-             rebirth_stones=0, mirrors=0, pet_id_alt1=0, pet_id_alt2=0, skill_gem=1, pet_id_alt3=0, pet_id_alt4=0)]
+             rebirth_stones=0, mirrors=0, pet_id_alt1=0, pet_id_alt2=0, skill_gem=1, pet_id_alt3=0, pet_id_alt4=0,
+             # the wandering merchant's columns (new in v2), as in a fresh row
+             **{f"pet_id_alt{place}": 0 for place in range(5, 11)}, stable_places=4, egg_pouch=False,
+             pouch_pet_id=0)]
     assert await gems(game_db.bot.db) == [(1, "Klejnot Wyjątkowości", 2, 4)]
     assert texts(game_db) == []                                          # the loot code announces the gem
 

@@ -50,6 +50,7 @@ class EventType(enum.Enum):
     RITUAL = 9
     PVPTOURNAMENT = 10
     TRAINING = 11
+    MERCHANT = 12
 
 
 class Busy(RuntimeError):

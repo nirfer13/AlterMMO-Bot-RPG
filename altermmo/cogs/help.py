@@ -36,6 +36,7 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
 - **$wieża - Wyruszasz na eksplorację Wieży Śmierci. Im wyżej, tym trudniej**. Dostępna raz w tygodniu.
 - $zaatakuj - Atakuje bossa, gdy ten czeka na tym kanale (albo przycisk **Zaatakuj** pod bossem). Na legendarnego bossa zbiera się drużyna: **Dołącz** albo $zaatakuj, a gotowość potwierdza się przyciskiem **Gotowy** albo wpisując $tak.
 - $skrzynia - Otwiera skrzynię, gdy pojawi się na kanale (albo przycisk **Otwórz skrzynię**).
+- Wędrowny kupiec - kupujesz za zwoje przyciskiem pod jego postem; kto pierwszy, ten lepszy.
 - $zabojca - Wynajmuje zabójcę na jednego z graczy w rankingu. Skrót $asasyn.
 - $kradnijxp nick - Kradnie doświadczenie wybranemu graczowi (nagroda z bossa)."""),
     ("🏆 Rankingi i rekordy", """- $kiedy - Podaje kto i kiedy ostatnio walczył z bossem.
@@ -47,8 +48,9 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
     ("🐾 Towarzysz", """- $towarzysz - Sprawdź swojego towarzysza; pod nim znajdziesz przyciski akcji. Skrót $t.
 - $nazwij Nowe imię - Nazywasz swojego towarzysza (raz na 23 godziny). Skrót $n.
 - $stajnia - Sprawdza stajnię z towarzyszami; z listy pod nią wyciągniesz towarzysza. Skrót $s.
-- $schowajtowarzysza numer_slota - Chowa towarzysza do podanego slota stajni (1-4). Skrót $st.
-- $wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1-4). Skrót $wt.
+- $schowajtowarzysza numer_slota - Chowa towarzysza do podanego slota stajni (1-4, w większej stajni więcej). Skrót $st.
+- $wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1-4, w większej stajni więcej). Skrót $wt.
+- $wyjmijjajko - Wyjmuje jajko z sakwy na jajko, żeby mogło rosnąć (towarzysz przy Tobie idzie do stajni). Skrót $wj.
 - $odrodzenie - Przelosowuje wszystkie statystyki towarzysza. Skrót $o.
 - $mocneodrodzenie - Przelosowanie z pominięciem wybranych statystyk (wybierasz je z listy). Skrót $mo.
 - $oswiecenie - Zwiększa talent towarzysza.

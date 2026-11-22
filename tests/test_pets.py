@@ -56,6 +56,11 @@ def _plain(row) -> dict | None:
     return {key: int(value) if isinstance(value, Decimal) else value for key, value in row.items()}
 
 
+#: The PETOWNER columns of the wandering merchant's goods (new in v2) in a fresh row.
+MERCHANT_DEFAULTS = {**{f"pet_id_alt{place}": 0 for place in range(5, 11)}, "stable_places": 4,
+                     "egg_pouch": False, "pouch_pet_id": 0}
+
+
 async def owner_row(db, player_id: int) -> dict | None:
     return _plain(await db.fetchrow("SELECT * FROM PETOWNER WHERE PLAYER_ID = $1", player_id))
 
@@ -274,11 +279,19 @@ async def test_schema_is_exactly_the_production_one(game_db):
         ("player_id", "numeric"), ("pet_id", "numeric"), ("pet_owned", "boolean"),
         ("reroll_scroll", "numeric"), ("reroll_scroll_shard", "numeric"), ("rebirth_stones", "numeric"),
         ("mirrors", "numeric"), ("pet_id_alt1", "numeric"), ("pet_id_alt2", "numeric"),
-        ("skill_gem", "numeric"), ("pet_id_alt3", "numeric"), ("pet_id_alt4", "numeric")]
+        ("skill_gem", "numeric"), ("pet_id_alt3", "numeric"), ("pet_id_alt4", "numeric"),
+        # new in v2 (the wandering merchant of 2026-11-22): stable places 5-10 and the egg pouch
+        *((f"pet_id_alt{place}", "numeric") for place in range(5, 11)),
+        ("stable_places", "numeric"), ("egg_pouch", "boolean"), ("pouch_pet_id", "numeric")]
+    merchant = {*(f"pet_id_alt{place}" for place in range(5, 11)), "stable_places", "egg_pouch", "pouch_pet_id"}
+    assert merchant == set(pets.UPGRADE_COLUMNS)
     defaults = {row["column_name"]: row["column_default"] for row in rows}
     assert defaults["pet_id_alt3"] == "0" and defaults["pet_id_alt4"] == "0"
-    assert all(value is None for name, value in defaults.items() if name not in ("pet_id_alt3", "pet_id_alt4"))
-    assert all(row["is_nullable"] == "YES" for row in rows)
+    assert all(defaults[f"pet_id_alt{place}"] == "0" for place in range(5, 11)) and defaults["pouch_pet_id"] == "0"
+    assert defaults["stable_places"] == "4" and defaults["egg_pouch"] == "false"
+    assert all(value is None for name, value in defaults.items()
+               if name not in ("pet_id_alt3", "pet_id_alt4", *merchant))
+    assert all(row["is_nullable"] == ("NO" if row["column_name"] in merchant else "YES") for row in rows)
 
     rows, shape = await columns("pets")
     text = "character varying"
@@ -340,7 +353,7 @@ async def test_first_egg_creates_the_owner_row(game_db, monkeypatch):
     assert await owner_row(db, player.id) == {
         "player_id": player.id, "pet_id": 1, "pet_owned": True, "reroll_scroll": 0, "reroll_scroll_shard": 0,
         "rebirth_stones": 0, "mirrors": 0, "pet_id_alt1": 0, "pet_id_alt2": 0, "skill_gem": 0,
-        "pet_id_alt3": 0, "pet_id_alt4": 0}
+        "pet_id_alt3": 0, "pet_id_alt4": 0, **MERCHANT_DEFAULTS}
     assert await pet_row(db, 1) == {
         "pet_id": 1, "pet_name": "Towarzysz", "pet_lvl": 0, "pet_skills": 0, "quality": "Standard",
         "shiny": True, "type": "Sheep", "variant": "7", "crit_perc": 0, "replace_perc": 0, "def_perc": 0,
@@ -472,7 +485,7 @@ async def test_new_record_never_duplicates_a_player(game_db):
     assert await owner_row(db, 9) == {
         "player_id": 9, "pet_id": 0, "pet_owned": False, "reroll_scroll": 0, "reroll_scroll_shard": 0,
         "rebirth_stones": 0, "mirrors": 0, "pet_id_alt1": 0, "pet_id_alt2": 0, "skill_gem": 12,
-        "pet_id_alt3": 0, "pet_id_alt4": 0}
+        "pet_id_alt3": 0, "pet_id_alt4": 0, **MERCHANT_DEFAULTS}
     # The row exists already (another flow was faster): merged, nothing lost, nothing overwritten.
     assert await pets.new_record_petowners(bot, 9, 4, True, 1, 2, 3, 4, 99) is False
     row = await owner_row(db, 9)
@@ -1370,7 +1383,7 @@ async def test_cog_registers_the_legacy_commands(cog):
         "transformacja": ["transform"], "schowajtowarzysza": ["schowaj", "st"],
         "wyciagnijtowarzysza": ["wt", "wyciagnij", "wyciągnij", "wyciągnijtowarzysza"],
         "stajnia": ["s"], "rankingtowarzyszy": ["rt", "towarzysze"], "nazwij": ["n"],
-        "wyczuwanie": ["powiadomienia", "powiadomieniaboss"],
+        "wyczuwanie": ["powiadomienia", "powiadomieniaboss"], "wyjmijjajko": ["wj", "wyjmij"],
         "PetLvlUp": [], "AddScroll": [], "AddShard": [], "GenerateEgg": [],
         "createPetOwnersDatabase": [], "createPetsDatabase": [], "ReassignPet": [], "DajPieczec": [],
         "DajRamke": ["DajRamkę"]}

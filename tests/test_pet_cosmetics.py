@@ -461,7 +461,8 @@ async def test_the_columns_are_looked_up_once_per_run(game_db, monkeypatch):
         assert await pets.assign_pet(game_db.scene(), game_db.add_member(name)) is True
     assert await pets.cosmetics_available(bot, refresh=True) is True           # a "yes" is never asked again
     assert await pets.frames_available(bot, refresh=True) is True
-    assert lookups == [(["seal", "holo", "frame", "holo_partial"],)]           # one look answers both
+    # One look answers both (the merchant's PETOWNER columns are looked up once too, on their own).
+    assert lookups == [(["seal", "holo", "frame", "holo_partial"],), (list(pets.UPGRADE_COLUMNS),)]
 
 
 @pytest.mark.parametrize("make, cosmetics_on, frames_on", [
@@ -1138,17 +1139,25 @@ async def test_migration_is_what_the_feature_modules_declare(db):
                                     ("pets", "holo", "BOOLEAN NOT NULL DEFAULT FALSE"),
                                     ("pets", "frame", "VARCHAR(16) NOT NULL DEFAULT ''"),
                                     ("pets", "holo_partial", "BOOLEAN NOT NULL DEFAULT FALSE"),
+                                    # the wandering merchant's stable places and egg pouch (2026-11-22)
+                                    *(("petowner", f"pet_id_alt{place}", "NUMERIC NOT NULL DEFAULT 0")
+                                      for place in range(5, 11)),
+                                    ("petowner", "stable_places", "NUMERIC NOT NULL DEFAULT 4"),
+                                    ("petowner", "egg_pouch", "BOOLEAN NOT NULL DEFAULT FALSE"),
+                                    ("petowner", "pouch_pet_id", "NUMERIC NOT NULL DEFAULT 0"),
                                     ("pet_album", "frame", "VARCHAR(16) NOT NULL DEFAULT ''"),
                                     ("pet_album", "holo_partial", "BOOLEAN NOT NULL DEFAULT FALSE")]
     assert pets.COSMETIC_COLUMNS == ("seal", "holo") and pets.FRAME_COLUMNS == ("frame", "holo_partial")
-    assert [column for _, column, _ in pets.NEW_COLUMNS] == [*pets.COSMETIC_COLUMNS, *pets.FRAME_COLUMNS]
+    assert [column for table, column, _ in pets.NEW_COLUMNS if table == "pets"] == [*pets.COSMETIC_COLUMNS,
+                                                                                   *pets.FRAME_COLUMNS]
+    assert [column for table, column, _ in pets.NEW_COLUMNS if table == "petowner"] == list(pets.UPGRADE_COLUMNS)
     assert schema.EXPECTED_COLUMNS["pets"]["seal"] == "numeric"
     assert schema.EXPECTED_COLUMNS["pets"]["holo"] == "boolean"
     assert schema.EXPECTED_COLUMNS["pets"]["frame"] == "character varying"
     assert schema.EXPECTED_COLUMNS["pets"]["holo_partial"] == "boolean"
     # The fresh table of pets.SCHEMA has every column NEW_COLUMNS would add, with the same definition.
-    for _, column, definition in pets.NEW_COLUMNS:
-        assert f"{column.upper()} {definition}" in pets.SCHEMA[1]
+    for table, column, definition in pets.NEW_COLUMNS:
+        assert f"{column.upper()} {definition}" in pets.SCHEMA[0 if table == "petowner" else 1]
     assert await schema.add_new_columns(db) == []                              # a fresh database: nothing to add
     await db.execute("DROP TABLE PETS", idempotent=True)                       # no table at all: verify's business
     assert await schema.add_new_columns(db) == []

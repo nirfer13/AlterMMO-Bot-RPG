@@ -38,17 +38,20 @@ LOOP_NAME = "event-loop"
 TOURNAMENT_JOB = "pvp-tournament"
 
 #: Order matters: the weight tuples below are positional (legacy order; the companion
-#: training of 2026-11-22 stands next to the duel, the ritual stays last).
+#: training of 2026-11-22 stands next to the duel, then the wandering merchant of the same
+#: day; the ritual stays last).
 EVENT_ORDER = (EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY,
                EventType.MEMORY, EventType.HUNTING, EventType.HAZARD, EventType.DUEL,
-               EventType.TRAINING, EventType.RITUAL)
+               EventType.TRAINING, EventType.MERCHANT, EventType.RITUAL)
 #: Evenings (18-21) and weekends: more multiplayer events.  The ritual (last
 #: place) was switched off in the old bot (weight 0); the owner enabled it in v2.
 #: The companion training has the weights of the duel; it is left out of the draw
-#: until the owner has supplied its picture (``EventsCog.not_drawable``).
-PEAK_WEIGHTS = (1, 1, 2, 1, 1, 1, 1, 2, 2, 1)
-OFF_PEAK_WEIGHTS = (2, 2, 1, 0, 2, 2, 2, 0, 0, 1)
-DEBUG_WEIGHTS = (0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+#: until the owner has supplied its picture (``EventsCog.not_drawable``).  The wandering
+#: merchant has weight 1 at every hour (like the ritual); what he sells and how often each
+#: ware comes is in ``config/merchantConfig.json``.
+PEAK_WEIGHTS = (1, 1, 2, 1, 1, 1, 1, 2, 2, 1, 1)
+OFF_PEAK_WEIGHTS = (2, 2, 1, 0, 2, 2, 2, 0, 0, 1, 1)
+DEBUG_WEIGHTS = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
 PEAK_HOURS = range(18, 22)
 #: A ritual is not started when the scheduled boss is due sooner than the
 #: ritual lasts plus this margin (seconds): its boss could not be summoned.
@@ -229,7 +232,7 @@ class EventsCog(commands.Cog, name="Events"):
         return remaining is None or remaining > events.ritual_duration(self.bot) + margin
 
     async def _run(self, event_type: EventType) -> None:
-        from ..features import events, modifiers, training
+        from ..features import events, merchant, modifiers, training
 
         bot = self.bot
         state = bot.state
@@ -260,13 +263,15 @@ class EventsCog(commands.Cog, name="Events"):
             EventType.HAZARD: events.spawn_hazard,
             EventType.DUEL: events.spawn_duel,
             EventType.TRAINING: training.spawn_training,
+            EventType.MERCHANT: merchant.spawn_merchant,
         }
         # The duel and the ritual keep the channel free while they wait for
         # volunteers (as the old bot did: hunts, the tower and pet commands work
         # meanwhile); they take the busy flag themselves for the fight / for
         # putting the summoned boss on the channel.  (The companion training holds
         # the channel from its first second; during its sign-up only the stable
-        # works - see ``GameState.stable_open``.)
+        # works - see ``GameState.stable_open``.  The wandering merchant does the same
+        # while he stands on the channel.)
         open_sign_up = event_type in (EventType.DUEL, EventType.RITUAL)
         with state.running_event(event_type, exclusive=not open_sign_up):
             await io.clear_channel(scene.channel)

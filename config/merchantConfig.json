@@ -1,0 +1,13 @@
+{
+    "_opis": "Wedrowny kupiec (features/merchant.py). Ceny w zwojach odrodzenia. 'weight' = waga losowania towaru (wieksza = czesciej; 0 = nigdy). 'stock_weights' = ile roznych towarow ma kupiec (1, 2 albo 3) i jak czesto. 'stay_seconds' = ile kupiec czeka, jesli nie wszystko sprzeda. Plik jest czytany przy kazdym pojawieniu sie kupca - restart bota nie jest potrzebny.",
+    "stay_seconds": 600,
+    "stock_weights": {"1": 80, "2": 15, "3": 5},
+    "items": [
+        {"id": "random_egg", "name": "Losowe jajko", "price": 25, "weight": 30},
+        {"id": "rest_kit", "name": "Zestaw do wypoczynku", "price": 10, "weight": 30},
+        {"id": "stable_place", "name": "Powiększenie stajni", "price": 100, "weight": 25, "max_places": 10},
+        {"id": "egg_pouch", "name": "Sakwa na jajko", "price": 250, "weight": 10},
+        {"id": "tower_ticket", "name": "Wejściówka do wieży", "price": 50, "weight": 3},
+        {"id": "random_gem", "name": "Losowy klejnot", "price": 1000, "weight": 2}
+    ]
+}

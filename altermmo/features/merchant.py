@@ -1,0 +1,485 @@
+"""The "Wędrowny kupiec" event: a merchant sells one to three goods for reroll scrolls.
+
+Owner's request of 2026-11-22 (passed on by the owner's other Claude session):
+
+* the merchant comes like the other random events (the events cog draws him,
+  ``$SpawnEvent merchant`` calls him) and runs inside ``state.running_event``
+  like the cups of Dova: the channel is his while he stands there.  The stable
+  stays usable meanwhile (``GameState.stable_stays_open``, as during the
+  sign-up of the companion training): a player can put his companion away to
+  make room for an egg he wants to buy;
+* he has 1 ware (usually) or 2-3 different ones (rarely) - drawn from
+  ``config/merchantConfig.json`` (prices, draw weights, how many wares, how
+  long he stays, the stable's limit), read every time he comes;
+* every ware sells ONCE, to the first player who can pay for it: the clicks
+  of the panel are queued (:class:`ui.ClickView`) and this one coroutine
+  handles them one after another, so two players clicking at the same moment
+  cannot both buy - the second is told the ware is sold;
+* a purchase that cannot be made (too few scrolls, the player does not meet
+  the ware's condition) takes nothing and leaves the ware on sale; the player
+  gets the reason.  The scrolls are taken atomically before the ware is handed
+  over; a ware that turns out not to fit at that moment gives them back;
+* when everything is sold he leaves at once; otherwise after his time
+  (``stay_seconds``, 15 s in debug mode);
+* pictures: ``assets/events/merchant/0.*`` (arrival, inside his panel) and
+  ``1.*`` (leaving, posted when he goes) - ``.gif`` first, then ``.png``,
+  ``.jpg``, ``.jpeg``, ``.webp``.  Without them he comes and goes with words
+  only (:func:`picture`).
+
+The goods are :data:`WARES`: an id (the ``id`` in the config), an emoji, a
+description, a check that runs before any scroll is taken and the hand-over
+itself.  A new ware is one more :class:`Ware` here plus its entry in the
+config file.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import random
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Sequence
+
+import discord
+
+from ..core import timing, ui
+from ..core.scene import Scene
+from ..settings import CONFIG_DIR
+from . import daily, events, pets, skills, tower
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ..bot import AlterBot
+
+log = logging.getLogger(__name__)
+
+CONFIG_FILE = CONFIG_DIR / "merchantConfig.json"
+#: Where the owner puts the pictures (the convention of the other events: ``assets/events/<event>/<n>.*``).
+PICTURES_DIR = events.EVENTS_DIR / "merchant"
+ARRIVAL, DEPARTURE = "0", "1"
+#: Looked for in this order: an animation first.
+PICTURE_SUFFIXES = (".gif", ".png", ".jpg", ".jpeg", ".webp")
+#: How long the merchant stays in debug mode (production: ``stay_seconds`` of the config).
+STAY_DEBUG = 15
+
+COLOUR = 0x8B5A2B
+BAG = "🧳"
+TITLE = f"{BAG} Wędrowny kupiec! {BAG}"
+DESCR = ("Na kanał zawitał wędrowny kupiec. Rozkłada towar na wozie i zachwala go na cały głos.\n\n"
+         "**Płacisz zwojami odrodzenia. Każdą rzecz kupiec sprzeda tylko raz - kto pierwszy, ten lepszy!**")
+WARE_LINE = "{emoji} **{name}** - {price}\n*{about}*"
+SOLD_LINE = "~~{emoji} {name} - {price}~~ - kupuje {mention}"
+MSG_STAYS_UNTIL = "⏳ Kupiec odjedzie {when}."
+MSG_SOLD_OUT = "🚶 Kupiec sprzedał wszystko i rusza w dalszą drogę."
+MSG_LEAVES = "🚶 Kupiec zwija kram i rusza w dalszą drogę."
+MSG_GONE_TEXT = "*Skrzypiący wóz kupca znika za zakrętem...*"
+BUY_LABEL = "{name} ({price})"
+SOLD_LABEL = "Sprzedane"
+
+MSG_BOUGHT = "🛒 {mention} kupuje **{name}** za {price}! {detail}"
+MSG_ALREADY_SOLD = "Ktoś był szybszy - to już sprzedane <:Sadge:936907659142111273>"
+MSG_POOR = "Za mało zwojów odrodzenia: **{name}** kosztuje {price}, a masz {have}."
+MSG_FAILED = ("Coś poszło nie tak przy wydawaniu towaru <:Sadge:936907659142111273> "
+              "Administracja dostała już znać.")
+LOG_FAILED = ("Wędrowny kupiec: gracz <@{player_id}> zapłacił {price} za **{name}**, ale wydanie towaru przerwał "
+              "błąd (`{error}`). Towar uznano za sprzedany - sprawdź w logu, czy gracz go dostał, i ewentualnie "
+              "oddaj zwoje albo przyznaj towar ręcznie.")
+LOG_NOT_RETURNED = ("Wędrowny kupiec: gracz <@{player_id}> nie mógł dostać **{name}**, ale zwrot {price} nie "
+                    "powiódł się (`{error}`). Oddaj mu zwoje ręcznie.")
+# The same for everybody who clicks: one line on the channel is enough (see ui.reply).
+ui.GENERAL_NOTICES.update({MSG_ALREADY_SOLD})
+
+
+def scrolls(number: int) -> str:
+    """``1 zwój`` / ``25 zwojów`` (the game's wording, ``pets._scrolls``)."""
+    return pets._scrolls(int(number))
+
+
+# -- the goods ---------------------------------------------------------------------------
+
+#: ``(bot, player id, offer) -> None`` when the player may buy, else the reason (nothing is taken).
+Check = Callable[["AlterBot", int, "Offer"], Awaitable[str | None]]
+#: ``(scene of the buyer, offer) -> (handed over, text)``: the text is the detail of the sale,
+#: or the reason why the ware did not fit after all (the scrolls are given back).
+Hand = Callable[[Scene, "Offer"], Awaitable[tuple[bool, str]]]
+
+
+@dataclass(frozen=True)
+class Ware:
+    """One kind of goods the merchant can bring."""
+
+    id: str
+    emoji: str
+    about: str
+    check: Check
+    hand: Hand
+    #: Needs the ``PETOWNER`` columns of the stable places / the egg pouch (``pets.upgrades_available``).
+    needs_upgrades: bool = False
+
+
+@dataclass
+class Offer:
+    """One ware on the merchant's cart: its config entry and who bought it."""
+
+    ware: Ware
+    name: str
+    price: int
+    options: Mapping[str, Any] = field(default_factory=dict)
+    buyer: Any = None
+
+    @property
+    def sold(self) -> bool:
+        return self.buyer is not None
+
+
+@dataclass
+class Purchase:
+    """What became of one click on a ware."""
+
+    sold: bool
+    text: str = ""
+    failed: bool = False
+
+
+# egg pouch
+
+MSG_HAS_POUCH = "Masz już sakwę na jajko - druga się nie przyda."
+DETAIL_POUCH = ("Od teraz jajko, które zdobędziesz, mając przy sobie towarzysza, trafi do sakwy "
+                "(wyjmiesz je komendą **$wyjmijjajko**).")
+
+
+async def _check_pouch(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
+    return MSG_HAS_POUCH if await pets.has_egg_pouch(bot, player_id) else None
+
+
+async def _hand_pouch(scene: Scene, offer: Offer) -> tuple[bool, str]:
+    if await pets.give_egg_pouch(scene.bot, scene.author.id):
+        return True, DETAIL_POUCH
+    return False, MSG_HAS_POUCH
+
+
+# random egg
+
+MSG_NO_EGG_ROOM = ("Nie masz gdzie przyjąć jajka: towarzysz jest przy Tobie, a wolnej sakwy na jajko nie masz. "
+                   "Schowaj towarzysza do stajni (**$schowajtowarzysza numer**) i kliknij jeszcze raz.")
+DETAIL_EGG = "Jajko jest Twoje - sprawdź je komendą **$towarzysz** albo **$stajnia**."
+
+
+async def _check_egg(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
+    return None if await pets.egg_room(bot, player_id) else MSG_NO_EGG_ROOM
+
+
+async def _hand_egg(scene: Scene, offer: Offer) -> tuple[bool, str]:
+    # Exactly the egg of a drop (``daily._grant_loot``): rolled, stored, announced the same way.
+    if await pets.assign_pet(scene, scene.author):
+        return True, DETAIL_EGG
+    return False, MSG_NO_EGG_ROOM
+
+
+# stable place
+
+MSG_STABLE_FULL = "Twoja stajnia ma już {places} miejsc - większa nie będzie."
+DETAIL_STABLE = "Stajnia ma teraz {places} miejsc."
+
+
+def _stable_limit(offer: Offer) -> int:
+    try:
+        limit = int(offer.options.get("max_places", pets.STABLE_MAX_PLACES))
+    except (TypeError, ValueError):
+        limit = pets.STABLE_MAX_PLACES
+    return max(pets.STABLE_BASE_PLACES, min(limit, pets.STABLE_MAX_PLACES))
+
+
+async def _check_stable(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
+    places = await pets.stable_places(bot, player_id)
+    return MSG_STABLE_FULL.format(places=places) if places >= _stable_limit(offer) else None
+
+
+async def _hand_stable(scene: Scene, offer: Offer) -> tuple[bool, str]:
+    places = await pets.add_stable_place(scene.bot, scene.author.id, _stable_limit(offer))
+    if places:
+        return True, DETAIL_STABLE.format(places=places)
+    return False, MSG_STABLE_FULL.format(places=await pets.stable_places(scene.bot, scene.author.id))
+
+
+# random skill gem
+
+MSG_ALL_GEMS = "Masz już każdy rodzaj klejnotu, jaki można zdobyć - kupiec nie ma dla Ciebie nic nowego."
+DETAIL_GEM = "Nowy klejnot czeka w **$klejnoty**."
+
+
+async def _check_gem(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
+    return None  # (skills.assign_skill decides under its lock; a refusal gives the scrolls back)
+
+
+async def _hand_gem(scene: Scene, offer: Offer) -> tuple[bool, str]:
+    if await skills.assign_skill(scene, scene.author):
+        return True, DETAIL_GEM
+    return False, MSG_ALL_GEMS
+
+
+# rest kit (the hunt's daily cooldown)
+
+MSG_HUNT_READY = "Dziś jeszcze możesz zapolować - zestaw do wypoczynku przyda się dopiero po polowaniu."
+DETAIL_REST = "Możesz znowu zapolować (**$polowanie**), gdy kupiec odjedzie."
+
+
+async def _check_rest(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
+    return None if daily.load_daily_from_file(bot, player_id) else MSG_HUNT_READY
+
+
+async def _hand_rest(scene: Scene, offer: Offer) -> tuple[bool, str]:
+    if await daily.remove_player_daily_file(scene.bot, [scene.author.id]):
+        return True, DETAIL_REST
+    return False, MSG_HUNT_READY
+
+
+# tower ticket (one more entry this week)
+
+MSG_TOWER_READY = ("W tym tygodniu masz jeszcze wejście do Wieży - wejściówka przyda się, gdy je wykorzystasz.")
+DETAIL_TOWER = "Możesz jeszcze raz wyruszyć do Wieży Śmierci (**$wieża**), gdy kupiec odjedzie."
+
+
+async def _check_tower(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
+    return None if tower.load_weekly_tower_from_file(bot, player_id) else MSG_TOWER_READY
+
+
+async def _hand_tower(scene: Scene, offer: Offer) -> tuple[bool, str]:
+    if daily.release_cooldown(scene.bot.store.weekly_tower_cd, scene.author.id):
+        return True, DETAIL_TOWER
+    return False, MSG_TOWER_READY
+
+
+#: Every ware the merchant can bring, by the ``id`` of ``config/merchantConfig.json``.
+WARES: dict[str, Ware] = {ware.id: ware for ware in (
+    Ware("egg_pouch", "👝", "Gdy masz przy sobie towarzysza, nowe jajko trafi do sakwy, zamiast przepaść. "
+         "W sakwie jajko nie rośnie - żeby je wychować, wyjmij je.", _check_pouch, _hand_pouch, needs_upgrades=True),
+    Ware("random_egg", "🥚", "Losowe jajko, takie jak z łupu.", _check_egg, _hand_egg),
+    Ware("stable_place", "🐴", "Jedno miejsce więcej w Twojej stajni.", _check_stable, _hand_stable,
+         needs_upgrades=True),
+    Ware("random_gem", "💎", "Losowy klejnot umiejętności - takiego rodzaju, jakiego jeszcze nie masz.",
+         _check_gem, _hand_gem),
+    Ware("rest_kit", "🛏️", "Pozwala od razu znowu zapolować.", _check_rest, _hand_rest),
+    Ware("tower_ticket", "🎟️", "Jedno dodatkowe wejście do Wieży Śmierci w tym tygodniu.", _check_tower, _hand_tower),
+)}
+
+
+# -- the config ----------------------------------------------------------------------------
+
+class ConfigError(ValueError):
+    """``config/merchantConfig.json`` cannot be used (the event is skipped; the owner is told by the cog)."""
+
+
+@dataclass(frozen=True)
+class Config:
+    stay_seconds: float
+    #: ``{how many wares: weight}``.
+    stock_weights: Mapping[int, float]
+    #: ``(id, name, price, weight, the whole entry)`` of every ware in the file, in its order.
+    items: tuple[tuple[str, str, int, float, Mapping[str, Any]], ...]
+
+
+def load_config(path: Path | None = None) -> Config:
+    """Read and check the merchant's config; :class:`ConfigError` when it is unusable."""
+    path = CONFIG_FILE if path is None else path
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        stay = float(raw["stay_seconds"])
+        stock_weights = {int(count): float(weight) for count, weight in raw["stock_weights"].items()}
+        items = []
+        for entry in raw["items"]:
+            ware_id = str(entry["id"])
+            if ware_id not in WARES:
+                raise ConfigError(f"unknown ware {ware_id!r} (known: {', '.join(WARES)})")
+            price, weight = int(entry["price"]), float(entry.get("weight", 0))
+            if price < 0 or weight < 0:
+                raise ConfigError(f"ware {ware_id!r}: negative price or weight")
+            items.append((ware_id, str(entry.get("name") or ware_id), price, weight, dict(entry)))
+    except ConfigError:
+        raise
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise ConfigError(f"{path.name}: {type(exc).__name__}: {exc}") from exc
+    if stay <= 0 or not stock_weights or any(count < 1 or weight < 0 for count, weight in stock_weights.items()) \
+            or not any(stock_weights.values()):
+        raise ConfigError(f"{path.name}: stay_seconds / stock_weights make no sense")
+    if len({item[0] for item in items}) != len(items):
+        raise ConfigError(f"{path.name}: a ware is listed twice")
+    return Config(stay, stock_weights, tuple(items))
+
+
+def draw_stock(config: Config, *, upgrades: bool = True, rng: random.Random | None = None) -> list[Offer]:
+    """The merchant's cart: how many wares (``stock_weights``), then that many DIFFERENT ones by weight.
+
+    Wares with weight 0 never come; without the ``PETOWNER`` columns
+    (``upgrades=False``) neither do the stable place and the egg pouch.  Fewer
+    wares when fewer can come; an empty list when none can.
+    """
+    rng = rng or random
+    pool = [(item, item[3]) for item in config.items
+            if item[3] > 0 and (upgrades or not WARES[item[0]].needs_upgrades)]
+    counts = sorted(config.stock_weights)
+    count = rng.choices(counts, weights=[config.stock_weights[c] for c in counts])[0]
+    chosen: list[Offer] = []
+    while pool and len(chosen) < count:
+        index = rng.choices(range(len(pool)), weights=[weight for _, weight in pool])[0]
+        (ware_id, name, price, _weight, entry), _ = pool.pop(index)
+        chosen.append(Offer(WARES[ware_id], name, price, entry))
+    return chosen
+
+
+# -- buying --------------------------------------------------------------------------------
+
+async def buy(scene: Scene, offer: Offer) -> Purchase:
+    """``scene.author`` buys ``offer``: check, pay, hand over.  The caller makes sure it is not sold yet.
+
+    Nothing is taken when the check refuses or the scrolls are too few.  The
+    scrolls are taken before the hand-over; a ware that does not fit after all
+    gives them back.  A hand-over that raises counts as SOLD (owner's rule: what
+    is to happen once happens once - the reward may have been granted already);
+    the owner is pinged to check it.
+    """
+    bot = scene.bot
+    player = scene.author
+    reason = await offer.ware.check(bot, int(player.id), offer)
+    if reason is not None:
+        return Purchase(False, reason)
+    paid, have = await pets.take_scrolls(bot, player.id, offer.price)
+    if not paid:
+        return Purchase(False, MSG_POOR.format(name=offer.name, price=scrolls(offer.price), have=scrolls(have)))
+    try:
+        handed, text = await offer.ware.hand(scene, offer)
+    except Exception as exc:  # noqa: BLE001 - paid: the ware counts as sold, the owner checks
+        log.exception("Merchant: %s paid %s for %s, but the hand-over failed.", player.id, offer.price, offer.ware.id)
+        await bot.log_to_owner(LOG_FAILED.format(player_id=player.id, price=scrolls(offer.price), name=offer.name,
+                                                 error=type(exc).__name__), ping=True)
+        return Purchase(True, MSG_FAILED, failed=True)
+    if not handed:
+        try:
+            await pets.return_scrolls(bot, player.id, offer.price)
+        except Exception as exc:  # noqa: BLE001 - the player must not lose the scrolls unnoticed
+            log.exception("Merchant: %s scrolls of %s could not be given back.", offer.price, player.id)
+            await bot.log_to_owner(LOG_NOT_RETURNED.format(player_id=player.id, price=scrolls(offer.price),
+                                                           name=offer.name, error=type(exc).__name__), ping=True)
+        log.info("Merchant: %s could not get %s after paying; %s scrolls given back.", player.id, offer.ware.id,
+                 offer.price)
+        return Purchase(False, text)
+    log.info("Merchant: %s (%s) bought %s for %s scrolls.", player, player.id, offer.ware.id, offer.price)
+    return Purchase(True, text)
+
+
+# -- the pictures --------------------------------------------------------------------------
+
+def picture(which: str) -> Path | None:
+    """``assets/events/merchant/<which>.<gif|png|jpg|jpeg|webp>`` (first found), or None.
+
+    Looked up every time: a picture the owner adds works without a restart.
+    """
+    for suffix in PICTURE_SUFFIXES:
+        path = PICTURES_DIR / f"{which}{suffix}"
+        try:
+            if path.is_file() and path.stat().st_size > 0:
+                return path
+        except OSError:
+            continue
+    return None
+
+
+# -- the event -----------------------------------------------------------------------------
+
+def buy_key(index: int) -> str:
+    """Button key of the ``index``-th ware of the cart."""
+    return f"buy{index}"
+
+
+def _panel(stock: Sequence[Offer], *, ends_at: datetime, status: str | None = None,
+           picture_name: str | None = None) -> discord.Embed:
+    lines = []
+    for offer in stock:
+        values = {"emoji": offer.ware.emoji, "name": offer.name, "price": scrolls(offer.price),
+                  "about": offer.ware.about}
+        if offer.sold:
+            lines.append(SOLD_LINE.format(mention=offer.buyer.mention, **values))
+        else:
+            lines.append(WARE_LINE.format(**values))
+    text = status if status is not None else MSG_STAYS_UNTIL.format(when=ui.when(ends_at))
+    embed = discord.Embed(title=TITLE, description=f"{DESCR}\n\n" + "\n\n".join(lines) + f"\n\n{text}",
+                          color=COLOUR)
+    if picture_name is not None:
+        embed.set_image(url=f"attachment://{picture_name}")
+    return embed
+
+
+async def spawn_merchant(scene: Scene) -> list[Offer]:
+    """The merchant comes, sells what he can and leaves; returns his cart (``Offer.buyer`` set when sold).
+
+    An empty cart (every ware switched off in the config) means he does not
+    come at all.  :class:`ConfigError` propagates (the cog tells the owner).
+    """
+    bot = scene.bot
+    config = load_config()
+    stock = draw_stock(config, upgrades=await pets.upgrades_available(bot))
+    if not stock:
+        log.warning("Merchant skipped: no ware can come (check %s).", CONFIG_FILE.name)
+        return []
+    log.info("Merchant spawn: %s.", ", ".join(offer.ware.id for offer in stock))
+    seconds = timing.timeout(STAY_DEBUG if bot.debug else config.stay_seconds)
+    ends_at = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    arrival = picture(ARRIVAL)
+    shown = None if arrival is None else arrival.name
+    choices = [ui.Choice(buy_key(index), BUY_LABEL.format(name=offer.name, price=scrolls(offer.price))[:80],
+                         emoji=offer.ware.emoji, style=discord.ButtonStyle.success)
+               for index, offer in enumerate(stock)]
+
+    with bot.state.stable_stays_open():  # (room for an egg can be made meanwhile)
+        async with ui.ClickView(choices) as view:
+            extra = {} if arrival is None else {"file_path": arrival}
+            await view.send(scene.channel, embed=_panel(stock, ends_at=ends_at, picture_name=shown), **extra)
+            deadline = time.monotonic() + seconds
+            while not all(offer.sold for offer in stock):
+                click = await view.next(deadline - time.monotonic())
+                if click is None:
+                    break
+                offer = stock[int(click.key.removeprefix("buy"))]
+                if offer.sold:
+                    await ui.reply(click.interaction, MSG_ALREADY_SOLD)
+                    continue
+                member = await bot.member(click.member.id)
+                if member is None:  # left the server meanwhile
+                    continue
+                buyer = Scene(bot=bot, channel=scene.channel, author=member)
+                try:
+                    purchase = await buy(buyer, offer)
+                except Exception:  # noqa: BLE001 - e.g. the database is gone: nothing was taken, he stays
+                    log.exception("Merchant: the purchase of %s by %s failed before anything was taken.",
+                                  offer.ware.id, member.id)
+                    await ui.reply(click.interaction, ui.MSG_FAILED)
+                    continue
+                if not purchase.sold:
+                    await ui.reply(click.interaction, purchase.text)
+                    continue
+                offer.buyer = member
+                button = view.button(click.key)
+                button.disabled, button.label, button.style = True, SOLD_LABEL, discord.ButtonStyle.secondary
+                await view.refresh(embed=_panel(stock, ends_at=ends_at, picture_name=shown))
+                if purchase.failed:
+                    await ui.reply(click.interaction, purchase.text)
+                else:
+                    await scene.send(MSG_BOUGHT.format(mention=member.mention, name=offer.name,
+                                                       price=scrolls(offer.price), detail=purchase.text))
+            late = view.pending()
+            status = MSG_SOLD_OUT if all(offer.sold for offer in stock) else MSG_LEAVES
+            await view.close(embed=_panel(stock, ends_at=ends_at, status=status, picture_name=shown))
+            for click in late:
+                await ui.reply(click.interaction, MSG_ALREADY_SOLD if stock[int(click.key[3:])].sold
+                               else ui.MSG_STALE)
+
+    sold = [offer.ware.id for offer in stock if offer.sold]
+    log.info("Merchant leaves (sold: %s).", ", ".join(sold) or "nothing")
+    departure = picture(DEPARTURE)
+    if departure is not None:
+        await scene.send(file_path=departure)
+    else:
+        await scene.send(MSG_GONE_TEXT)
+    return stock
