@@ -98,8 +98,14 @@ SEAL_PERCENT: dict[int, float] = {1: 10.0, 2: 4.8, 3: 0.2}
 FOIL_PERCENT: dict[int, float] = {petcards.FOIL_PARTIAL: 1.0, petcards.FOIL_FULL: 0.1}
 #: The frame: the result the card is DRAWN with (:func:`petcards.frame_of` - a stored id that is
 #: unknown or of another class is the base of the class).  A base frame (S0 / U0 / M0) gets
-#: nothing, every other result its own ``Frame.percent`` of the catalogue (:func:`frame_points`):
-#: a frame added to the catalogue later scores by itself.
+#: nothing, every other result its chance below - the catalogue's chances of 2026-11-21, kept when the
+#: drop chances were tripled on 2026-11-22 so the ranking did not move (:func:`frame_points`); a
+#: frame added to the catalogue later and missing here scores by its own ``Frame.percent``.
+FRAME_PERCENT: dict[str, float] = {
+    "S1": 8.0, "S1-A": 0.55, "R1": 4.0, "R1-A": 0.2, "R2": 2.0, "R2-A": 0.15, "R7": 1.0, "R7-A": 0.1,
+    "U1": 8.0, "U1-A": 0.55, "R3": 4.0, "R3-A": 0.2, "R4": 2.0, "R4-A": 0.15, "R8": 1.0, "R8-A": 0.1,
+    "R5": 5.0, "R5-A": 0.5, "R6": 3.0, "R6-A": 0.3, "R9": 1.0, "R9-A": 0.2,
+}
 # ================================================================================================
 
 
@@ -154,7 +160,7 @@ def frame_points(row: Any) -> int:
     frame = petcards.frame_of(row)
     if frame is None or frame.base:
         return 0
-    return bonus(frame.percent)
+    return bonus(FRAME_PERCENT.get(frame.id, frame.percent))
 
 
 def seal_points(row: Any) -> int:

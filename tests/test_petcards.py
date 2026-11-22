@@ -215,22 +215,22 @@ def cache(tmp_path) -> Path:
 # ------------------------------------------------------------------ catalogue
 
 SPEC_TABLE = {   # spec 1, the owner's dla-bota.md / pule.json: id -> (tier, name, percent, file)
-    "S0": ("S", "Srebrne okucia", 84, "frame-shiny.png"),
-    "S1": ("S", "Gwiazda Szronu", 8, "frames/S1.png"), "S1-A": ("S", "Gwiazda Szronu", 0.55, "frames/S1-A.apng"),
-    "R1": ("S", "Księżycowa stal", 4, "frames/R1.png"), "R1-A": ("S", "Księżycowa stal", 0.2, "frames/R1-A.apng"),
-    "R2": ("S", "Miedziane ciernie", 2, "frames/R2.png"), "R2-A": ("S", "Miedziane ciernie", 0.15, "frames/R2-A.apng"),
-    "R7": ("S", "Przeszywana skóra", 1, "frames/R7.png"), "R7-A": ("S", "Przeszywana skóra", 0.1, "frames/R7-A.apng"),
-    "U0": ("U", "Złoty relikwiarz", 84, "frame-ultra.png"),
-    "U1": ("U", "Rubinowa Korona", 8, "frames/U1.png"), "U1-A": ("U", "Rubinowa Korona", 0.55, "frames/U1-A.apng"),
-    "R3": ("U", "Złote wrota", 4, "frames/R3.png"), "R3-A": ("U", "Złote wrota", 0.2, "frames/R3-A.apng"),
-    "R4": ("U", "Rozbite zwierciadło", 2, "frames/R4.png"),
-    "R4-A": ("U", "Rozbite zwierciadło", 0.15, "frames/R4-A.apng"),
-    "R8": ("U", "Bursztynowy skarabeusz", 1, "frames/R8.png"),
-    "R8-A": ("U", "Bursztynowy skarabeusz", 0.1, "frames/R8-A.apng"),
-    "M0": ("M", "Oryginalna ilustracja", 90, ""),
-    "R5": ("M", "Astrolabium", 5, "frames/R5.png"), "R5-A": ("M", "Astrolabium", 0.5, "frames/R5-A.apng"),
-    "R6": ("M", "Kręgosłup Pustki", 3, "frames/R6.png"), "R6-A": ("M", "Kręgosłup Pustki", 0.3, "frames/R6-A.apng"),
-    "R9": ("M", "Oko Otchłani", 1, "frames/R9.png"), "R9-A": ("M", "Oko Otchłani", 0.2, "frames/R9-A.apng"),
+    "S0": ("S", "Srebrne okucia", 52, "frame-shiny.png"),
+    "S1": ("S", "Gwiazda Szronu", 24, "frames/S1.png"), "S1-A": ("S", "Gwiazda Szronu", 1.65, "frames/S1-A.apng"),
+    "R1": ("S", "Księżycowa stal", 12, "frames/R1.png"), "R1-A": ("S", "Księżycowa stal", 0.6, "frames/R1-A.apng"),
+    "R2": ("S", "Miedziane ciernie", 6, "frames/R2.png"), "R2-A": ("S", "Miedziane ciernie", 0.45, "frames/R2-A.apng"),
+    "R7": ("S", "Przeszywana skóra", 3, "frames/R7.png"), "R7-A": ("S", "Przeszywana skóra", 0.3, "frames/R7-A.apng"),
+    "U0": ("U", "Złoty relikwiarz", 52, "frame-ultra.png"),
+    "U1": ("U", "Rubinowa Korona", 24, "frames/U1.png"), "U1-A": ("U", "Rubinowa Korona", 1.65, "frames/U1-A.apng"),
+    "R3": ("U", "Złote wrota", 12, "frames/R3.png"), "R3-A": ("U", "Złote wrota", 0.6, "frames/R3-A.apng"),
+    "R4": ("U", "Rozbite zwierciadło", 6, "frames/R4.png"),
+    "R4-A": ("U", "Rozbite zwierciadło", 0.45, "frames/R4-A.apng"),
+    "R8": ("U", "Bursztynowy skarabeusz", 3, "frames/R8.png"),
+    "R8-A": ("U", "Bursztynowy skarabeusz", 0.3, "frames/R8-A.apng"),
+    "M0": ("M", "Oryginalna ilustracja", 70, ""),
+    "R5": ("M", "Astrolabium", 15, "frames/R5.png"), "R5-A": ("M", "Astrolabium", 1.5, "frames/R5-A.apng"),
+    "R6": ("M", "Kręgosłup Pustki", 9, "frames/R6.png"), "R6-A": ("M", "Kręgosłup Pustki", 0.9, "frames/R6-A.apng"),
+    "R9": ("M", "Oko Otchłani", 3, "frames/R9.png"), "R9-A": ("M", "Oko Otchłani", 0.6, "frames/R9-A.apng"),
 }
 
 

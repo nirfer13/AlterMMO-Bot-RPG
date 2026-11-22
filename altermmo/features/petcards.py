@@ -349,24 +349,24 @@ def _pool(tier: str, base: tuple[str, str, str, float],
 
 
 #: Every class's results in the order of the owner's ``pule.json``; the
-#: percents of a class sum to 100 (tests check that, and that every file exists).
+#: percents (every rarer result x3 since 2026-11-22, the base takes the rest) of a class sum to 100 (tests check that, and that every file exists).
 POOLS: dict[str, tuple[Frame, ...]] = {
-    "S": _pool("S", ("S0", "Srebrne okucia", "frame-shiny.png", 84), (
-        ("S1", "Gwiazda Szronu", 8, 0.55),
-        ("R1", "Księżycowa stal", 4, 0.2),
-        ("R2", "Miedziane ciernie", 2, 0.15),
-        ("R7", "Przeszywana skóra", 1, 0.1),
+    "S": _pool("S", ("S0", "Srebrne okucia", "frame-shiny.png", 52), (
+        ("S1", "Gwiazda Szronu", 24, 1.65),
+        ("R1", "Księżycowa stal", 12, 0.6),
+        ("R2", "Miedziane ciernie", 6, 0.45),
+        ("R7", "Przeszywana skóra", 3, 0.3),
     )),
-    "U": _pool("U", ("U0", "Złoty relikwiarz", "frame-ultra.png", 84), (
-        ("U1", "Rubinowa Korona", 8, 0.55),
-        ("R3", "Złote wrota", 4, 0.2),
-        ("R4", "Rozbite zwierciadło", 2, 0.15),
-        ("R8", "Bursztynowy skarabeusz", 1, 0.1),
+    "U": _pool("U", ("U0", "Złoty relikwiarz", "frame-ultra.png", 52), (
+        ("U1", "Rubinowa Korona", 24, 1.65),
+        ("R3", "Złote wrota", 12, 0.6),
+        ("R4", "Rozbite zwierciadło", 6, 0.45),
+        ("R8", "Bursztynowy skarabeusz", 3, 0.3),
     )),
-    "M": _pool("M", ("M0", "Oryginalna ilustracja", "", 90), (
-        ("R5", "Astrolabium", 5, 0.5),
-        ("R6", "Kręgosłup Pustki", 3, 0.3),
-        ("R9", "Oko Otchłani", 1, 0.2),
+    "M": _pool("M", ("M0", "Oryginalna ilustracja", "", 70), (
+        ("R5", "Astrolabium", 15, 1.5),
+        ("R6", "Kręgosłup Pustki", 9, 0.9),
+        ("R9", "Oko Otchłani", 3, 0.6),
     )),
 }
 #: Every result id -> its Frame.

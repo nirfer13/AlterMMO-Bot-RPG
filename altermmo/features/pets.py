@@ -224,25 +224,27 @@ SHINY_FROM, ULTRA_SHINY_FROM, MYTHIC_FROM = 900, 980, 998
 #: disjoint results: no seal 85%, Tropiciela 10%, Łowcy 4.8%, Arcyłowcy 0.2%.  Second roll
 #: gives Holo with a chance of 0.1% (1/1000).  No cosmetic gives stats."  Since 2026-11-21 the
 #: second roll has three disjoint results: no foil 98.9%, partial Holo 1%, full Holo 0.1%.
+#: Owner, 2026-11-22: "Zwiększ szanse x3 na każdym elemencie kosmetycznym" - every seal, foil and
+#: rarer frame is three times as likely (seal: none 55%, Tropiciela 30%, Łowcy 14.4%, Arcyłowcy
+#: 0.6%; foil: none 96.7%, partial Holo 3%, full Holo 0.3%; frames: ``petcards.POOLS``).
 #: Both are ``random.randrange(COSMETIC_ROLL)``, independent of each other and of the pet's
 #: class; whole numbers only, so the odds are exact.
 COSMETIC_ROLL = 1000
 #: Seal roll: the first entry whose bound is above the roll gives the tier -
-#: 0-1 Arcyłowcy (0.2%), 2-49 Łowcy (4.8%), 50-149 Tropiciela (10%), 150-999 no seal (85%).
-SEAL_ROLL_BELOW: tuple[tuple[int, int], ...] = ((2, 3), (50, 2), (150, 1))
-#: Foil roll, the same way: 0 full Holo (0.1% - the very roll that gave Holo before the
-#: partial foil existed), 1-10 partial Holo (1%), 11-999 no foil (98.9%).
-FOIL_ROLL_BELOW: tuple[tuple[int, int], ...] = ((1, petcards.FOIL_FULL), (11, petcards.FOIL_PARTIAL))
+#: 0-5 Arcyłowcy (0.6%), 6-149 Łowcy (14.4%), 150-449 Tropiciela (30%), 450-999 no seal (55%).
+SEAL_ROLL_BELOW: tuple[tuple[int, int], ...] = ((6, 3), (150, 2), (450, 1))
+#: Foil roll, the same way: 0-2 full Holo (0.3%), 3-32 partial Holo (3%), 33-999 no foil (96.7%).
+FOIL_ROLL_BELOW: tuple[tuple[int, int], ...] = ((3, petcards.FOIL_FULL), (33, petcards.FOIL_PARTIAL))
 #: Seal tiers are 0 (none) .. MAX_SEAL; their names are ``petcards.SEAL_NAMES``.
 MAX_SEAL = 3
 #: The third roll, only for an egg with a class (Shiny / Ultra Shiny / mythic):
 #: ``random.randrange(FRAME_ROLL)`` in units of 0.01%, so every percent of the owner's pools
-#: (``petcards.POOLS``, down to 0.15%) is a whole number of units - no rounding anywhere.
+#: (``petcards.POOLS``, down to 0.3%) is a whole number of units - no rounding anywhere.
 FRAME_ROLL = 10000
 #: Results that are worth a line in the owner's log (:data:`MSG_RARE_COSMETICS`) besides every
-#: animated frame: the rarest static frame of each pool (R7 / R8 / R9, 1% of their class - as rare
-#: as full Holo for a Shiny egg, far rarer for the others).
-RARE_FRAME_PERCENT = 1.0
+#: animated frame: the rarest static frame of each pool (R7 / R8 / R9, 3% of their class since the
+#: x3 of 2026-11-22).
+RARE_FRAME_PERCENT = 3.0
 
 
 def _frame_table(tier: str) -> tuple[tuple[int, str], ...]:

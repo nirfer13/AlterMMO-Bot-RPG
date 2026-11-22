@@ -55,5 +55,13 @@
             "W Panelu gry jest nowy przycisk Powiadomienia: jedno kliknięcie nadaje rolę Łowca Potworów (powiadomienia o bossach, wydarzeniach i nowościach w grze), a kolejne ją zdejmuje.",
             "Kradzież doświadczenia zdobyta od teraz w łupie z bossa jest warta 10 000 doświadczenia na Discordzie zamiast 2 500. Każda kradzież zabiera tylko tyle, ile ofiara naprawdę ma: złodziej dostaje dokładnie tyle, ile ofiara straciła - więc wybierajcie ofiary z głową!"
         ]
+    },
+    {
+        "id": 5,
+        "date": "2026-11-22",
+        "title": "Więcej szczęścia przy jajkach",
+        "changes": [
+            "Dla wspierających: rzadkie ozdoby kart towarzyszy trafiają się teraz trzy razy częściej. Powodzenia przy nowych jajkach!"
+        ]
     }
 ]

@@ -184,55 +184,55 @@
         "id": "S0",
         "frame": "S0",
         "animation": null,
-        "percent": 84
+        "percent": 52
       },
       {
         "id": "S1",
         "frame": "S1",
         "animation": null,
-        "percent": 8
+        "percent": 24
       },
       {
         "id": "S1-A",
         "frame": "S1",
         "animation": "A11",
-        "percent": 0.55
+        "percent": 1.65
       },
       {
         "id": "R1",
         "frame": "R1",
         "animation": null,
-        "percent": 4
+        "percent": 12
       },
       {
         "id": "R1-A",
         "frame": "R1",
         "animation": "A1",
-        "percent": 0.2
+        "percent": 0.6
       },
       {
         "id": "R2",
         "frame": "R2",
         "animation": null,
-        "percent": 2
+        "percent": 6
       },
       {
         "id": "R2-A",
         "frame": "R2",
         "animation": "A2",
-        "percent": 0.15
+        "percent": 0.45
       },
       {
         "id": "R7",
         "frame": "R7",
         "animation": null,
-        "percent": 1
+        "percent": 3
       },
       {
         "id": "R7-A",
         "frame": "R7",
         "animation": "A8",
-        "percent": 0.1
+        "percent": 0.3
       }
     ],
     "U": [
@@ -240,55 +240,55 @@
         "id": "U0",
         "frame": "U0",
         "animation": null,
-        "percent": 84
+        "percent": 52
       },
       {
         "id": "U1",
         "frame": "U1",
         "animation": null,
-        "percent": 8
+        "percent": 24
       },
       {
         "id": "U1-A",
         "frame": "U1",
         "animation": "A12",
-        "percent": 0.55
+        "percent": 1.65
       },
       {
         "id": "R3",
         "frame": "R3",
         "animation": null,
-        "percent": 4
+        "percent": 12
       },
       {
         "id": "R3-A",
         "frame": "R3",
         "animation": "A3",
-        "percent": 0.2
+        "percent": 0.6
       },
       {
         "id": "R4",
         "frame": "R4",
         "animation": null,
-        "percent": 2
+        "percent": 6
       },
       {
         "id": "R4-A",
         "frame": "R4",
         "animation": "A4",
-        "percent": 0.15
+        "percent": 0.45
       },
       {
         "id": "R8",
         "frame": "R8",
         "animation": null,
-        "percent": 1
+        "percent": 3
       },
       {
         "id": "R8-A",
         "frame": "R8",
         "animation": "A9",
-        "percent": 0.1
+        "percent": 0.3
       }
     ],
     "M": [
@@ -296,43 +296,43 @@
         "id": "M0",
         "frame": "M0",
         "animation": null,
-        "percent": 90
+        "percent": 70
       },
       {
         "id": "R5",
         "frame": "R5",
         "animation": null,
-        "percent": 5
+        "percent": 15
       },
       {
         "id": "R5-A",
         "frame": "R5",
         "animation": "A5",
-        "percent": 0.5
+        "percent": 1.5
       },
       {
         "id": "R6",
         "frame": "R6",
         "animation": null,
-        "percent": 3
+        "percent": 9
       },
       {
         "id": "R6-A",
         "frame": "R6",
         "animation": "A6",
-        "percent": 0.3
+        "percent": 0.9
       },
       {
         "id": "R9",
         "frame": "R9",
         "animation": null,
-        "percent": 1
+        "percent": 3
       },
       {
         "id": "R9-A",
         "frame": "R9",
         "animation": "A10",
-        "percent": 0.2
+        "percent": 0.6
       }
     ]
   },
@@ -406,15 +406,15 @@
   },
   "rolls": {
     "seal": {
-      "none": 85,
-      "tropiciel": 10,
-      "lowca": 4.8,
-      "arcylowca": 0.2
+      "none": 55,
+      "tropiciel": 30,
+      "lowca": 14.4,
+      "arcylowca": 0.6
     },
     "foil": {
-      "none": 98.9,
-      "partial": 1,
-      "full": 0.1
+      "none": 96.7,
+      "partial": 3,
+      "full": 0.3
     }
   },
   "unit": "percent",

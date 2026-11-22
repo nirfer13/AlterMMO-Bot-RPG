@@ -49,9 +49,9 @@ FULL, PARTIAL, NONE = petcards.FOIL_FULL, petcards.FOIL_PARTIAL, petcards.FOIL_N
 #: The owner's pools (assets/petcards/source/pule.json) written out once more, in units of 0.01%:
 #: the stored result ('' = the base of the class) -> how many of the 10000 frame rolls give it.
 OWNERS_POOLS = {
-    "S": {"": 8400, "S1": 800, "S1-A": 55, "R1": 400, "R1-A": 20, "R2": 200, "R2-A": 15, "R7": 100, "R7-A": 10},
-    "U": {"": 8400, "U1": 800, "U1-A": 55, "R3": 400, "R3-A": 20, "R4": 200, "R4-A": 15, "R8": 100, "R8-A": 10},
-    "M": {"": 9000, "R5": 500, "R5-A": 50, "R6": 300, "R6-A": 30, "R9": 100, "R9-A": 20},
+    "S": {"": 5200, "S1": 2400, "S1-A": 165, "R1": 1200, "R1-A": 60, "R2": 600, "R2-A": 45, "R7": 300, "R7-A": 30},
+    "U": {"": 5200, "U1": 2400, "U1-A": 165, "R3": 1200, "R3-A": 60, "R4": 600, "R4-A": 45, "R8": 300, "R8-A": 30},
+    "M": {"": 7000, "R5": 1500, "R5-A": 150, "R6": 900, "R6-A": 90, "R9": 300, "R9-A": 60},
 }
 #: How the old bot stores a new egg (functions_pets.py): its own column list, no SEAL / HOLO.
 OLD_BOT_INSERT = """INSERT INTO PETS
@@ -154,27 +154,27 @@ async def cosmetics(db, pet_id: int) -> tuple[int, bool]:
 
 # -- the rolls --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("roll, seal", [(0, 3), (1, 3), (2, 2), (49, 2), (50, 1), (149, 1), (150, 0), (999, 0)])
+@pytest.mark.parametrize("roll, seal", [(0, 3), (5, 3), (6, 2), (149, 2), (150, 1), (449, 1), (450, 0), (999, 0)])
 def test_seal_roll_boundaries(monkeypatch, roll, seal):
     asked = dice(monkeypatch, roll, 500)
     assert pets._roll_cosmetics() == pets.Rolled(seal, NONE, "")
     assert asked == [(1000,), (1000,)]                       # one roll for the seal, one for the foil, no frame
 
 
-@pytest.mark.parametrize("roll, foil", [(0, FULL), (1, PARTIAL), (10, PARTIAL), (11, NONE), (999, NONE)])
+@pytest.mark.parametrize("roll, foil", [(0, FULL), (2, FULL), (3, PARTIAL), (32, PARTIAL), (33, NONE), (999, NONE)])
 def test_foil_roll_boundaries(monkeypatch, roll, foil):
     dice(monkeypatch, 500, roll)
     assert pets._roll_cosmetics() == pets.Rolled(0, foil, "")
 
 
 @pytest.mark.parametrize("tier, roll, frame", [
-    ("S", 0, ""), ("S", 8399, ""), ("S", 8400, "S1"), ("S", 9199, "S1"), ("S", 9200, "S1-A"), ("S", 9254, "S1-A"),
-    ("S", 9255, "R1"), ("S", 9655, "R1-A"), ("S", 9675, "R2"), ("S", 9875, "R2-A"), ("S", 9890, "R7"),
-    ("S", 9989, "R7"), ("S", 9990, "R7-A"), ("S", 9999, "R7-A"),
-    ("U", 8399, ""), ("U", 8400, "U1"), ("U", 9200, "U1-A"), ("U", 9255, "R3"), ("U", 9675, "R4"),
-    ("U", 9875, "R4-A"), ("U", 9890, "R8"), ("U", 9990, "R8-A"),
-    ("M", 8999, ""), ("M", 9000, "R5"), ("M", 9500, "R5-A"), ("M", 9550, "R6"), ("M", 9850, "R6-A"),
-    ("M", 9880, "R9"), ("M", 9979, "R9"), ("M", 9980, "R9-A"), ("M", 9999, "R9-A")])
+    ("S", 0, ""), ("S", 5199, ""), ("S", 5200, "S1"), ("S", 7599, "S1"), ("S", 7600, "S1-A"), ("S", 7764, "S1-A"),
+    ("S", 7765, "R1"), ("S", 8965, "R1-A"), ("S", 9025, "R2"), ("S", 9625, "R2-A"), ("S", 9670, "R7"),
+    ("S", 9969, "R7"), ("S", 9970, "R7-A"), ("S", 9999, "R7-A"),
+    ("U", 5199, ""), ("U", 5200, "U1"), ("U", 7600, "U1-A"), ("U", 7765, "R3"), ("U", 9025, "R4"),
+    ("U", 9625, "R4-A"), ("U", 9670, "R8"), ("U", 9970, "R8-A"),
+    ("M", 6999, ""), ("M", 7000, "R5"), ("M", 8500, "R5-A"), ("M", 8650, "R6"), ("M", 9550, "R6-A"),
+    ("M", 9640, "R9"), ("M", 9939, "R9"), ("M", 9940, "R9-A"), ("M", 9999, "R9-A")])
 def test_frame_roll_boundaries(monkeypatch, tier, roll, frame):
     asked = dice(monkeypatch, 500, 500, roll)
     assert pets._roll_cosmetics(tier) == pets.Rolled(0, NONE, frame)
@@ -186,11 +186,11 @@ def test_odds_are_exactly_the_owners_balance(monkeypatch):
     """The whole roll space, every value of each die once: exact counts, nothing left over."""
     seals = Counter(pets._seal_for(roll) for roll in range(pets.COSMETIC_ROLL))
     foils = Counter(pets._foil_for(roll) for roll in range(pets.COSMETIC_ROLL))
-    assert seals == {0: 850, 1: 100, 2: 48, 3: 2}            # 85% / 10% / 4.8% / 0.2%
-    assert foils == {NONE: 989, PARTIAL: 10, FULL: 1}         # 98.9% / 1% / 0.1%
+    assert seals == {0: 550, 1: 300, 2: 144, 3: 6}           # 55% / 30% / 14.4% / 0.6% (x3, 2026-11-22)
+    assert foils == {NONE: 967, PARTIAL: 30, FULL: 3}         # 96.7% / 3% / 0.3% (x3, 2026-11-22)
     assert set(petcards.SEAL_NAMES) == {1, 2, 3} and pets.MAX_SEAL == 3
-    assert (pets.COSMETIC_ROLL, pets.SEAL_ROLL_BELOW) == (1000, ((2, 3), (50, 2), (150, 1)))
-    assert pets.FOIL_ROLL_BELOW == ((1, FULL), (11, PARTIAL))
+    assert (pets.COSMETIC_ROLL, pets.SEAL_ROLL_BELOW) == (1000, ((6, 3), (150, 2), (450, 1)))
+    assert pets.FOIL_ROLL_BELOW == ((3, FULL), (33, PARTIAL))
     assert pets.FRAME_ROLL == 10000                          # units of 0.01%: no float anywhere
 
     for tier, owners in OWNERS_POOLS.items():
@@ -226,9 +226,9 @@ def test_a_catalogue_that_is_not_whole_units_is_refused(monkeypatch):
 
 def test_the_three_rolls_are_independent(monkeypatch):
     results = set()
-    for seal_roll in (0, 10, 100, 500):
+    for seal_roll in (0, 10, 200, 500):
         for foil_roll in (0, 5, 500):
-            for frame_roll in (0, 8400, 9990):
+            for frame_roll in (0, 6000, 9990):
                 dice(monkeypatch, seal_roll, foil_roll, frame_roll)
                 results.add(pets._roll_cosmetics("S"))
     assert results == {pets.Rolled(seal, foil, frame) for seal in (3, 2, 1, 0) for foil in (FULL, PARTIAL, NONE)
@@ -251,7 +251,7 @@ def test_only_supporters_roll_and_only_once(monkeypatch):
     # Several roles do not multiply the tries.
     rich = crafter()
     rich.roles += [FakeRole(role) for role in patrons.PATRON_ROLES]
-    asked = dice(monkeypatch, 60, 5, 8400)
+    asked = dice(monkeypatch, 200, 5, 6000)
     egg = pets._roll_egg(rich)
     assert (egg["SEAL"], egg["HOLO"], egg["FRAME"], egg["HOLO_PARTIAL"]) == (1, False, "S1", True)
     assert asked == [(1000,), (1000,), (10000,)]
@@ -262,7 +262,7 @@ def test_only_supporters_roll_and_only_once(monkeypatch):
     (1000, True, True, True, "M")])
 def test_seal_and_foil_do_not_depend_on_the_class_of_the_pet(monkeypatch, egg_roll, shiny, ultra, mythic, tier):
     for seal_roll, foil_roll, expected in ((0, 0, (3, True, False)), (20, 7, (2, False, True)),
-                                           (700, 0, (0, True, False)), (700, 11, (0, False, False))):
+                                           (700, 0, (0, True, False)), (700, 40, (0, False, False))):
         pools, ranges = rig(monkeypatch, randint=lambda low, high: egg_roll if high == 1000 else 0)
         asked = dice(monkeypatch, seal_roll, foil_roll, 9999)
         egg = pets._roll_egg(crafter())
@@ -332,11 +332,11 @@ async def test_supporters_egg_is_stored_with_its_cosmetics(game_db, monkeypatch)
 async def test_frame_and_partial_holo_are_stored_with_the_egg(game_db, monkeypatch):
     db, bot = game_db.bot.db, game_db.bot
     rig(monkeypatch, randint=lambda low, high: 905 if high == 1000 else 0)    # shiny eggs
-    asked = dice(monkeypatch, 500, 5, 9300)                                   # no seal, partial Holo, R1
+    asked = dice(monkeypatch, 500, 5, 8000)                                   # no seal, partial Holo, R1
     lucky, plain = crafter(game_db), game_db.add_member("Ala")
     assert await pets.assign_pet(game_db.scene(), lucky) is True
     assert await everything(db, 1) == (0, False, "R1", True)
-    assert bot.owner_log == []                     # a 4% frame and a 1% foil: not rare enough to tell the owner
+    assert bot.owner_log == []                     # a 12% frame and a 3% foil: not rare enough to tell the owner
     assert pets.ornaments_of(await pet_row(db, 1)) == pets.Ornaments("R1", 0, PARTIAL)
 
     assert await pets.assign_pet(game_db.scene(), plain) is True               # a shiny egg, no supporter
@@ -362,7 +362,7 @@ async def test_frame_and_partial_holo_are_stored_with_the_egg(game_db, monkeypat
     # The frames: every animated edition and the 1% static frame of a pool.
     (500, 500, 9999, True, (0, False), "R9-A", "ramkę Oko Otchłani (animowana)", ["Mityczny towarzysz"]),
     (500, 500, 9900, True, (0, False), "R9", "ramkę Oko Otchłani", ["Mityczny towarzysz"]),
-    (500, 500, 9500, True, (0, False), "R5-A", "ramkę Astrolabium (animowana)", ["Mityczny towarzysz"]),
+    (500, 500, 8500, True, (0, False), "R5-A", "ramkę Astrolabium (animowana)", ["Mityczny towarzysz"]),
     (0, 5, 9980, True, (3, False), "R9-A", "pieczęć Arcyłowcy i ramkę Oko Otchłani (animowana)",
      ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy"]),
     (0, 0, 9980, True, (3, True), "R9-A", "pieczęć Arcyłowcy, folię Holo i ramkę Oko Otchłani (animowana)",
@@ -395,10 +395,10 @@ async def test_owner_hears_about_rare_cosmetics_and_nobody_else(game_db, monkeyp
 
 
 @pytest.mark.parametrize("egg_roll, foil_roll, frame_roll, frame", [
-    (905, 5, 9890, "R7"), (905, 500, 9990, "R7-A"), (985, 500, 9890, "R8"), (985, 500, 9255, "R3"),
-    (905, 500, 8400, "S1"), (1000, 5, 999, ""), (1000, 500, 9000, "R5"), (1000, 500, 9550, "R6")])
+    (905, 5, 9890, "R7"), (905, 500, 9990, "R7-A"), (985, 500, 9890, "R8"), (985, 500, 8000, "R3"),
+    (905, 500, 6000, "S1"), (1000, 5, 999, ""), (1000, 500, 8000, "R5"), (1000, 500, 9000, "R6")])
 async def test_which_frames_the_owner_hears_about(game_db, monkeypatch, egg_roll, foil_roll, frame_roll, frame):
-    """Every animated edition and the 1% static frame of each pool (R7 / R8 / R9) - no partial Holo."""
+    """Every animated edition and the 3% static frame of each pool (R7 / R8 / R9) - no partial Holo."""
     db, bot = game_db.bot.db, game_db.bot
     await achievements.ensure_roles(bot)                   # (a mythic egg is an achievement: its role exists)
     bot.owner_log.clear()

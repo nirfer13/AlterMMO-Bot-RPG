@@ -75,7 +75,7 @@ def test_the_frame_bonuses_follow_the_catalogue(monkeypatch):
     for frame in petcards.FRAMES.values():
         found[frame.id] = albumrank.frame_points(row(frame=frame.id, **flags[frame.tier]))
         if not frame.base:
-            assert found[frame.id] == round(10 * math.log2(100 / frame.percent)), frame.id
+            assert found[frame.id] == round(10 * math.log2(100 / albumrank.FRAME_PERCENT[frame.id])), frame.id
     assert found == expected
     # A frame added to the catalogue later scores by itself.
     new = petcards.Frame("R10", "S", "Nowa", "frames/R10.png", False, 0.05)
