@@ -9,8 +9,19 @@ roles, so only the mythic achievements stay -
 * **Mityczny Holo** - owns a mythic pet with the Holo foil;
 * **Mityczna Pieczęć Arcyłowcy** - owns a mythic pet with the rarest seal.
 
-The three pet roles are made by the bot itself (:func:`ensure_roles`; their
-ids are remembered in ``data/achievementRoles.json``) and are for supporters
+and, added on 2026-11-21 together with the pet album (owner: "Zrób osiągnięcie
+za pełną kolekcję każdego typu peta") - the only addition to the cut-down catalogue:
+
+* **Pełny album** - the album (:mod:`altermmo.features.album`) covers every
+  slot of the collection: every non-mythic species at every stage, whatever
+  the frame / foil / seal.  Checked after every sacrifice that was kept
+  (:func:`check_album`) and by the start-up / ``$nadajosiagniecia`` hand-out
+  (:func:`deserved`); like every role here it is never taken away - also not
+  when entries are removed from the album later.
+
+The four roles of the pets and of the album are made by the bot itself (:func:`ensure_roles`; their
+ids are remembered in ``data/achievementRoles.json``, the album's also in
+``data/achievementRolesLater.json``, see :data:`LATER_KEYS`) and are for supporters
 (:func:`patrons.check_if_patron`), like every collector's extra.
 
 Everything else is gone - also the achievements the old bot had (boss kills,
@@ -40,12 +51,16 @@ import logging
 import time
 import types
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import asyncpg
 import discord
 
 from ..core import io
+from ..core.db import DatabaseUnavailable
 from ..core.state import BossPhase
+from ..core.storage import JsonFile
 from . import patrons
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -135,8 +150,26 @@ TROPHIES: tuple[Trophy, ...] = (
     Trophy("pet_mythic", "Mityczny towarzysz"),
     Trophy("pet_mythic_holo", "Mityczny Holo"),
     Trophy("pet_mythic_seal", "Mityczna Pieczęć Arcyłowcy"),
+    Trophy("album_full", "Pełny album"),
 )
 _BY_KEY: dict[str, Trophy] = {item.key: item for item in TROPHIES}
+
+#: Bot-made achievements added after the version of 2026-11-20 (commit bde7ce0).  That version's
+#: :func:`retire_roles` deletes the role of every key in ``data/achievementRoles.json`` it does not
+#: know - a rollback to it would delete "Pełny album" with the role of every holder, and the role is
+#: never to be taken away.  So their role ids are never a plain key there: they are saved in
+#: :data:`LATER_ROLES_FILE` (next to it), a file that version never opens, and - as a spare copy -
+#: in ``data/achievementRoles.json`` under :data:`LATER_ROLES_KEY`, in a mapping, which that version
+#: reads as no id at all.  That version rewrites its file whenever it deletes a withdrawn role or
+#: makes one of its own, and drops the spare copy then; the id in :data:`LATER_ROLES_FILE` stays, so
+#: the role is still known after the upgrade even when the owner has renamed it (a role the bot no
+#: longer knows is taken over only by its exact name, :func:`ensure_roles`).  Every bot-made
+#: achievement added later goes here too.
+LATER_KEYS: frozenset[str] = frozenset({"album_full"})
+LATER_ROLES_KEY = "added_later"
+#: The file of the :data:`LATER_KEYS` roles, in the folder of ``data/achievementRoles.json``:
+#: ``{achievement key: role id}``.  Keys this version does not know are kept in it, never retired.
+LATER_ROLES_FILE = "achievementRolesLater.json"
 
 #: The start-up hand-out waits while something plays on the boss channel (seconds between looks).
 QUIET_POLL = 15.0
@@ -217,14 +250,8 @@ def _told_once(bot: Any, what: Any) -> bool:
 
 # -- the roles of the achievements -------------------------------------------------------
 
-def _read_roles_file(bot: Any) -> dict[str, int] | None:
-    """The saved ``{achievement key: role id}``; {} when nothing was saved yet, None when unreadable.
-
-    The difference matters: "nothing saved" lets the bot make the roles, an
-    unreadable file must not (every role would be made a second time and the
-    ids of the roles players already hold would be overwritten).
-    """
-    path = bot.store.achievement_roles.path
+def _read_mapping(path: Path) -> dict[str, Any] | None:
+    """The JSON mapping saved in ``path``; {} when the file is missing or empty, None when unreadable."""
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -242,7 +269,93 @@ def _read_roles_file(bot: Any) -> dict[str, int] | None:
     if not isinstance(loaded, dict):
         log.error("File %s does not hold a mapping.", path)
         return None
-    return {str(key): _number(value) for key, value in loaded.items() if _number(value) > 0}
+    return loaded
+
+
+def _later_path(bot: Any) -> Path:
+    """``data/achievementRolesLater.json`` (:data:`LATER_ROLES_FILE`)."""
+    return bot.store.achievement_roles.path.with_name(LATER_ROLES_FILE)
+
+
+def _later_ids(loaded: dict[str, Any]) -> dict[str, int]:
+    """The :data:`LATER_KEYS` ids of a saved mapping (anything else in it is ignored)."""
+    return {str(key): _number(value) for key, value in loaded.items()
+            if str(key) in LATER_KEYS and _number(value) > 0}
+
+
+def _read_roles_file(bot: Any) -> dict[str, int] | None:
+    """The saved ``{achievement key: role id}``; {} when nothing was saved yet, None when unreadable.
+
+    One flat mapping of both files: ``data/achievementRoles.json`` and, for
+    :data:`LATER_KEYS`, :data:`LATER_ROLES_FILE` (see there; its id wins over
+    the spare copy nested under :data:`LATER_ROLES_KEY`, which wins over a
+    plain key).  :func:`_save_roles` splits them again.  A nested key this
+    version does not know, or a :data:`LATER_ROLES_KEY` that is no mapping, is
+    no id: it is never retired.
+
+    The difference matters: "nothing saved" lets the bot make the roles, an
+    unreadable file - either of the two - must not (a role would be made a
+    second time and the ids of the roles players already hold would be
+    overwritten).  The unreadable one is remembered for the owner's note.
+    """
+    loaded: dict[str, dict[str, Any]] = {}
+    for path in (bot.store.achievement_roles.path, _later_path(bot)):
+        mapping = _read_mapping(path)
+        if mapping is None:
+            bot._achievement_roles_unreadable = path
+            return None
+        loaded[path.name] = mapping
+    roles: dict[str, int] = {}
+    nested: dict[str, int] = {}
+    for key, value in loaded[bot.store.achievement_roles.path.name].items():
+        if key == LATER_ROLES_KEY:
+            if isinstance(value, dict):
+                nested = _later_ids(value)
+        elif _number(value) > 0:
+            roles[str(key)] = _number(value)
+    roles.update(nested)
+    roles.update(_later_ids(loaded[LATER_ROLES_FILE]))
+    return roles
+
+
+def _save_roles(bot: Any, stored: dict[str, int]) -> None:
+    """Write ``{achievement key: role id}`` to ``data/achievementRoles.json`` and :data:`LATER_ROLES_FILE`.
+
+    The roles of :data:`LATER_KEYS` go to :data:`LATER_ROLES_FILE` (first: a
+    crash between the two writes must not lose them) and, as a spare copy,
+    under :data:`LATER_ROLES_KEY`; never as a plain key (see :data:`LATER_KEYS`).
+    The keys of :data:`LATER_ROLES_FILE` this version does not know are kept.
+    """
+    plain: dict[str, Any] = {key: role_id for key, role_id in stored.items() if key not in LATER_KEYS}
+    later = {key: role_id for key, role_id in stored.items() if key in LATER_KEYS}
+    path = _later_path(bot)
+    if later or path.exists():
+        kept = _read_mapping(path)
+        if kept is None:  # (became unreadable since it was read: the spare copy below holds the ids)
+            log.error("%s is not rewritten: it cannot be read now.", path)
+        else:
+            JsonFile(path, dict).save({**{key: value for key, value in kept.items() if key not in LATER_KEYS},
+                                       **later})
+    if later:
+        plain[LATER_ROLES_KEY] = later
+    bot.store.achievement_roles.save(plain)
+
+
+def _later_saved(bot: Any, stored: dict[str, int]) -> bool:
+    """True when both files hold the :data:`LATER_KEYS` ids the bot knows, as :func:`_save_roles` writes them.
+
+    False after the version before rewrote ``data/achievementRoles.json``
+    (the spare copy is gone), or when an id is only in that file (nested or
+    as a plain key) - :func:`ensure_roles` then saves them again.
+    """
+    later = {key: role_id for key, role_id in stored.items() if key in LATER_KEYS}
+    if not later:
+        return True
+    main = _read_mapping(bot.store.achievement_roles.path) or {}
+    nested = main.get(LATER_ROLES_KEY)
+    return (_later_ids(_read_mapping(_later_path(bot)) or {}) == later
+            and isinstance(nested, dict) and _later_ids(nested) == later
+            and not LATER_KEYS & set(main))
 
 
 def _stored_roles(bot: Any) -> dict[str, int]:
@@ -336,7 +449,9 @@ async def ensure_roles(bot: "AlterBot", *, only: Any = None, force: bool = True)
     A role somebody deleted on the server is made again.  A role of that name
     without permissions that is already there (the saved ids were lost) is
     taken over instead of being made twice.  Nothing is made while the saved
-    ids cannot be read or the server's roles are not known.  The roles give no
+    ids cannot be read or the server's roles are not known.  The ids of
+    :data:`LATER_KEYS` are written again when a file lacks them (after a
+    rollback rewrote ``data/achievementRoles.json``).  The roles give no
     permissions and are not shown separately.  The owner is told what was
     made and - once per role - what could not be.  Never raises.
     """
@@ -353,8 +468,8 @@ async def ensure_roles(bot: "AlterBot", *, only: Any = None, force: bool = True)
                 return []
             if not roles_file_readable(bot):
                 if _told_once(bot, "roles-file"):
-                    await bot.log_to_owner(
-                        LOG_ROLES_FILE_UNREADABLE.format(path=bot.store.achievement_roles.path), ping=True)
+                    path = getattr(bot, "_achievement_roles_unreadable", None) or bot.store.achievement_roles.path
+                    await bot.log_to_owner(LOG_ROLES_FILE_UNREADABLE.format(path=path), ping=True)
                 return []
             stored = _stored_roles(bot)
             for item in wanted:
@@ -382,9 +497,11 @@ async def ensure_roles(bot: "AlterBot", *, only: Any = None, force: bool = True)
                         _made_roles(bot)[int(role.id)] = (role, time.monotonic())
                     made.append(item.name)
                 stored[item.key] = int(role.id)
-                bot.store.achievement_roles.save(dict(stored))  # at once: a crash must not orphan the role
+                _save_roles(bot, stored)  # at once: a crash must not orphan the role
                 log.info("Achievement role %r: %s (%s).", item.name,
                          "taken over" if item.name in adopted else "made", role.id)
+            if not _later_saved(bot, stored):  # (the version before rewrote its file, or an older layout)
+                _save_roles(bot, stored)
             if failed:
                 bot._achievement_roles_retry_at = time.monotonic() + ROLE_RETRY_AFTER
             elif only is None:
@@ -478,7 +595,7 @@ async def retire_roles(bot: "AlterBot") -> list[str]:
                     deleted.append(name)
                 if key is not None:  # gone (now or before): forget its id
                     stored.pop(key, None)
-                    bot.store.achievement_roles.save(dict(stored))
+                    _save_roles(bot, stored)
         if deleted:
             await bot.log_to_owner(LOG_ROLES_RETIRED.format(count=len(deleted), names=", ".join(deleted)))
         if [name for name in failed if _told_once(bot, ("role-not-retired", name))]:
@@ -679,23 +796,82 @@ async def check_pets(scene: "Scene", player: Any, *, announce: bool = True) -> l
         return []
 
 
+# -- what the album stands for ---------------------------------------------------------
+
+async def _album_keys(bot: "AlterBot", player_id: int, *,
+                      unread: list[tuple[int, str]] | None = None) -> set[str]:
+    """``{"album_full"}`` when the player's album covers the whole collection.
+
+    An album that cannot be read - the database refuses the query, or the
+    connection broke / timed out (the db layer's :class:`DatabaseUnavailable`)
+    - stands for nothing: it costs only "Pełny album" this time, the pets'
+    achievements are handed out all the same.  It is logged here, or - with
+    ``unread`` (the start-up hand-out, one call per supporter) - noted there
+    as ``(player id, error)`` for the caller's one log line.
+    """
+    from . import album  # (lazily: the album builds on features/pets.py, which imports this module)
+
+    try:
+        full = await album.complete(bot.db, player_id)
+    except (asyncpg.PostgresError, DatabaseUnavailable) as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        if unread is None:
+            log.warning("The album of %s cannot be read (%s).", player_id, error)
+        else:
+            unread.append((player_id, error))
+        return set()
+    return {"album_full"} if full else set()
+
+
+async def check_album(scene: "Scene", player: Any, *, announce: bool = True) -> list[Trophy]:
+    """Give a supporter "Pełny album" when his album is full; returns what was given now.
+
+    Called after every sacrifice that was kept in the album
+    (``album.saved``).  Never raises: the sacrifice is done by then.
+    """
+    player_id = _player_id(player)
+    if player_id is None:
+        return []
+    try:
+        bot = scene.bot
+        member = player if hasattr(player, "roles") else await bot.member(player_id)
+        if member is None or not patrons.check_if_patron(member):
+            return []
+        if "album_full" not in await _album_keys(bot, player_id):
+            return []
+        return [trophy("album_full")] if await grant(scene, member, "album_full", announce=announce) else []
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - a sacrifice must not fail over an achievement
+        log.exception("Could not check the album achievement of %s.", player_id)
+        return []
+
+
 # -- what the data says (players who had it before the roles existed) --------------------
 
-async def deserved(bot: "AlterBot", player_id: int) -> set[str]:
+async def deserved(bot: "AlterBot", player_id: int, *,
+                   unread: list[tuple[int, str]] | None = None) -> set[str]:
     """Keys of everything the game's data says the player has achieved.
 
-    A killed mythic boss leaves no trace in the data: its role is given at
-    the kill (``boss.set_mythic_slayer``) and only read here.
+    The pets (:func:`_pet_keys`) and the album (:func:`_album_keys`: an album
+    that was full before the role existed; one that cannot be read gives
+    nothing, see ``unread`` there).  A killed mythic boss leaves no
+    trace in the data: its role is given at the kill (``boss.set_mythic_slayer``)
+    and only read here.
     """
-    return await _pet_keys(bot, player_id)
+    return await _pet_keys(bot, player_id) | await _album_keys(bot, player_id, unread=unread)
 
 
-async def sync(scene: "Scene", member: Any, *, announce: bool = False) -> list[Trophy]:
-    """Give a supporter every role the data says they have earned; returns what was given now."""
+async def sync(scene: "Scene", member: Any, *, announce: bool = False,
+               unread: list[tuple[int, str]] | None = None) -> list[Trophy]:
+    """Give a supporter every role the data says they have earned; returns what was given now.
+
+    ``unread``: see :func:`_album_keys`.
+    """
     player_id = _player_id(member)
     if player_id is None or not patrons.check_if_patron(member):
         return []
-    keys = await deserved(scene.bot, player_id)
+    keys = await deserved(scene.bot, player_id, unread=unread)
     given: list[Trophy] = []
     for item in TROPHIES:
         if item.key in keys and await grant(scene, member, item.key, announce=announce):
@@ -710,12 +886,15 @@ def _in_action(bot: Any) -> bool:
 
 
 async def sync_veterans(bot: "AlterBot") -> tuple[int, int]:
-    """Give every supporter on the server the roles their pets stand for, quietly.
+    """Give every supporter on the server the roles their pets and their album stand for, quietly.
 
     Run after every start (and by ``$nadajosiagniecia``): players who had a
-    mythic pet before the roles existed, or started to support later, get
-    them.  Nothing is announced on the game channels; the owner gets one
-    summary.  Returns ``(players who got something, roles given)``.
+    mythic pet (or a full album) before the roles existed, or started to
+    support later, get them.  (Everybody with an album has a ``PETOWNER`` row:
+    a sacrifice empties the row's pet, it never deletes the row.)  Nothing is announced on the game channels; the owner gets one
+    summary.  Returns ``(players who got something, roles given)``.  Albums
+    that could not be read cost only "Pełny album" this time and are logged in
+    ONE line for the whole run (an outage would otherwise write one per player).
     """
     guild = bot.get_guild(bot.ids.guild)
     if guild is None:
@@ -723,6 +902,7 @@ async def sync_veterans(bot: "AlterBot") -> tuple[int, int]:
     rows = await bot.db.fetch("SELECT PLAYER_ID FROM PETOWNER")
     quiet = types.SimpleNamespace(bot=bot)  # nothing is sent: a scene in name only
     lines: list[str] = []
+    unread: list[tuple[int, str]] = []
     roles = 0
     for row in rows:
         member = guild.get_member(_number(row["player_id"]))
@@ -731,7 +911,7 @@ async def sync_veterans(bot: "AlterBot") -> tuple[int, int]:
         while _in_action(bot):
             await asyncio.sleep(QUIET_POLL)
         try:
-            given = await sync(quiet, member, announce=False)  # type: ignore[arg-type]
+            given = await sync(quiet, member, announce=False, unread=unread)  # type: ignore[arg-type]
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - one player's trouble must not stop the others
@@ -742,6 +922,9 @@ async def sync_veterans(bot: "AlterBot") -> tuple[int, int]:
             lines.append(f"<@{member.id}>: " + ", ".join(item.name for item in given))
             log.info("Veteran achievements of %s: %s", member.id, ", ".join(item.key for item in given))
         await asyncio.sleep(0)
+    if unread:
+        log.warning("The album of %d supporter(s) could not be read; 'Pełny album' was not checked for them "
+                    "this time (first: %s, %s).", len(unread), unread[0][0], unread[0][1])
     if lines:
         chunk = LOG_VETERANS.format(roles=roles, players=len(lines))
         for line in lines:

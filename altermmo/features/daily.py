@@ -345,18 +345,39 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     ``boost_percent`` raises every weight; a weight above 100 % is a certain
     drop plus a chance for a second, "(Bonus)" one.  Returns the drop message
     (one ``👉 ...`` line per item).
+
+    Owner's rule (2026-11-21): an egg and a pet level never come in the same
+    drop - once this drop has given the hunter a new egg, a pet level rolled
+    in it is not granted (the egg would hatch before the player has seen it).
+    The level's own weight roll is still made, but a level that is not granted
+    does not call ``pets.level_up_pet``, so the random draws of a level-up (the
+    talent, the skill) are not made either and the draws after it in this drop
+    differ from what they would have been.
     """
     bot = scene.bot
     boost = int(boost_percent)
     drop_message = ""
+    new_egg = False  # this very drop gave the hunter an egg
+
+    async def drop(loot: dict[str, Any], bonus: bool) -> str:
+        nonlocal new_egg
+        if new_egg and loot["id"] == LOOT_PET_LEVEL:
+            log.info("Pet level rolled for %s together with a new egg: not granted (never both in one drop).",
+                     hunter.id)
+            return ""
+        line = await _drop(scene, hunter, loot, bonus=bonus)
+        if line and loot["id"] == LOOT_EGG:
+            new_egg = True
+        return line
+
     for loot in _loot_table(int(rarity)):
         weight = (boost / 100 + 1) * loot["weight"]
         if weight > 100:
-            drop_message += await _drop(scene, hunter, loot, bonus=False)
+            drop_message += await drop(loot, False)
             if random.random() * 100 <= weight - 100:
-                drop_message += await _drop(scene, hunter, loot, bonus=True)
+                drop_message += await drop(loot, True)
         elif random.random() * 100 <= weight:
-            drop_message += await _drop(scene, hunter, loot, bonus=False)
+            drop_message += await drop(loot, False)
 
     embed = discord.Embed(title="Drop - " + str(hunter), url=LOOT_IMAGE,
                           description="Otrzymałeś:\n" + drop_message, color=0xFCDB03)

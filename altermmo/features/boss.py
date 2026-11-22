@@ -209,8 +209,10 @@ _BOSS_KINDS: dict[int, str] = {0: "zwykły", 1: "rzadki", 2: "epicki", 4: "MITYC
 
 _ATTACK_HINT = "Kliknij **Zaatakuj** albo wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
 
-MSG_SINGLE_LOBBY = ("Jesteś sam?... *Inny gracz może kliknąć **Zaatakuj** albo wpisać **$zaatakuj**, "
-                    "jeśli chce zawalczyć o bossa!* Zgłoszenia kończą się {deadline}.")
+#: Names the attacker (owner's request of 2026-11-21): after a click on "Zaatakuj" there is
+#: no typed command on the channel, so nobody could tell who had attacked.
+MSG_SINGLE_LOBBY = ("⚔️ <@{user_id}> atakuje bossa! Jesteś sam?... *Inny gracz może kliknąć **Zaatakuj** "
+                    "albo wpisać **$zaatakuj**, jeśli chce zawalczyć o bossa!* Zgłoszenia kończą się {deadline}.")
 MSG_SINGLE_LOBBY_ALONE = "Jesteś sam?... *Nikt inny nie stanął do walki - <@{user_id}> walczy sam!*"
 MSG_SINGLE_LOBBY_RIVAL = "Jesteś sam?... *Nie! <@{user_id}> też chce zawalczyć o bossa!*"
 MSG_ALREADY_FIGHTING = "Już stoisz do walki z tym bossem - czekamy, czy ktoś jeszcze się zgłosi ⚔️"
@@ -641,19 +643,40 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     ``boost_percent`` raises every weight; a weight above 100 % is a certain
     drop plus a chance for a second, "(Bonus)" one.  Returns the drop message
     (one ``👉 ...`` line per item) for the owner's log.
+
+    Owner's rule (2026-11-21): an egg and a pet level never come in the same
+    drop - once this drop has given the hunter a new egg, a pet level rolled
+    in it is not granted (the egg would hatch before the player has seen it).
+    The level's own weight roll is still made, but a level that is not granted
+    does not call ``pets.level_up_pet``, so the random draws of a level-up (the
+    talent, the skill) are not made either and the draws after it in this drop
+    differ from what they would have been.
     """
     bot = scene.bot
     boost = int(boost_percent)
     drop_message = ""
     thefts_before = len(xpsteal.pending(bot, hunter.id))
+    new_egg = False  # this very drop gave the hunter an egg
+
+    async def drop(loot: dict[str, Any], bonus: bool) -> str:
+        nonlocal new_egg
+        if new_egg and loot["id"] == LOOT_PET_LEVEL:
+            log.info("Pet level rolled for %s together with a new egg: not granted (never both in one drop).",
+                     hunter.id)
+            return ""
+        line = await _drop(scene, hunter, loot, bonus=bonus)
+        if line and loot["id"] == LOOT_EGG:
+            new_egg = True
+        return line
+
     for loot in _loot_table(int(rarity)):
         weight = (boost / 100 + 1) * loot["weight"]
         if weight > 100:
-            drop_message += await _drop(scene, hunter, loot, bonus=False)
+            drop_message += await drop(loot, False)
             if random.random() * 100 <= weight - 100:
-                drop_message += await _drop(scene, hunter, loot, bonus=True)
+                drop_message += await drop(loot, True)
         elif random.random() * 100 <= weight:
-            drop_message += await _drop(scene, hunter, loot, bonus=False)
+            drop_message += await drop(loot, False)
 
     embed = discord.Embed(title="Boss Drop - " + str(hunter), url=LOOT_IMAGE,
                           description="Boss wydropił:\n" + drop_message, color=0xFCDB03)
@@ -810,7 +833,7 @@ async def single_init(scene: "Scene", rarity: int) -> Any:
         async with ui.ClickView([ui.Choice("object", boss_cycle.ATTACK_LABEL, emoji=boss_cycle.ATTACK_EMOJI,
                                            style=discord.ButtonStyle.primary)], allow=allow) as view:
             with _lobby_door(bot, door):
-                await view.send(channel, MSG_SINGLE_LOBBY.format(deadline=ui.when(window)))
+                await view.send(channel, MSG_SINGLE_LOBBY.format(user_id=attacker.id, deadline=ui.when(window)))
                 rival = await _next_message(inbox, objects, window)
             if rival is None:
                 await view.close(content=MSG_SINGLE_LOBBY_ALONE.format(user_id=attacker.id))

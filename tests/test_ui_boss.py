@@ -493,7 +493,12 @@ async def test_single_lobby_takes_a_click_on_an_old_picture_button(registered, m
 async def test_single_lobby_nobody_objects_and_the_button_goes(registered, short_timeouts):
     game = registered
     ala = game.add_member("Ala")
+    posted = []
+    game.channel.send_hooks.append(lambda message: posted.append(message.content))
     assert await boss.single_init(game.scene(ala), 0) is ala
+    # The lobby names the attacker: after a click on "Zaatakuj" nothing else on the channel does.
+    assert posted[0].startswith(f"⚔️ <@{ala.id}> atakuje bossa! Jesteś sam?...")
+    assert "Zgłoszenia kończą się <t:" in posted[0]
     lobby = game.channel.sent[0]
     assert lobby.view is None and lobby.content == boss.MSG_SINGLE_LOBBY_ALONE.format(user_id=ala.id)
     assert not ui.is_live(lobby.id) and game.bot.boss_cycle.lobby_door is None

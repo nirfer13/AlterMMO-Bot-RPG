@@ -21,9 +21,17 @@ import pytest_asyncio
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from altermmo import bot as _bot_module  # noqa: E402
 from altermmo.core.db import Database  # noqa: E402
 
 import fakes  # noqa: E402
+
+# Like the real bot (``AlterBot.setup_hook``): every module is imported before anything
+# runs.  Several modules import each other lazily, and some tests put a stand-in for a
+# whole module into ``sys.modules`` - a module first imported in such a test would be
+# built on the stand-in and fail (or, worse, pass) depending on which tests ran before.
+_not_imported = _bot_module.import_all_modules()
+assert not _not_imported, f"modules that cannot be imported: {_not_imported}"
 
 #: Every pytest process gets its own database (``<name>_<pid>``), dropped when
 #: the session ends: the ``db`` fixture recreates the whole schema before each

@@ -87,8 +87,11 @@ _COPY_NAME = re.compile(r"altermmo-(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})(?:_([2-
 #: Tables the bot empties on purpose (the weekly ranking reset, the Twitch treasure queue):
 #: fewer rows there mean nothing.
 SHRINK_BY_DESIGN: tuple[str, ...] = ("ranking", "treasure_table")
-#: Tables that may become empty in normal play (the last spare gem was taken out of the pouch).
-MAY_BECOME_EMPTY: tuple[str, ...] = ("skillpouch",)
+#: Tables that may become empty in normal play: the last spare gem was taken out of the pouch;
+#: the last entries of the pet album were removed by their owners (features/album.py).  Only
+#: "empty" is normal there - a table that is gone, or a bigger one that lost most of its rows
+#: at once, is still reported (the album's sacrificed pets exist nowhere else).
+MAY_BECOME_EMPTY: tuple[str, ...] = ("skillpouch", "pet_album")
 #: A table is reported as shrunk when it had at least this many rows in the previous copy ...
 SHRINK_MIN_ROWS = 20
 #: ... and has fewer than this share of them now.  (A table that is gone, or empty after it

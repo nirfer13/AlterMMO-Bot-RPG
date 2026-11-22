@@ -1,0 +1,433 @@
+{
+  "classes": {
+    "S": {
+      "label": "Shiny",
+      "base": "S0",
+      "pet": "kot",
+      "ids": [
+        "S0",
+        "S1",
+        "R1",
+        "R2",
+        "R7"
+      ]
+    },
+    "U": {
+      "label": "Ultra Shiny",
+      "base": "U0",
+      "pet": "kot",
+      "ids": [
+        "U0",
+        "U1",
+        "R3",
+        "R4",
+        "R8"
+      ]
+    },
+    "M": {
+      "label": "Mityczny",
+      "base": "M0",
+      "pet": "pustka",
+      "ids": [
+        "M0",
+        "R5",
+        "R6",
+        "R9"
+      ]
+    }
+  },
+  "frames": [
+    {
+      "id": "S0",
+      "tier": "S",
+      "name": "Srebrne okucia",
+      "file": "baza/shiny.png",
+      "weight": 84,
+      "motionWeight": 0,
+      "anim": 0,
+      "kind": "base"
+    },
+    {
+      "id": "S1",
+      "tier": "S",
+      "name": "Gwiazda Szronu",
+      "file": "ramki/S1-gwiazda-szronu.png",
+      "weight": 8,
+      "motionWeight": 0.55,
+      "anim": 11,
+      "kind": "upgrade"
+    },
+    {
+      "id": "R1",
+      "tier": "S",
+      "name": "Księżycowa stal",
+      "file": "ramki/R1-ksiezycowa-stal.png",
+      "weight": 4,
+      "motionWeight": 0.2,
+      "anim": 1,
+      "kind": "theme"
+    },
+    {
+      "id": "R2",
+      "tier": "S",
+      "name": "Miedziane ciernie",
+      "file": "ramki/R2-miedziane-ciernie.png",
+      "weight": 2,
+      "motionWeight": 0.15,
+      "anim": 2,
+      "kind": "theme"
+    },
+    {
+      "id": "R7",
+      "tier": "S",
+      "name": "Przeszywana skóra",
+      "file": "ramki/R7-przeszywana-skora.png",
+      "weight": 1,
+      "motionWeight": 0.1,
+      "anim": 8,
+      "kind": "theme"
+    },
+    {
+      "id": "U0",
+      "tier": "U",
+      "name": "Złoty relikwiarz",
+      "file": "baza/ultra-shiny.png",
+      "weight": 84,
+      "motionWeight": 0,
+      "anim": 0,
+      "kind": "base"
+    },
+    {
+      "id": "U1",
+      "tier": "U",
+      "name": "Rubinowa Korona",
+      "file": "ramki/U1-rubinowa-korona.png",
+      "weight": 8,
+      "motionWeight": 0.55,
+      "anim": 12,
+      "kind": "upgrade"
+    },
+    {
+      "id": "R3",
+      "tier": "U",
+      "name": "Złote wrota",
+      "file": "ramki/R3-zlote-wrota.png",
+      "weight": 4,
+      "motionWeight": 0.2,
+      "anim": 3,
+      "kind": "theme"
+    },
+    {
+      "id": "R4",
+      "tier": "U",
+      "name": "Rozbite zwierciadło",
+      "file": "ramki/R4-rozbite-zwierciadlo.png",
+      "weight": 2,
+      "motionWeight": 0.15,
+      "anim": 4,
+      "kind": "theme"
+    },
+    {
+      "id": "R8",
+      "tier": "U",
+      "name": "Bursztynowy skarabeusz",
+      "file": "ramki/R8-bursztynowy-skarabeusz.png",
+      "weight": 1,
+      "motionWeight": 0.1,
+      "anim": 9,
+      "kind": "theme"
+    },
+    {
+      "id": "M0",
+      "tier": "M",
+      "name": "Oryginalna ilustracja",
+      "file": "",
+      "weight": 90,
+      "motionWeight": 0,
+      "anim": 0,
+      "kind": "base"
+    },
+    {
+      "id": "R5",
+      "tier": "M",
+      "name": "Astrolabium",
+      "file": "ramki/R5-astrolabium.png",
+      "weight": 5,
+      "motionWeight": 0.5,
+      "anim": 5,
+      "kind": "theme"
+    },
+    {
+      "id": "R6",
+      "tier": "M",
+      "name": "Kręgosłup Pustki",
+      "file": "ramki/R6-kregoslup-pustki.png",
+      "weight": 3,
+      "motionWeight": 0.3,
+      "anim": 6,
+      "kind": "theme"
+    },
+    {
+      "id": "R9",
+      "tier": "M",
+      "name": "Oko Otchłani",
+      "file": "ramki/R9-oko-otchlani.png",
+      "weight": 1,
+      "motionWeight": 0.2,
+      "anim": 10,
+      "kind": "theme"
+    }
+  ],
+  "framePools": {
+    "S": [
+      {
+        "id": "S0",
+        "frame": "S0",
+        "animation": null,
+        "percent": 84
+      },
+      {
+        "id": "S1",
+        "frame": "S1",
+        "animation": null,
+        "percent": 8
+      },
+      {
+        "id": "S1-A",
+        "frame": "S1",
+        "animation": "A11",
+        "percent": 0.55
+      },
+      {
+        "id": "R1",
+        "frame": "R1",
+        "animation": null,
+        "percent": 4
+      },
+      {
+        "id": "R1-A",
+        "frame": "R1",
+        "animation": "A1",
+        "percent": 0.2
+      },
+      {
+        "id": "R2",
+        "frame": "R2",
+        "animation": null,
+        "percent": 2
+      },
+      {
+        "id": "R2-A",
+        "frame": "R2",
+        "animation": "A2",
+        "percent": 0.15
+      },
+      {
+        "id": "R7",
+        "frame": "R7",
+        "animation": null,
+        "percent": 1
+      },
+      {
+        "id": "R7-A",
+        "frame": "R7",
+        "animation": "A8",
+        "percent": 0.1
+      }
+    ],
+    "U": [
+      {
+        "id": "U0",
+        "frame": "U0",
+        "animation": null,
+        "percent": 84
+      },
+      {
+        "id": "U1",
+        "frame": "U1",
+        "animation": null,
+        "percent": 8
+      },
+      {
+        "id": "U1-A",
+        "frame": "U1",
+        "animation": "A12",
+        "percent": 0.55
+      },
+      {
+        "id": "R3",
+        "frame": "R3",
+        "animation": null,
+        "percent": 4
+      },
+      {
+        "id": "R3-A",
+        "frame": "R3",
+        "animation": "A3",
+        "percent": 0.2
+      },
+      {
+        "id": "R4",
+        "frame": "R4",
+        "animation": null,
+        "percent": 2
+      },
+      {
+        "id": "R4-A",
+        "frame": "R4",
+        "animation": "A4",
+        "percent": 0.15
+      },
+      {
+        "id": "R8",
+        "frame": "R8",
+        "animation": null,
+        "percent": 1
+      },
+      {
+        "id": "R8-A",
+        "frame": "R8",
+        "animation": "A9",
+        "percent": 0.1
+      }
+    ],
+    "M": [
+      {
+        "id": "M0",
+        "frame": "M0",
+        "animation": null,
+        "percent": 90
+      },
+      {
+        "id": "R5",
+        "frame": "R5",
+        "animation": null,
+        "percent": 5
+      },
+      {
+        "id": "R5-A",
+        "frame": "R5",
+        "animation": "A5",
+        "percent": 0.5
+      },
+      {
+        "id": "R6",
+        "frame": "R6",
+        "animation": null,
+        "percent": 3
+      },
+      {
+        "id": "R6-A",
+        "frame": "R6",
+        "animation": "A6",
+        "percent": 0.3
+      },
+      {
+        "id": "R9",
+        "frame": "R9",
+        "animation": null,
+        "percent": 1
+      },
+      {
+        "id": "R9-A",
+        "frame": "R9",
+        "animation": "A10",
+        "percent": 0.2
+      }
+    ]
+  },
+  "animations": {
+    "1": {
+      "name": "Księżycowe wahadło",
+      "slug": "zimny-szlif",
+      "movement": "Srebrny półksiężyc kołysze się na czterech ogniwach łańcuszka.",
+      "file": "animacje/A1-zimny-szlif.apng"
+    },
+    "2": {
+      "name": "Rozkwit miedzianej róży",
+      "slug": "kwitnacy-ciern",
+      "movement": "Róża rozchyla płatki. Dwa odrywają się i opadają wzdłuż cierni.",
+      "file": "animacje/A2-kwitnacy-ciern.apng"
+    },
+    "3": {
+      "name": "Zawias złotych wrót",
+      "slug": "platki-zlota",
+      "movement": "Trzy złote płyty rozsuwają się wachlarzowo i odsłaniają dziurkę od klucza.",
+      "file": "animacje/A3-platki-zlota.apng"
+    },
+    "4": {
+      "name": "Rozpad zwierciadła",
+      "slug": "pekniety-pryzmat",
+      "movement": "Cztery odłamki wychodzą z oprawy, obracają się pod różnymi kątami i ponownie do niej trafiają.",
+      "file": "animacje/A4-pekniety-pryzmat.apng"
+    },
+    "5": {
+      "name": "Obrót astrolabium",
+      "slug": "korona-zacmienia",
+      "movement": "Mosiężna wskazówka przeskakuje przez sześć pozycji. Wewnętrzna podziałka odchyla się w tle.",
+      "file": "animacje/A5-korona-zacmienia.apng"
+    },
+    "6": {
+      "name": "Ugięcie kręgosłupa",
+      "slug": "zyly-pustki",
+      "movement": "Łuk kości i ścięgien powoli wygina się między dwoma punktami mocowania.",
+      "file": "animacje/A6-zyly-pustki.apng"
+    },
+    "8": {
+      "name": "Puls ściegów",
+      "slug": "srebrna-nic",
+      "movement": "Trzy jasne ściegi na skórze równocześnie rozjaśniają się i przygasają.",
+      "file": "animacje/A8-srebrna-nic.apng"
+    },
+    "9": {
+      "name": "Bursztynowe pokrywy",
+      "slug": "oddech-bursztynu",
+      "movement": "Dwie bursztynowe pokrywy uchylają się na zawiasach. Głowa i boczne płyty są częścią okucia.",
+      "file": "animacje/A9-oddech-bursztynu.apng"
+    },
+    "10": {
+      "name": "Czujne oko",
+      "slug": "spojrzenie-otchlani",
+      "movement": "Źrenica zerka w obie strony, a powieka zamyka się w krótkim mrugnięciu.",
+      "file": "animacje/A10-spojrzenie-otchlani.apng"
+    },
+    "11": {
+      "name": "Igła Gwiazdy Szronu",
+      "slug": "szlif-szafiru",
+      "movement": "Szafirowa róża kompasu odchyla się, mija położenie spoczynkowe i wraca na miejsce.",
+      "file": "animacje/A11-szlif-szafiru.apng"
+    },
+    "12": {
+      "name": "Koronacja",
+      "slug": "puls-rubinow",
+      "movement": "Złota korona z rubinami lekko unosi się nad medalionem wypełnionym czarnym tuszem.",
+      "file": "animacje/A12-puls-rubinow.apng"
+    }
+  },
+  "rolls": {
+    "seal": {
+      "none": 85,
+      "tropiciel": 10,
+      "lowca": 4.8,
+      "arcylowca": 0.2
+    },
+    "foil": {
+      "none": 98.9,
+      "partial": 1,
+      "full": 0.1
+    }
+  },
+  "unit": "percent",
+  "status": "proposal",
+  "rendering": {
+    "animatedFrameMode": "replace_static_frame",
+    "order": [
+      "pet",
+      "foil",
+      "frame",
+      "seal"
+    ],
+    "staticSize": 1024,
+    "animatedSize": 512
+  }
+}

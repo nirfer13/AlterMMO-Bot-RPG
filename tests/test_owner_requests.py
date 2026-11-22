@@ -15,7 +15,7 @@ from altermmo import schema
 from altermmo.cogs import events as events_cog
 from altermmo.core import clock, guards, timing
 from altermmo.core.state import BossPhase, EventType
-from altermmo.features import achievements, bossdetect, daily, events, pets, skills, xpsteal
+from altermmo.features import achievements, album, bossdetect, daily, events, pets, skills, xpsteal
 
 from fakes import FakeInteraction, FakeMessage
 
@@ -121,7 +121,7 @@ async def test_hint_has_a_button_that_switches_the_warnings_off(game_db, sensing
 
     await pets.detect_boss(bot, 2)
     assert game_db.notice_channel.messages == answers        # no new hint for Ala
-    assert ola.dms == ["Nadciąga boss! Będzie epicki."] * 2  # Ola is still warned
+    assert ola.dms == [bossdetect.dm_warning(bot, "Nadciąga boss! Będzie epicki.")] * 2  # Ola is still warned
 
     again = FakeInteraction(bot, ala, hint)
     await button.callback(again)                             # a second click changes nothing
@@ -138,13 +138,14 @@ async def test_wyczuwanie_switches_the_warnings_off_and_on(game_db, sensing):
     assert await bossdetect.toggle(game_db.scene(ola)) is True
     assert game_db.channel.messages[-1].content == bossdetect.MSG_NOW_ON.format(player_id=ola.id)
     await pets.detect_boss(bot, 1)
-    assert ola.dms == ["Nadciąga boss! Będzie rzadki."]
+    assert ola.dms == [bossdetect.dm_warning(bot, "Nadciąga boss! Będzie rzadki.")]
 
 
 async def test_button_is_registered_for_hints_from_before_a_restart(game_db):
     bot = game_db.bot
     await bot.load_extension("altermmo.cogs.pets")
     assert any(isinstance(view, bossdetect.DetectionOffView) for view in bot.persistent_views)
+    assert any(isinstance(view, bossdetect.DetectionOffDmView) for view in bot.persistent_views)
     assert bot.get_command("wyczuwanie") is not None and bot.get_command("powiadomienia") is not None
 
 
@@ -520,9 +521,10 @@ async def test_new_table_is_created_at_start_up_and_then_verified(db):
     assert "brak tabeli skillpouch" in problems
     # The achievement counters (made and withdrawn on 2026-11-20) are no table of the bot any more.
     assert not any("achievement_counters" in problem for problem in problems)
-    assert await schema.create_new_tables(db) == 1
+    new_tables = 1 + len(album.NEW_TABLES)                         # the gem pouch; the pet album (2026-11-21)
+    assert await schema.create_new_tables(db) == new_tables
     await db.execute("INSERT INTO SKILLPOUCH (PLAYER_ID, SKILL_ID) VALUES (1, 2)")
-    assert await schema.create_new_tables(db) == 1                 # again: nothing breaks, nothing is lost
+    assert await schema.create_new_tables(db) == new_tables        # again: nothing breaks, nothing is lost
     assert await db.fetchval("SELECT COUNT(*) FROM SKILLPOUCH") == 1
     assert await db.fetchval("SELECT to_regclass('achievement_counters')") is None   # not made again
     assert await schema.verify(db) == []

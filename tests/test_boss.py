@@ -275,12 +275,13 @@ async def test_loot_normal_drop(game, pets, loot, monkeypatch):
     monkeypatch.setattr(random, "random", lambda: 0.5)       # 50: only weights >= 50 drop
     player = game.add_member("Ala")
     message = await boss.rand_loot(game.scene(), 0, player, 0)
-    assert message == ("👉 250 doświadczenia na Discordzie\n👉 Jajko\n👉 Kamień\n👉 Poziom\n"
+    # (No "Poziom": an egg and a level for it never come in one drop - owner's rule of 2026-11-21.)
+    assert message == ("👉 250 doświadczenia na Discordzie\n👉 Jajko\n👉 Kamień\n"
                        "👉 Figa z makiem\n"
                        "👉 Ukradnij wybranemu użytkownikowi 2500 doświadczenia na Discordzie\n"
                        + xpsteal.COMMAND_HINT + "\n👉 Klejnot\n" + boss.SKILL_GEM_HINT + "\n")
     assert pets.calls == [("assign_pet", player.id), ("assign_rebirth_stone", player.id),
-                          ("level_up_pet", player.id), ("assign_skill", player.id)]
+                          ("assign_skill", player.id)]
     assert game.bot.store.exp_summary.load() == {str(player.id): 250}
     assert xpsteal.pending(game.bot, player.id) == [2500]
     embed = game.channel.messages[-2].embeds[0]
@@ -302,7 +303,7 @@ async def test_loot_bonus_drops_really_grant_a_second_item(game, pets, loot, mon
         "👉 250 doświadczenia na Discordzie\n👉 250 doświadczenia na Discordzie (Bonus)\n"
         "👉 Jajko\n"                                         # an egg never comes twice
         "👉 Kamień\n👉 Kamień (Bonus)\n"
-        # "Poziom": nothing was granted, so nothing is announced
+        # "Poziom": never in the drop that brought a new egg (not even asked for)
         "👉 Figa z makiem\n👉 Figa z makiem (Bonus)\n"
         "👉 Ukradnij wybranemu użytkownikowi 2500 doświadczenia na Discordzie\n"
         + xpsteal.COMMAND_HINT + "\n"
@@ -311,11 +312,37 @@ async def test_loot_bonus_drops_really_grant_a_second_item(game, pets, loot, mon
         "👉 Lustro\n")                                       # 20 % after the boost, 10 <= 20
     assert pets.count("assign_pet") == 1
     assert pets.count("assign_rebirth_stone") == 2
-    assert pets.count("level_up_pet") == 2
+    assert pets.count("level_up_pet") == 0
     assert pets.count("assign_skill") == 2
     assert pets.count("assign_mirror") == 1
     assert game.bot.store.exp_summary.load() == {str(player.id): 500}
     assert xpsteal.pending(game.bot, player.id) == [2500, 2500]
+
+
+async def test_loot_never_gives_an_egg_and_a_level_in_one_drop(game, pets, loot, monkeypatch):
+    """Owner's rule of 2026-11-21: a brand-new egg does not hatch in the drop it came from."""
+    loot(Rare=[{"id": 10, "descr": "Jajko", "weight": 100}, {"id": 12, "descr": "Poziom", "weight": 100}])
+    monkeypatch.setattr(random, "random", lambda: 0.0)
+    player = game.add_member("Ala")
+    # Certain egg, certain level and a certain bonus level (200 % after the boost): the egg only.
+    assert await boss.rand_loot(game.scene(), 1, player, 100) == "👉 Jajko\n"
+    assert pets.calls == [("assign_pet", player.id)]
+
+    # A player who already has a pet gets no egg - so the level (and its bonus) is granted as before.
+    pets.refuse.add("assign_pet")
+    assert await boss.rand_loot(game.scene(), 1, player, 100) == "👉 Poziom\n👉 Poziom (Bonus)\n"
+    assert pets.count("assign_pet") == 2 and pets.count("level_up_pet") == 2
+
+    # ... and a level that cannot be granted (the pet is at its top level) is not announced.
+    pets.refuse.add("level_up_pet")
+    assert await boss.rand_loot(game.scene(), 1, player, 100) == ""
+    assert pets.count("level_up_pet") == 4
+
+    # The level listed before the egg: nothing to level for a player without a pet, then the egg.
+    pets.refuse.clear()
+    pets.refuse.add("level_up_pet")
+    loot(Rare=[{"id": 12, "descr": "Poziom", "weight": 100}, {"id": 10, "descr": "Jajko", "weight": 100}])
+    assert await boss.rand_loot(game.scene(), 1, player, 0) == "👉 Jajko\n"
 
 
 async def test_loot_item_that_fails_does_not_cost_the_others(game, pets, loot, monkeypatch):
@@ -378,7 +405,9 @@ async def test_single_init_nobody_objects(game, short_timeouts):
     assert await boss.single_init(game.scene(attacker, "$zaatakuj"), 0) is attacker
     # One lobby message whose deadline Discord counts down (no more "... 105..." messages).
     assert len(game.channel.sent) == 1
-    assert re.fullmatch(r"Jesteś sam\?\.\.\. \*Inny gracz może kliknąć \*\*Zaatakuj\*\* albo wpisać "
+    # It names the attacker: after a click on "Zaatakuj" nothing else on the channel does.
+    assert re.fullmatch(rf"⚔️ <@{attacker.id}> atakuje bossa! "
+                        r"Jesteś sam\?\.\.\. \*Inny gracz może kliknąć \*\*Zaatakuj\*\* albo wpisać "
                         r"\*\*\$zaatakuj\*\*, jeśli chce zawalczyć o bossa!\* "
                         r"Zgłoszenia kończą się <t:\d+:R>\.", posted[0])
     lobby = game.channel.sent[0]

@@ -92,7 +92,11 @@ def owner_lines(bot, start: str) -> list[str]:
 
 
 def stored(bot) -> dict:
-    return bot.store.achievement_roles.load()
+    """The saved role ids as one mapping (the file keeps the later achievements' apart:
+    ``achievements.LATER_ROLES_KEY``)."""
+    saved = dict(bot.store.achievement_roles.load())
+    saved.update(saved.pop(achievements.LATER_ROLES_KEY, {}))
+    return saved
 
 
 def game_channel_messages(game) -> int:
@@ -434,11 +438,12 @@ async def test_retire_roles_deletes_every_withdrawn_role_and_nothing_else(game, 
 
 
 async def test_the_roles_of_the_mythic_achievements_are_never_deleted(game):
-    """Even when the server has nothing else: the mythic boss and the three pet roles stay."""
+    """Even when the server has nothing else: the mythic boss, the three pet roles and the album's stay."""
     bot = game.bot
     slayer = game.guild.get_role(bot.ids.mythic_slayer_role)
     await achievements.ensure_roles(bot)
-    pets = {key: achievements.role_id_of(bot, achievements.trophy(key)) for key in PET_KEYS}
+    pets = {key: achievements.role_id_of(bot, achievements.trophy(key)) for key in (*PET_KEYS, "album_full")}
+    assert all(pets.values())
     holder = game.add_member("Ala", roles=[PATRON, slayer.id, *pets.values()])
     before = guild_role_ids(game)
     assert await achievements.retire_roles(bot) == []

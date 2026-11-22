@@ -509,6 +509,30 @@ async def test_copy_that_lost_most_rows_of_a_table_is_reported(db, folders):
     assert fifth.shrunk == ()                                                 # reported once, not every night
 
 
+async def test_emptied_pet_album_is_normal_but_a_lost_one_is_reported(db, folders):
+    """Players remove their album entries on purpose: an emptied small album is no alarm.
+
+    The sacrificed pets exist nowhere else, though: a bigger album that lost most of its
+    entries at once, or a table that is gone, is still reported.
+    """
+    assert "pet_album" in backup.TABLES and "pet_album" in backup.MAY_BECOME_EMPTY
+    assert "pet_album" not in backup.SHRINK_BY_DESIGN
+    await db.execute("INSERT INTO PET_ALBUM (PLAYER_ID, PET_ID, TYPE, PET_LVL) SELECT g, g, 'Cat', 1 "
+                     "FROM generate_series(1, 3) g")
+    await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    await db.execute("DELETE FROM PET_ALBUM")                                 # the last entries removed by their owners
+    assert (await backup.create_backup(db, folders.data, folders.backups, keep=14)).shrunk == ()
+
+    await db.execute("INSERT INTO PET_ALBUM (PLAYER_ID, PET_ID, TYPE, PET_LVL) SELECT g, g, 'Cat', 1 "
+                     "FROM generate_series(1, 30) g")
+    await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    await db.execute("DELETE FROM PET_ALBUM WHERE PLAYER_ID > 2")             # 30 -> 2 at once: reported
+    assert (await backup.create_backup(db, folders.data, folders.backups, keep=14)).shrunk == (("pet_album", 30, 2),)
+    await db.execute("DROP TABLE PET_ALBUM")                                  # gone altogether: reported
+    lost = await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    assert lost.shrunk == (("pet_album", 2, 0),) and "pet_album" in lost.missing
+
+
 async def test_copy_of_the_other_database_is_not_compared_with(db, folders):
     """A copy of the test database (debug) says nothing about the production one."""
     await db.execute("INSERT INTO TOWER (PLAYER_ID, TOWER_LEVEL, TIME) SELECT g, 1, '0:00:01' "

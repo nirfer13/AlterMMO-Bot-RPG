@@ -65,6 +65,8 @@ class Ids:
     notice_channel: int = 776379796367212594
     #: Private log channel for the owner (loot, exp to hand out, errors).
     log_channel: int = 881090112576962560
+    #: Where the patch notes of every update are posted (features/patchnotes.py).
+    patch_notes_channel: int = 1093905013480378519
 
     #: Role pinged for boss fights ("łowcy").
     hunters_role: int = 985071779787730944
@@ -76,10 +78,12 @@ class Ids:
     mythic_slayer_role: int = 1118242273772175401
 
 
-#: Debug mode plays on the test channel and announces into the log channel.
+#: Debug mode plays on the test channel and announces into the log channel
+#: (also the patch notes: a test run must never post into the players' channel).
 _DEBUG_IDS = Ids(
     boss_channel=970571647226642442,
     announce_channel=881090112576962560,
+    patch_notes_channel=881090112576962560,
 )
 
 

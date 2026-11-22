@@ -15,7 +15,7 @@ from discord.ext import commands
 
 from altermmo.core import guards
 from altermmo.core.db import DatabaseUnavailable
-from altermmo.features import patrons, pets
+from altermmo.features import bossdetect, patrons, pets
 from altermmo.features.pets import PetType
 from altermmo.settings import ASSETS_DIR
 
@@ -288,12 +288,17 @@ async def test_schema_is_exactly_the_production_one(game_db):
         ("crit_perc", "numeric"), ("replace_perc", "numeric"), ("def_perc", "numeric"),
         ("drop_perc", "numeric"), ("lowhp_perc", "numeric"), ("slow_perc", "numeric"),
         ("init_perc", "numeric"), ("detection", "boolean"), ("ultra_shiny", "boolean"), ("mythic", "boolean"),
-        ("seal", "numeric"), ("holo", "boolean")]                 # new in v2: the pet cosmetics
+        ("seal", "numeric"), ("holo", "boolean"),                 # new in v2: the pet cosmetics
+        ("frame", text), ("holo_partial", "boolean")]             # ... and the frames of 2026-11-21
     by_name = {row["column_name"]: row for row in rows}
     assert all(by_name[name]["character_maximum_length"] == 255 for name in ("pet_name", "quality", "type", "variant"))
     assert by_name["mythic"]["is_nullable"] == "NO" and by_name["mythic"]["column_default"] == "false"
     assert by_name["seal"]["column_default"] == "0" and by_name["holo"]["column_default"] == "false"
-    assert [name for name, row in by_name.items() if row["is_nullable"] == "NO"] == ["mythic", "seal", "holo"]
+    assert by_name["frame"]["character_maximum_length"] == 16
+    assert by_name["frame"]["column_default"] == "''::character varying"
+    assert by_name["holo_partial"]["column_default"] == "false"
+    assert [name for name, row in by_name.items() if row["is_nullable"] == "NO"] == [
+        "mythic", "seal", "holo", "frame", "holo_partial"]
 
     for table in ("petowner", "pets"):  # neither table has a primary key or any other index
         assert await db.fetchval("SELECT COUNT(*) FROM pg_index WHERE indrelid = $1::regclass", table) == 0
@@ -340,7 +345,7 @@ async def test_first_egg_creates_the_owner_row(game_db, monkeypatch):
         "pet_id": 1, "pet_name": "Towarzysz", "pet_lvl": 0, "pet_skills": 0, "quality": "Standard",
         "shiny": True, "type": "Sheep", "variant": "7", "crit_perc": 0, "replace_perc": 0, "def_perc": 0,
         "drop_perc": 0, "lowhp_perc": 0, "slow_perc": 0, "init_perc": 0, "detection": False,
-        "ultra_shiny": False, "mythic": False, "seal": 0, "holo": False}
+        "ultra_shiny": False, "mythic": False, "seal": 0, "holo": False, "frame": "", "holo_partial": False}
     # A second egg is refused and nothing is generated for it.
     assert await pets.assign_pet(game_db.scene(), player) is False
     assert await count(db, "PETS") == 1 and await count(db, "PETOWNER") == 1
@@ -1287,7 +1292,7 @@ async def detection_setup(game):
 async def test_detecting_pets_warn_their_owners(game_db, rarity, word):
     ala, ola, ela, ula = await detection_setup(game_db)
     await pets.detect_boss(game_db.bot, rarity)
-    assert ala.dms == ola.dms == [f"Nadciąga boss! Będzie {word}."]
+    assert ala.dms == ola.dms == [bossdetect.dm_warning(game_db.bot, f"Nadciąga boss! Będzie {word}.")]
     assert ela.dms == [] and ula.dms == []
     assert game_db.notice_channel.messages == [] and game_db.log_channel.messages == []
 
@@ -1300,7 +1305,7 @@ async def test_unreachable_player_does_not_stop_the_others(game_db):
 
     ala.send = closed
     await pets.detect_boss(game_db.bot, 2)                              # must not raise
-    assert ola.dms == ["Nadciąga boss! Będzie epicki."]
+    assert ola.dms == [bossdetect.dm_warning(game_db.bot, "Nadciąga boss! Będzie epicki.")]
     notice = (f"<@{ala.id}> - Twój towarzysz: *Nadciąga boss! Odblokuj prywatne wiadomości, jeśli chcesz "
               "otrzymywać powiadomienia!* Nie chcesz ich wcale? Kliknij przycisk poniżej.")
     assert [m.content for m in game_db.log_channel.messages] == [notice]         # debug mode: the log channel
@@ -1322,7 +1327,7 @@ async def test_discord_outage_during_detection_is_not_blamed_on_the_player(game_
 
     ala.send = outage
     await pets.detect_boss(game_db.bot, 1)
-    assert ola.dms == ["Nadciąga boss! Będzie rzadki."]
+    assert ola.dms == [bossdetect.dm_warning(game_db.bot, "Nadciąga boss! Będzie rzadki.")]
     assert game_db.log_channel.messages == [] and game_db.notice_channel.messages == []
 
 
@@ -1367,7 +1372,8 @@ async def test_cog_registers_the_legacy_commands(cog):
         "stajnia": ["s"], "rankingtowarzyszy": ["rt", "towarzysze"], "nazwij": ["n"],
         "wyczuwanie": ["powiadomienia", "powiadomieniaboss"],
         "PetLvlUp": [], "AddScroll": [], "AddShard": [], "GenerateEgg": [],
-        "createPetOwnersDatabase": [], "createPetsDatabase": [], "ReassignPet": [], "DajPieczec": []}
+        "createPetOwnersDatabase": [], "createPetsDatabase": [], "ReassignPet": [], "DajPieczec": [],
+        "DajRamke": ["DajRamkę"]}
     cooldown = cog.name_pet._buckets._cooldown
     assert (cooldown.rate, cooldown.per, cog.name_pet._buckets.type) == (1, 23 * 3600, commands.BucketType.user)
     assert all(command._buckets._cooldown is None for command in cog.get_commands() if command.name != "nazwij")
@@ -1499,7 +1505,7 @@ async def test_admin_commands(game_db, cog, monkeypatch):
     rig(monkeypatch, randint=0)
     for command in (f"$AddScroll 3 {player.id}", f"$AddShard 2 {player.id}", "$GenerateEgg",
                     f"$ReassignPet 1 {player.id}", f"$PetLvlUp {player.id}", "$createPetsDatabase",
-                    "$createPetOwnersDatabase", f"$DajPieczec {player.id} 3 tak"):
+                    "$createPetOwnersDatabase", f"$DajPieczec {player.id} 3 tak", f"$DajRamke {player.id} S1-A"):
         await run(game_db, player, command)                              # not an administrator: ignored
     assert await count(db, "PETOWNER") == 0 and await count(db, "PETS") == 0
     assert game_db.channel.bot_messages == [game_db.channel.messages[0]]

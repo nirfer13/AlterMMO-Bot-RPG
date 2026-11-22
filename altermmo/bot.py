@@ -77,10 +77,12 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.ranking",
     "altermmo.cogs.slayer",
     "altermmo.cogs.achievements",
+    "altermmo.cogs.album",
     "altermmo.cogs.xpsteal",
     "altermmo.cogs.twitch",
     "altermmo.cogs.schedule",
     "altermmo.cogs.backup",
+    "altermmo.cogs.patchnotes",
     "altermmo.cogs.admin",
     "altermmo.cogs.general",
     "altermmo.cogs.moderation",
@@ -100,19 +102,104 @@ def cooldown_text(retry_after: float) -> str:
 #: Start-up note for the owner: a module of the bot cannot be imported (see ``import_all_modules``).
 MSG_MODULES_BROKEN = ("Nie udało się wczytać części kodu bota: {modules}. Funkcje z tych plików nie "
                       "działają - szczegóły są w logu bota.")
-#: Start-up note for the owner: ``schema.add_new_columns`` could not add what v2 needs.
-#: The only such columns are the pet cosmetics, and features/pets.py plays on without them.
+#: Start-up notes for the owner: ``schema.add_new_columns`` could not add what v2 needs.  The
+#: only such columns are the pet cosmetics (``pets.NEW_COLUMNS``) and their copy in the pet album
+#: (``album.NEW_COLUMNS``); the game plays on without them.  One note per start, the one that
+#: says what is really off (:func:`new_columns_note`):
+#: the first cosmetic columns of ``PETS`` (seal / Holo) are missing - all cosmetics are off;
 MSG_NEW_COLUMNS_FAILED = (
     "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Kosmetyka towarzyszy "
     "(pieczęcie, folia Holo) jest WYŁĄCZONA: nic nie jest losowane, a towarzysze nie mają pieczęci "
     "ani folii (ramki Shiny / Ultra Shiny działają normalnie) - reszta gry działa normalnie. "
     "Bot spróbuje ponownie przy następnym starcie.")
-#: Start-up note: the database did not answer, so nothing above was checked.  Queries reconnect
-#: by themselves, but the new columns are only added at a start.
+#: ... only the frame / partial Holo columns of ``PETS`` are missing (``pets.frames_available``);
+MSG_FRAME_COLUMNS_FAILED = (
+    "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Pieczęcie i pełna folia Holo "
+    "działają normalnie, ale NOWE RAMKI i częściowa folia Holo są WYŁĄCZONE: nie są losowane ani "
+    "zapisywane, a każdy towarzysz ma podstawową ramkę swojej klasy - reszta gry działa normalnie. "
+    "Bot spróbuje ponownie przy następnym starcie.")
+#: ... ``PETS`` is complete, the album lacks the frame / partial Holo columns (``album.keep``).
+MSG_ALBUM_COLUMNS_FAILED = (
+    "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Kosmetyka towarzyszy działa "
+    "normalnie, ale album nie ma miejsca na ramkę i częściową folię Holo: towarzysza z rzadką ramką "
+    "albo z częściową folią Holo nie da się zapisać w albumie, więc jego porzucenie jest ODRZUCANE "
+    "(gracz dostaje komunikat, towarzysz zostaje u niego). Pozostali towarzysze trafiają do albumu "
+    "normalnie - reszta gry działa normalnie. Bot spróbuje ponownie przy następnym starcie.")
+
+
+def new_columns_note(not_added: list[str], problems: list[str]) -> str | None:
+    """The start-up note for columns ``schema.add_new_columns`` could not add (``not_added``).
+
+    Which columns are really missing is read from what ``schema.verify`` found
+    (``problems``), so the note says what is off and not more: all cosmetics
+    (seal / Holo of ``PETS`` missing), the new frames and the partial Holo
+    (only those columns of ``PETS``), or keeping such a pet in the album (only
+    the album's columns).  ``add_new_columns`` adds a table's columns all or
+    none, and without the frame columns of ``PETS`` no pet has a rare frame -
+    so the first case that applies is the whole truth.  None when nothing new
+    is missing after all (the columns are there: nothing is off).
+
+    A feature module that cannot be imported is skipped (never raised): its
+    own start-up note (:data:`MSG_MODULES_BROKEN`) tells the owner, and an
+    import error escaping from here was reported as "the database did not
+    answer".  Without ``pets`` no pet works at all, so there is nothing to add.
+    """
+    found = set(problems)
+    missing = {(table, column) for table, column, _ in _importable_new_columns()
+               if schema.missing_column(table, column) in found}
+    details = "; ".join(not_added)
+    try:
+        from .features import pets  # (the feature modules import this module's neighbours)
+    except Exception:  # noqa: BLE001 - see MSG_MODULES_BROKEN
+        return None
+    if any(("pets", column) in missing for column in pets.COSMETIC_COLUMNS):
+        return MSG_NEW_COLUMNS_FAILED.format(problems=details)
+    if any(("pets", column) in missing for column in pets.FRAME_COLUMNS):
+        return MSG_FRAME_COLUMNS_FAILED.format(problems=details)
+    try:
+        from .features import album
+    except Exception:  # noqa: BLE001 - see MSG_MODULES_BROKEN (and its columns are not in ``missing``)
+        return None
+    if any(table == album.TABLE.lower() for table, _ in missing):
+        return MSG_ALBUM_COLUMNS_FAILED.format(problems=details)
+    return None
+
+
+def _importable_new_columns() -> list[tuple[str, str, str]]:
+    """``schema.new_columns()`` of the feature modules that can be imported; never raises.
+
+    ``schema.new_columns`` imports every schema module and raises when one is
+    broken.  The start-up notes about the columns must not: a broken module is
+    the business of :data:`MSG_MODULES_BROKEN` (and of the log).
+    """
+    columns: list[tuple[str, str, str]] = []
+    for module_name in schema.SCHEMA_MODULES:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:  # noqa: BLE001 - reported by import_all_modules
+            log.warning("Schema module %s cannot be imported; its new columns are not looked at.", module_name)
+            continue
+        columns.extend((table.lower(), column.lower(), definition)
+                       for table, column, definition in getattr(module, "NEW_COLUMNS", ()))
+    return columns
+
+
+#: Start-up note: the database did not answer (at the connection, or at the check after a failed
+#: ``add_new_columns``), so nothing above was checked and it is NOT known what is missing.
+#: Queries reconnect by themselves, but the new tables and columns are only added at a start.
+#: It says what each missing piece would mean (production has had SEAL / HOLO since 2026-11-20,
+#: so the likely gap is only the frame columns or the album - the seals then work).
 MSG_DATABASE_DOWN_AT_START = (
     "Baza danych nie odpowiadała przy starcie bota ({error}). Bot połączy się z nią sam, ale nie "
-    "sprawdził jej struktury i nie dodał kolumn nowych w v2 - jeśli brakuje ich w bazie, kosmetyka "
-    "towarzyszy (pieczęcie, folia Holo) jest wyłączona do następnego uruchomienia bota.")
+    "sprawdził jej struktury i mógł nie dodać tabel ani kolumn nowych w v2 (spróbuje ponownie przy "
+    "następnym uruchomieniu). Jeśli czegoś z tego brakuje w bazie, do tego czasu: bez kolumn "
+    "SEAL / HOLO tabeli PETS cała kosmetyka towarzyszy (pieczęcie, folia Holo, nowe ramki) jest "
+    "wyłączona; bez samych kolumn FRAME / HOLO_PARTIAL pieczęcie i pełna folia Holo działają, ale "
+    "nowe ramki i częściowa folia Holo nie są losowane ani zapisywane; tabelę PET_ALBUM bot utworzy "
+    "sam przy pierwszym porzuceniu towarzysza przez wspierającego (do tego czasu album jest pusty), "
+    "a bez samych jej kolumn FRAME / HOLO_PARTIAL "
+    "odrzucane jest porzucenie towarzysza z rzadką ramką albo częściową folią Holo. "
+    "Reszta gry działa normalnie.")
 #: Start-up note: the library that composes the pet cards is missing on this machine.
 MSG_NO_PILLOW = (
     "Brak biblioteki Pillow - karty towarzyszy (ramki, pieczęcie, folia Holo) są WYŁĄCZONE i "
@@ -251,9 +338,14 @@ class AlterBot(commands.Bot):
                 log.error("Could not add the columns that are new in v2 (%s: %s).",
                           type(exc).__name__, exc)
                 not_added = [f"{type(exc).__name__}: {exc}"]
-            if not_added:
-                self._startup_notes.append(MSG_NEW_COLUMNS_FAILED.format(problems="; ".join(not_added)))
             problems = await schema.verify(self.db)
+            if not_added:
+                note = new_columns_note(not_added, problems)
+                if note is not None:
+                    self._startup_notes.append(note)
+                else:
+                    log.warning("Some new columns could not be added (%s), but none the game needs is "
+                                "missing now; no note for the owner.", "; ".join(not_added))
             for problem in problems:
                 log.error("Database structure differs from what the bot expects: %s", problem)
             noted = problems
@@ -261,7 +353,7 @@ class AlterBot(commands.Bot):
                 # The columns that could not be added are explained by the note above (in words
                 # that say what it means); the general note below is for everything else.
                 explained = {schema.missing_column(table, column)
-                             for table, column, _ in schema.new_columns()}
+                             for table, column, _ in _importable_new_columns()}
                 noted = [problem for problem in problems if problem not in explained]
             if noted:
                 self._startup_notes.append("Baza danych różni się od oczekiwanej: " + "; ".join(noted)
@@ -271,8 +363,9 @@ class AlterBot(commands.Bot):
         except Exception as exc:  # noqa: BLE001 - keep starting; queries reconnect lazily
             log.error("Database unreachable at start-up (%s: %s); will keep retrying on use.",
                       type(exc).__name__, exc)
-            # Nothing was verified and no column was added: the owner should know why the
-            # pet cosmetics may be off for this run (nothing retries the ALTER before a restart).
+            # Nothing was verified and columns may not have been added: the owner should know
+            # what may be off for this run (nothing retries the ALTER before a restart).  Only a
+            # database failure gets here - the notes above never raise for a broken module.
             self._startup_notes.append(MSG_DATABASE_DOWN_AT_START.format(error=type(exc).__name__))
         if not petcards.pillow_available():
             log.error("Pillow is not installed: pet cards (frames, seals, Holo) are off.")

@@ -290,8 +290,9 @@ async def test_loot_grants_every_kind_of_item(game_db, loot):
     hunter = game_db.add_member("O'Brien")
     loot(Normal=[SHARD, EGG, SCROLL, LEVEL, STONE, MIRROR, TEXT_ONLY])
     message = await daily.rand_loot(game_db.scene(), "0", hunter, 0)
+    # (No LEVEL line: an egg and a level for it never come in one drop - owner's rule of 2026-11-21.)
     assert message == "".join("👉 " + item["descr"] + "\n"
-                              for item in (SHARD, EGG, SCROLL, LEVEL, STONE, MIRROR, TEXT_ONLY))
+                              for item in (SHARD, EGG, SCROLL, STONE, MIRROR, TEXT_ONLY))
     embed = game_db.channel.messages[-1].embeds[0]
     assert embed.title == "Drop - O'Brien" and embed.description == "Otrzymałeś:\n" + message
     assert embed.footer.text == "Gratulacje!" and embed.colour.value == 0xFCDB03
@@ -300,13 +301,40 @@ async def test_loot_grants_every_kind_of_item(game_db, loot):
     row = await owner_row(bot, hunter.id)
     assert (row["reroll_scroll_shard"], row["reroll_scroll"], row["rebirth_stones"], row["mirrors"]) == (1, 1, 1, 1)
     assert row["pet_id"] > 0
-    assert await bot.db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = $1", row["pet_id"]) == 1
+    assert await bot.db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = $1", row["pet_id"]) == 0   # still an egg
 
     # A second egg is not given to a player who already has a pet: no line, no second pet.
     loot(Normal=[EGG])
     assert await daily.rand_loot(game_db.scene(), 0, hunter, 0) == ""
     assert await bot.db.fetchval("SELECT count(*) FROM PETS") == 1
     assert game_db.channel.messages[-1].embeds[0].description == "Otrzymałeś:\n"
+
+
+async def test_an_egg_and_a_level_never_come_in_one_drop(game_db, loot, monkeypatch):
+    """Owner's rule of 2026-11-21: a brand-new egg does not hatch in the drop it came from."""
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+
+    async def level() -> int:
+        row = await owner_row(bot, hunter.id)
+        return await bot.db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = $1", row["pet_id"])
+
+    # Certain egg, certain level and a certain bonus level (weight 200 %): the egg only.
+    monkeypatch.setattr(random, "random", lambda: 0.0)
+    loot(Epic=[EGG, {**LEVEL, "weight": 100}])
+    assert await daily.rand_loot(game_db.scene(), 2, hunter, 100) == "👉 " + EGG["descr"] + "\n"
+    assert await level() == 0 and await bot.db.fetchval("SELECT count(*) FROM PETS") == 1
+
+    # The next drop: the egg is no longer new - the level is granted (the second egg is not).
+    assert await daily.rand_loot(game_db.scene(), 2, hunter, 0) == "👉 " + LEVEL["descr"] + "\n"
+    assert await level() == 1 and await bot.db.fetchval("SELECT count(*) FROM PETS") == 1
+
+    # The level listed BEFORE the egg, for a player without a pet: nothing to level, then the egg.
+    other = game_db.add_member("Ola")
+    loot(Epic=[LEVEL, EGG])
+    assert await daily.rand_loot(game_db.scene(), 2, other, 0) == "👉 " + EGG["descr"] + "\n"
+    row = await owner_row(bot, other.id)
+    assert await bot.db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = $1", row["pet_id"]) == 0
 
 
 async def test_loot_weights_boost_and_bonus(game_db, loot, monkeypatch):

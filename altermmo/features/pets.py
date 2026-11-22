@@ -8,7 +8,9 @@ with the legacy bot - neither has a primary key):
               and the skill gem (owned by features/skills.py);
 ``PETS``      one row per pet: name, level 0 (egg) .. 3, talent (``PET_SKILLS``),
               looks and the seven stats used by the fights - and, new in v2,
-              the two cosmetics ``SEAL`` (0-3) and ``HOLO`` (see below).
+              the cosmetics ``SEAL`` (0-3), ``HOLO`` (full Holo), ``FRAME``
+              (the frame result, '' = the base of the class) and
+              ``HOLO_PARTIAL`` (partial Holo) - see below.
 
 Differences from the legacy code (the game rules themselves are unchanged):
 
@@ -48,25 +50,36 @@ Cosmetics (new in v2, they give no stats):
 
 * a supporter (patron, crafter, Twitch subscriber, YouTube supporter - whatever
   :func:`patrons.check_if_patron` accepts) gets, for every egg drawn for him, ONE
-  roll for a seal (:data:`SEAL_ROLL_BELOW`) and ONE independent roll for Holo
-  (:data:`HOLO_ROLL_BELOW`), whatever the class of the pet.  The result is
-  stored with the specimen (``PETS.SEAL`` / ``PETS.HOLO``) and nothing but the
-  owner's ``$DajPieczec`` ever changes it: not growing, the mirror, a new name,
-  the stable, a new owner or the end of the support;
+  roll for a seal (:data:`SEAL_ROLL_BELOW`), ONE independent roll for the foil
+  (:data:`FOIL_ROLL_BELOW`: none / partial Holo / full Holo) whatever the class
+  of the pet, and - for a Shiny, Ultra Shiny or mythic egg - ONE roll in the
+  frame pool of its class (``petcards.POOLS``, :func:`_frame_for`; owner's
+  package of 2026-11-21).  Everybody else's egg has no seal, no foil and the
+  base frame of its class.  The result is stored with the specimen
+  (``PETS.SEAL`` / ``HOLO`` / ``HOLO_PARTIAL`` / ``FRAME``) and nothing but the
+  owner's ``$DajPieczec`` / ``$DajRamke`` ever changes it: not growing, the
+  mirror (the class never changes), a new name, the stable, a new owner or the
+  end of the support;
 * what is stored is SHOWN only while the pet's owner is a supporter (owner's
-  decision of 2026-11-20): when the support ends the seal and the Holo foil
-  disappear from the card and from the statistics, and they are back the
+  decision of 2026-11-20): when the support ends the seal, the foil and a
+  rarer frame disappear from the card and from the statistics (the card shows
+  the base frame of the class, ``petcards.base_look``), and they are back the
   moment the owner supports again (:func:`_is_supporter`, asked every time
-  the pet is shown).  The frame belongs to the pet's class and always stays;
-* the two columns are added to the old bot's table at start-up
-  (:data:`NEW_COLUMNS`, run by ``schema.add_new_columns``).  When that failed
-  the game goes on without cosmetics (:func:`cosmetics_available`): nothing is
-  rolled, eggs are stored the old way and every reader takes a row without the
-  columns as "no seal, no Holo" (:func:`cosmetics_of`);
+  the pet is shown);
+* the columns are added to the old bot's table at start-up (:data:`NEW_COLUMNS`,
+  run by ``schema.add_new_columns``; the columns of one table are added all or
+  none).  The game copes with every state that can result, see
+  :func:`cosmetics_available` / :func:`frames_available`: without ``SEAL`` /
+  ``HOLO`` nothing is rolled at all; with them but without ``FRAME`` /
+  ``HOLO_PARTIAL`` (the v2 table of 2026-11-20 whose new columns could not be
+  added) seals and full Holo work exactly as before, only the frame is not
+  rolled and a partial Holo result is not kept.  Every reader takes a missing
+  column as "nothing" (:func:`cosmetics_of`, :func:`ornaments_of`,
+  ``petcards.look_of``);
 * a pet is shown as a card composed by :mod:`altermmo.features.petcards`
-  (illustration, Holo foil, frame of its class, seal) and names its seal / Holo
-  in words (:func:`_pet_card`) - from the egg on: an egg has its frame, seal
-  and Holo like a hatched pet.
+  (illustration, foil, frame, seal) and names a rarer frame, its seal and its
+  foil in words (:func:`_pet_card`) - from the egg on: an egg has its frame,
+  seal and foil like a hatched pet.
 """
 
 from __future__ import annotations
@@ -80,8 +93,9 @@ import time
 import types
 from decimal import Decimal
 from enum import Enum
+from fractions import Fraction
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, Sequence
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, NamedTuple, Sequence
 
 import asyncpg
 import discord
@@ -158,20 +172,29 @@ SCHEMA: tuple[str, ...] = (
            ULTRA_SHINY BOOLEAN,
            MYTHIC BOOLEAN NOT NULL DEFAULT FALSE,
            SEAL NUMERIC NOT NULL DEFAULT 0,
-           HOLO BOOLEAN NOT NULL DEFAULT FALSE
+           HOLO BOOLEAN NOT NULL DEFAULT FALSE,
+           FRAME VARCHAR(16) NOT NULL DEFAULT '',
+           HOLO_PARTIAL BOOLEAN NOT NULL DEFAULT FALSE
        )""",
 )
 
 #: Columns the old bot's ``PETS`` lacks, as ``(table, column, definition)``; added at every
 #: start-up by ``schema.add_new_columns`` (only when missing).  The defaults make every pet
 #: that existed before - and every row the old bot still inserts with its own column
-#: lists - a pet without a seal and without Holo.
+#: lists - a pet without a seal, without a foil and with the base frame of its class.
+#: SEAL / HOLO came on 2026-11-20, FRAME / HOLO_PARTIAL with the frames of 2026-11-21.
 NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("pets", "seal", "NUMERIC NOT NULL DEFAULT 0"),
     ("pets", "holo", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("pets", "frame", "VARCHAR(16) NOT NULL DEFAULT ''"),
+    ("pets", "holo_partial", "BOOLEAN NOT NULL DEFAULT FALSE"),
 )
-#: The cosmetic columns of ``PETS`` (all of them are there, or cosmetics are off).
-COSMETIC_COLUMNS: tuple[str, ...] = tuple(column for _, column, _ in NEW_COLUMNS)
+#: The first cosmetic columns of ``PETS`` - the seal and full Holo (both there, or cosmetics
+#: are off: :func:`cosmetics_available`).
+COSMETIC_COLUMNS: tuple[str, ...] = ("seal", "holo")
+#: The columns of the frames and the partial Holo (:func:`frames_available`: these AND the
+#: COSMETIC_COLUMNS are there).  Without them the old cosmetics keep working.
+FRAME_COLUMNS: tuple[str, ...] = ("frame", "holo_partial")
 
 # -- game rules -----------------------------------------------------------------------
 
@@ -199,16 +222,51 @@ SHINY_FROM, ULTRA_SHINY_FROM, MYTHIC_FROM = 900, 980, 998
 
 #: Cosmetics of a supporter's new egg.  The owner's balance, per eligible pet: "First roll,
 #: disjoint results: no seal 85%, Tropiciela 10%, Łowcy 4.8%, Arcyłowcy 0.2%.  Second roll
-#: gives Holo with a chance of 0.1% (1/1000).  No cosmetic gives stats."  Both rolls are
-#: ``random.randrange(COSMETIC_ROLL)``, independent of each other and of the pet's class.
+#: gives Holo with a chance of 0.1% (1/1000).  No cosmetic gives stats."  Since 2026-11-21 the
+#: second roll has three disjoint results: no foil 98.9%, partial Holo 1%, full Holo 0.1%.
+#: Both are ``random.randrange(COSMETIC_ROLL)``, independent of each other and of the pet's
+#: class; whole numbers only, so the odds are exact.
 COSMETIC_ROLL = 1000
 #: Seal roll: the first entry whose bound is above the roll gives the tier -
 #: 0-1 Arcyłowcy (0.2%), 2-49 Łowcy (4.8%), 50-149 Tropiciela (10%), 150-999 no seal (85%).
 SEAL_ROLL_BELOW: tuple[tuple[int, int], ...] = ((2, 3), (50, 2), (150, 1))
-#: Holo roll: only 0 gives Holo (1/1000).
-HOLO_ROLL_BELOW = 1
+#: Foil roll, the same way: 0 full Holo (0.1% - the very roll that gave Holo before the
+#: partial foil existed), 1-10 partial Holo (1%), 11-999 no foil (98.9%).
+FOIL_ROLL_BELOW: tuple[tuple[int, int], ...] = ((1, petcards.FOIL_FULL), (11, petcards.FOIL_PARTIAL))
 #: Seal tiers are 0 (none) .. MAX_SEAL; their names are ``petcards.SEAL_NAMES``.
 MAX_SEAL = 3
+#: The third roll, only for an egg with a class (Shiny / Ultra Shiny / mythic):
+#: ``random.randrange(FRAME_ROLL)`` in units of 0.01%, so every percent of the owner's pools
+#: (``petcards.POOLS``, down to 0.15%) is a whole number of units - no rounding anywhere.
+FRAME_ROLL = 10000
+#: Results that are worth a line in the owner's log (:data:`MSG_RARE_COSMETICS`) besides every
+#: animated frame: the rarest static frame of each pool (R7 / R8 / R9, 1% of their class - as rare
+#: as full Holo for a Shiny egg, far rarer for the others).
+RARE_FRAME_PERCENT = 1.0
+
+
+def _frame_table(tier: str) -> tuple[tuple[int, str], ...]:
+    """``(bound, result id)`` of a class's pool in :data:`FRAME_ROLL` units, in pool order.
+
+    The first entry whose bound is above the roll is the result.  Computed from
+    the percents of ``petcards.POOLS`` as exact fractions; a pool whose percents
+    are not whole units or do not cover exactly 100% is a programming error.
+    """
+    bound = 0
+    table = []
+    for frame in petcards.POOLS[tier]:
+        units = Fraction(str(frame.percent)) * FRAME_ROLL / 100
+        if units.denominator != 1 or units <= 0:
+            raise ValueError(f"frame {frame.id}: {frame.percent}% is not a whole number of 0.01% units")
+        bound += int(units)
+        table.append((bound, frame.id))
+    if bound != FRAME_ROLL:
+        raise ValueError(f"frame pool {tier} covers {bound} of {FRAME_ROLL} units, not 100%")
+    return tuple(table)
+
+
+#: Every class's frame roll, see :func:`_frame_table`.
+FRAME_ROLL_BELOW: dict[str, tuple[tuple[int, str], ...]] = {tier: _frame_table(tier) for tier in petcards.POOLS}
 
 #: Stats a talent point can go to; the order is the order of the ``$mocneodrodzenie`` menu.
 SKILL_POOL: tuple[str, ...] = (
@@ -301,13 +359,22 @@ MSG_RENAME_COOLDOWN = ("Poczekaj na odnowienie komendy! Imię zmienisz ponownie 
 MSG_OTHER_PET = "Ten panel pokazuje innego towarzysza - wpisz **$towarzysz**, żeby zobaczyć aktualnego."
 #: A stable list entry whose slot no longer holds the pet it names.
 MSG_STABLE_CHANGED = "Stajnia zmieniła się w międzyczasie - wybierz jeszcze raz."
-#: The owner's log channel (no ping, nothing public): an egg with the best seal and / or Holo.
+#: The owner's log channel (no ping, nothing public): an egg with the best seal, full Holo
+#: and / or a rare frame (one message per egg, the finds joined by ", " and " i ").
 MSG_RARE_COSMETICS = "Rzadka kosmetyka towarzysza: jajko gracza <@{player_id}> (PET_ID {pet_id}) ma {found}."
 MSG_RARE_SEAL = "pieczęć {name}"
 MSG_RARE_HOLO = "folię Holo"
+MSG_RARE_FRAME = "ramkę {name}"
 PET_FOOTER = "Na zawsze ponosisz odpowiedzialność za to, co oswoiłeś."
-#: In the statistics of a pet whose seal / Holo are hidden because its owner does not support now.
-MSG_COSMETICS_HIDDEN = "*Ozdoby karty (pieczęć, folia Holo) widać tylko u wspierających.*"
+#: The ornaments in the pet's statistics (a base frame is not named: every pet of the class has it).
+MSG_FRAME_LINE = "Ramka: {name}"
+MSG_SEAL_LINE = "Pieczęć: {name}"
+MSG_FOIL_LINE = "Folia: {name}"
+#: How the foils are called there (full Holo is "Holo", as it always was).
+FOIL_WORDS: dict[int, str] = {petcards.FOIL_FULL: "Holo", petcards.FOIL_PARTIAL: "Holo częściowe"}
+#: In the statistics of a pet whose ornaments (a rarer frame, the seal, the foil) are hidden
+#: because its owner does not support now - one line, whichever of them the pet has.
+MSG_COSMETICS_HIDDEN = "*Ozdoby karty (wyjątkowa ramka, pieczęć, folia Holo) widać tylko u wspierających.*"
 RANKING_IMAGE = ("https://www.altermmo.pl/wp-content/uploads/alter0000_Adventurer_with_a_small_dragon_"
                  "pet._Fantasy._Pixel_ar_fac9f513-e338-4727-af61-32b79dbfa7e3.png")
 _OK = "ok"
@@ -393,12 +460,96 @@ def cosmetics_of(pet: Any) -> tuple[int, bool]:
     return (seal if 0 < seal <= MAX_SEAL else 0), holo
 
 
-def _roll_cosmetics() -> tuple[int, bool]:
-    """The two cosmetic rolls of one egg: ``(seal tier, holo)``, see :data:`SEAL_ROLL_BELOW`."""
-    roll = random.randrange(COSMETIC_ROLL)
-    seal = next((tier for below, tier in SEAL_ROLL_BELOW if roll < below), 0)
-    holo = random.randrange(COSMETIC_ROLL) < HOLO_ROLL_BELOW
-    return seal, holo
+class Ornaments(NamedTuple):
+    """What a pet has beyond the look of its class: a rarer frame, a seal, a foil.
+
+    ``frame`` is the result id of a frame that is NOT the base of the pet's class
+    ('' otherwise - the base frame is no ornament: every pet of the class has
+    it, also when its owner does not support); ``seal`` 0-3; ``foil`` a
+    ``petcards.FOIL_*`` (full Holo wins when both flags are set).
+    """
+
+    frame: str = ""
+    seal: int = 0
+    foil: int = petcards.FOIL_NONE
+
+    @property
+    def any(self) -> bool:
+        """True when something is there that only a supporter's pet shows."""
+        return bool(self.frame or self.seal or self.foil)
+
+
+def ornaments_of(pet: Any) -> Ornaments:
+    """The :class:`Ornaments` of a ``PETS`` row (or an album entry).
+
+    Every column is optional: a row of the old bot's table, of the v2 table of
+    2026-11-20 (no ``FRAME`` / ``HOLO_PARTIAL``), a NULL, an unknown frame id
+    or one of another class reads as "nothing" (the frame: the base of the
+    class, ``petcards.frame_of``).
+    """
+    seal, holo = cosmetics_of(pet)
+    try:
+        partial = pet["holo_partial"] is True
+    except (KeyError, IndexError, TypeError):
+        partial = False
+    try:
+        frame = petcards.frame_of(pet)
+    except Exception:  # noqa: BLE001 - decoration: a row that cannot say has no rarer frame
+        frame = None
+    foil = petcards.FOIL_FULL if holo else petcards.FOIL_PARTIAL if partial else petcards.FOIL_NONE
+    return Ornaments("" if frame is None or frame.base else frame.id, seal, foil)
+
+
+class Rolled(NamedTuple):
+    """The cosmetic rolls of one egg: seal tier, ``petcards.FOIL_*`` and the frame to store
+    ('' = the base of the class; always '' for an egg without a class)."""
+
+    seal: int
+    foil: int
+    frame: str
+
+
+def _seal_for(roll: int) -> int:
+    """The seal tier of a seal roll (``0 .. COSMETIC_ROLL - 1``), see :data:`SEAL_ROLL_BELOW`."""
+    return next((tier for below, tier in SEAL_ROLL_BELOW if roll < below), 0)
+
+
+def _foil_for(roll: int) -> int:
+    """The foil of a foil roll (``0 .. COSMETIC_ROLL - 1``), see :data:`FOIL_ROLL_BELOW`."""
+    return next((foil for below, foil in FOIL_ROLL_BELOW if roll < below), petcards.FOIL_NONE)
+
+
+def _frame_for(tier: str, roll: int) -> str:
+    """The frame result to store for a frame roll (``0 .. FRAME_ROLL - 1``) of class ``tier``.
+
+    The base result of the class is stored as '' (what every older pet has).
+    """
+    result = next((ident for below, ident in FRAME_ROLL_BELOW[tier] if roll < below),
+                  petcards.BASE_FRAME[tier])
+    return "" if result == petcards.BASE_FRAME[tier] else result
+
+
+def _roll_cosmetics(tier: str = "", *, frames: bool = True) -> Rolled:
+    """The cosmetic rolls of one egg of class ``tier`` ('' / "S" / "U" / "M").
+
+    Always in this order: the seal roll, the foil roll (both
+    ``randrange(COSMETIC_ROLL)``), then - only for an egg with a class, and only
+    when ``frames`` (``PETS`` can keep the frame, see :func:`frames_available`) -
+    the frame roll ``randrange(FRAME_ROLL)``.  Each roll is used by exactly one
+    result, so the three are independent.
+    """
+    seal = _seal_for(random.randrange(COSMETIC_ROLL))
+    foil = _foil_for(random.randrange(COSMETIC_ROLL))
+    frame = _frame_for(tier, random.randrange(FRAME_ROLL)) if frames and tier in FRAME_ROLL_BELOW else ""
+    return Rolled(seal, foil, frame)
+
+
+def _rare_frame(ident: str) -> petcards.Frame | None:
+    """The frame of result ``ident`` when the owner wants to hear about it (see :data:`RARE_FRAME_PERCENT`)."""
+    frame = petcards.FRAMES.get(ident) if ident else None
+    if frame is None or frame.base:
+        return None
+    return frame if frame.animated or frame.percent <= RARE_FRAME_PERCENT else None
 
 
 def _slot_column(slot: Any) -> str | None:
@@ -439,44 +590,76 @@ _LOCK_OWNER, _LOCK_PET_IDS = 7301, 7302
 
 _SQL_ACTIVE_PET = """SELECT p.* FROM PETOWNER o JOIN PETS p ON p.PET_ID = o.PET_ID
                      WHERE o.PLAYER_ID = $1 AND o.PET_ID > 0 LIMIT 1"""
-#: What growing, a reroll and an enlightenment save.  SEAL and HOLO are not in here on purpose
-#: (nor in any other UPDATE but :func:`set_cosmetics`): cosmetics are for the pet's whole life.
+#: What growing, a reroll and an enlightenment save.  SEAL, HOLO, HOLO_PARTIAL and FRAME are not
+#: in here on purpose (nor in any other UPDATE but :func:`set_cosmetics` / :func:`set_frame`):
+#: cosmetics are for the pet's whole life.
 _SQL_SAVE_PET = """UPDATE PETS SET PET_LVL = $2, PET_SKILLS = $3, VARIANT = $4,
                        CRIT_PERC = $5, REPLACE_PERC = $6, DEF_PERC = $7, DROP_PERC = $8,
                        LOWHP_PERC = $9, SLOW_PERC = $10, DETECTION = $11
                    WHERE PET_ID = $1"""
 
 
-#: How many of the given columns the table the bot reads as ``PETS`` has.
-_SQL_COUNT_COLUMNS = """SELECT COUNT(*) FROM pg_attribute
-                        WHERE attrelid = to_regclass('pets') AND attname = ANY($1::text[])
-                          AND attnum > 0 AND NOT attisdropped"""
+#: Which of the given columns the table the bot reads as ``PETS`` has.
+_SQL_PRESENT_COLUMNS = """SELECT attname::text FROM pg_attribute
+                          WHERE attrelid = to_regclass('pets') AND attname = ANY($1::text[])
+                            AND attnum > 0 AND NOT attisdropped"""
 
 
 def _for_update(sql: str, lock: bool) -> str:
     return sql + " FOR UPDATE" if lock else sql
 
 
+async def _look_for_columns(bot: "AlterBot") -> None:
+    """Find out which cosmetic columns ``PETS`` has; remembers both answers on the bot."""
+    wanted = [*COSMETIC_COLUMNS, *FRAME_COLUMNS]
+    present = {str(row[0]) for row in await bot.db.fetch(_SQL_PRESENT_COLUMNS, wanted)}
+    cosmetics = present.issuperset(COSMETIC_COLUMNS)
+    frames = cosmetics and present.issuperset(FRAME_COLUMNS)
+    bot._pet_cosmetics, bot._pet_frames = cosmetics, frames  # type: ignore[attr-defined]
+    if not cosmetics:
+        log.warning("PETS has no %s column(s): pet cosmetics are off (nothing is rolled, pets are shown "
+                    "without seals, foils and rarer frames; the base frames of the classes do not need the "
+                    "columns).", " / ".join(column.upper() for column in COSMETIC_COLUMNS if column not in present))
+    elif not frames:
+        log.warning("PETS has no %s column(s): seals and full Holo work, but no frame is rolled and a "
+                    "partial Holo is not kept (every pet shows the base frame of its class).",
+                    " / ".join(column.upper() for column in FRAME_COLUMNS if column not in present))
+
+
 async def cosmetics_available(bot: "AlterBot", *, refresh: bool = False) -> bool:
-    """Whether ``PETS`` has the cosmetic columns, i.e. whether seals and Holo are in the game.
+    """Whether ``PETS`` has the first cosmetic columns (``SEAL`` / ``HOLO``): seals and Holo.
 
     Looked up in the database once per run and remembered on the bot, like the
     ``SKILLPOUCH`` check of features/skills.py: the columns are added at
     start-up (``schema.add_new_columns``), and when that could not be done (no
     privilege, the table was locked) the bot plays on without cosmetics until
     its next start.  ``refresh=True`` looks again after a "no" (the owner may
-    have added the columns by hand meanwhile).
+    have added the columns by hand meanwhile).  One look answers this and
+    :func:`frames_available` together.
     """
     known = getattr(bot, "_pet_cosmetics", None)
     if known is None or (refresh and not known):
-        found = _int(await bot.db.fetchval(_SQL_COUNT_COLUMNS, list(COSMETIC_COLUMNS)))
-        known = found == len(COSMETIC_COLUMNS)
-        bot._pet_cosmetics = known  # type: ignore[attr-defined]
-        if not known:
-            log.warning("PETS has no %s column(s): pet cosmetics are off (nothing is rolled, pets are "
-                        "shown without seals and Holo; the frames of shiny pets do not need the columns).",
-                        " / ".join(COSMETIC_COLUMNS).upper())
-    return known
+        await _look_for_columns(bot)
+        known = bot._pet_cosmetics  # type: ignore[attr-defined]
+    return bool(known)
+
+
+async def frames_available(bot: "AlterBot", *, refresh: bool = False) -> bool:
+    """Whether ``PETS`` has ALL the cosmetic columns, the frame and partial Holo ones too.
+
+    False on the v2 table of 2026-11-20 whose ``FRAME`` / ``HOLO_PARTIAL`` could
+    not be added at start-up (``schema.add_new_columns`` adds a table's columns
+    all or none, so only the new two can be missing beside working seals and
+    Holo): the game then works as on that day - the seal roll and the full Holo
+    of the foil roll are kept, the frame is not rolled, a partial Holo result
+    is not kept, and every pet shows the base frame of its class.  Remembered
+    like :func:`cosmetics_available`.
+    """
+    known = getattr(bot, "_pet_frames", None)
+    if known is None or (refresh and not known):
+        await _look_for_columns(bot)
+        known = bot._pet_frames  # type: ignore[attr-defined]
+    return bool(known)
 
 
 async def _lock_player(con: Any, player_id: int) -> None:
@@ -601,8 +784,21 @@ def _pet_image(pet: Any) -> Path | None:
     return None
 
 
+def ornament_lines(pet: Any) -> list[str]:
+    """The pet's ornaments in words: ``Ramka: …`` (a rarer frame only), ``Pieczęć: …``, ``Folia: …``."""
+    frame, seal, foil = ornaments_of(pet)
+    lines = []
+    if frame:
+        lines.append(MSG_FRAME_LINE.format(name=petcards.FRAMES[frame].label))
+    if seal in petcards.SEAL_NAMES:
+        lines.append(MSG_SEAL_LINE.format(name=petcards.SEAL_NAMES[seal]))
+    if foil in FOIL_WORDS:
+        lines.append(MSG_FOIL_LINE.format(name=FOIL_WORDS[foil]))
+    return lines
+
+
 def _pet_embed(player_id: int, pet: Any, items: Any, *, cosmetics: bool = True) -> discord.Embed:
-    """The pet's embed.  ``cosmetics``: whether its seal / Holo are shown (the owner supports)."""
+    """The pet's embed.  ``cosmetics``: whether its ornaments are shown (the owner supports)."""
     scroll_desc = (f"\n**💎 PRZEDMIOTY:**\nZwoje odrodzenia: {_int(items['reroll_scroll'])}\n" +
                    f"Fragmenty zwojów: {_int(items['reroll_scroll_shard'])}\n"
                    f"Kamienie olśnienia: {_int(items['rebirth_stones'])}" +
@@ -621,17 +817,13 @@ def _pet_embed(player_id: int, pet: Any, items: Any, *, cosmetics: bool = True) 
         color = 0xfffffc
         add_desc = ""
 
-    # The seal and the Holo in words as well - for an egg too (owner's decision of 2026-11-20:
-    # they are visible from the egg on).  They are shown only while the owner supports;
-    # otherwise one line says why they are gone.
-    seal, holo = cosmetics_of(pet)
+    # A rarer frame, the seal and the foil in words as well - for an egg too (owner's decision
+    # of 2026-11-20: they are visible from the egg on).  They are shown only while the owner
+    # supports; otherwise one line says why they are gone.
     cosmetic_lines = ""
     if cosmetics:
-        if seal in petcards.SEAL_NAMES:
-            cosmetic_lines += f"Pieczęć: {petcards.SEAL_NAMES[seal]}\n"
-        if holo:
-            cosmetic_lines += "Folia: Holo\n"
-    elif seal or holo:
+        cosmetic_lines = "".join(line + "\n" for line in ornament_lines(pet))
+    elif ornaments_of(pet).any:
         cosmetic_lines = MSG_COSMETICS_HIDDEN + "\n"
 
     name, level = pet["pet_name"], _int(pet["pet_lvl"])
@@ -741,23 +933,23 @@ async def _pet_card(bot: "AlterBot", guild: Any, pet: Any, source: Path | None, 
                     cosmetics: bool = True) -> Path | None:
     """The file to send for ``pet`` whose plain picture is ``source``.
 
-    A pet is shown as its card: illustration, Holo foil, the frame of its
-    class, seal (:func:`petcards.card`; an ordinary pet without cosmetics, a
-    mythic one without them and a card that could not be composed stay the
-    plain picture).  An egg is a card like any other (owner's decision of
+    A pet is shown as its card: illustration, foil, its frame, seal
+    (:func:`petcards.card`; an ordinary pet without cosmetics, a mythic one
+    without them and a card that could not be composed stay the plain
+    picture).  An egg is a card like any other (owner's decision of
     2026-11-20: frame, seal and Holo are visible from the egg on).  A pet
     without a picture has no card.
-    ``cosmetics=False`` (the owner does not support right now) leaves the seal
-    and the foil out; the frame of the pet's class stays.
-    A cold Holo card can take seconds - every caller has acknowledged its
-    interaction before it gets here.  Never raises for a card problem.
+    ``cosmetics=False`` (the owner does not support right now) shows the base
+    look of the class (``petcards.base_look``): the seal, the foil and a rarer
+    frame are left out, the base frame of the class stays.
+    A cold Holo / animated card can take seconds - every caller has
+    acknowledged its interaction before it gets here.  Never raises for a card
+    problem.
     """
     if source is None:
         return source
     try:
-        look = petcards.look_of(pet)
-        if not cosmetics:
-            look = petcards.Look(frame=look.frame)
+        look = petcards.look_of(pet) if cosmetics else petcards.base_look(pet)
         card = await petcards.card(source, look, _card_cache(bot),
                                    max_bytes=_card_max_bytes(guild))
     except asyncio.CancelledError:
@@ -777,12 +969,12 @@ async def _shown(bot: "AlterBot", guild: Any, player: Any, pet: Any,
                  items: Any) -> tuple[discord.Embed, Path | None]:
     """The pet's embed and the file to send with it (its card, see :func:`_pet_card`).
 
-    ``player``: the pet's owner (a member or a bare id) - his seal and Holo are
-    shown only while he is a supporter (:func:`_is_supporter`).
+    ``player``: the pet's owner (a member or a bare id) - a rarer frame, his
+    seal and foil are shown only while he is a supporter (:func:`_is_supporter`).
     The embed's image always names the file returned here.
     """
     # Only a pet (or an egg) with something to show needs the answer (a bare id costs a lookup).
-    cosmetics = cosmetics_of(pet) != (0, False) and await _is_supporter(bot, player)
+    cosmetics = ornaments_of(pet).any and await _is_supporter(bot, player)
     embed, source = _shown_embed(_pid(player), pet, items, cosmetics=cosmetics)
     image = await _pet_card(bot, guild, pet, source, cosmetics=cosmetics)
     if image is not None and image != source:
@@ -835,15 +1027,22 @@ async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool
 
 # -- eggs -----------------------------------------------------------------------------
 
-def _roll_egg(player: Any, *, cosmetics: bool = True) -> dict[str, Any]:
+def _roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True) -> dict[str, Any]:
     """Draw a new egg for ``player``.
 
     Supporters (patrons, crafters, Twitch subscribers, YouTube supporters) can
-    find premium eggs and get the two cosmetic rolls (:func:`_roll_cosmetics`):
-    once per egg however many of the roles they hold, whatever the class of the
-    egg - also a mythic one.  ``cosmetics=False`` (``PETS`` has no columns for
-    them, see :func:`cosmetics_available`): nothing is rolled and the egg has no
-    ``SEAL`` / ``HOLO`` at all.
+    find premium eggs and get the cosmetic rolls (:func:`_roll_cosmetics`):
+    once per egg however many of the roles they hold - the seal and the foil
+    whatever the class of the egg, also a mythic one, and the frame of its
+    class (an ordinary egg has none).  Everybody else's egg is stored with no
+    seal, no foil and ``FRAME = ''`` (the base of its class) - nothing is rolled.
+
+    ``cosmetics=False`` (``PETS`` has no columns for them, see
+    :func:`cosmetics_available`): nothing is rolled and the egg has no ``SEAL``
+    / ``HOLO`` / ``FRAME`` / ``HOLO_PARTIAL`` at all.  ``frames=False`` (only
+    the frame columns are missing, :func:`frames_available`): seal and foil are
+    rolled as always, the frame is not, and the egg has only ``SEAL`` /
+    ``HOLO`` - a partial Holo result has nowhere to go and is lost (logged).
 
     The cosmetic rolls use ``random.randrange`` and come last, so the legacy
     draws (``randint`` / ``choice``) are exactly what they were.
@@ -869,7 +1068,13 @@ def _roll_egg(player: Any, *, cosmetics: bool = True) -> dict[str, Any]:
            "SHINY": percentage >= SHINY_FROM, "ULTRA_SHINY": percentage >= ULTRA_SHINY_FROM,
            "MYTHIC": mythic}
     if cosmetics:
-        egg["SEAL"], egg["HOLO"] = _roll_cosmetics() if supporter else (0, False)
+        tier = petcards.tier_of({"mythic": mythic, "ultra_shiny": egg["ULTRA_SHINY"], "shiny": egg["SHINY"]})
+        rolled = _roll_cosmetics(tier, frames=frames) if supporter else Rolled(0, petcards.FOIL_NONE, "")
+        egg["SEAL"], egg["HOLO"] = rolled.seal, rolled.foil == petcards.FOIL_FULL
+        if frames:
+            egg["FRAME"], egg["HOLO_PARTIAL"] = rolled.frame, rolled.foil == petcards.FOIL_PARTIAL
+        elif rolled.foil == petcards.FOIL_PARTIAL:
+            log.info("PETS has no HOLO_PARTIAL column: the partial Holo of a new %s egg is lost.", pet.value)
     return egg
 
 
@@ -877,57 +1082,102 @@ _SQL_INSERT_EGG = """INSERT INTO PETS (PET_ID, PET_NAME, PET_LVL, PET_SKILLS, QU
                          MYTHIC, TYPE, VARIANT, CRIT_PERC, REPLACE_PERC, DEF_PERC, DROP_PERC, LOWHP_PERC,
                          SLOW_PERC, INIT_PERC, DETECTION{columns})
                      VALUES ($1, $2, 0, 0, $3, $4, $5, $6, $7, $8, 0, 0, 0, 0, 0, 0, 0, FALSE{values})"""
+#: The cosmetic keys of a rolled egg, as the groups of columns that come (and go) together:
+#: the frame / partial Holo, then the seal / full Holo.  ``_insert_egg`` tries the richest first.
+_EGG_COSMETICS: tuple[tuple[str, ...], ...] = (("FRAME", "HOLO_PARTIAL"), ("SEAL", "HOLO"))
+
+
+def _egg_value(egg: dict[str, Any], key: str) -> Any:
+    """The value an egg's cosmetic key is stored with (its column's type)."""
+    if key == "SEAL":
+        return int(egg.get(key, 0))
+    if key == "FRAME":
+        return str(egg.get(key, "") or "")
+    return bool(egg.get(key, False))
 
 
 async def _insert_egg(con: Any, egg: dict[str, Any]) -> int:
     """Store a rolled egg under the next free PET_ID; returns that id.
 
-    An egg rolled with cosmetics (it has ``SEAL`` / ``HOLO``) is stored with
-    them.  Should the columns be missing after all (they were there when the
-    bot looked), the egg is stored the old way and the two keys are taken out
-    of ``egg``: the player gets his pet, only the cosmetics are lost.
+    An egg rolled with cosmetics is stored with every cosmetic key it has
+    (``SEAL`` / ``HOLO``, and ``FRAME`` / ``HOLO_PARTIAL`` when the frames are
+    on).  Should columns be missing after all (they were there when the bot
+    looked), the egg is stored with what the table can keep - without the
+    frame columns, then the old way - and the lost keys are taken out of
+    ``egg``: the player gets his pet, only those cosmetics are lost.
     """
     await con.execute("SELECT pg_advisory_xact_lock($1::int4, 0)", _LOCK_PET_IDS)
     pet_id = _int(await con.fetchval("SELECT COALESCE(MAX(PET_ID), 0) + 1 FROM PETS"))
     args = (pet_id, DEFAULT_NAME, egg["QUALITY"], egg["SHINY"], egg["ULTRA_SHINY"], egg["MYTHIC"],
             egg["TYPE"], str(egg["VARIANT"]))
-    if "SEAL" in egg:
+    for index, group in enumerate(_EGG_COSMETICS):
+        if group[0] not in egg:
+            continue
+        keys = [key for later in _EGG_COSMETICS[index:] for key in later if later[0] in egg]
+        columns = "".join(f", {key}" for key in keys)
+        values = "".join(f", ${number}" for number in range(len(args) + 1, len(args) + len(keys) + 1))
         try:
             # A savepoint: a refused INSERT must not spoil the caller's transaction.
             async with con.transaction():
-                await con.execute(_SQL_INSERT_EGG.format(columns=", SEAL, HOLO", values=", $9, $10"),
-                                  *args, int(egg["SEAL"]), bool(egg.get("HOLO")))
+                await con.execute(_SQL_INSERT_EGG.format(columns=columns, values=values),
+                                  *args, *(_egg_value(egg, key) for key in keys))
+            break
         except asyncpg.UndefinedColumnError:
-            seal, holo = egg.pop("SEAL"), egg.pop("HOLO", False)
-            log.info("PETS has no SEAL / HOLO columns: the cosmetics of pet egg %s are lost "
-                     "(seal %s, holo %s).", pet_id, seal, holo)
-    if "SEAL" not in egg:
+            lost = {key: egg.pop(key, None) for key in group}
+            log.info("PETS has no %s columns: these cosmetics of pet egg %s are lost (%s).",
+                     " / ".join(group), pet_id, lost)
+    else:
         await con.execute(_SQL_INSERT_EGG.format(columns="", values=""), *args)
     log.info("Pet egg %s generated: %s", pet_id, egg)
     return pet_id
 
 
-async def _egg_stored(bot: "AlterBot", player_id: int, pet_id: int, egg: dict[str, Any],
-                      cosmetics: bool) -> None:
-    """After a new egg is saved: remember lost columns, tell the owner about rare cosmetics.
-
-    The best seal and Holo are rare enough for the owner to want to know; the
-    player sees them on his egg (``$towarzysz``), so nothing is announced.  Never raises.
-    """
-    if cosmetics and "SEAL" not in egg:
-        bot._pet_cosmetics = False  # type: ignore[attr-defined]  # see _insert_egg: the columns are gone
-        return
-    seal, holo = int(egg.get("SEAL", 0)), bool(egg.get("HOLO", False))
+def _rare_finds(egg: dict[str, Any]) -> list[str]:
+    """What of a stored egg the owner wants to hear about: the best seal, full Holo, a rare frame."""
     found = []
+    seal = int(egg.get("SEAL", 0) or 0)
     if seal >= MAX_SEAL:
         found.append(MSG_RARE_SEAL.format(name=petcards.SEAL_NAMES.get(seal, seal)))
-    if holo:
+    if egg.get("HOLO"):
         found.append(MSG_RARE_HOLO)
+    frame = _rare_frame(str(egg.get("FRAME", "") or ""))
+    if frame is not None:
+        found.append(MSG_RARE_FRAME.format(name=frame.label))
+    return found
+
+
+def _and(parts: Sequence[str]) -> str:
+    """``a``, ``a i b``, ``a, b i c``."""
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " i " + parts[-1]
+
+
+async def _egg_stored(bot: "AlterBot", player_id: int, pet_id: int, egg: dict[str, Any],
+                      cosmetics: bool, frames: bool = False) -> None:
+    """After a new egg is saved: remember lost columns, tell the owner about rare cosmetics.
+
+    The best seal, full Holo, an animated frame and the rarest static frame of a
+    pool (:data:`RARE_FRAME_PERCENT`) are rare enough for the owner to want to
+    know - in ONE message per egg; the player sees them on his egg
+    (``$towarzysz``), so nothing is announced.  A partial Holo (1%) is not
+    reported.  Never raises.
+    """
+    if frames and "FRAME" not in egg:
+        bot._pet_frames = False  # type: ignore[attr-defined]  # see _insert_egg: the columns are gone
+    if cosmetics and "SEAL" not in egg:
+        bot._pet_cosmetics = bot._pet_frames = False  # type: ignore[attr-defined]
+        return
+    found = _rare_finds(egg)
     if not found:
         return
-    log.info("Pet egg %s of player %s has rare cosmetics: seal %s, holo %s.", pet_id, player_id, seal, holo)
-    await bot.log_to_owner(MSG_RARE_COSMETICS.format(player_id=player_id, pet_id=pet_id,
-                                                     found=" i ".join(found)))
+    log.info("Pet egg %s of player %s has rare cosmetics: seal %s, holo %s, frame %r.", pet_id, player_id,
+             egg.get("SEAL"), egg.get("HOLO"), egg.get("FRAME", ""))
+    await bot.log_to_owner(MSG_RARE_COSMETICS.format(player_id=player_id, pet_id=pet_id, found=_and(found)))
+
+
+async def _cosmetic_state(bot: "AlterBot") -> tuple[bool, bool]:
+    """``(cosmetics_available, frames_available)`` - what a new egg can be stored with."""
+    cosmetics = await cosmetics_available(bot)
+    return cosmetics, cosmetics and await frames_available(bot)
 
 
 async def _announce_mythic(scene: "Scene", player_id: int) -> None:
@@ -955,11 +1205,11 @@ async def generate_pet_egg(scene: "Scene", player: Any = None) -> int:
     if player is None:
         player = await bot.member(bot.ids.owner)
     player_id = _pid(player) if player is not None else bot.ids.owner
-    cosmetics = await cosmetics_available(bot)
-    egg = _roll_egg(player, cosmetics=cosmetics)
+    cosmetics, frames = await _cosmetic_state(bot)
+    egg = _roll_egg(player, cosmetics=cosmetics, frames=frames)
     async with bot.db.transaction() as con:
         pet_id = await _insert_egg(con, egg)
-    await _egg_stored(bot, player_id, pet_id, egg, cosmetics)
+    await _egg_stored(bot, player_id, pet_id, egg, cosmetics, frames)
     if egg["MYTHIC"]:
         await _announce_mythic(scene, player_id)
     return pet_id
@@ -969,36 +1219,64 @@ async def assign_pet(scene: "Scene", player: Any) -> bool:
     """Give the player a new egg; False when he already has a pet."""
     bot = scene.bot
     player_id = _pid(player)
-    cosmetics = await cosmetics_available(bot)
+    cosmetics, frames = await _cosmetic_state(bot)
     async with bot.db.transaction() as con:
         await _lock_player(con, player_id)
         owner = await _owner(con, player_id, "PET_ID")
         if owner is not None and _int(owner["pet_id"]) > 0:
             log.debug("Player %s already has a pet; no egg assigned.", player_id)
             return False
-        egg = _roll_egg(player, cosmetics=cosmetics)
+        egg = _roll_egg(player, cosmetics=cosmetics, frames=frames)
         pet_id = await _insert_egg(con, egg)
         if owner is not None:
             await con.execute("UPDATE PETOWNER SET PET_ID = $2 WHERE PLAYER_ID = $1", player_id, pet_id)
         else:
             await _insert_owner(con, player_id, pet_id, True, 0, 0, 0, 0, 0)
     log.info("Pet %s assigned to player %s.", pet_id, player_id)
-    await _egg_stored(bot, player_id, pet_id, egg, cosmetics)
+    await _egg_stored(bot, player_id, pet_id, egg, cosmetics, frames)
     if egg["MYTHIC"]:
         await _announce_mythic(scene, player_id)
     await achievements.check_pets(scene, player)  # a mythic pet (with Holo / the rarest seal); never raises
     return True
 
 
-async def set_cosmetics(bot: "AlterBot", player_id: Any, seal: Any,
-                        holo: bool | None = None) -> tuple[str, dict[str, Any] | None]:
-    """Set the seal (and Holo, unless ``holo`` is None) of the player's active pet (``$DajPieczec``).
+#: The row lock every change of a pet takes (as ``_active_pet(lock=True)``), but naming its
+#: columns: right after the columns were added by hand a prepared "SELECT p.*" of this
+#: connection would be refused once, in the middle of the transaction.
+_SQL_LOCK_ACTIVE_PET = """SELECT p.PET_ID, p.MYTHIC, p.ULTRA_SHINY, p.SHINY
+                          FROM PETOWNER o JOIN PETS p ON p.PET_ID = o.PET_ID
+                          WHERE o.PLAYER_ID = $1 AND o.PET_ID > 0 LIMIT 1 FOR UPDATE OF p"""
 
-    The only way cosmetics change after the egg was drawn: for the owner, to
-    look at the cards and to put a mistake right.  Returns ``(status, what the
-    pet has now)``: ``bad_seal`` (not 0..:data:`MAX_SEAL`), ``no_columns``
-    (cosmetics are off, see :func:`cosmetics_available` - looked up again),
-    ``alone`` (no active pet) or ``_OK`` with ``pet_id`` / ``seal`` / ``holo``.
+
+def _foil_value(holo: Any) -> int | None:
+    """``holo`` of :func:`set_cosmetics` as a ``petcards.FOIL_*`` (None: leave the foil as it is)."""
+    if holo is None:
+        return None
+    if holo is True or holo is False:
+        return petcards.FOIL_FULL if holo else petcards.FOIL_NONE
+    try:
+        foil = int(holo)
+    except (TypeError, ValueError):
+        raise ValueError(holo) from None
+    if foil not in (petcards.FOIL_NONE, petcards.FOIL_PARTIAL, petcards.FOIL_FULL):
+        raise ValueError(holo)
+    return foil
+
+
+async def set_cosmetics(bot: "AlterBot", player_id: Any, seal: Any,
+                        holo: bool | int | None = None) -> tuple[str, dict[str, Any] | None]:
+    """Set the seal (and the foil, unless ``holo`` is None) of the player's active pet (``$DajPieczec``).
+
+    The only way cosmetics change after the egg was drawn (with :func:`set_frame`):
+    for the owner, to look at the cards and to put a mistake right.  ``holo``:
+    True / False as always (full Holo / no foil) or a ``petcards.FOIL_*``; the
+    foil is one of the three, so setting one clears the other flag.  Returns
+    ``(status, what the pet has now)``: ``bad_seal`` (not 0..:data:`MAX_SEAL`),
+    ``bad_foil``, ``no_columns`` (cosmetics are off, see
+    :func:`cosmetics_available` - looked up again), ``no_frame_columns`` (a
+    partial Holo was asked for and ``PETS`` cannot keep it, see
+    :func:`frames_available`), ``alone`` (no active pet) or ``_OK`` with
+    ``pet_id`` / ``seal`` / ``holo`` (full Holo) / ``foil`` (``FOIL_*``).
     """
     player_id = _pid(player_id)
     try:
@@ -1007,29 +1285,81 @@ async def set_cosmetics(bot: "AlterBot", player_id: Any, seal: Any,
         return "bad_seal", None
     if not 0 <= seal <= MAX_SEAL:
         return "bad_seal", None
+    try:
+        foil = _foil_value(holo)
+    except ValueError:
+        return "bad_foil", None
     if not await cosmetics_available(bot, refresh=True):
         return "no_columns", None
+    frames = await frames_available(bot, refresh=True)
+    if foil == petcards.FOIL_PARTIAL and not frames:
+        return "no_frame_columns", None
+    full = None if foil is None else foil == petcards.FOIL_FULL
+    partial = None if foil is None else foil == petcards.FOIL_PARTIAL
     async with bot.db.transaction() as con:
-        # The row lock every change of a pet takes (as _active_pet(lock=True)), but naming its
-        # column: right after the columns were added by hand a prepared "SELECT p.*" of this
-        # connection would be refused once, in the middle of the transaction.
-        pet_id = await con.fetchval(
-            """SELECT p.PET_ID FROM PETOWNER o JOIN PETS p ON p.PET_ID = o.PET_ID
-               WHERE o.PLAYER_ID = $1 AND o.PET_ID > 0 LIMIT 1 FOR UPDATE OF p""", player_id)
-        if pet_id is None:
+        pet = await con.fetchrow(_SQL_LOCK_ACTIVE_PET, player_id)
+        if pet is None:
             return "alone", None
-        row = await con.fetchrow(
-            """UPDATE PETS SET SEAL = $2, HOLO = COALESCE($3::boolean, HOLO) WHERE PET_ID = $1
-               RETURNING PET_ID, SEAL, HOLO""", pet_id, seal, holo)
+        if frames:
+            row = await con.fetchrow(
+                """UPDATE PETS SET SEAL = $2, HOLO = COALESCE($3::boolean, HOLO),
+                       HOLO_PARTIAL = COALESCE($4::boolean, HOLO_PARTIAL) WHERE PET_ID = $1
+                   RETURNING PET_ID, SEAL, HOLO, HOLO_PARTIAL""", pet["pet_id"], seal, full, partial)
+        else:  # the table of 2026-11-20: seals and full Holo only
+            row = await con.fetchrow(
+                """UPDATE PETS SET SEAL = $2, HOLO = COALESCE($3::boolean, HOLO) WHERE PET_ID = $1
+                   RETURNING PET_ID, SEAL, HOLO""", pet["pet_id"], seal, full)
     now = {"pet_id": _int(row["pet_id"]), "seal": _int(row["seal"]), "holo": row["holo"] is True}
+    now["foil"] = ornaments_of(row).foil
     log.info("Cosmetics of pet %s (player %s) set by an administrator: %s", now["pet_id"], player_id, now)
+    return _OK, now
+
+
+#: What ``$DajRamke`` takes for "the base frame of the class" (stored as '').
+BASE_FRAME_WORDS = frozenset({"baza", "bazowa", "podstawowa", "base", "brak", "0", "-"})
+
+
+async def set_frame(bot: "AlterBot", player_id: Any, frame: Any) -> tuple[str, dict[str, Any] | None]:
+    """Set the frame result of the player's active pet (``$DajRamke``).
+
+    ``frame``: a result id of the pet's own class (``S1``, ``s1-a``, the base id
+    itself) or one of :data:`BASE_FRAME_WORDS` - the base is stored as ''.
+    Returns ``(status, data)``: ``no_frame_columns`` (see
+    :func:`frames_available`, looked up again), ``alone`` (no active pet),
+    ``no_tier`` (an ordinary pet: no frame at all), ``bad_frame`` with
+    ``tier`` (the id is not a result of the pet's class: the caller lists
+    ``petcards.POOLS[tier]``) or ``_OK`` with ``pet_id`` / ``tier`` / ``frame``
+    (the stored id, '' = base).
+    """
+    player_id = _pid(player_id)
+    wanted = str(frame or "").strip()
+    if not await frames_available(bot, refresh=True):
+        return "no_frame_columns", None
+    async with bot.db.transaction() as con:
+        pet = await con.fetchrow(_SQL_LOCK_ACTIVE_PET, player_id)
+        if pet is None:
+            return "alone", None
+        tier = petcards.tier_of(pet)
+        if not tier:
+            return "no_tier", {"pet_id": _int(pet["pet_id"]), "tier": tier}
+        if wanted.lower() in BASE_FRAME_WORDS:
+            stored = ""
+        else:
+            found = petcards.FRAMES.get(wanted.upper())
+            if found is None or found.tier != tier:
+                return "bad_frame", {"pet_id": _int(pet["pet_id"]), "tier": tier}
+            stored = "" if found.base else found.id
+        row = await con.fetchrow("UPDATE PETS SET FRAME = $2 WHERE PET_ID = $1 RETURNING PET_ID, FRAME",
+                                 pet["pet_id"], stored)
+    now = {"pet_id": _int(row["pet_id"]), "tier": tier, "frame": str(row["frame"] or "")}
+    log.info("Frame of pet %s (player %s) set by an administrator: %s", now["pet_id"], player_id, now)
     return _OK, now
 
 
 async def reassign_pet(bot: "AlterBot", pet_id: Any, player_id: Any) -> bool:
     """Give an existing pet to a player without an active pet; True when it was done.
 
-    The pet comes as it is - with its seal and Holo: they belong to the
+    The pet comes as it is - with its frame, seal and foil: they belong to the
     specimen, not to its owner, so nothing is rolled here.
     """
     pet_id, player_id = int(pet_id), _pid(player_id)
@@ -1147,15 +1477,16 @@ def _confirmation_slot(player_id: int) -> Iterator[bool]:
         _awaiting_confirmation.discard(player_id)
 
 
-async def _confirm(scene: "Scene", player: Any, prompt: str) -> ui.Confirmation:
+async def _confirm(scene: "Scene", player: Any, prompt: str, **send_kwargs: Any) -> ui.Confirmation:
     """Ask ``prompt`` with Potwierdzam / Anuluj buttons; 15 s for a click or a typed ``$potwierdzam``.
 
     The bot listens for the typed answer before the question becomes visible
     (:func:`ui.confirm`); only ``player`` can answer, only on this channel.
     The result is falsy when the player cancelled or did not answer.
+    ``send_kwargs`` (e.g. ``allowed_mentions=``) go with the question.
     """
     return await ui.confirm(scene.bot, scene.channel, player, prompt,
-                            timeout=timing.timeout(CONFIRM_TIMEOUT), typed=CONFIRM_WORD)
+                            timeout=timing.timeout(CONFIRM_TIMEOUT), typed=CONFIRM_WORD, **send_kwargs)
 
 
 async def _thank(answer: ui.Confirmation, emoji: str) -> None:
@@ -1342,8 +1673,9 @@ async def transform_pet(scene: "Scene", player: Any, *, expected_pet: int | None
     """Transform pet appearance for a mirror (supporters only: patrons, crafters,
     Twitch subscribers, YouTube supporters).
 
-    Only the looks change (``TYPE`` / ``QUALITY`` / ``VARIANT``): the seal and
-    Holo belong to the specimen and stay.  ``expected_pet``: as in :func:`reroll_pet`.
+    Only the looks change (``TYPE`` / ``QUALITY`` / ``VARIANT``): the class
+    (``SHINY`` / ``ULTRA_SHINY``), and with it the frame, the seal and the foil
+    belong to the specimen and stay.  ``expected_pet``: as in :func:`reroll_pet`.
     """
     player_id = _pid(player)
     mention = "<@" + str(player_id) + ">"
@@ -1454,10 +1786,24 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
 
     ``expected_pet``: the pet a panel button was clicked under; when another
     pet is active (before or after the question) nothing is discarded.
+
+    A supporter's pet is kept in his album (:mod:`altermmo.features.album`,
+    owner's decision of 2026-11-21): the question and the answer say so, and
+    the album's row is written in the SAME transaction that deletes the pet -
+    it is in ``PETS`` or in the album, never both, never neither.  When the
+    album cannot be written nothing is sacrificed (the player and the owner
+    are told).  Whether he supports is asked again at the sacrifice itself.
+    Once the sacrifice is committed the player is told the pet was kept and
+    "Pełny album" is checked even when the boss modifier step fails (its error
+    still reaches the caller).
+    Everybody else's sacrifice is exactly what it always was.
     """
+    from . import album  # (lazily: the album builds on this module)
+
     bot = scene.bot
     player = scene.author
     player_id = _pid(player)
+    kept: int | None = None
     with _confirmation_slot(player_id) as free:
         if not free:
             await scene.send(MSG_ALREADY_WAITING)
@@ -1472,18 +1818,31 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
         answer = await _confirm(
             scene, player,
             "Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@" + str(player_id)
-            + ">? <:MonkaS:882181709100097587> " + CONFIRM_HINT)
+            + ">? <:MonkaS:882181709100097587> "
+            + (album.MSG_DISCARD_KEPT if patrons.check_if_patron(player) else "") + CONFIRM_HINT)
         if not answer:
             await scene.send("*Twój towarzysz oddycha z ulgą...*")
             return False
-        # The pet that is active *now* goes, together with its row in PETS.
-        async with bot.db.transaction() as con:
-            owner = await _owner(con, player_id, "PET_ID", lock=True)
-            pet_id = _int(owner["pet_id"]) if owner is not None else 0
-            other = _other_pet(pet_id, expected_pet)
-            if pet_id > 0 and not other:
-                await con.execute("UPDATE PETOWNER SET PET_ID = 0 WHERE PLAYER_ID = $1", player_id)
-                await con.execute("DELETE FROM PETS WHERE PET_ID = $1", pet_id)
+        keeps = patrons.check_if_patron(player)  # the status at the moment of the sacrifice
+        # The pet that is active *now* goes, together with its row in PETS (into the album).
+        try:
+            async with bot.db.transaction() as con:
+                owner = await _owner(con, player_id, "PET_ID", lock=True)
+                pet_id = _int(owner["pet_id"]) if owner is not None else 0
+                other = _other_pet(pet_id, expected_pet)
+                if pet_id > 0 and not other:
+                    pet = await _pet(con, pet_id, lock=True) if keeps else None
+                    if pet is not None:
+                        kept = await album.keep(con, player_id, pet)  # NotSaved: everything is rolled back
+                    await con.execute("UPDATE PETOWNER SET PET_ID = 0 WHERE PLAYER_ID = $1", player_id)
+                    await con.execute("DELETE FROM PETS WHERE PET_ID = $1", pet_id)
+        except album.NotSaved as exc:
+            log.error("Player %s: pet %s not sacrificed, the album could not be written (%s).",
+                      player_id, pet_id, exc)
+            await bot.log_to_owner(album.LOG_NOT_SAVED.format(pet_id=pet_id, player_id=player_id,
+                                                              error=str(exc)[:300]))
+            await scene.send(album.MSG_NOT_SAVED.format(player_id=player_id))
+            return False
         if other:
             log.info("Player %s: discard of pet %s refused, pet %s is active now.", player_id,
                      expected_pet, pet_id)
@@ -1492,9 +1851,16 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
         if pet_id <= 0:
             await scene.send(MSG_ALONE_MAD)
             return False
-        log.info("Player %s discarded pet %s.", player_id, pet_id)
-        await modifiers.random_modifiers(scene, True, True)
-        await _thank(answer, "<:MonkaS:882181709100097587>")
+        log.info("Player %s discarded pet %s%s.", player_id, pet_id,
+                 "" if kept is None else f" (kept in the album as entry {kept})")
+        try:
+            await modifiers.random_modifiers(scene, True, True)
+            await _thank(answer, "<:MonkaS:882181709100097587>")
+        finally:
+            # Committed: the pet IS in the album, whatever the modifier step does (its error,
+            # e.g. Discord down, still goes on to the caller).
+            if kept is not None:
+                await album.saved(scene, player)  # the answer and the album's achievement; never raises
     return True
 
 
@@ -2071,13 +2437,18 @@ async def pet_ranking(scene: "Scene") -> None:
     await scene.send(embed=emb)
 
 
+#: First line of the private "a boss is coming" warning (players know it word for word).
+MSG_BOSS_WARNING = "Nadciąga boss! Będzie {rarity}."
+
+
 async def _warn_about_boss(bot: "AlterBot", player_id: int, text: str) -> None:
     member = await bot.member(player_id)
     if member is None:
         log.info("Boss detection: player %s left the server; skipped.", player_id)
         return
     try:
-        await io.send(member, text, attempts=2)
+        # With the button that switches these warnings off (features/bossdetect.py).
+        await bossdetect.send_warning(member, text)
         return
     except asyncio.CancelledError:
         raise
@@ -2095,12 +2466,14 @@ async def detect_boss(bot: "AlterBot", boss_rarity: int) -> None:
     """Send PM to everyone whose active pet can detect bosses.
 
     One player who cannot be reached never stops the others (or the boss).
+    The warning's first line is :data:`MSG_BOSS_WARNING`; under it one line and a
+    button tell how to switch the warnings off (``bossdetect.dm_warning``).
     """
     rows = await bot.db.fetch(
         """SELECT DISTINCT o.PLAYER_ID FROM PETOWNER o JOIN PETS p ON p.PET_ID = o.PET_ID
            WHERE p.DETECTION = TRUE AND o.PET_ID > 0 AND o.PLAYER_ID > 0""")
     rarity = _RARITY_NAMES[min(max(_int(boss_rarity), 0), len(_RARITY_NAMES) - 1)]
-    text = "Nadciąga boss! Będzie " + rarity + "."
+    text = bossdetect.dm_warning(bot, MSG_BOSS_WARNING.format(rarity=rarity))
     log.info("Boss detection: warning %d player(s) about a boss (%s).", len(rows), rarity)
     for row in rows:
         player_id = _int(row["player_id"])

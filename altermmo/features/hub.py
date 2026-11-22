@@ -29,11 +29,12 @@ Two kinds of buttons:
   still gathering hunters JOINS it, exactly like typing ``$polowanie``.
   Refusals (cooldown, a boss on the way, busy...) are answered with
   :func:`ui.reply`; the hunt or the tower run itself is public, as when typed.
-* **display** - "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Pomoc" show
-  exactly what ``$towarzysz``, ``$stajnia``, ``$klejnoty``, the three ranking
-  commands and ``$pomoc`` show: on the channel, for everybody, with the same
-  buttons and menus under them (owner's decision of 2026-11-20: nothing is
-  visible "only to you").  They follow the busy policy of the display commands
+* **display** - "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia",
+  "Album", "Pomoc" show exactly what ``$towarzysz``, ``$stajnia``, ``$klejnoty``,
+  the three ranking commands, ``$osiagniecia``, ``$album`` and ``$pomoc`` show
+  (:func:`display_gate` is also the gate of the album's own buttons): on the
+  channel, for everybody, with the same buttons and menus under them (owner's
+  decision of 2026-11-20: nothing is visible "only to you").  They follow the busy policy of the display commands
   (``guards.unless_busy(read_only=True)``).  A member who may not write on
   the channel (a dead hunter) cannot make the bot post there for him.
   "Pomoc" shares the cooldown of ``$pomoc``.
@@ -75,6 +76,7 @@ STABLE_ID = BUTTON_PREFIX + "stable"
 GEMS_ID = BUTTON_PREFIX + "gems"
 RANKINGS_ID = BUTTON_PREFIX + "rankings"
 ACHIEVEMENTS_ID = BUTTON_PREFIX + "achievements"
+ALBUM_ID = BUTTON_PREFIX + "album"
 HELP_ID = BUTTON_PREFIX + "help"
 
 PANEL_TITLE = "🎮 Panel gry"
@@ -89,6 +91,7 @@ PANEL_GAME_TEXT = (
     "i klejnoty umiejętności.\n"
     "🏆 **Rankingi** - sezonowy ranking łowców, Wieża Śmierci i najbardziej utalentowani towarzysze.\n"
     "🏅 **Osiągnięcia** - Twoje kolekcjonerskie osiągnięcia (dla wspierających).\n"
+    "📖 **Album** - kolekcja Twoich poświęconych towarzyszy (dla wspierających).\n"
     "❓ **Pomoc** - wszystkie komendy gry.\n\n"
     "👹 **Boss** pojawia się na tym kanale co kilkanaście minut do kilkunastu godzin - kliknij "
     "**Zaatakuj** pod jego obrazkiem albo wpisz **$zaatakuj**.\n"
@@ -100,7 +103,8 @@ PANEL_GAME_TEXT = (
 #: ``pets.PATRON_EGGS``; ``pets.transform_pet``; the shrine in ``cogs/events.py``;
 #: ``boss.send_boss_image`` and ``events.spawn_party``; ``achievements.py`` and the
 #: mythic slayer role in ``boss.py``; the seals and the Holo foil rolled for a new pet in ``pets.py``
-#: (stored with the pet for good, shown only while its owner supports).
+#: (stored with the pet for good, shown only while its owner supports); the album of sacrificed pets
+#: (``album.py``, ``pets.discard_pet``) - its line names no species and no ornament either.
 #: (The silver / gold frames of shiny pets are for everybody, so they are not listed.)
 #: Owner's decision of 2026-11-20: the panel does not name WHICH species supporters can find nor
 #: WHICH card ornaments exist (seals, Holo) - players discover them.
@@ -115,6 +119,7 @@ PANEL_BENEFITS: tuple[str, ...] = (
     "przyciskiem **Osiągnięcia** (**$osiagniecia**).",
     "🔖 **Kolekcjonerskie ozdoby karty** - każdy nowy towarzysz ma szansę na rzadkie ozdoby swojej "
     "karty. Zdobią ją, dopóki wspierasz (po przerwie wracają).",
+    "📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**).",
 )
 #: Where to become a supporter: markdown links (they work in an embed description), the
 #: recommended way first and in bold.
@@ -198,6 +203,11 @@ class HubView(ui.GameView):
     async def achievements(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await show_display(interaction, show_achievements)
 
+    @discord.ui.button(label="Album", emoji="📖", style=discord.ButtonStyle.secondary, row=2,
+                       custom_id=ALBUM_ID)
+    async def album(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_display(interaction, show_album)
+
     @discord.ui.button(label="Pomoc", emoji="❓", style=discord.ButtonStyle.secondary, row=2,
                        custom_id=HELP_ID)
     async def help(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -263,7 +273,7 @@ async def show_display(interaction: Any, show: Callable[["Scene"], Awaitable[Any
 
     True when shown.
     """
-    if not await _display_gate(interaction):
+    if not await display_gate(interaction):
         return False
     if not await ui.ack(interaction):  # the database may take a moment; the answer follows on the channel
         return False  # an expired click: the player saw "interaction failed", nothing is posted
@@ -271,8 +281,12 @@ async def show_display(interaction: Any, show: Callable[["Scene"], Awaitable[Any
     return True
 
 
-async def _display_gate(interaction: Any) -> bool:
-    """May a display button show something now?  Refusals are answered here."""
+async def display_gate(interaction: Any) -> bool:
+    """May a display button show something now?  Refusals are answered here.
+
+    Also the gate of the buttons under the album (features/album.py): they only
+    show something, and must not make a fight stutter either.
+    """
     if not await ui.gate(interaction, boss_channel=False,
                          unless_busy=display_blocked_while_busy(interaction.client)):
         return False
@@ -306,7 +320,7 @@ async def help_clicked(interaction: Any) -> bool:
     """
     from ..bot import cooldown_text
 
-    if not await _display_gate(interaction):
+    if not await display_gate(interaction):
         return False
     bucket = _help_bucket(interaction.client, interaction.user)
     if bucket is not None:
@@ -398,6 +412,12 @@ async def show_achievements(scene: "Scene") -> Any:
     from . import achievements
 
     return await achievements.show_achievements(scene)
+
+
+async def show_album(scene: "Scene") -> Any:
+    from . import album
+
+    return await album.show_album(scene)
 
 
 async def show_help(scene: "Scene") -> None:

@@ -1,10 +1,11 @@
-"""features/achievements.py: the catalogue of the four mythic achievements, the roles the bot makes,
-what the pets stand for, the hand-out to veterans, the start-up and ``$osiagniecia``.
+"""features/achievements.py: the catalogue of the four mythic achievements and the album's one, the roles
+the bot makes, what the pets stand for, the hand-out to veterans, the start-up and ``$osiagniecia``.
 
 Owner's decisions of 2026-11-20 tested here: only the mythic achievements stay (a mythic boss, a mythic
 pet, a mythic pet with Holo, a mythic pet with the rarest seal); only supporters get the roles; the
 veteran hand-out is silent with one summary for the owner and waits while something plays on the boss
-channel; ``$osiagniecia`` shows what the player has and "X z 4" - never which achievements are missing.
+channel; ``$osiagniecia`` shows what the player has and "X z 5" - never which achievements are missing.
+2026-11-21: "Pełny album" joined them (one more bot-made role; the album itself: test_album*.py).
 The deletion of the withdrawn achievements' roles is tested in test_achievements.py.
 """
 
@@ -30,6 +31,9 @@ from fakes import FakeMember
 PATRON = patrons.PATRON_ROLES[0]
 PET_KEYS = ("pet_mythic", "pet_mythic_holo", "pet_mythic_seal")
 PET_NAMES = ("Mityczny towarzysz", "Mityczny Holo", "Mityczna Pieczęć Arcyłowcy")
+#: Every role the bot makes itself: the three pet roles and the album's (2026-11-21).
+OWN_KEYS = (*PET_KEYS, "album_full")
+OWN_NAMES = (*PET_NAMES, "Pełny album")
 BOT_MADE = [item for item in TROPHIES if item.bot_made]
 GAME_CHANNELS = ("channel", "announce_channel", "notice_channel")
 
@@ -123,7 +127,11 @@ def give(game, member, *keys: str) -> None:
 
 
 def stored(bot) -> dict:
-    return bot.store.achievement_roles.load()
+    """The saved role ids as one mapping (the file keeps the later achievements' apart:
+    ``achievements.LATER_ROLES_KEY``)."""
+    saved = dict(bot.store.achievement_roles.load())
+    saved.update(saved.pop(achievements.LATER_ROLES_KEY, {}))
+    return saved
 
 
 def announcements(game) -> int:
@@ -158,18 +166,18 @@ async def set_kills(db, player_id: int, kills: int = 0, hunts: int = 0, butchers
 
 # -- the catalogue, pure ----------------------------------------------------------------------
 
-def test_catalogue_has_exactly_the_four_mythic_achievements():
-    assert [item.key for item in TROPHIES] == ["mythic_boss", *PET_KEYS]
-    assert [item.name for item in TROPHIES] == ["Mityczny boss", *PET_NAMES]
-    assert len({item.key for item in TROPHIES}) == len({item.name for item in TROPHIES}) == 4
+def test_catalogue_has_exactly_the_four_mythic_achievements_and_the_album():
+    assert [item.key for item in TROPHIES] == ["mythic_boss", *OWN_KEYS]
+    assert [item.name for item in TROPHIES] == ["Mityczny boss", *OWN_NAMES]
+    assert len({item.key for item in TROPHIES}) == len({item.name for item in TROPHIES}) == 5
     assert all(trophy(item.key) is item for item in TROPHIES)
     assert [field.name for field in dataclasses.fields(achievements.Trophy)] == ["key", "name", "ids_attr"]
     with pytest.raises(KeyError):
         trophy("legend")                                     # withdrawn
 
 
-def test_the_mythic_boss_uses_the_games_role_and_the_bot_makes_the_three_pet_roles():
-    assert [item.key for item in BOT_MADE] == list(PET_KEYS)
+def test_the_mythic_boss_uses_the_games_role_and_the_bot_makes_the_pet_and_album_roles():
+    assert [item.key for item in BOT_MADE] == list(OWN_KEYS)       # exactly one more role than on 2026-11-20
     assert all(not item.ids_attr for item in BOT_MADE)
     [boss] = [item for item in TROPHIES if not item.bot_made]
     assert (boss.key, boss.ids_attr) == ("mythic_boss", "mythic_slayer_role")
@@ -218,7 +226,7 @@ async def test_role_of_an_achievement_with_the_bot(game):
     assert all(role_id_of(bot, item) is None for item in BOT_MADE)   # not made yet
     await achievements.ensure_roles(bot)
     made = {item.key: role_id_of(bot, item) for item in BOT_MADE}
-    assert all(made.values()) and len(set(made.values())) == 3
+    assert all(made.values()) and len(set(made.values())) == 4
     assert bot.ids.mythic_slayer_role not in made.values()
     assert all(game.guild.get_role(role_id).name == trophy(key).name for key, role_id in made.items())
 
@@ -227,10 +235,10 @@ async def test_ensure_roles_makes_the_missing_roles_without_permissions(game):
     bot = game.bot
     before = len(game.guild.roles)
     made = await achievements.ensure_roles(bot)
-    assert made == list(PET_NAMES)
-    assert len(game.guild.roles) == before + 3               # the mythic boss's role is not made
+    assert made == list(OWN_NAMES)
+    assert len(game.guild.roles) == before + 4               # the mythic boss's role is not made
     file = stored(bot)
-    assert set(file) == set(PET_KEYS)
+    assert set(file) == set(OWN_KEYS)
     for item in BOT_MADE:
         role = game.guild.get_role(file[item.key])
         assert role is not None and role.name == item.name
@@ -240,11 +248,11 @@ async def test_ensure_roles_makes_the_missing_roles_without_permissions(game):
         assert asked["colour"] == discord.Colour(achievements.ROLE_COLOUR)
         assert asked["reason"] == achievements.ROLE_REASON
     assert bot._achievement_roles == file                    # what the bot remembers = the file
-    assert bot.owner_log == [achievements.LOG_ROLES_CREATED.format(count=3, names=", ".join(PET_NAMES))]
+    assert bot.owner_log == [achievements.LOG_ROLES_CREATED.format(count=4, names=", ".join(OWN_NAMES))]
     assert game_channel_messages(game) == 0
 
     assert await achievements.ensure_roles(bot) == []        # a second call makes nothing
-    assert len(game.guild.roles) == before + 3
+    assert len(game.guild.roles) == before + 4
     assert stored(bot) == file and len(bot.owner_log) == 1
 
 
@@ -260,11 +268,12 @@ async def test_each_role_is_saved_as_soon_as_it_is_made(game, monkeypatch):
 
     monkeypatch.setattr(game.guild, "create_role", watching)
     await achievements.ensure_roles(bot)
-    assert [set(file) for file in seen] == [set(), {"pet_mythic"}, {"pet_mythic", "pet_mythic_holo"}]
+    assert [set(file) for file in seen] == [set(), {"pet_mythic"}, {"pet_mythic", "pet_mythic_holo"},
+                                            set(PET_KEYS)]
 
 
 def roles_of_an_earlier_run(game, *, without: str = "") -> dict[str, int]:
-    """The 3 roles the bot made in an earlier run, on the server, with their ids saved in the file;
+    """The 4 roles the bot made in an earlier run, on the server, with their ids saved in the file;
     the role of ``without`` was deleted on the server since (its saved id points nowhere)."""
     saved = {item.key: game.guild.add_role(990_000_000_000_000_100 + index, item.name).id
              for index, item in enumerate(BOT_MADE) if item.key != without}
@@ -310,12 +319,12 @@ async def test_failure_to_make_roles_is_reported_to_the_owner_and_not_raised(gam
     assert await achievements.ensure_roles(bot) == []
     assert stored(bot) == {}
     assert owner_lines(bot, "Nie udało się utworzyć ról osiągnięć") == [
-        achievements.LOG_ROLES_FAILED.format(names=", ".join(PET_NAMES))]
+        achievements.LOG_ROLES_FAILED.format(names=", ".join(OWN_NAMES))]
     assert pings(game) == 1                                  # the owner is pinged
     assert game_channel_messages(game) == 0
 
     game.guild.create_role_error = None                      # the permission was given back
-    assert await achievements.ensure_roles(bot) == list(PET_NAMES)
+    assert await achievements.ensure_roles(bot) == list(OWN_NAMES)
 
 
 async def test_one_role_that_cannot_be_made_does_not_stop_the_others(game, monkeypatch):
@@ -328,8 +337,9 @@ async def test_one_role_that_cannot_be_made_does_not_stop_the_others(game, monke
         return await create(name=name, **kwargs)
 
     monkeypatch.setattr(game.guild, "create_role", picky)
-    assert await achievements.ensure_roles(bot) == ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy"]
-    assert set(stored(bot)) == {"pet_mythic", "pet_mythic_seal"}
+    assert await achievements.ensure_roles(bot) == ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy",
+                                                    "Pełny album"]
+    assert set(stored(bot)) == {"pet_mythic", "pet_mythic_seal", "album_full"}
     assert owner_lines(bot, "Nie udało się utworzyć ról osiągnięć") == [
         achievements.LOG_ROLES_FAILED.format(names="Mityczny Holo")]
     monkeypatch.setattr(game.guild, "create_role", create)
@@ -341,7 +351,7 @@ async def test_roles_file_from_an_earlier_run_is_used_and_read_once(game):
     kept = game.guild.add_role(990_000_000_000_000_100, "Mityczny Holo (renamed by the owner)")
     bot.store.achievement_roles.save({"pet_mythic_holo": kept.id, "pet_mythic": 0, "not_an_achievement": "x"})
     made = await achievements.ensure_roles(bot)
-    assert made == ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy"]     # the owner's renamed role is kept
+    assert made == ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy", "Pełny album"]   # the renamed one is kept
     assert role_id_of(bot, trophy("pet_mythic_holo")) == kept.id
     assert stored(bot)["pet_mythic_holo"] == kept.id and stored(bot) == bot._achievement_roles
     # The file is read once; what the bot made since is remembered, not read back.
@@ -391,8 +401,9 @@ async def test_unreadable_roles_file_means_no_role_is_made(game, broken):
     assert achievements.roles_file_readable(bot) is True
     assert await achievements.grant(game.scene(), patron, "pet_mythic_holo") is True
     assert role_ids(patron) == {holo.id}
-    assert await achievements.ensure_roles(bot) == ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy"]
-    assert stored(bot)["pet_mythic_holo"] == holo.id and len(stored(bot)) == 3
+    assert await achievements.ensure_roles(bot) == ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy",
+                                                    "Pełny album"]
+    assert stored(bot)["pet_mythic_holo"] == holo.id and len(stored(bot)) == 4
 
 
 async def test_the_mythic_boss_is_given_while_the_roles_file_is_unreadable(game, slayer):
@@ -411,8 +422,8 @@ async def test_missing_or_empty_roles_file_means_the_roles_are_made(game, conten
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
     assert achievements.roles_file_readable(bot) is True
-    assert await achievements.ensure_roles(bot) == list(PET_NAMES)
-    assert set(stored(bot)) == set(PET_KEYS)
+    assert await achievements.ensure_roles(bot) == list(OWN_NAMES)
+    assert set(stored(bot)) == set(OWN_KEYS)
     assert owner_lines(bot, "Nie mogę odczytać") == []
 
 
@@ -450,19 +461,19 @@ async def test_a_role_of_the_same_name_without_permissions_is_taken_over(game):
     patron = game.add_member("Patron", roles=[PATRON])
     before = len(game.guild.roles)
 
-    assert await achievements.ensure_roles(bot) == ["Mityczna Pieczęć Arcyłowcy"]
-    assert len(game.guild.roles) == before + 1
+    assert await achievements.ensure_roles(bot) == ["Mityczna Pieczęć Arcyłowcy", "Pełny album"]
+    assert len(game.guild.roles) == before + 2
     file = stored(bot)
     assert file["pet_mythic_holo"] == ours.id and file["pet_mythic"] == mapped.id
     assert file["pet_mythic_seal"] not in (mapped.id, powerful.id, managed.id)
     assert owner_lines(bot, "Role osiągnięć, które już były na serwerze") == [
         achievements.LOG_ROLES_ADOPTED.format(count=1, names="Mityczny Holo")]
     assert owner_lines(bot, "Utworzyłem role osiągnięć") == [
-        achievements.LOG_ROLES_CREATED.format(count=1, names="Mityczna Pieczęć Arcyłowcy")]
+        achievements.LOG_ROLES_CREATED.format(count=2, names="Mityczna Pieczęć Arcyłowcy, Pełny album")]
 
     assert await achievements.grant(game.scene(), patron, "pet_mythic_holo") is True
     assert role_ids(patron) == {ours.id}
-    assert await achievements.ensure_roles(bot) == [] and len(game.guild.roles) == before + 1
+    assert await achievements.ensure_roles(bot) == [] and len(game.guild.roles) == before + 2
 
 
 async def test_a_role_just_made_is_used_before_discords_cache_knows_it(game, monkeypatch):
@@ -481,9 +492,10 @@ async def test_a_role_just_made_is_used_before_discords_cache_knows_it(game, mon
     assert role_ids(patron) == {holo}
     assert game.channel.messages[-1].content == f"<@{patron.id}> zdobywa osiągnięcie: Mityczny Holo!"
 
-    assert await achievements.ensure_roles(bot) == ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy"]
+    assert await achievements.ensure_roles(bot) == ["Mityczny towarzysz", "Mityczna Pieczęć Arcyłowcy",
+                                                    "Pełny album"]
     assert await achievements.ensure_roles(bot) == []
-    assert sorted(asked) == sorted(PET_NAMES)                # every role made exactly once
+    assert sorted(asked) == sorted(OWN_NAMES)                # every role made exactly once
     assert await achievements.grant(scene, patron, "pet_mythic") is True      # also unseen by the cache
     assert keys_of(bot, patron) == {"pet_mythic_holo", "pet_mythic"}
     assert announcements(game) == 2
@@ -532,7 +544,7 @@ async def test_a_forced_ensure_roles_ignores_the_back_off_and_its_success_clears
     clock.now += 60
     assert await achievements.grant(scene, patron, "pet_mythic") is False    # still within the hour
 
-    assert len(await achievements.ensure_roles(bot)) == 2                    # $roleosiagniec does not wait
+    assert len(await achievements.ensure_roles(bot)) == 3                    # $roleosiagniec does not wait
     assert await achievements.grant(scene, patron, "pet_mythic") is True
     game.guild.roles.remove(holo)                                            # deleted on the server
     assert await achievements.grant(scene, patron, "pet_mythic_holo") is True   # made again at once
@@ -933,10 +945,10 @@ async def test_one_players_failure_does_not_stop_the_others(game_db, monkeypatch
         await set_pets(bot.db, player.id, pet)
     deserved = achievements.deserved
 
-    async def flaky(bot_, player_id):
+    async def flaky(bot_, player_id, **kwargs):
         if player_id == broken.id:
             raise RuntimeError("test: this one's data cannot be read")
-        return await deserved(bot_, player_id)
+        return await deserved(bot_, player_id, **kwargs)
 
     monkeypatch.setattr(achievements, "deserved", flaky)
     assert await achievements.sync_veterans(bot) == (1, 1)
@@ -988,12 +1000,12 @@ async def test_start_up_on_the_server_of_today(game_db, monkeypatch):
     await achievements.start_up(bot)
 
     assert not {role.id for role in guild.roles} & {*achievements.RETIRED_ROLES, holo.id}
-    assert set(stored(bot)) == set(PET_KEYS) and stored(bot)["pet_mythic"] == towarzysz.id
+    assert set(stored(bot)) == set(OWN_KEYS) and stored(bot)["pet_mythic"] == towarzysz.id
     assert all(achievements.role_exists(bot, item) for item in TROPHIES)
     assert keys_of(bot, patron) == {"pet_mythic", "pet_mythic_holo"}
     assert holo not in patron.roles
     assert owner_lines(bot, "Usunąłem z serwera role wycofanych osiągnięć (16)")
-    assert owner_lines(bot, "Utworzyłem role osiągnięć (2)")
+    assert owner_lines(bot, "Utworzyłem role osiągnięć (3)")
     assert owner_lines(bot, "Zaległe osiągnięcia: nadałem 2 ról 1 wspierającym.")
     assert owner_lines(bot, "Nie udało się") == []
     assert game_channel_messages(game_db) == 0
@@ -1034,7 +1046,7 @@ async def test_held_does_not_count_the_withdrawn_roles(game):
     bot = game.bot
     member = game.add_member("Ala", roles=[PATRON, *achievements.RETIRED_ROLES])
     assert achievements.held(bot, member) == []
-    assert "**0 z 4**" in achievements.summary_embed(bot, member).description
+    assert "**0 z 5**" in achievements.summary_embed(bot, member).description
 
 
 async def test_summary_shows_what_is_held_and_how_many_of_how_many(game, slayer):
@@ -1046,7 +1058,7 @@ async def test_summary_shows_what_is_held_and_how_many_of_how_many(game, slayer)
     embed = achievements.summary_embed(bot, member)
     text = embed.description
     assert embed.title == achievements.MSG_SUMMARY_TITLE
-    assert f"<@{member.id}>, masz **2 z 4** osiągnięć." in text
+    assert f"<@{member.id}>, masz **2 z 5** osiągnięć." in text
     assert f"🏅 <@&{slayer.id}>" in text and f"🏅 <@&{role_id_of(bot, trophy('pet_mythic_holo'))}>" in text
     assert "Nowe" not in text
     assert embed.footer.text == achievements.MSG_SUMMARY_FOOTER
@@ -1061,10 +1073,10 @@ async def test_summary_never_reveals_what_is_missing(game, slayer):
     embed = achievements.summary_embed(bot, member, new)
     text = "\n".join([embed.title or "", embed.description or "", embed.footer.text or "",
                       *(f"{f.name} {f.value}" for f in embed.fields)])
-    assert "**1 z 4**" in text
+    assert "**1 z 5**" in text
     assert f"🎉 **Nowe:** <@&{role_id_of(bot, trophy('pet_mythic'))}>" in text
     lacking = [item for item in TROPHIES if item.key != "pet_mythic"]
-    assert len(lacking) == 3
+    assert len(lacking) == 4
     for item in lacking:
         assert item.name not in text, item.key
         assert str(role_id_of(bot, item)) not in text, item.key
@@ -1073,7 +1085,7 @@ async def test_summary_never_reveals_what_is_missing(game, slayer):
 async def test_summary_of_somebody_with_nothing_yet(game):
     member = game.add_member("Ala", roles=[PATRON])
     embed = achievements.summary_embed(game.bot, member)
-    assert "**0 z 4**" in embed.description
+    assert "**0 z 5**" in embed.description
     assert achievements.MSG_SUMMARY_NONE in embed.description
     assert "<@&" not in embed.description
 
@@ -1087,7 +1099,7 @@ async def test_show_achievements_is_for_supporters_only(game_db):
     assert answer.content.startswith(f"<@{plain.id}> Osiągnięcia kolekcjonerskie są dla wspierających (")
     assert patrons.SUPPORTERS_LONG in answer.content
     assert all(url in answer.content for _, url in patrons.SUPPORT_LINKS)
-    assert answer.embeds == [] and " z 4" not in answer.text
+    assert answer.embeds == [] and " z 5" not in answer.text
     assert role_ids(plain) == set() and stored(game_db.bot) == {}
 
     assert await achievements.show_achievements(game_db.scene()) is False      # nobody asked
@@ -1104,7 +1116,7 @@ async def test_show_achievements_without_the_database_shows_the_roles_held(game,
     assert await achievements.show_achievements(game.scene(patron, "$osiagniecia")) is True
     answer = game.channel.bot_messages[-1]
     assert len(answer.embeds) == 1
-    assert f"<@{patron.id}>, masz **2 z 4** osiągnięć." in answer.text
+    assert f"<@{patron.id}>, masz **2 z 5** osiągnięć." in answer.text
     assert f"<@&{slayer.id}>" in answer.text
     assert f"<@&{role_id_of(bot, trophy('pet_mythic_seal'))}>" in answer.text
     assert "Nowe" not in answer.text
@@ -1122,7 +1134,7 @@ async def test_show_achievements_hands_out_quietly_and_shows_the_summary(game_db
     answer = game_db.channel.bot_messages[-1]
     assert len(answer.embeds) == 1                           # a public message on the channel
     text = answer.text
-    assert f"<@{patron.id}>, masz **3 z 4** osiągnięć." in text
+    assert f"<@{patron.id}>, masz **3 z 5** osiągnięć." in text
     new_line = next(line for line in text.splitlines() if line.startswith("🎉 **Nowe:**"))
     assert f"<@&{role_id_of(bot, trophy('pet_mythic'))}>" in new_line
     assert f"<@&{role_id_of(bot, trophy('pet_mythic_holo'))}>" in new_line
@@ -1131,4 +1143,4 @@ async def test_show_achievements_hands_out_quietly_and_shows_the_summary(game_db
 
     assert await achievements.show_achievements(game_db.scene(patron, "$osiagniecia")) is True
     assert "Nowe" not in game_db.channel.bot_messages[-1].text      # nothing new the second time
-    assert "**3 z 4**" in game_db.channel.bot_messages[-1].text
+    assert "**3 z 5**" in game_db.channel.bot_messages[-1].text

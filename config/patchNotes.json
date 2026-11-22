@@ -1,0 +1,26 @@
+[
+    {
+        "id": 1,
+        "date": "2026-11-20",
+        "title": "Osiągnięcia i porządki w walkach",
+        "changes": [
+            "Osiągnięcia zostały uproszczone: zostają tylko te za najrzadsze, mityczne zdobycze. Role wycofanych osiągnięć znikają z serwera.",
+            "Co ma się zdarzyć raz, zdarza się raz: skrzynia, kapliczka, walka z potworem i walka z bossem nie powtarzają się już po błędzie ani po restarcie bota.",
+            "Odliczanie przed walką i w grze pamięciowej pojawia się teraz w jednej linii."
+        ]
+    },
+    {
+        "id": 2,
+        "date": "2026-11-21",
+        "title": "Karty towarzyszy, album i kilka udogodnień",
+        "changes": [
+            "Karty towarzyszy wspierających mogą się teraz trafić w nowych, rzadkich wydaniach. Jakich? Tego nie zdradzimy - sprawdzajcie nowe jajka.",
+            "Nowość dla wspierających: album towarzyszy. Poświęcony towarzysz ($porzucam) nie przepada, tylko trafia do albumu. Przejrzysz go komendą $album albo przyciskiem Album w Panelu gry. Wpis można z albumu usunąć - ale bezpowrotnie.",
+            "Za skompletowanie albumu czeka nowe osiągnięcie.",
+            "Nowe jajko nie wykluwa się już od razu w tym samym łupie: jajko i awans towarzysza nie wypadają razem.",
+            "Po zaatakowaniu bossa od razu widać, kto zaatakował.",
+            "Prywatna wiadomość, w której towarzysz ostrzega o nadciągającym bossie, ma teraz przycisk wyłączający takie powiadomienia. Włączysz je z powrotem komendą $wyczuwanie.",
+            "Od teraz informacje o zmianach w grze będą pojawiać się tutaj po każdej aktualizacji."
+        ]
+    }
+]

@@ -402,6 +402,53 @@ class FakeChannel:
         return sum(1 for m in self.sent if fragment in m.text)
 
 
+class FakeDMChannel(FakeChannel):
+    """A private conversation of the bot with one member (``discord.DMChannel``): no server around it.
+
+    Made by :func:`open_dm`.  A click on a button under one of its messages is an
+    interaction without a guild (``FakeInteraction(...).guild is None``).
+    """
+
+    type = discord.ChannelType.private
+
+    def __init__(self, recipient: FakeMember, bot_user: FakeMember, client: Any = None) -> None:
+        # Not FakeChannel.__init__: a private conversation belongs to no guild.
+        self.id = next_id()
+        self.name = f"dm-{recipient.name}"
+        self.guild = None
+        self.recipient = recipient
+        self._bot_user = bot_user
+        self.messages: list[FakeMessage] = []
+        self.sent: list[FakeMessage] = []
+        self.send_hooks: list[Callable[[FakeMessage], None]] = []
+        self.fail_with: BaseException | None = None
+        self.fail_sends = 0
+        self.silenced_roles: set[int] = set()
+        self.client: Any = client
+
+    def permissions_for(self, member: Any) -> discord.Permissions:
+        return discord.Permissions.text()
+
+
+def open_dm(member: FakeMember, bot: Any) -> FakeDMChannel:
+    """Keep the messages the bot sends ``member`` privately (with their buttons) in a :class:`FakeDMChannel`.
+
+    ``member.dms`` still gets the text of each one, as without it; the channel
+    holds the messages themselves (``view``, edits).  Failures can be injected
+    with the channel's ``fail_with`` / ``fail_sends``.
+    """
+    channel = FakeDMChannel(member, getattr(bot, "fake_user", None) or FakeMember("AlterBot", bot=True), bot)
+
+    async def send(content: str | None = None, **kwargs: Any) -> FakeMessage:
+        message = await channel.send(content, **kwargs)
+        member.dms.append(content or "")
+        return message
+
+    member.send = send  # type: ignore[method-assign]
+    member.dm_channel = channel  # type: ignore[attr-defined]
+    return channel
+
+
 def find_component(view: Any, key_or_label: str | None = None) -> Any:
     """Item of ``view`` whose ``custom_id`` is / ends with ``key_or_label`` or whose label equals it."""
     assert view is not None, "the message has no buttons"

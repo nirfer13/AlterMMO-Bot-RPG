@@ -9,9 +9,12 @@ answered by the views themselves, nothing to register here).
 ``$nazwij`` takes the whole rest of the message as the name
 (``$nazwij Sir Burek``); quotes around it are still accepted and dropped.
 
-``$DajPieczec <player_id> <0-3> [tak/nie]`` (administrators) sets the seal and
-Holo of a member's active pet: the owner's way to look at the cards and to put
-a mistake right - players get their cosmetics only from the rolls of a new egg.
+``$DajPieczec <player_id> <0-3> [tak/nie/częściowa]`` (administrators) sets the
+seal and the foil of a member's active pet (``tak`` full Holo, ``częściowa``
+partial Holo, ``nie`` none, left out: unchanged), ``$DajRamke <player_id> <id|baza>``
+its frame result (``S1``, ``R9-A`` ... of the pet's own class; ``baza`` = the
+base frame of the class): the owner's way to look at the cards and to put a
+mistake right - players get their cosmetics only from the rolls of a new egg.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+import discord
 from discord.ext import commands
 
 from ..core import guards, io, ui
@@ -34,7 +38,8 @@ MSG_NAME_MISSING = "Po spacji podaj imię towarzysza np. **$nazwij Burek**."
 MSG_SEAL_SET = ("Towarzysz gracza <@{player_id}> (PET_ID {pet_id}) ma teraz: pieczęć - **{seal}**, "
                 "folia Holo - **{holo}**. Widać to na karcie towarzysza (**$towarzysz**).")
 MSG_SEAL_RANGE = "Pieczęć: 0-3 (0 = brak, {names})."
-MSG_SEAL_HOLO = "Folia Holo: **tak** albo **nie** (pominięta - bez zmian), np. **$DajPieczec {player_id} 3 tak**."
+MSG_SEAL_HOLO = ("Folia Holo: **tak** (pełna), **częściowa** albo **nie** (pominięta - bez zmian), np. "
+                 "**$DajPieczec {player_id} 3 tak**.")
 MSG_SEAL_NO_PET = "<@{player_id}> nie ma przy sobie towarzysza - nie ma komu dać pieczęci."
 MSG_SEAL_NO_COLUMNS = ("W tabeli PETS nie ma kolumn SEAL i HOLO (nie udało się ich dodać przy starcie bota), "
                        "więc kosmetyka towarzyszy jest wyłączona. Uruchom bota ponownie - kolumny dodaje "
@@ -43,10 +48,35 @@ MSG_SEAL_NO_COLUMNS = ("W tabeli PETS nie ma kolumn SEAL i HOLO (nie udało się
 MSG_SEAL_NOT_SHOWN = (" Uwaga: ten gracz nie ma teraz rangi wspierającego, więc pieczęci i folii nie widać - "
                       "pojawią się, gdy ją zdobędzie.")
 SEAL_NONE = "brak"
+#: How ``MSG_SEAL_SET`` names the foil (``petcards.FOIL_*``).
+FOIL_ANSWERS = {petcards.FOIL_NONE: "nie", petcards.FOIL_PARTIAL: "częściowa", petcards.FOIL_FULL: "tak"}
 
-#: What ``$DajPieczec`` takes for Holo.
+# -- $DajRamke (administrators) ---------------------------------------------------------
+MSG_FRAME_SET = ("Towarzysz gracza <@{player_id}> (PET_ID {pet_id}) ma teraz ramkę **{frame}**. "
+                 "Widać to na karcie towarzysza (**$towarzysz**).")
+#: How the answer names the base frame of a class.
+FRAME_BASE = "{name} (podstawowa)"
+MSG_FRAME_BAD = ("Ramki **{given}** nie ma w puli tego towarzysza (klasa: {tier}). Możliwe: {ids} - albo "
+                 "**baza** (podstawowa ramka klasy), np. **$DajRamke {player_id} {example}**.")
+MSG_FRAME_NO_TIER = ("Towarzysz gracza <@{player_id}> (PET_ID {pet_id}) jest zwykły - ramki mają tylko "
+                     "towarzysze Shiny, Ultra Shiny i mityczni.")
+MSG_FRAME_NO_PET = "<@{player_id}> nie ma przy sobie towarzysza - nie ma komu dać ramki."
+MSG_FRAME_NO_COLUMNS = ("W tabeli PETS nie ma kolumn FRAME i HOLO_PARTIAL (nie udało się ich dodać przy starcie "
+                        "bota), więc ramek z puli i częściowej folii Holo nie da się ustawić. Pieczęcie i pełna "
+                        "folia Holo działają. Uruchom bota ponownie - kolumny dodaje sam przy starcie.")
+MSG_FRAME_NOT_SHOWN = (" Uwaga: ten gracz nie ma teraz rangi wspierającego, więc tej ramki nie widać (karta ma "
+                       "podstawową ramkę klasy) - pojawi się, gdy ją zdobędzie.")
+#: Class names in the answers of ``$DajRamke``: labels (as in the owner's pule.json), shown after
+#: "klasa:" so that no word has to agree with the feminine "klasa".
+TIER_NAMES = {"S": "Shiny", "U": "Ultra Shiny", "M": "Mityczny"}
+
+#: What ``$DajPieczec`` takes for the foil (True / False: full Holo / none, as always).
 _YES_NO = {"tak": True, "t": True, "yes": True, "y": True, "true": True, "1": True, "holo": True,
-           "nie": False, "n": False, "no": False, "false": False, "0": False}
+           "pełna": True, "pelna": True, "pełne": True, "pelne": True, "full": True,
+           "nie": False, "n": False, "no": False, "false": False, "0": False, "brak": False,
+           "częściowa": petcards.FOIL_PARTIAL, "czesciowa": petcards.FOIL_PARTIAL,
+           "częściowe": petcards.FOIL_PARTIAL, "czesciowe": petcards.FOIL_PARTIAL,
+           "partial": petcards.FOIL_PARTIAL}
 
 #: Opening -> closing quote pairs accepted around a name given to ``$nazwij``.
 _QUOTES = {'"': '"', "„": "”", "“": "”", "”": "”", "«": "»", "‘": "’", "'": "'"}
@@ -58,6 +88,11 @@ def _unquote(text: str) -> str:
     if len(text) >= 2 and _QUOTES.get(text[0]) == text[-1]:
         text = text[1:-1].strip()
     return text
+
+
+def _frame_name(frame: petcards.Frame) -> str:
+    """``Gwiazda Szronu (animowana)`` / ``Srebrne okucia (podstawowa)``."""
+    return FRAME_BASE.format(name=frame.name) if frame.base else frame.label
 
 
 async def _say(ctx: commands.Context, text: str) -> None:
@@ -75,7 +110,8 @@ class PetsCog(commands.Cog, name="Pets"):
         self.bot = bot
 
     async def cog_load(self) -> None:
-        # Buttons under "unlock your private messages" hints posted before a restart.
+        # Buttons under "unlock your private messages" hints and under the private
+        # "a boss is coming" warnings posted before a restart.
         bossdetect.register(self.bot)
 
     # -- display only (any channel) -----------------------------------------------
@@ -226,11 +262,12 @@ class PetsCog(commands.Cog, name="Pets"):
         await io.send(ctx.channel, f"Wygenerowano jajko (PET_ID {pet_id}).")
 
     @commands.command(name="DajPieczec",
-                      brief="Set the seal (0-3) and Holo (tak/nie) of a member's active pet (admin).")
+                      brief="Set the seal (0-3) and the foil (tak/nie/częściowa) of a member's active pet "
+                            "(admin).")
     @guards.owner_or_admin()
     async def give_seal(self, ctx: commands.Context, player_id: int, seal: int,
                         holo: str | None = None) -> None:
-        # Holo left out: only the seal changes.
+        # The foil left out: only the seal changes.
         wanted = None if holo is None else _YES_NO.get(holo.strip().lower())
         if holo is not None and wanted is None:
             await io.send(ctx.channel, MSG_SEAL_HOLO.format(player_id=player_id))
@@ -241,16 +278,43 @@ class PetsCog(commands.Cog, name="Pets"):
                 f"{tier} = {name}" for tier, name in sorted(petcards.SEAL_NAMES.items()))))
         elif status == "no_columns":
             await io.send(ctx.channel, MSG_SEAL_NO_COLUMNS)
+        elif status == "no_frame_columns":
+            await io.send(ctx.channel, MSG_FRAME_NO_COLUMNS)
         elif now is None:
             await io.send(ctx.channel, MSG_SEAL_NO_PET.format(player_id=player_id))
         else:
             text = MSG_SEAL_SET.format(
                 player_id=player_id, pet_id=now["pet_id"],
-                seal=petcards.SEAL_NAMES.get(now["seal"], SEAL_NONE), holo="tak" if now["holo"] else "nie")
+                seal=petcards.SEAL_NAMES.get(now["seal"], SEAL_NONE), holo=FOIL_ANSWERS[now["foil"]])
             # Cosmetics are shown only while the pet's owner supports: say so, or the owner
             # of the server looks for a seal that is stored but hidden.
-            if (now["seal"] or now["holo"]) and not patrons.check_if_patron(await self.bot.member(player_id)):
+            if (now["seal"] or now["foil"]) and not patrons.check_if_patron(await self.bot.member(player_id)):
                 text += MSG_SEAL_NOT_SHOWN
+            await io.send(ctx.channel, text)
+
+    @commands.command(name="DajRamke", aliases=["DajRamkę"],
+                      brief="Set the frame (an id of the pet's class or 'baza') of a member's active pet (admin).")
+    @guards.owner_or_admin()
+    async def give_frame(self, ctx: commands.Context, player_id: int, frame: str) -> None:
+        status, now = await pets.set_frame(self.bot, player_id, frame)
+        if status == "no_frame_columns":
+            await io.send(ctx.channel, MSG_FRAME_NO_COLUMNS)
+        elif status == "alone":
+            await io.send(ctx.channel, MSG_FRAME_NO_PET.format(player_id=player_id))
+        elif status == "no_tier":
+            await io.send(ctx.channel, MSG_FRAME_NO_TIER.format(player_id=player_id, pet_id=now["pet_id"]))
+        elif status == "bad_frame":
+            pool = petcards.POOLS[now["tier"]]
+            await io.send(ctx.channel, MSG_FRAME_BAD.format(
+                given=discord.utils.escape_markdown(frame[:32]), tier=TIER_NAMES.get(now["tier"], now["tier"]),
+                ids=", ".join(f"**{item.id}** ({_frame_name(item)})" for item in pool),
+                player_id=player_id, example=pool[-1].id))
+        else:
+            chosen = petcards.FRAMES[now["frame"] or petcards.BASE_FRAME[now["tier"]]]
+            text = MSG_FRAME_SET.format(player_id=player_id, pet_id=now["pet_id"], frame=_frame_name(chosen))
+            # As with the seal: a rarer frame is shown only while the pet's owner supports.
+            if now["frame"] and not patrons.check_if_patron(await self.bot.member(player_id)):
+                text += MSG_FRAME_NOT_SHOWN
             await io.send(ctx.channel, text)
 
     @commands.command(name="createPetOwnersDatabase",

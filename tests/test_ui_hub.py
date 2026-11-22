@@ -20,16 +20,17 @@ from altermmo.cogs import help as help_cog
 from altermmo.core import challenge, guards, io, ui
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossPhase
-from altermmo.features import achievements, daily, hub, patrons, pets, skills, tower
+from altermmo.features import achievements, album, daily, hub, patrons, pets, skills, tower
 
 from fakes import FakeInteraction, FakeMessage
 from test_pets import add_owner, add_pet
 from test_ui_daily import active_gem, collector
 
-LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia", "Pomoc"]
+LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia", "Album", "Pomoc"]
 #: The custom ids of the panel's buttons: panels pinned long ago still send exactly these.
 BUTTON_IDS = ["altermmo:hub:hunt", "altermmo:hub:tower", "altermmo:hub:pet", "altermmo:hub:stable",
-              "altermmo:hub:gems", "altermmo:hub:rankings", "altermmo:hub:achievements", "altermmo:hub:help"]
+              "altermmo:hub:gems", "altermmo:hub:rankings", "altermmo:hub:achievements", "altermmo:hub:album",
+              "altermmo:hub:help"]
 PATRON = patrons.PATRON_ROLES[0]
 #: Typed words the help mentions that are not commands (answers inside a flow).
 TYPED_WORDS = {"potwierdzam", "tak"}
@@ -171,7 +172,7 @@ async def test_every_extension_loads_and_permanent_buttons_never_share_an_id(gam
     assert {"altermmo:boss:attack", "altermmo:events:chest", "altermmo:events:pray",
             "altermmo:boss-detect-off"} <= set(ids)
     assert {hub.HUNT_ID, hub.TOWER_ID, hub.PET_ID, hub.STABLE_ID, hub.GEMS_ID, hub.RANKINGS_ID,
-            hub.ACHIEVEMENTS_ID, hub.HELP_ID} == set(BUTTON_IDS) <= set(ids)
+            hub.ACHIEVEMENTS_ID, hub.ALBUM_ID, hub.HELP_ID} == set(BUTTON_IDS) <= set(ids)
     # Every permanent view is stateless and never times out.
     assert all(view.timeout is None for view in bot.persistent_views)
 
@@ -246,9 +247,11 @@ def test_panel_fits_discord_limits_and_stays_compact():
     # One line of the game's part per button, in the order of the buttons.
     for label in LABELS:
         assert f"**{label}**" in hub.PANEL_GAME_TEXT, label
-    order = [hub.PANEL_GAME_TEXT.index(f"**{label}** - ") for label in ("Rankingi", "Osiągnięcia", "Pomoc")]
+    order = [hub.PANEL_GAME_TEXT.index(f"**{label}** - ")
+             for label in ("Rankingi", "Osiągnięcia", "Album", "Pomoc")]
     assert order == sorted(order)
     assert "🏅 **Osiągnięcia** - Twoje kolekcjonerskie osiągnięcia (dla wspierających).\n" in hub.PANEL_GAME_TEXT
+    assert "📖 **Album** - kolekcja Twoich poświęconych towarzyszy (dla wspierających).\n" in hub.PANEL_GAME_TEXT
 
 
 def test_panel_buttons_fit_discord_limits_and_keep_their_ids():
@@ -258,7 +261,7 @@ def test_panel_buttons_fit_discord_limits_and_keep_their_ids():
         assert [item.label for item in children] == LABELS
         # Discord: at most 5 rows of at most 5 buttons; ids of at most 100 characters, labels of 80.
         per_row = collections.Counter(item.row for item in children)
-        assert per_row == {0: 2, 1: 3, 2: 3} and max(per_row.values()) <= 5 and len(per_row) <= 5
+        assert per_row == {0: 2, 1: 3, 2: 4} and max(per_row.values()) <= 5 and len(per_row) <= 5
         assert all(len(item.custom_id) <= 100 and len(item.label) <= 80 for item in children)
         # The ids of the buttons that existed before never change (old pinned panels send them);
         # the new button got its own one.
@@ -266,6 +269,9 @@ def test_panel_buttons_fit_discord_limits_and_keep_their_ids():
         assert len(set(BUTTON_IDS)) == len(BUTTON_IDS) and hub.ACHIEVEMENTS_ID == "altermmo:hub:achievements"
         button = next(item for item in children if item.custom_id == hub.ACHIEVEMENTS_ID)
         assert str(button.emoji) == "🏅" and button.style is discord.ButtonStyle.secondary
+        shelf = next(item for item in children if item.custom_id == hub.ALBUM_ID)
+        assert hub.ALBUM_ID == "altermmo:hub:album" and shelf.label == "Album" and shelf.row == 2
+        assert str(shelf.emoji) == "📖" and shelf.style is discord.ButtonStyle.secondary
     finally:
         view.stop()
 
@@ -281,13 +287,15 @@ def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
     assert "<@" not in hub.PANEL_GAME_TEXT and "@everyone" not in hub.PANEL_TEXT and "@here" not in hub.PANEL_TEXT
 
     # One line per benefit - what the code really gives supporters.
-    assert lines[:len(hub.PANEL_BENEFITS)] == list(hub.PANEL_BENEFITS) and len(hub.PANEL_BENEFITS) == 6
+    assert lines[:len(hub.PANEL_BENEFITS)] == list(hub.PANEL_BENEFITS) and len(hub.PANEL_BENEFITS) == 7
     benefits = "\n".join(hub.PANEL_BENEFITS)
     for words in ("Jaja premium", "**$transformacja**", "lustrem wizualiów", "**$modlitwa**", "kapliczce",
                   "zostaniesz bossem", "imprezy u Barda", "Kolekcjonerskie osiągnięcia", "mityczne zdobycze",
                   "przyciskiem **Osiągnięcia** (**$osiagniecia**)", "Kolekcjonerskie ozdoby karty",
-                  "dopóki wspierasz"):
+                  "dopóki wspierasz", "📖 **Album**", "poświęceni towarzysze", "(**$album**)"):
         assert words in benefits
+    # The album's line (2026-11-21): one line, no species, no ornaments (checked below as well).
+    assert hub.PANEL_BENEFITS[-1] == "📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**)."
     # Not spelled out (owner's decision): which species supporters can find, which ornaments exist.
     for secret in ("smok", "feniks", "jednoroż", "holo", "pieczę", "tropiciel", "łowcy", "arcyłowc"):
         assert secret not in benefits.lower(), secret
@@ -361,7 +369,7 @@ async def test_panel_is_posted_pinned_remembered_and_survives_the_purge(game, co
     labels = [item.label for item in message.view.children]
     assert labels == LABELS
     rows = [item.row for item in message.view.children]
-    assert rows == [0, 0, 1, 1, 1, 2, 2, 2]
+    assert rows == [0, 0, 1, 1, 1, 2, 2, 2, 2]
     assert [item.custom_id for item in message.view.children] == BUTTON_IDS
     styles = {item.label: item.style for item in message.view.children}
     assert styles["Polowanie"] is styles["Wieża"] is discord.ButtonStyle.primary
@@ -586,7 +594,7 @@ async def test_buttons_of_a_panel_from_before_a_restart_still_work(game, pins, f
 
 DISPLAY_COMMANDS = {"Towarzysz": ["$towarzysz"], "Stajnia": ["$stajnia"], "Klejnoty": ["$klejnoty"],
                     "Rankingi": ["$ranking", "$rankingwiezy", "$rankingtowarzyszy"],
-                    "Osiągnięcia": ["$osiagniecia"], "Pomoc": ["$pomoc"]}
+                    "Osiągnięcia": ["$osiagniecia"], "Album": ["$album"], "Pomoc": ["$pomoc"]}
 
 
 def shape(message) -> tuple:
@@ -605,7 +613,7 @@ async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, 
     monkeypatch.setattr(bot.supervisor, "start", lambda *args, **kwargs: None)
     for extension in ("altermmo.cogs.hub", "altermmo.cogs.pets", "altermmo.cogs.skills",
                       "altermmo.cogs.ranking", "altermmo.cogs.tower", "altermmo.cogs.achievements",
-                      "altermmo.cogs.help"):
+                      "altermmo.cogs.album", "altermmo.cogs.help"):
         await bot.load_extension(extension)
     for channel in bot.fake_channels.values():
         channel.type = discord.ChannelType.text
@@ -645,8 +653,11 @@ async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, 
     assert "Sezon kończy się <t:" in clicked["Rankingi"][0].embeds[0].description
     trophies, = clicked["Osiągnięcia"]                                   # a supporter's summary, for everybody
     assert trophies.embeds[0].title == achievements.MSG_SUMMARY_TITLE and trophies.view is None
-    assert f"<@{ala.id}>, masz **1 z 4** osiągnięć." in trophies.text and len(achievements.TROPHIES) == 4
+    assert f"<@{ala.id}>, masz **1 z 5** osiągnięć." in trophies.text and len(achievements.TROPHIES) == 5
     assert re.findall(r"<@&(\d+)>", trophies.text) == [str(slayer.id)] and "Nowe" not in trophies.text
+    collection, = clicked["Album"]                                       # a supporter's (empty) album
+    assert collection.embeds[0].title == album.MSG_TITLE and collection.view is None
+    assert f"<@{ala.id}>, Twój album jest jeszcze pusty." in collection.text
     assert [m.embeds[0].title for m in clicked["Pomoc"]] == [help_cog.HELP_TITLE]
 
     again = await game.click(panel, ala, "Pomoc")                        # a second click: the cooldown, no embed
@@ -733,7 +744,7 @@ async def test_achievements_button_gives_a_supporter_his_mythic_pet_role_like_th
     mythic = achievements.role_id_of(bot, achievements.trophy("pet_mythic"))
     assert mythic is not None and game.guild.get_role(mythic).name == "Mityczny towarzysz"
     assert {role.id for role in ala.roles} == {PATRON, mythic}
-    assert f"<@{ala.id}>, masz **1 z 4** osiągnięć." in embed.description
+    assert f"<@{ala.id}>, masz **1 z 5** osiągnięć." in embed.description
     assert achievements.MSG_SUMMARY_NEW.format(roles=f"<@&{mythic}>") in embed.description
     assert re.findall(r"<@&(\d+)>", summary.text) == [str(mythic), str(mythic)]   # held + "Nowe"
     assert not game.channel.contains("zdobywa osiągnięcie")                      # no announcement
@@ -793,7 +804,7 @@ async def test_achievements_button_when_the_database_is_down(game, achievements_
     summary = game.channel.messages[-1]
     (embed,) = summary.embeds
     assert embed.title == achievements.MSG_SUMMARY_TITLE and summary.view is None
-    assert f"<@{ala.id}>, masz **1 z 4** osiągnięć." in embed.description and len(achievements.TROPHIES) == 4
+    assert f"<@{ala.id}>, masz **1 z 5** osiągnięć." in embed.description and len(achievements.TROPHIES) == 5
     assert re.findall(r"<@&(\d+)>", summary.text) == [str(slayer)] and "Nowe" not in embed.description
     assert not game.channel.contains(hub.MSG_DB_DOWN) and bot.owner_log == []
 

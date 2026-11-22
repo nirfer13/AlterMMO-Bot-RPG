@@ -6,12 +6,24 @@ messages gets a public hint instead - every time a boss comes.  The hint now
 carries a button that switches the warnings off for that player, and
 ``$wyczuwanie`` switches them on again.
 
+The private warning itself carries the same button (owner's request of
+2026-11-21: "Pet gdy w prywatnej wiadomości ostrzega przed bossem powinien też
+dawać możliwość anulowania takich powiadomień") and one line saying in words
+what it does and that ``$wyczuwanie`` on the game's channel does the same
+(the information is there also where buttons are not shown, e.g. in a push
+notification).  No command works in private messages (the global check of
+``bot.py``), so in a private message the button is THE way.  It has its own
+``custom_id`` (:data:`DM_BUTTON_ID`): under the public hint only the hinted
+player may click (:func:`handle_click`); in a private message the clicker is
+the recipient (:func:`handle_dm_click`), and that button does nothing on a
+server channel - the two cases can never be mixed up.
+
 Who switched the warnings off is kept in ``data/boss_detection_off.txt`` (one
 id per line), so nothing changes in the database.
 
-The button is a *persistent* one (fixed ``custom_id``, no timeout): it keeps
-working on hints posted before a restart.  The cog registers the view once
-with ``bot.add_view``.
+Both buttons are *persistent* ones (fixed ``custom_id``, no timeout): they keep
+working on messages posted before a restart.  The cog registers each view once
+with ``bot.add_view`` (:func:`register`).
 """
 
 from __future__ import annotations
@@ -32,7 +44,10 @@ if TYPE_CHECKING:  # pragma: no cover
 log = logging.getLogger(__name__)
 
 BUTTON_ID = "altermmo:boss-detect-off"
+#: The button under the PRIVATE warning (a different id on purpose, see the module docstring).
+DM_BUTTON_ID = "altermmo:boss-detect-off-dm"
 BUTTON_LABEL = "Wyłącz powiadomienia o bossie"
+BUTTON_EMOJI = "🔕"
 
 MSG_UNLOCK_HINT = ("<@{player_id}> - Twój towarzysz: *Nadciąga boss! Odblokuj prywatne wiadomości, jeśli "
                    "chcesz otrzymywać powiadomienia!* Nie chcesz ich wcale? Kliknij przycisk poniżej.")
@@ -46,6 +61,19 @@ MSG_NOW_OFF = ("<@{player_id}>, powiadomienia o nadciągającym bossie są teraz
                "Wpisz **$wyczuwanie** ponownie, żeby je włączyć.")
 MSG_NOW_ON = ("<@{player_id}>, powiadomienia o nadciągającym bossie są teraz **włączone**. Dostaniesz je "
               "w prywatnej wiadomości, jeśli Twój aktywny towarzysz potrafi wyczuwać bossa.")
+
+#: The second line of the private warning (under "Nadciąga boss! Będzie ...").  ``{channel_id}``:
+#: the boss channel (``bot.ids.boss_channel`` - the test channel in debug mode).
+MSG_DM_HOW_TO_STOP = ("Nie chcesz tych powiadomień? Kliknij przycisk poniżej albo wpisz **$wyczuwanie** "
+                      "na kanale <#{channel_id}>.")
+#: Answers to the button under the private warning (a private conversation: no mention in front).
+MSG_DM_SWITCHED_OFF = ("Gotowe - Twój towarzysz nie będzie już ostrzegał Cię o nadciągającym bossie. "
+                       "Żeby włączyć powiadomienia ponownie, wpisz **$wyczuwanie** na kanale <#{channel_id}>.")
+MSG_DM_NOT_SAVED = ("Nie udało się tego zapisać <:Sadge:936907659142111273> Spróbuj za chwilę albo wpisz "
+                    "**$wyczuwanie** na kanale <#{channel_id}>.")
+#: The private warning's button clicked anywhere but in a private message (it is never posted there).
+MSG_DM_ONLY = ("Ten przycisk działa tylko w prywatnej wiadomości od Twojego towarzysza. Swoje powiadomienia "
+               "o bossie wyłączysz i włączysz komendą **$wyczuwanie**.")
 
 _FIRST_MENTION = re.compile(r"<@!?(\d{15,20})>")
 
@@ -99,7 +127,7 @@ class DetectionOffView(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=None)
 
-    @discord.ui.button(label=BUTTON_LABEL, style=discord.ButtonStyle.secondary, emoji="🔕",
+    @discord.ui.button(label=BUTTON_LABEL, style=discord.ButtonStyle.secondary, emoji=BUTTON_EMOJI,
                        custom_id=BUTTON_ID)
     async def switch_off_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await handle_click(interaction)
@@ -136,11 +164,137 @@ async def send_hint(bot: "AlterBot", channel: Any, player_id: int) -> None:
         view.stop()
 
 
-def register(bot: "AlterBot") -> None:
-    """Make buttons under hints from before a restart work again (call once, in a running loop)."""
+# -- the button under the private warning ---------------------------------------------
+
+def dm_warning(bot: "AlterBot", first_line: str) -> str:
+    """The private warning: ``first_line`` ("Nadciąga boss! Będzie epicki.") + how to stop them."""
+    return f"{first_line}\n{MSG_DM_HOW_TO_STOP.format(channel_id=bot.ids.boss_channel)}"
+
+
+class DetectionOffDmView(discord.ui.View):
+    """The "switch the warnings off" button under the private warning."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label=BUTTON_LABEL, style=discord.ButtonStyle.secondary, emoji=BUTTON_EMOJI,
+                       custom_id=DM_BUTTON_ID)
+    async def switch_off_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await handle_dm_click(interaction)
+
+
+def in_private_messages(interaction: Any) -> bool:
+    """True when the click came from a private conversation with the bot (no server around it)."""
+    if getattr(interaction, "guild_id", None) is not None or getattr(interaction, "guild", None) is not None:
+        return False
+    kind = getattr(getattr(interaction, "channel", None), "type", None)
+    return kind is None or kind == discord.ChannelType.private
+
+
+async def _answer_dm(interaction: Any, text: str) -> bool:
+    """Answer a click in a private conversation with an ordinary message.  Never raises.
+
+    Not :func:`ui.reply`: that one is made for server channels - it would put
+    the reader's own mention in front (pointless with one reader; it skips it
+    without a server anyway) and it swallows a notice repeated within seconds,
+    while here every click on an old warning should be answered.
+    """
+    quiet = discord.AllowedMentions.none()
     try:
-        bot.add_view(DetectionOffView())
+        if not interaction.response.is_done():
+            await interaction.response.send_message(text, allowed_mentions=quiet)
+        else:
+            await interaction.followup.send(text, allowed_mentions=quiet)
+        return True
     except asyncio.CancelledError:
         raise
-    except Exception:  # noqa: BLE001 - old hints lose their button, nothing else
-        log.exception("Could not register the boss warning button.")
+    except Exception as exc:  # noqa: BLE001 - an answer is never worth an error
+        log.info("Could not answer the boss warning button of %s (%s: %s).",
+                 getattr(getattr(interaction, "user", None), "id", "?"), type(exc).__name__, exc)
+        return False
+
+
+async def handle_dm_click(interaction: Any) -> None:
+    """The button under a private warning: switch the clicker's warnings off.  Never raises.
+
+    The click is acknowledged first (Discord gives 3 seconds, a slow disk
+    must not cost the answer), then the switch is saved, answered, and the
+    button is taken off that warning.  Clicking it again (also on an older
+    warning) answers the same - the switch simply stays off.
+    """
+    bot = interaction.client
+    if not in_private_messages(interaction):
+        # Never posted on a server; answered like every refusal there (it names the clicker).
+        await ui.reply(interaction, MSG_DM_ONLY)
+        return
+    clicker_id = interaction.user.id
+    channel_id = bot.ids.boss_channel
+    await ui.ack(interaction)
+    try:
+        switch_off(bot, clicker_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the click must be answered whatever the disk says
+        log.exception("Could not switch the boss warnings of %s off.", clicker_id)
+        await _answer_dm(interaction, MSG_DM_NOT_SAVED.format(channel_id=channel_id))
+        try:
+            await bot.log_to_owner(f"Nie udało się zapisać wyłączenia powiadomień o bossie gracza "
+                                   f"<@{clicker_id}>: `{type(exc).__name__}: {exc}`")
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.debug("Could not tell the owner about the boss warning switch.", exc_info=True)
+        return
+    await _answer_dm(interaction, MSG_DM_SWITCHED_OFF.format(channel_id=channel_id))
+    await ui.retire(interaction.message)  # the warning keeps its text; a failed edit changes nothing
+
+
+def _dm_view() -> DetectionOffDmView | None:
+    try:
+        return DetectionOffDmView()
+    except Exception:  # noqa: BLE001 - the warning matters more than its button
+        log.exception("Could not build the boss warning button; the warning goes without it.")
+        return None
+
+
+async def send_warning(member: Any, text: str) -> None:
+    """Send the private warning with its button; raises like :func:`io.send` (the caller decides).
+
+    The same two attempts as before the button (a transient failure is
+    retried once - as it always was).  Should Discord refuse the message
+    because of its button (a 400 that is not "closed private messages"), the
+    warning goes again without it: the warning matters, the button is extra.
+    """
+    view = _dm_view()
+    try:
+        if view is None:
+            await io.send(member, text, attempts=2)
+            return
+        try:
+            await io.send(member, text, view=view, attempts=2)
+        except discord.HTTPException as exc:
+            if isinstance(exc, (discord.Forbidden, discord.NotFound)) or io.is_transient(exc):
+                raise
+            log.warning("Boss detection: the warning with its button was refused (%s: %s); sending it "
+                        "without the button.", type(exc).__name__, exc)
+            await io.send(member, text, attempts=1)
+    finally:
+        # discord.py would otherwise keep one view per warning for ever; clicks are
+        # handled by the view registered once in register() (same custom_id).
+        if view is not None:
+            view.stop()
+
+
+def register(bot: "AlterBot") -> None:
+    """Make the buttons under hints and warnings from before a restart work again.
+
+    Call once, in a running loop.  Each view on its own: one that cannot be
+    registered does not take the other with it.
+    """
+    for build in (DetectionOffView, DetectionOffDmView):
+        try:
+            bot.add_view(build())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - old messages lose their button, nothing else
+            log.exception("Could not register the boss warning button (%s).", build.__name__)
