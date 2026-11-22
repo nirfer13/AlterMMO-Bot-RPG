@@ -49,6 +49,7 @@ class EventType(enum.Enum):
     DUEL = 8
     RITUAL = 9
     PVPTOURNAMENT = 10
+    TRAINING = 11
 
 
 class Busy(RuntimeError):
@@ -75,6 +76,8 @@ class GameState:
 
         self._busy_owner: str | None = None
         self._busy_since: float | None = None
+        #: The busy owner during whose hold the stable stays usable (see :meth:`stable_stays_open`).
+        self._stable_open_for: str | None = None
 
         self._event_type = EventType.NONE
         self._event_alive = False
@@ -207,6 +210,34 @@ class GameState:
         owner, self._busy_owner, self._busy_since = self._busy_owner, None, None
         return owner
 
+    @property
+    def stable_open(self) -> bool:
+        """True while the stable may be used although the channel is busy.
+
+        Only during the sign-up of the "Trening towarzyszy" event (owner's
+        rule: players choose there which companion they send).  Asked by the
+        busy checks of exactly the stable's commands and buttons
+        (``guards.unless_busy(stable=True)``, ``ui.gate(stable=True)``);
+        everything else stays blocked as during any event.  The exception is
+        tied to the busy holder it was made for: should that one lose the
+        channel (``$ResetBoss``) and a hunt take it, the stable is blocked
+        again at once.
+        """
+        return self._stable_open_for is not None and self._stable_open_for == self._busy_owner
+
+    @contextlib.contextmanager
+    def stable_stays_open(self) -> Iterator[None]:
+        """Keep the stable usable for the ``with`` block although the caller holds the busy flag.
+
+        The exception ends with the block, whatever happens in it.  Without a
+        busy holder nothing changes (the stable works anyway).
+        """
+        self._stable_open_for = self._busy_owner
+        try:
+            yield
+        finally:
+            self._stable_open_for = None
+
     async def wait_until_idle(self, *, timeout: float = 1800.0, poll: float = 5.0) -> bool:
         """Wait until no exclusive activity and no event runs; False on timeout.
 
@@ -291,6 +322,7 @@ class GameState:
             "is_player_boss": self.boss.is_player_boss,
             "busy_owner": self._busy_owner,
             "busy_for_s": round(time.monotonic() - self._busy_since) if self._busy_since else 0,
+            "stable_open": self.stable_open,
             "event_type": self._event_type.name,
             "event_alive": self._event_alive,
         }

@@ -127,8 +127,10 @@ class PetsCog(commands.Cog, name="Pets"):
     async def show_pet(self, ctx: commands.Context) -> None:
         await pets.show_pet(Scene.from_ctx(ctx), ctx.author)
 
+    # (stable=True, here and on the two commands below: the stable also works during the
+    # sign-up of the "Trening towarzyszy" event - see GameState.stable_open.)
     @commands.command(name="stajnia", aliases=["s"], brief="Show player's stable.")
-    @guards.unless_busy(read_only=True)
+    @guards.unless_busy(read_only=True, stable=True)
     async def check_stable(self, ctx: commands.Context) -> None:
         await pets.check_stable(Scene.from_ctx(ctx))
 
@@ -179,7 +181,7 @@ class PetsCog(commands.Cog, name="Pets"):
     @commands.command(name="schowajtowarzysza",
                       aliases=["schowaj", "st"], brief="Stores author's pet.")
     @guards.boss_channel_only()
-    @guards.unless_busy()
+    @guards.unless_busy(stable=True)
     async def store_pet(self, ctx: commands.Context, slot: str) -> None:
         await pets.store_pet(Scene.from_ctx(ctx), slot)
 
@@ -195,7 +197,7 @@ class PetsCog(commands.Cog, name="Pets"):
                       aliases=['wyciągnijtowarzysza', "wyciągnij", "wyciagnij", "wt"],
                       brief="Takes a pet out of the stable.")
     @guards.boss_channel_only()
-    @guards.unless_busy()
+    @guards.unless_busy(stable=True)
     async def unstore_pet(self, ctx: commands.Context, slot: str) -> None:
         await pets.unstore_pet(Scene.from_ctx(ctx), slot)
 

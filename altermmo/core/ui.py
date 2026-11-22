@@ -287,14 +287,17 @@ def may_play(channel: Any, member: Any) -> bool:
 
 
 async def gate(interaction: Any, *, boss_channel: bool = True, unless_busy: bool = True,
-               players_only: bool = True) -> bool:
+               players_only: bool = True, stable: bool = False) -> bool:
     """The guards of a gameplay command, for a click.  Refusals are answered with :func:`reply`.
 
     ``boss_channel``  only on the boss channel (owner's rule for gameplay);
     ``unless_busy``   not while an event / hunt / tower run holds the channel, and not while
                       players are typing a fight on it (a boss fight does not hold the busy
                       flag, but nothing may be posted between its prompts either);
-    ``players_only``  only members who may write on the channel.
+    ``players_only``  only members who may write on the channel;
+    ``stable``        a button of the stable: the busy flag does not stop it while its holder
+                      keeps the stable open (``GameState.stable_open``, as
+                      ``guards.unless_busy(stable=True)``); a typed fight still does.
     Returns True when the click may go on (nothing was answered yet).
     """
     bot = interaction.client
@@ -304,7 +307,8 @@ async def gate(interaction: Any, *, boss_channel: bool = True, unless_busy: bool
     if players_only and not may_play(interaction.channel, interaction.user):
         await reply(interaction, MSG_CANNOT_PLAY)
         return False
-    if unless_busy and (bot.state.busy or challenge.fight_on(interaction.channel)):
+    if unless_busy and ((bot.state.busy and not (stable and bot.state.stable_open))
+                        or challenge.fight_on(interaction.channel)):
         await reply(interaction, MSG_BUSY)
         return False
     return True

@@ -2142,7 +2142,8 @@ class StablePanel(ui.PanelView):
         return (column, pet) if column is not None and pet > 0 else None
 
     async def _chosen(self, interaction: Any) -> None:
-        if not await ui.gate(interaction):
+        # (stable=True: also during the sign-up of the "Trening towarzyszy" event, as the command.)
+        if not await ui.gate(interaction, stable=True):
             return
         values = (getattr(interaction, "data", None) or {}).get("values") or list(self.select.values)
         await ui.ack(interaction)
@@ -2223,7 +2224,7 @@ class PetPanel(ui.PanelView):
                        custom_id=ui.FLOW_PREFIX + "pet:stable")
     async def stable(self, interaction: Any, button: discord.ui.Button) -> None:
         if not await ui.gate(interaction, boss_channel=False, players_only=False,
-                             unless_busy=_display_gate_busy(interaction.client)):
+                             unless_busy=_display_gate_busy(interaction.client), stable=True):
             return
         await ui.ack(interaction)
         await check_stable(ui.scene_of(interaction))

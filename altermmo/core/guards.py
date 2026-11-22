@@ -92,16 +92,21 @@ async def notify_busy(ctx: commands.Context) -> None:
         pass
 
 
-def unless_busy(*, read_only: bool = False):
+def unless_busy(*, read_only: bool = False, stable: bool = False):
     """Block the command while an exclusive activity (event, hunt, tower...) runs.
 
     ``read_only=True`` marks commands that only display something (ranking, pet,
     stable...); under the default policy they are not blocked at all.
+    ``stable=True`` marks the stable's commands: they also work while the
+    busy holder keeps the stable open (``GameState.stable_open`` - the sign-up
+    of the "Trening towarzyszy" event).
     """
 
     async def predicate(ctx: commands.Context) -> bool:
         bot = ctx.bot
         if not bot.state.busy:
+            return True
+        if stable and bot.state.stable_open:
             return True
         policy = bot.settings.busy_policy
         if read_only and policy == "read_only_free":

@@ -231,7 +231,8 @@ class HubView(ui.GameView):
     @discord.ui.button(label="Stajnia", emoji="🐴", style=discord.ButtonStyle.secondary, row=1,
                        custom_id=STABLE_ID)
     async def stable(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await show_display(interaction, show_stable)
+        # (stable=True: the stable is also shown during the sign-up of the "Trening towarzyszy" event.)
+        await show_display(interaction, show_stable, stable=True)
 
     @discord.ui.button(label="Klejnoty", emoji="💎", style=discord.ButtonStyle.secondary, row=1,
                        custom_id=GEMS_ID)
@@ -318,12 +319,13 @@ def display_blocked_while_busy(bot: "AlterBot") -> bool:
     return getattr(getattr(bot, "settings", None), "busy_policy", "notify") != "read_only_free"
 
 
-async def show_display(interaction: Any, show: Callable[["Scene"], Awaitable[Any]]) -> bool:
+async def show_display(interaction: Any, show: Callable[["Scene"], Awaitable[Any]], *,
+                       stable: bool = False) -> bool:
     """A display button: run ``show`` for the clicker, on the channel, like the typed command.
 
-    True when shown.
+    ``stable``: the button shows the stable (see :func:`display_gate`).  True when shown.
     """
-    if not await display_gate(interaction):
+    if not await display_gate(interaction, stable=stable):
         return False
     if not await ui.ack(interaction):  # the database may take a moment; the answer follows on the channel
         return False  # an expired click: the player saw "interaction failed", nothing is posted
@@ -331,14 +333,16 @@ async def show_display(interaction: Any, show: Callable[["Scene"], Awaitable[Any
     return True
 
 
-async def display_gate(interaction: Any) -> bool:
+async def display_gate(interaction: Any, *, stable: bool = False) -> bool:
     """May a display button show something now?  Refusals are answered here.
 
     Also the gate of the buttons under the album (features/album.py): they only
-    show something, and must not make a fight stutter either.
+    show something, and must not make a fight stutter either.  ``stable``: the
+    button of the stable - it also works while the busy holder keeps the stable
+    open (the sign-up of the "Trening towarzyszy" event), as ``$stajnia`` does.
     """
     if not await ui.gate(interaction, boss_channel=False,
-                         unless_busy=display_blocked_while_busy(interaction.client)):
+                         unless_busy=display_blocked_while_busy(interaction.client), stable=stable):
         return False
     if challenge.fight_on(interaction.channel):
         # (Also under the "read_only_free" policy.)  A boss fight does not hold the busy flag,
