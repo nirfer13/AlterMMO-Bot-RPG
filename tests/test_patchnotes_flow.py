@@ -212,8 +212,9 @@ async def test_first_run_posts_every_entry_together_oldest_first(game, channel, 
                                  "📅 **21.11.2026**\n• Zmiana 3.1.")
     assert outcome.highest is None and outcome.waiting == [1, 2, 3] and outcome.sent == [1, 2, 3]
     assert outcome.messages == 1 and outcome.problems == [] and remembered(game) == 3
-    # The marker is looked for once; after the message one more look for copies (none here).
-    assert channel.history_limits == [patchnotes.HISTORY_LIMIT, patchnotes.VERIFY_LIMIT]
+    # The marker is looked for once, then the newest messages for announced entries to correct;
+    # after the message one more look for copies (none here).
+    assert channel.history_limits == [patchnotes.HISTORY_LIMIT, patchnotes.RECENT_LIMIT, patchnotes.VERIFY_LIMIT]
 
 
 async def test_nothing_new_posts_nothing(game, channel, notes_file):
@@ -841,6 +842,15 @@ def contents(channel) -> list[str]:
     return [message.content for message in patch_messages(channel)]
 
 
+@pytest.fixture
+def day(monkeypatch):
+    """``day("2026-12-01")`` sets the calendar day the module sees (the fake messages keep their real time)."""
+    def set_day(value: str) -> None:
+        monkeypatch.setattr(patchnotes, "today", lambda: value)
+
+    return set_day
+
+
 def mentions(channel) -> list[dict]:
     return [attempt["allowed_mentions"].to_dict() for attempt in channel.attempts]
 
@@ -865,16 +875,184 @@ async def test_the_second_message_of_a_split_entry_does_not_ping(live, channel, 
     assert mentions(channel) == [ONLY_HUNTERS] + [NOBODY] * (outcome.messages - 1)
 
 
-async def test_a_pinged_marker_message_is_read_back_and_nothing_new_posts_nothing(live, channel, notes_file):
+async def test_a_pinged_marker_message_is_read_back_and_nothing_new_posts_nothing(live, channel, notes_file, day):
     notes_file(entries(1, 2))
     await patchnotes.announce(live.bot)
     assert contents(channel) == [MENTION]
     lose_local(live)                                                      # only the channel tells now
     outcome = await patchnotes.announce(live.bot)
     assert outcome.channel_value == 2 and outcome.sent == [] and len(channel.attempts) == 1
-    notes_file(entries(1, 2, 3))                                          # the next update pings again
+    notes_file(entries(1, 2, 3))                                          # the next update, another day: pings again
+    day("2099-01-01")
     outcome = await patchnotes.announce(live.bot)
-    assert outcome.sent == [3] and contents(channel) == [MENTION, MENTION]
+    assert outcome.sent == [3] and contents(channel) == [MENTION, MENTION] and not outcome.ping_held
+
+
+# -- at most one ping a day (owner, 2026-11-22: "Nie pinguj łowcy potworów więcej niż raz dziennie po zmianach.") --
+
+async def test_a_second_update_on_the_same_day_is_posted_without_the_ping(live, channel, notes_file):
+    notes_file(entries(1, 2))
+    first = await patchnotes.announce(live.bot)
+    assert contents(channel) == [MENTION] and not first.ping_held
+    assert live.bot.store.runtime_get(patchnotes.PING_KEY) == patchnotes.today()
+    notes_file(entries(1, 2, 3))
+    second = await patchnotes.announce(live.bot)
+    assert second.sent == [3] and second.ping_held and second.problems == []
+    assert contents(channel) == [MENTION, ""] and mentions(channel) == [ONLY_HUNTERS, NOBODY]
+    notes_file(entries(1, 2, 3, 4))                                       # ... and a third one the same day
+    third = await patchnotes.announce(live.bot)
+    assert third.sent == [4] and contents(channel) == [MENTION, "", ""]
+    # The messages without the mention are patch-notes messages like any other: the state is read from them.
+    lose_local(live)
+    assert (await patchnotes.announce(live.bot)).channel_value == 4
+
+
+async def test_the_next_day_pings_again_once(live, channel, notes_file, day):
+    day("2026-11-22")
+    notes_file(entries(1))
+    await patchnotes.announce(live.bot)
+    notes_file(entries(1, 2))
+    await patchnotes.announce(live.bot)                                   # the same day: held back
+    day("2026-11-23")
+    notes_file(entries(1, 2, 3))
+    await patchnotes.announce(live.bot)
+    notes_file(entries(1, 2, 3, 4))
+    await patchnotes.announce(live.bot)                                   # the same new day: held back
+    assert contents(channel) == [MENTION, "", MENTION, ""]
+    assert live.bot.store.runtime_get(patchnotes.PING_KEY) == "2026-11-23"
+
+
+async def test_todays_ping_is_also_read_from_the_channel_when_the_local_note_is_lost(live, channel, notes_file):
+    notes_file(entries(1))
+    await patchnotes.announce(live.bot)                                   # pinged; the fake message is of today
+    lose_local(live)
+    notes_file(entries(1, 2))
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.sent == [2] and outcome.ping_held and contents(channel) == [MENTION, ""]
+
+
+async def test_a_ping_of_another_day_on_the_channel_does_not_hold_todays(live, channel, notes_file, day):
+    notes_file(entries(1))
+    await patchnotes.announce(live.bot)
+    lose_local(live)
+    day("2099-01-01")                                                     # the pinged message is from "before"
+    notes_file(entries(1, 2))
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.sent == [2] and not outcome.ping_held and contents(channel) == [MENTION, MENTION]
+
+
+async def test_unreadable_recent_history_does_not_stop_the_run(live, channel, notes_file):
+    notes_file(entries(1))
+    # The marker read works; the look for messages to correct and for today's ping fail for good.
+    channel.history_script = [None, forbidden(), forbidden()]
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.sent == [1] and outcome.problems == [] and contents(channel) == [MENTION]
+
+
+async def test_the_command_says_when_the_ping_was_held_back(live, channel, notes_file):
+    notes_file(entries(1))
+    await patchnotes.announce(live.bot)
+    notes_file(entries(1, 2))
+    await load_cog(live)
+    await run(live, administrator(live), "$patchnotes")
+    assert patchnotes.MSG_PING_HELD in live.channel.messages[-1].content
+    assert contents(channel) == [MENTION, ""]
+
+
+# -- announced entries whose text was changed (owner, 2026-11-22: "Ostatnie patchnotesy zedytuj") --
+
+async def test_a_changed_text_of_an_announced_entry_edits_its_message(live, channel, notes_file):
+    notes_file(entries(1, 2))
+    await patchnotes.announce(live.bot)
+    (message,) = patch_messages(channel)
+    before = len(channel.attempts)
+    notes_file([entry(1), entry(2, text="Zmiana 2.1. Dopisane zdanie.")])
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.corrected == ["1-2"] and outcome.sent == [] and outcome.problems == []
+    assert len(channel.attempts) == before                                # nothing new was sent
+    assert len(message.edits) == 1 and message.content == MENTION         # the mention stays, nobody is pinged again
+    assert message.edits[0]["allowed_mentions"].to_dict() == NOBODY
+    assert "content" not in message.edits[0]
+    assert message.embeds[0].footer.text == "Patch notes nr 1-2"
+    assert "• Zmiana 2.1. Dopisane zdanie." in message.embeds[0].description
+    # The owner is told once, without a ping; a second run finds nothing to do.
+    assert patchnotes.owner_note(outcome) == patchnotes.MSG_OWNER_CORRECTED.format(
+        what="1-2", channel=f"<#{PATCH_CHANNEL}>")
+    again = await patchnotes.announce(live.bot)
+    assert again.corrected == [] and len(message.edits) == 1
+
+
+async def test_an_older_message_is_corrected_too_and_new_entries_still_go_out(live, channel, notes_file, day):
+    day("2026-11-22")
+    notes_file(entries(1))
+    await patchnotes.announce(live.bot)
+    notes_file(entries(1, 2))
+    await patchnotes.announce(live.bot)
+    first, second = patch_messages(channel)
+    notes_file([entry(1, text="Pierwszy wpis, poprawiony."), entry(2), entry(3)])
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.corrected == ["1"] and outcome.sent == [3]
+    assert first.embeds[0].description.endswith("• Pierwszy wpis, poprawiony.") and second.edits == []
+    assert footers(channel) == ["Patch notes nr 1", "Patch notes nr 2", "Patch notes nr 3"]
+
+
+async def test_unchanged_messages_are_never_edited(live, channel, notes_file):
+    notes_file(entries(1, 2, 3, lines=BIG, size=990))
+    await patchnotes.announce(live.bot)
+    await patchnotes.announce(live.bot)
+    assert all(message.edits == [] for message in patch_messages(channel))
+
+
+async def test_what_is_not_corrected(live, channel, notes_file):
+    # A split entry (its parts hold no whole entry).
+    notes_file([entry(1, lines=12, size=900)])
+    await patchnotes.announce(live.bot)
+    notes_file([entry(1, lines=12, size=901)])
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.corrected == [] and all(message.edits == [] for message in patch_messages(channel))
+
+
+async def test_an_entry_gone_from_the_file_or_with_a_spoiler_is_left_alone(live, channel, notes_file):
+    notes_file(entries(1, 2))
+    await patchnotes.announce(live.bot)
+    (message,) = patch_messages(channel)
+    notes_file([entry(1, text="Teraz 50% częściej.")])                    # entry 2 is gone, entry 1 has a spoiler
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.corrected == [] and message.edits == []
+    notes_file([entry(1, text="Teraz 50% częściej."), entry(2)])
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.corrected == [] and message.edits == []
+
+
+async def test_a_correction_that_fails_is_told_and_tried_again(live, channel, notes_file, monkeypatch):
+    notes_file(entries(1))
+    await patchnotes.announce(live.bot)
+    (message,) = patch_messages(channel)
+    real_edit = message.edit
+
+    async def refused(**kwargs):
+        raise forbidden()
+
+    monkeypatch.setattr(message, "edit", refused, raising=False)
+    notes_file([entry(1, text="Poprawione.")])
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.corrected == [] and outcome.correct_failed == ["1"]
+    assert outcome.problems == [patchnotes.MSG_OWNER_CORRECT_FAILED.format(
+        what="1", channel=f"<#{PATCH_CHANNEL}>", error="Forbidden")]
+    monkeypatch.setattr(message, "edit", real_edit, raising=False)
+    outcome = await patchnotes.announce(live.bot)                         # the next run puts it right
+    assert outcome.corrected == ["1"] and message.embeds[0].description.endswith("• Poprawione.")
+
+
+async def test_somebody_elses_look_alike_is_never_edited(live, channel, notes_file):
+    notes_file(entries(1))
+    await patchnotes.announce(live.bot)
+    stranger = live.add_member("Obcy")
+    fake = FakeMessage(channel, stranger, "", embed=patchnotes.Post("stare", "Patch notes nr 1", (1,)).embed())
+    channel.messages.append(fake)
+    notes_file([entry(1, text="Poprawione.")])
+    outcome = await patchnotes.announce(live.bot)
+    assert outcome.corrected == ["1"] and fake.edits == []
 
 
 async def test_a_mention_of_another_role_is_no_marker_message(live, channel, notes_file):
@@ -895,19 +1073,21 @@ async def test_od_over_entries_announced_before_pings_nobody(live, channel, note
     assert contents(channel) == [MENTION, ""] and mentions(channel) == [ONLY_HUNTERS, NOBODY]
 
 
-async def test_od_that_reaches_new_entries_pings(live, channel, notes_file):
+async def test_od_that_reaches_new_entries_pings(live, channel, notes_file, day):
     notes_file(entries(1, 2))
     await patchnotes.announce(live.bot)
     notes_file(entries(1, 2, 3))
+    day("2099-01-01")                                                     # (another day: one ping a day)
     outcome = await patchnotes.announce(live.bot, from_id=2)
     assert outcome.sent == [2, 3] and footers(channel) == ["Patch notes nr 1-2", "Patch notes nr 2-3"]
     assert contents(channel) == [MENTION, MENTION] and mentions(channel) == [ONLY_HUNTERS, ONLY_HUNTERS]
 
 
-async def test_od_that_reaches_new_entries_pings_only_its_first_message(live, channel, notes_file):
+async def test_od_that_reaches_new_entries_pings_only_its_first_message(live, channel, notes_file, day):
     notes_file(entries(1, 2, lines=BIG, size=990))
     await patchnotes.announce(live.bot)
     notes_file(entries(1, 2, 3, lines=BIG, size=990))
+    day("2099-01-01")                                                     # (another day: one ping a day)
     outcome = await patchnotes.announce(live.bot, from_id=1)              # 1 and 2 again, 3 for the first time
     assert outcome.sent == [1, 2, 3]
     assert contents(channel) == [MENTION, "", MENTION, "", ""]

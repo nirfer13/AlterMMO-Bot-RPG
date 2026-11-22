@@ -243,7 +243,8 @@ def test_panel_fits_discord_limits_and_stays_compact():
     assert len(embed.title) <= 256 and len(embed.footer.text) <= 2048 and not embed.fields
     # A pinned message everybody sees: the supporters' part is no longer than the game's part
     # plus the role mentions (8 x 23 characters, which Discord shows as short role names).
-    assert len(hub.PANEL_SUPPORT_TEXT) <= 1300
+    # (1340 since 2026-11-22: the ornaments' line says in bold that they are cosmetic only.)
+    assert len(hub.PANEL_SUPPORT_TEXT) <= 1340
     # (The achievements line also names the "Osiągnięcia" button and $osiagniecia.)
     assert all(len(line) <= 240 for line in hub.PANEL_BENEFITS)
 
@@ -301,7 +302,9 @@ def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
     for words in ("Jaja premium", "**$transformacja**", "lustrem wizualiów", "**$modlitwa**", "kapliczce",
                   "zostaniesz bossem", "imprezy u Barda", "Kolekcjonerskie osiągnięcia", "mityczne zdobycze",
                   "przyciskiem **Osiągnięcia** (**$osiagniecia**)", "Kolekcjonerskie ozdoby karty",
-                  "dopóki wspierasz", "📖 **Album**", "poświęceni towarzysze", "(**$album**)"):
+                  "dopóki wspierasz", "📖 **Album**", "poświęceni towarzysze", "(**$album**)",
+                  # Owner, 2026-11-22: the panel stresses that the ornaments are cosmetic only.
+                  "**wyłącznie elementy kosmetyczne**, bez wpływu na grę"):
         assert words in benefits
     # The album's line (2026-11-21): one line, no species, no ornaments (checked below as well);
     # since 2026-11-22 it names the ranking of the collections.

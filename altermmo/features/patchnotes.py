@@ -63,6 +63,17 @@ the hunters' role (``bot.ids.hunters_role``) as its whole text content and is se
 mentions for exactly that role (:func:`only_role`) - one ping per update, nobody else, whatever
 a note says.  The later messages of the run, a ``$patchnotes od`` over entries announced before
 and debug mode ping nobody (:data:`NO_MENTIONS`).  Old marker messages without text stay valid.
+Owner, 2026-11-22: "Nie pinguj łowcy potworów więcej niż raz dziennie po zmianach." - the role is
+mentioned at most once per calendar day (Europe/Warsaw): the day of the last ping is remembered
+(``runtime.json``, :data:`PING_KEY`) and read from the channel as well (:func:`pinged_today`); a
+second update on the same day is posted without the mention.
+
+**Corrections** (owner, 2026-11-22: "Ostatnie patchnotesy zedytuj"): when the text of an entry
+that was already announced is changed in the file, every run first brings the bot's newest
+patch-notes messages up to date (:func:`_correct_posted`): a message whose entries render
+differently from the file is edited in place - no new message, no ping.  Only messages that hold
+whole entries (not the parts of a split one), only while the file still has those ids and they
+are free of spoilers.
 
 **No spoilers** ("Bez spoilerów"; the owner's rule for this game: players discover things
 themselves - no species of pets, no names of card frames / seals / foils, no drop chances):
@@ -87,7 +98,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 
 import discord
 
-from ..core import io
+from ..core import clock, io
 from ..settings import CONFIG_DIR
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -100,6 +111,12 @@ NOTES_FILE = CONFIG_DIR / "patchNotes.json"
 #: ``runtime.json`` key: the highest entry id the bot knows it has announced.  (Start-up drops
 #: only the ``job_last_run:*`` markers of a long-idle bot - see ``AlterBot._review_saved_state``.)
 RUNTIME_KEY = "patch_notes_announced"
+#: ``runtime.json`` key: the day (``YYYY-MM-DD``, Europe/Warsaw) the hunters' role was last pinged.
+PING_KEY = "patch_notes_pinged_on"
+#: How many of the newest messages are searched for today's ping and for messages to correct.
+RECENT_LIMIT = 100
+#: At most this many of the newest patch-notes messages are compared with the file at a run.
+CORRECT_MESSAGES = 5
 
 #: How many of the newest messages of the channel are searched for the last patch-notes message.
 #: The channel is an information channel: a few messages per update (and maybe some replies) - 500
@@ -184,6 +201,12 @@ MSG_OWNER_SEND_FAILED = ("Patch notes: nie udało się wysłać wiadomości na k
 MSG_OWNER_REMEMBER_FAILED = ("Patch notes: nie udało się zapisać numeru ostatniego ogłoszonego wpisu "
                              "({error}); przy następnym starcie liczy się ostatnia wiadomość na kanale.")
 MSG_OWNER_SENT = "Patch notes: ogłosiłem {what} na kanale {channel}."
+MSG_OWNER_CORRECTED = ("Patch notes: poprawiłem treść już ogłoszonych wpisów (nr {what}) na kanale {channel} - "
+                       "wiadomość została zedytowana, bez ponownego oznaczania roli.")
+MSG_OWNER_CORRECT_FAILED = ("Patch notes: nie udało się poprawić treści ogłoszonych wpisów nr {what} na kanale "
+                            "{channel} ({error}). Spróbuję przy następnym starcie albo po `$patchnotes`.")
+MSG_PING_HELD = ("Rola łowców była już dziś oznaczona - te wpisy poszły bez oznaczenia (najwyżej jedno "
+                 "oznaczenie dziennie).")
 MSG_OWNER_BEYOND = ("Patch notes: ostatnio ogłoszony wpis to nr {highest}, a plik `config/patchNotes.json` "
                     "kończy się na nr {last} - plik cofnięty albo przenumerowany? Nowe wpisy o numerach do "
                     "{highest} nie zostałyby ogłoszone. Sprawdź plik i wpisz `$patchnotes od {last}` (wyśle "
@@ -508,6 +531,14 @@ def parse_marker(text: Any) -> int | None:
     return last if last > first else None  # "6-4" / "4-4" are never written by the bot
 
 
+def marker_range(text: Any) -> tuple[int, int] | None:
+    """``(first, last)`` entry ids of a marker footer, or None when the text is not exactly a marker."""
+    last = parse_marker(text)
+    if last is None:
+        return None
+    return int(_MARKER.fullmatch(text.strip()).group(1)), last
+
+
 def content_allowed(content: Any, role_id: int | None) -> bool:
     """True when a message's text content is what a patch-notes message may carry.
 
@@ -682,6 +713,12 @@ class Outcome:
     send_error: str | None = None
     remember_error: str | None = None
     unexpected: str | None = None
+    #: The hunters were already pinged today: this run's messages went without the mention.
+    ping_held: bool = False
+    #: Ranges ("5", "1-4") of announced entries whose message was edited to match the file.
+    corrected: list[str] = field(default_factory=list)
+    correct_failed: list[str] = field(default_factory=list)
+    correct_error: str | None = None
 
     @property
     def beyond(self) -> bool:
@@ -720,6 +757,9 @@ class Outcome:
                                                       left=entries_text(self.left)))
         if self.remember_error:
             lines.append(MSG_OWNER_REMEMBER_FAILED.format(error=self.remember_error))
+        if self.correct_failed:
+            lines.append(MSG_OWNER_CORRECT_FAILED.format(what=", ".join(self.correct_failed), channel=self.channel,
+                                                         error=self.correct_error))
         return lines
 
 
@@ -784,6 +824,123 @@ def ping_role(bot: Any) -> int | None:
     if getattr(bot, "debug", False):
         return None
     return hunters_role(bot)
+
+
+def today() -> str:
+    """The calendar day the players live in (Europe/Warsaw), ``YYYY-MM-DD``."""
+    return clock.now().date().isoformat()
+
+
+def _day_of(message: Any) -> str | None:
+    """The Warsaw day a message was created on (None when it carries no usable time)."""
+    try:
+        return message.created_at.astimezone(clock.WARSAW).date().isoformat()
+    except Exception:  # noqa: BLE001 - a message without a time is simply not "today"
+        return None
+
+
+async def pinged_today(bot: Any, channel: Any) -> bool:
+    """True when the hunters' role was already pinged by patch notes today (at most one ping a day).
+
+    Two sources, like the announced number: the day remembered locally (:data:`PING_KEY`) and the
+    channel itself - one of the bot's patch-notes messages among the newest :data:`RECENT_LIMIT`
+    that carries the mention and was created today.  A history that cannot be read counts as "no
+    such message" (the local day still holds).  Never raises.
+    """
+    day = today()
+    try:
+        if bot.store.runtime_get(PING_KEY) == day:
+            return True
+    except Exception:  # noqa: BLE001 - the channel may still tell
+        log.exception("Cannot read the day of the last patch notes ping.")
+    role_id = hunters_role(bot)
+    bot_id = getattr(getattr(bot, "user", None), "id", None)
+    if role_id is None or bot_id is None:
+        return False
+    mention = role_mention(role_id)
+    try:
+        async def scan() -> bool:
+            async for message in channel.history(limit=RECENT_LIMIT):
+                if (getattr(message, "content", "") == mention and marker_of(message, bot_id, role_id) is not None
+                        and _day_of(message) == day):
+                    return True
+            return False
+
+        return await asyncio.wait_for(scan(), io.ATTEMPT_TIMEOUT)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Cannot look for today's patch notes ping on the channel (%s: %s).", type(exc).__name__, exc)
+        return False
+
+
+def _remember_ping(bot: Any) -> None:
+    try:
+        bot.store.runtime_set(PING_KEY, today())
+    except Exception:  # noqa: BLE001 - the pinged message on the channel still tells the next run
+        log.exception("Cannot remember the day of the patch notes ping.")
+
+
+async def _correct_posted(bot: Any, channel: Any, notes: list[Note], outcome: Outcome) -> None:
+    """Edit the bot's newest patch-notes messages whose entries now read differently in the file.
+
+    Looks at the newest :data:`CORRECT_MESSAGES` patch-notes messages among the newest
+    :data:`RECENT_LIMIT` messages.  A message is edited only when its marker names whole entries
+    that the file still has, that are free of spoilers and that fit one message with that very
+    marker; its text content (the mention) is left as it is and nobody is pinged by an edit.  A
+    failure is noted for the owner and never stops the run.  Never raises.
+    """
+    bot_id = getattr(getattr(bot, "user", None), "id", None)
+    if bot_id is None:
+        return
+    role_id = hunters_role(bot)
+    by_id = {note.id: note for note in notes}
+    words = forbidden_words()
+    try:
+        found: list[Any] = []
+
+        async def scan() -> None:
+            async for message in channel.history(limit=RECENT_LIMIT):
+                if marker_of(message, bot_id, role_id) is not None:
+                    found.append(message)
+                    if len(found) >= CORRECT_MESSAGES:
+                        return
+
+        await asyncio.wait_for(scan(), io.ATTEMPT_TIMEOUT)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - nothing corrected this time
+        log.warning("Cannot look for patch notes messages to correct (%s: %s).", type(exc).__name__, exc)
+        return
+    for message in found:
+        embed = message.embeds[0]
+        span = marker_range(getattr(embed.footer, "text", None))
+        if span is None:
+            continue
+        ids = list(range(span[0], span[1] + 1))
+        if any(note_id not in by_id for note_id in ids):
+            continue  # (the file was rolled back or renumbered: not this function's business)
+        chosen = [by_id[note_id] for note_id in ids]
+        if any(spoiler_in(note, words) is not None for note in chosen):
+            continue  # (told to the owner by the run itself when such an entry waits)
+        planned = plan_posts(chosen)
+        if len(planned) != 1 or planned[0].footer != marker(span[0], span[1]):
+            continue  # (parts of a split entry, or entries that no longer fit one message)
+        if (embed.description or "") == planned[0].description:
+            continue
+        label = ranges(ids)
+        try:
+            await io.retry(lambda message=message, post=planned[0]: message.edit(
+                embed=post.embed(), allowed_mentions=NO_MENTIONS), attempts=2, what="correct a patch notes message")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - told, tried again at the next run
+            log.error("Cannot correct the patch notes message of entries %s (%s: %s).", label, type(exc).__name__, exc)
+            outcome.correct_failed.append(label)
+            outcome.correct_error = _describe(exc)
+            continue
+        outcome.corrected.append(label)
+        log.info("Patch notes: the message of entries %s was corrected to match the file.", label)
 
 
 def local_value(bot: Any) -> int | None:
@@ -1042,6 +1199,8 @@ async def _announce(bot: Any, outcome: Outcome) -> None:
             outcome.gap = list(range(floor + 1, outcome.from_id))
             return
         start = outcome.from_id
+    if history_ok:
+        await _correct_posted(bot, channel, notes, outcome)  # announced entries whose text was changed
     waiting = [note for note in notes if note.id >= start]
     outcome.waiting = [note.id for note in waiting]
     words = forbidden_words()
@@ -1057,8 +1216,12 @@ async def _announce(bot: Any, outcome: Outcome) -> None:
     posts = plan_posts(postable)
     if posts and any(note.id > floor for note in postable):
         role_id = ping_role(bot)
-        if role_id is not None:  # (the first message only: one ping per update, never in debug mode)
-            posts[0] = replace(posts[0], ping_role=role_id)
+        if role_id is not None:  # (the first message only; never in debug mode; at most once a day)
+            if await pinged_today(bot, channel):
+                outcome.ping_held = True
+                log.info("Patch notes: the hunters were already pinged today; posting without the mention.")
+            else:
+                posts[0] = replace(posts[0], ping_role=role_id)
     delivered: set[int] = set()
     kept: set[int] = set()
     for post in posts:
@@ -1072,6 +1235,8 @@ async def _announce(bot: Any, outcome: Outcome) -> None:
             outcome.send_error = _describe(exc)
             break
         outcome.messages += 1
+        if post.ping_role is not None:
+            _remember_ping(bot)
         if post.covers:
             delivered.update(post.covers)
             outcome.sent.extend(post.covers)
@@ -1090,6 +1255,8 @@ async def _announce(bot: Any, outcome: Outcome) -> None:
 def owner_note(outcome: Outcome) -> str | None:
     """The one note for the owner after the start-up run (None: nothing worth saying)."""
     lines = list(outcome.problems)
+    if outcome.corrected:
+        lines.insert(0, MSG_OWNER_CORRECTED.format(what=", ".join(outcome.corrected), channel=outcome.channel))
     if outcome.sent:
         lines.insert(0, MSG_OWNER_SENT.format(what=entries_text(outcome.sent), channel=outcome.channel))
     return "\n".join(lines) if lines else None
@@ -1142,6 +1309,10 @@ def command_answer(outcome: Outcome) -> str:
     if outcome.sent:
         messages = f"w {outcome.messages} {'wiadomości' if outcome.messages == 1 else 'wiadomościach'}"
         lines.append(MSG_SENT.format(what=entries_text(outcome.sent), messages=messages, channel=outcome.channel))
+        if outcome.ping_held:
+            lines.append(MSG_PING_HELD)
+    if outcome.corrected:
+        lines.append(MSG_OWNER_CORRECTED.format(what=", ".join(outcome.corrected), channel=outcome.channel))
     lines += [MSG_PROBLEM.format(problem=problem) for problem in outcome.problems]
     return "\n".join(lines)
 

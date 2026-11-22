@@ -134,8 +134,9 @@ PANEL_BENEFITS: tuple[str, ...] = (
     "łowcę) albo bohaterem imprezy u Barda.",
     "🏅 **Kolekcjonerskie osiągnięcia** - role za najrzadsze, mityczne zdobycze. Swoje sprawdzisz "
     "przyciskiem **Osiągnięcia** (**$osiagniecia**).",
-    "🔖 **Kolekcjonerskie ozdoby karty** - każdy nowy towarzysz ma szansę na rzadkie ozdoby swojej "
-    "karty. Zdobią ją, dopóki wspierasz (po przerwie wracają).",
+    # (Owner, 2026-11-22: "W Panelu gry podkreśl, że są to tylko elementy kosmetyczne.")
+    "🔖 **Kolekcjonerskie ozdoby karty** - **wyłącznie elementy kosmetyczne**, bez wpływu na grę. "
+    "Każdy nowy towarzysz ma na nie szansę; zdobią kartę, dopóki wspierasz (po przerwie wracają).",
     "📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**) i liczą się w rankingu "
     "kolekcji.",
 )
