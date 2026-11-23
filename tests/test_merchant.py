@@ -328,7 +328,7 @@ async def test_an_egg_in_the_pouch_does_not_grow(game_db, monkeypatch):
     assert await pets.assign_pet(game.scene(bob), bob) is False
 
     assert await pets.egg_room(game.bot, ala.id) == "pouch"
-    assert await pets.assign_pet(scene, ala) is True
+    assert await pets.assign_pet(scene, ala) == pets.INTO_POUCH
     egg = (await row(db, ala.id))["pouch_pet_id"]
     assert egg > 1 and (await row(db, ala.id))["pet_id"] == 1
     assert game.channel.contains("nowe jajko trafia do sakwy")
@@ -461,10 +461,78 @@ async def test_through_the_events_cog(game_db, cart, quick):
     run = asyncio.ensure_future(cog.run_one_event(forced=EventType.MERCHANT))
     await game.wait_for_buttons(merchant.buy_key(0))
     state = game.bot.state
-    assert state.busy_owner == "event:MERCHANT" and state.stable_open           # the stable stays usable
-    assert state.event_type is EventType.MERCHANT
+    # Passive like the chest (owner, 2026-11-23): his event is open, the channel is free.
+    await until(lambda: state.event_alive)
+    assert not state.busy and state.event_type is EventType.MERCHANT
     assert await asyncio.wait_for(run, 5) is EventType.MERCHANT
-    assert not state.busy and not state.stable_open and state.event_type is EventType.NONE
+    assert not state.busy and not state.event_alive and state.event_type is EventType.NONE
+    assert game.channel.contains(merchant.MSG_GONE_TEXT)
+
+
+async def test_a_purchase_waits_while_a_hunt_plays(game_db, cart):
+    game, db = game_db, game_db.bot.db
+    cart("rest_kit")
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=10)
+    daily.save_daily_to_file(game.bot, ala.id)
+    state = game.bot.state
+    task = start(game)
+    panel = await game.wait_for_buttons(merchant.buy_key(0))
+    await until(lambda: state.event_alive)
+    with state.hold_busy("hunt"):                                             # a hunt starts meanwhile
+        refused = await game.click(panel, ala, merchant.buy_key(0))
+        await until(lambda: refused.answers)
+    assert refused.answers == [ui.MSG_BUSY] and await scrolls_of(db, ala.id) == 10
+    await game.click(panel, ala, merchant.buy_key(0))                        # the hunt is over
+    stock = await asyncio.wait_for(task, 5)
+    assert stock[0].buyer == ala and await scrolls_of(db, ala.id) == 0
+
+
+async def test_the_next_event_sends_him_away_without_a_word(game_db, cart):
+    game = game_db
+    cart("rest_kit")
+    state = game.bot.state
+    task = start(game)
+    await game.wait_for_buttons(merchant.buy_key(0))
+    await until(lambda: state.event_alive)
+    state.close_event()                                                       # the next event / the boss
+    stock = await asyncio.wait_for(task, 5)
+    assert not stock[0].sold
+    assert not game.channel.contains(merchant.MSG_GONE_TEXT) and not game.channel.contains("zwija kram")
+    assert not state.busy and not state.event_alive
+
+
+async def test_once_a_day_in_the_draw(game_db, cart, quick, monkeypatch):
+    game = game_db
+    cart("rest_kit")
+    cog = events_cog.EventsCog(game.bot)
+    assert cog.not_again_today() == ()
+    await asyncio.wait_for(merchant.spawn_merchant(game.scene()), 5)
+    assert merchant.came_today(game.bot) and cog.not_again_today() == (EventType.MERCHANT,)
+    drawn = []
+    monkeypatch.setattr(events_cog, "pick_event", lambda now, *, debug, exclude=(): drawn.append(exclude))
+    await cog.run_one_event()
+    assert EventType.MERCHANT in drawn[0]
+    game.bot.store.runtime_set(merchant.DAY_KEY, "2000-01-01")               # he came on another day
+    assert not merchant.came_today(game.bot) and cog.not_again_today() == ()
+
+
+async def test_an_egg_into_the_pouch_does_not_block_the_level_of_the_same_drop(game_db, monkeypatch):
+    """Owner, 2026-11-23: only a new ACTIVE egg stops the pet level of its drop."""
+    game, db = game_db, game_db.bot.db
+    monkeypatch.setattr(daily, "_loot_table", lambda rarity: [
+        {"id": daily.LOOT_EGG, "descr": "Jajko", "weight": 100},
+        {"id": daily.LOOT_PET_LEVEL, "descr": "Poziom", "weight": 100}])
+    monkeypatch.setattr(random, "random", lambda: 0.0)
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, pet_id=1, egg_pouch=True)
+    await make_pet(db, 1, level=1)
+    assert await daily.rand_loot(game.scene(ala), 1, ala, 0) == "👉 Jajko\n👉 Poziom\n"
+    assert (await row(db, ala.id))["pouch_pet_id"] > 1
+    assert int(await db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = 1")) == 2
+
+    ola = game.add_member("Ola")                                              # nobody at her side
+    assert await daily.rand_loot(game.scene(ola), 1, ola, 0) == "👉 Jajko\n"   # the old rule stays
 
 
 # -- the production table before the start-up migration --------------------------------------

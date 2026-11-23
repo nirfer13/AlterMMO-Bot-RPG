@@ -1335,8 +1335,17 @@ async def egg_room(bot: "AlterBot", player_id: Any) -> str:
     return "pouch" if has_pouch and in_pouch <= 0 else ""
 
 
-async def assign_pet(scene: "Scene", player: Any) -> bool:
+#: What :func:`assign_pet` returns when the egg went into the egg pouch.  Truthy like ``True``,
+#: but the active pet is still the old one: a pet level rolled in the same drop goes to it
+#: (owner, 2026-11-23: an egg in the pouch does not block the level).
+INTO_POUCH = "pouch"
+
+
+async def assign_pet(scene: "Scene", player: Any) -> bool | str:
     """Give the player a new egg; False when there is no room for it.
+
+    Returns ``True`` when the egg became the active pet and :data:`INTO_POUCH`
+    when it went into the egg pouch.
 
     The egg becomes the active pet of a player without one.  A player who has a
     pet at his side keeps it; the egg goes into his egg pouch when he has one
@@ -1374,7 +1383,7 @@ async def assign_pet(scene: "Scene", player: Any) -> bool:
     if egg["MYTHIC"]:
         await _announce_mythic(scene, player_id)
     await achievements.check_pets(scene, player)  # a mythic pet (with Holo / the rarest seal); never raises
-    return True
+    return INTO_POUCH if to_pouch else True
 
 
 async def _say_safely(scene: "Scene", text: str) -> None:

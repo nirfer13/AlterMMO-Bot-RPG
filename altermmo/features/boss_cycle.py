@@ -119,7 +119,7 @@ _KEY_SPAWN_NOTICE = "boss_spawn_notice"
 #: How far back the general chat is searched for left-over notices after a start.
 NOTICE_SWEEP_LIMIT = 300
 #: Events that only wait for a command; everything else is an activity in progress.
-_PASSIVE_EVENTS = (EventType.SHRINE, EventType.CHEST)
+_PASSIVE_EVENTS = (EventType.SHRINE, EventType.CHEST, EventType.MERCHANT)
 
 
 def somebody_was_first(rarity: int) -> str:

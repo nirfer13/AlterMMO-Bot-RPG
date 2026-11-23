@@ -3,11 +3,15 @@
 Owner's request of 2026-11-22 (passed on by the owner's other Claude session):
 
 * the merchant comes like the other random events (the events cog draws him,
-  ``$SpawnEvent merchant`` calls him) and runs inside ``state.running_event``
-  like the cups of Dova: the channel is his while he stands there.  The stable
-  stays usable meanwhile (``GameState.stable_stays_open``, as during the
-  sign-up of the companion training): a player can put his companion away to
-  make room for an egg he wants to buy;
+  ``$SpawnEvent merchant`` calls him), at most once a day in the draw
+  (owner, 2026-11-23; :func:`came_today` - a forced one counts as well);
+* he is PASSIVE like the chest (owner, 2026-11-23): the channel is held only
+  while his panel is posted, then the event stays open
+  (``state.open_event``) and the channel is free - hunts, the tower and the
+  stable work.  A purchase waits while a hunt / tower run / event plays on
+  the channel (``ui.MSG_BUSY``, as the chest).  Whoever closes the event
+  meanwhile (the next event, the boss, the tournament) sends him away
+  without a word: he does not post on a channel that belongs to someone else now;
 * he has 1 ware (usually) or 2-3 different ones (rarely) - drawn from
   ``config/merchantConfig.json`` (prices, draw weights, how many wares, how
   long he stays, the stable's limit), read every time he comes;
@@ -45,8 +49,9 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Sequence
 
 import discord
 
-from ..core import timing, ui
+from ..core import clock, io, timing, ui
 from ..core.scene import Scene
+from ..core.state import EventType
 from ..settings import CONFIG_DIR
 from . import daily, events, pets, skills, tower
 
@@ -63,6 +68,10 @@ ARRIVAL, DEPARTURE = "0", "1"
 PICTURE_SUFFIXES = (".gif", ".png", ".jpg", ".jpeg", ".webp")
 #: How long the merchant stays in debug mode (production: ``stay_seconds`` of the config).
 STAY_DEBUG = 15
+#: How often (seconds) the merchant looks whether his event was closed by somebody else.
+WATCH_EVERY = 2.0
+#: ``runtime.json``: the day (``YYYY-MM-DD``, local time) the merchant last came (one a day).
+DAY_KEY = "merchant_last_day"
 
 COLOUR = 0x8B5A2B
 BAG = "🧳"
@@ -411,13 +420,40 @@ def _panel(stock: Sequence[Offer], *, ends_at: datetime, status: str | None = No
     return embed
 
 
+def came_today(bot: "AlterBot") -> bool:
+    """True when the merchant has already come today (the events cog leaves him out of the draw)."""
+    try:
+        return bot.store.runtime_get(DAY_KEY) == clock.now().date().isoformat()
+    except Exception:  # noqa: BLE001 - a broken note must not stop the events
+        log.exception("Cannot read when the merchant came last.")
+        return False
+
+
+def _remember_today(bot: "AlterBot") -> None:
+    try:
+        bot.store.runtime_set(DAY_KEY, clock.now().date().isoformat())
+    except Exception:  # noqa: BLE001 - at worst he comes twice that day
+        log.exception("Cannot note that the merchant came today.")
+
+
+def still_here(bot: "AlterBot") -> bool:
+    """True while the merchant's event is open (nobody - the next event, the boss... - closed it)."""
+    state = bot.state
+    return state.event_alive and state.event_type is EventType.MERCHANT
+
+
 async def spawn_merchant(scene: Scene) -> list[Offer]:
     """The merchant comes, sells what he can and leaves; returns his cart (``Offer.buyer`` set when sold).
 
-    An empty cart (every ware switched off in the config) means he does not
-    come at all.  :class:`ConfigError` propagates (the cog tells the owner).
+    Passive like the chest: the channel is held only while his panel is
+    posted; then his event stays open and this coroutine sells until he is
+    sold out, his time is up or somebody else closes the event (then he
+    leaves without a word).  An empty cart (every ware switched off in the
+    config) means he does not come at all.  :class:`ConfigError` propagates
+    (the cog tells the owner).
     """
     bot = scene.bot
+    state = bot.state
     config = load_config()
     stock = draw_stock(config, upgrades=await pets.upgrades_available(bot))
     if not stock:
@@ -432,14 +468,33 @@ async def spawn_merchant(scene: Scene) -> list[Offer]:
                          emoji=offer.ware.emoji, style=discord.ButtonStyle.success)
                for index, offer in enumerate(stock)]
 
-    with bot.state.stable_stays_open():  # (room for an egg can be made meanwhile)
-        async with ui.ClickView(choices) as view:
+    async def not_now(interaction: Any, key: str) -> str | None:
+        # As the chest: no purchase while a hunt / tower run / event plays on the channel.
+        return ui.MSG_BUSY if state.activity_running else None
+
+    sent_away = False
+    async with ui.ClickView(choices, allow=not_now) as view:
+        with state.hold_busy("event-spawn:MERCHANT"):
+            await io.clear_channel(scene.channel)
             extra = {} if arrival is None else {"file_path": arrival}
             await view.send(scene.channel, embed=_panel(stock, ends_at=ends_at, picture_name=shown), **extra)
+        state.open_event(EventType.MERCHANT)
+        _remember_today(bot)
+        try:
             deadline = time.monotonic() + seconds
             while not all(offer.sold for offer in stock):
-                click = await view.next(deadline - time.monotonic())
+                if not still_here(bot):
+                    sent_away = True
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                click = await view.next(min(remaining, WATCH_EVERY))
                 if click is None:
+                    continue
+                if not still_here(bot):
+                    await ui.reply(click.interaction, ui.MSG_STALE)
+                    sent_away = True
                     break
                 offer = stock[int(click.key.removeprefix("buy"))]
                 if offer.sold:
@@ -468,15 +523,24 @@ async def spawn_merchant(scene: Scene) -> list[Offer]:
                 else:
                     await scene.send(MSG_BOUGHT.format(mention=member.mention, name=offer.name,
                                                        price=scrolls(offer.price), detail=purchase.text))
-            late = view.pending()
+        finally:
+            if still_here(bot):
+                state.close_event()
+        late = view.pending()
+        if sent_away:
+            # The channel belongs to whoever closed the event: no words, only the buttons go.
+            await view.close()
+        else:
             status = MSG_SOLD_OUT if all(offer.sold for offer in stock) else MSG_LEAVES
             await view.close(embed=_panel(stock, ends_at=ends_at, status=status, picture_name=shown))
-            for click in late:
-                await ui.reply(click.interaction, MSG_ALREADY_SOLD if stock[int(click.key[3:])].sold
-                               else ui.MSG_STALE)
+        for click in late:
+            await ui.reply(click.interaction, MSG_ALREADY_SOLD if stock[int(click.key[3:])].sold
+                           else ui.MSG_STALE)
 
     sold = [offer.ware.id for offer in stock if offer.sold]
-    log.info("Merchant leaves (sold: %s).", ", ".join(sold) or "nothing")
+    log.info("Merchant leaves (sold: %s)%s.", ", ".join(sold) or "nothing", " - sent away" if sent_away else "")
+    if sent_away:
+        return stock
     departure = picture(DEPARTURE)
     if departure is not None:
         await scene.send(file_path=departure)

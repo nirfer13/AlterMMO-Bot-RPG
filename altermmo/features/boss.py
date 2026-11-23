@@ -581,7 +581,7 @@ def _loot_table(rarity: int) -> list[dict[str, Any]]:
     return config[_LOOT_TABLES.get(int(rarity), _LOOT_TABLE_FALLBACK)]
 
 
-async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool:
+async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool | str:
     """Hand one loot item to ``hunter``; False when there was nothing to give.
 
     (A pet that cannot level up any more, a player without room for another
@@ -598,7 +598,7 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool
         expsum.add_file_exp(bot, hunter.id, experience)
         return True
     if loot_id == LOOT_EGG:
-        return bool(await _pets().assign_pet(scene, hunter))
+        return await _pets().assign_pet(scene, hunter)  # (``pets.INTO_POUCH`` is truthy as well)
     if loot_id == LOOT_PET_LEVEL:
         return bool(await _pets().level_up_pet(scene, hunter.id))
     if loot_id == LOOT_REBIRTH_STONE:
@@ -613,7 +613,8 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool
     return True
 
 
-async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: bool) -> str:
+async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: bool,
+                granted_out: list[Any] | None = None) -> str:
     """Grant one drop and return its line(s) for the drop message ("" when nothing dropped)."""
     bot = scene.bot
     if bonus and loot["id"] == LOOT_EGG:
@@ -628,6 +629,8 @@ async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: boo
             f"Nie udało się przyznać łupu graczowi {hunter} (<@{hunter.id}>): {loot.get('descr')} "
             f"(`{type(exc).__name__}: {exc}`). Przyznaj ręcznie.", ping=True)
         return ""
+    if granted_out is not None:
+        granted_out.append(granted)  # (an egg: ``True`` = the active pet, ``pets.INTO_POUCH`` = the pouch)
     if not granted:
         log.info("Loot %s rolled for %s but there was nothing to grant.", loot["id"], hunter.id)
         return ""
@@ -649,6 +652,8 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     Owner's rule (2026-11-21): an egg and a pet level never come in the same
     drop - once this drop has given the hunter a new egg, a pet level rolled
     in it is not granted (the egg would hatch before the player has seen it).
+    An egg that went into the egg pouch does not count (owner, 2026-11-23):
+    the active pet is still the old one and gets the level.
     The level's own weight roll is still made, but a level that is not granted
     does not call ``pets.level_up_pet``, so the random draws of a level-up (the
     talent, the skill) are not made either and the draws after it in this drop
@@ -658,7 +663,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     boost = int(boost_percent)
     drop_message = ""
     thefts_before = len(xpsteal.pending(bot, hunter.id))
-    new_egg = False  # this very drop gave the hunter an egg
+    new_egg = False  # this very drop gave the hunter an egg that is now the ACTIVE pet
 
     async def drop(loot: dict[str, Any], bonus: bool) -> str:
         nonlocal new_egg
@@ -666,8 +671,9 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
             log.info("Pet level rolled for %s together with a new egg: not granted (never both in one drop).",
                      hunter.id)
             return ""
-        line = await _drop(scene, hunter, loot, bonus=bonus)
-        if line and loot["id"] == LOOT_EGG:
+        granted: list[Any] = []
+        line = await _drop(scene, hunter, loot, bonus=bonus, granted_out=granted)
+        if line and loot["id"] == LOOT_EGG and granted and granted[0] is True:  # (not pets.INTO_POUCH)
             new_egg = True
         return line
 

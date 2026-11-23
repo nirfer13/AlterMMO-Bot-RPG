@@ -47,8 +47,9 @@ EVENT_ORDER = (EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.
 #: place) was switched off in the old bot (weight 0); the owner enabled it in v2.
 #: The companion training has the weights of the duel; it is left out of the draw
 #: until the owner has supplied its picture (``EventsCog.not_drawable``).  The wandering
-#: merchant has weight 1 at every hour (like the ritual); what he sells and how often each
-#: ware comes is in ``config/merchantConfig.json``.
+#: merchant has weight 1 at every hour (like the ritual) but comes at most once a day
+#: (``merchant.came_today``); what he sells and how often each ware comes is in
+#: ``config/merchantConfig.json``.
 PEAK_WEIGHTS = (1, 1, 2, 1, 1, 1, 1, 2, 2, 1, 1)
 OFF_PEAK_WEIGHTS = (2, 2, 1, 0, 2, 2, 2, 0, 0, 1, 1)
 DEBUG_WEIGHTS = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
@@ -59,6 +60,10 @@ RITUAL_MARGIN, RITUAL_MARGIN_DEBUG = 180.0, 10.0
 
 #: Passive events: posted, then they wait for ``$modlitwa`` / ``$skrzynia``.
 PASSIVE = (EventType.SHRINE, EventType.CHEST)
+#: Events that stay open with the channel free and are closed by the next event / the
+#: tournament: the chest, the shrine and the wandering merchant (passive since 2026-11-23,
+#: his own coroutine notices the close and leaves).
+CLOSED_BY_NEXT = (*PASSIVE, EventType.MERCHANT)
 
 MSG_NOT_A_BELIEVER = ("Nie umiesz pacierza. Poczekaj na kogoś bardziej wierzącego. "
                       "<:prayge:1063891597760139304>")
@@ -170,15 +175,16 @@ class EventsCog(commands.Cog, name="Events"):
         """
         bot = self.bot
         state = bot.state
-        if state.event_alive and state.event_type in PASSIVE:
-            state.close_event()  # an unclaimed shrine/chest expires now
+        if state.event_alive and state.event_type in CLOSED_BY_NEXT:
+            state.close_event()  # an unclaimed shrine/chest expires now, the merchant leaves
         await self.retire_panel()
 
         left_out = self.not_drawable()
-        event_type = forced or pick_event(clock.now(), debug=bot.debug, exclude=left_out)
+        not_drawn = (*left_out, *self.not_again_today())
+        event_type = forced or pick_event(clock.now(), debug=bot.debug, exclude=not_drawn)
         if forced is None and event_type is EventType.RITUAL and not self.ritual_fits():
             # The scheduled boss is too close: play something else in this slot.
-            event_type = pick_event(clock.now(), debug=bot.debug, exclude=(EventType.RITUAL, *left_out))
+            event_type = pick_event(clock.now(), debug=bot.debug, exclude=(EventType.RITUAL, *not_drawn))
             log.info("Ritual does not fit before the scheduled boss; drawn instead: %s.",
                      event_type.name if event_type else "nothing")
         if event_type is None:
@@ -215,6 +221,16 @@ class EventsCog(commands.Cog, name="Events"):
 
         return () if training.has_picture() else (EventType.TRAINING,)
 
+    def not_again_today(self) -> tuple[EventType, ...]:
+        """Events left out of the draw for the rest of the day: the merchant once he has come.
+
+        Owner, 2026-11-23: "Jeden kupiec na dzień jest wystarczający".  Only the
+        draw: ``$SpawnEvent merchant`` still calls him.
+        """
+        from ..features import merchant
+
+        return (EventType.MERCHANT,) if merchant.came_today(self.bot) else ()
+
     def ritual_fits(self) -> bool:
         """True when a whole ritual can be played before the scheduled boss arrives.
 
@@ -237,6 +253,12 @@ class EventsCog(commands.Cog, name="Events"):
         bot = self.bot
         state = bot.state
         scene = bot.boss_scene()
+
+        if event_type is EventType.MERCHANT:
+            # Passive like the chest, but he sells on his own: he holds the channel only while
+            # his panel is posted, then waits with the channel free (see features/merchant.py).
+            await merchant.spawn_merchant(scene)
+            return
 
         if event_type in PASSIVE:
             with state.hold_busy(f"event-spawn:{event_type.name}"):
@@ -263,15 +285,13 @@ class EventsCog(commands.Cog, name="Events"):
             EventType.HAZARD: events.spawn_hazard,
             EventType.DUEL: events.spawn_duel,
             EventType.TRAINING: training.spawn_training,
-            EventType.MERCHANT: merchant.spawn_merchant,
         }
         # The duel and the ritual keep the channel free while they wait for
         # volunteers (as the old bot did: hunts, the tower and pet commands work
         # meanwhile); they take the busy flag themselves for the fight / for
         # putting the summoned boss on the channel.  (The companion training holds
         # the channel from its first second; during its sign-up only the stable
-        # works - see ``GameState.stable_open``.  The wandering merchant does the same
-        # while he stands on the channel.)
+        # works - see ``GameState.stable_open``.)
         open_sign_up = event_type in (EventType.DUEL, EventType.RITUAL)
         with state.running_event(event_type, exclusive=not open_sign_up):
             await io.clear_channel(scene.channel)
@@ -309,7 +329,7 @@ class EventsCog(commands.Cog, name="Events"):
         waiting_since = clock.monotonic()
         owner_told = False
         while not state.free_for_activity:
-            if state.event_alive and state.event_type in PASSIVE:
+            if state.event_alive and state.event_type in CLOSED_BY_NEXT:
                 state.close_event()
                 await self.retire_panel()
                 continue
