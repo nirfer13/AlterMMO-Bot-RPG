@@ -66,6 +66,11 @@ Cosmetics (new in v2, they give no stats):
   owner's ``$DajPieczec`` / ``$DajRamke`` ever changes it: not growing, the
   mirror (the class never changes), a new name, the stable, a new owner or the
   end of the support;
+* the one exception to "ONE roll" (owner's request of 2026-11-22): the egg a
+  supporter wins from a special boss (:mod:`altermmo.features.bossvariants`).
+  When its roll gave only the base look, the whole roll is repeated - the
+  rarer the boss, the more repeats are allowed (``rerolls`` of
+  :func:`_roll_egg`).  Still supporters only, still no stats;
 * what is stored is SHOWN only while the pet's owner is a supporter (owner's
   decision of 2026-11-20): when the support ends the seal, the foil and a
   rarer frame disappear from the card and from the statistics (the card shows
@@ -270,6 +275,9 @@ FRAME_ROLL = 10000
 #: animated frame: the rarest static frame of each pool (R7 / R8 / R9, 3% of their class since the
 #: x3 of 2026-11-22).
 RARE_FRAME_PERCENT = 3.0
+#: The most repeats of the cosmetic roll one egg can get (the egg of a special boss, see
+#: :func:`_roll_egg`); whatever a caller asks for is cut down to this.
+MAX_COSMETIC_REROLLS = 10
 
 
 def _frame_table(tier: str) -> tuple[tuple[int, str], ...]:
@@ -576,6 +584,18 @@ def _roll_cosmetics(tier: str = "", *, frames: bool = True) -> Rolled:
     foil = _foil_for(random.randrange(COSMETIC_ROLL))
     frame = _frame_for(tier, random.randrange(FRAME_ROLL)) if frames and tier in FRAME_ROLL_BELOW else ""
     return Rolled(seal, foil, frame)
+
+
+def _only_base_look(rolled: Rolled, *, frames: bool = True) -> bool:
+    """True when a cosmetic roll gave nothing but the base look of the class.
+
+    No seal, no foil, the base frame.  Without the frame columns
+    (``frames=False``) a partial Holo is no ornament either: it has nowhere to
+    be stored (see :func:`_roll_egg`), so the egg would look like any other.
+    """
+    if rolled.seal or rolled.frame or rolled.foil == petcards.FOIL_FULL:
+        return False
+    return not frames or rolled.foil != petcards.FOIL_PARTIAL
 
 
 def _rare_frame(ident: str) -> petcards.Frame | None:
@@ -1127,7 +1147,7 @@ async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool
 
 # -- eggs -----------------------------------------------------------------------------
 
-def _roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True) -> dict[str, Any]:
+def _roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True, rerolls: int = 0) -> dict[str, Any]:
     """Draw a new egg for ``player``.
 
     Supporters (patrons, crafters, Twitch subscribers, YouTube supporters) can
@@ -1144,8 +1164,18 @@ def _roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True) -> di
     rolled as always, the frame is not, and the egg has only ``SEAL`` /
     ``HOLO`` - a partial Holo result has nowhere to go and is lost (logged).
 
+    ``rerolls`` (owner's request of 2026-11-22: the egg of a special boss, see
+    :mod:`altermmo.features.bossvariants`): when the supporter's cosmetic roll
+    gave only the base look (:func:`_only_base_look`), the WHOLE roll is
+    repeated, up to ``rerolls`` times (at most :data:`MAX_COSMETIC_REROLLS`);
+    the first result with an ornament is kept, otherwise the last one.  The
+    pools and the odds of a single roll are the usual ones, nothing is rolled
+    for a non-supporter whatever the boss, and the egg itself (species, class)
+    is not drawn again.
+
     The cosmetic rolls use ``random.randrange`` and come last, so the legacy
-    draws (``randint`` / ``choice``) are exactly what they were.
+    draws (``randint`` / ``choice``) are exactly what they were - and with
+    ``rerolls=0`` so is the whole sequence of draws.
     """
     supporter = patrons.check_if_patron(player)
     percentage = random.randint(0, 1000)
@@ -1170,6 +1200,15 @@ def _roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True) -> di
     if cosmetics:
         tier = petcards.tier_of({"mythic": mythic, "ultra_shiny": egg["ULTRA_SHINY"], "shiny": egg["SHINY"]})
         rolled = _roll_cosmetics(tier, frames=frames) if supporter else Rolled(0, petcards.FOIL_NONE, "")
+        if supporter:
+            allowed, repeats = min(max(int(rerolls), 0), MAX_COSMETIC_REROLLS), 0
+            while repeats < allowed and _only_base_look(rolled, frames=frames):
+                rolled = _roll_cosmetics(tier, frames=frames)
+                repeats += 1
+            if repeats:
+                log.info("Special boss: the cosmetic roll of a new %s egg was repeated %d time(s) of %d allowed; "
+                         "result: seal %s, foil %s, frame %r.", pet.value, repeats, allowed,
+                         rolled.seal, rolled.foil, rolled.frame)
         egg["SEAL"], egg["HOLO"] = rolled.seal, rolled.foil == petcards.FOIL_FULL
         if frames:
             egg["FRAME"], egg["HOLO_PARTIAL"] = rolled.frame, rolled.foil == petcards.FOIL_PARTIAL
@@ -1341,7 +1380,7 @@ async def egg_room(bot: "AlterBot", player_id: Any) -> str:
 INTO_POUCH = "pouch"
 
 
-async def assign_pet(scene: "Scene", player: Any) -> bool | str:
+async def assign_pet(scene: "Scene", player: Any, *, cosmetic_rerolls: int = 0) -> bool | str:
     """Give the player a new egg; False when there is no room for it.
 
     Returns ``True`` when the egg became the active pet and :data:`INTO_POUCH`
@@ -1352,6 +1391,10 @@ async def assign_pet(scene: "Scene", player: Any) -> bool | str:
     (bought from the wandering merchant) and it is empty - and the channel is
     told so.  Otherwise no egg (as always: the drop is lost).  An egg in the
     pouch is not the active pet, so nothing levels it up.
+
+    ``cosmetic_rerolls``: the egg drops from a special boss - its cosmetic roll
+    may be repeated that many times (``rerolls`` of :func:`_roll_egg`; only a
+    supporter's egg rolls at all).  Where the egg goes does not matter for it.
     """
     bot = scene.bot
     player_id = _pid(player)
@@ -1368,7 +1411,7 @@ async def assign_pet(scene: "Scene", player: Any) -> bool | str:
                           player_id)
                 return False
             to_pouch = True
-        egg = _roll_egg(player, cosmetics=cosmetics, frames=frames)
+        egg = _roll_egg(player, cosmetics=cosmetics, frames=frames, rerolls=cosmetic_rerolls)
         pet_id = await _insert_egg(con, egg)
         if to_pouch:
             await con.execute("UPDATE PETOWNER SET POUCH_PET_ID = $2 WHERE PLAYER_ID = $1", player_id, pet_id)

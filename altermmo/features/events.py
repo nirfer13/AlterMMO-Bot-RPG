@@ -43,7 +43,7 @@ import discord
 
 from ..core import challenge, io, timing, ui
 from ..settings import ASSETS_DIR
-from . import boss, daily, database, modifiers, patrons
+from . import boss, bossvariants, daily, database, modifiers, patrons
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -980,10 +980,12 @@ def ritual_duration(bot: "AlterBot") -> float:
     return _wait(bot, RITUAL_WAIT)
 
 
-async def spawn_ritual(scene: "Scene") -> tuple[bool, int, bool, Any]:
+async def spawn_ritual(scene: "Scene") -> tuple[bool, int, bool, Any, str]:
     """Summoning ritual: the more players sign up, the mightier the boss.
 
-    Returns ``(success, rarity, is_player_boss, player_boss)``.  On success the
+    Returns ``(success, rarity, is_player_boss, player_boss, variant)``;
+    ``variant`` is the special variant the boss was shown as
+    (:mod:`altermmo.features.bossvariants`), '' for an ordinary boss.  On success the
     channel was cleared and the boss picture is already shown; the caller hands
     the boss to the boss cycle at once (nothing may be awaited in between).
 
@@ -1002,12 +1004,12 @@ async def spawn_ritual(scene: "Scene") -> tuple[bool, int, bool, Any]:
         users = await sign_up.collect()
         if await sign_up.deleted():
             log.info("Ritual interrupted: its message was deleted.")
-            return False, 0, False, None
+            return False, 0, False, None, ""
 
     if not users:
         await _send_image(scene, "ritual", "4.png")
         await scene.send(MSG_RITUAL_FAILED)
-        return False, 0, False, None
+        return False, 0, False, None, ""
 
     rarity = ritual_rarity(len(users))
     rarity += int((await modifiers.load_modifiers(bot))["rarity_boost"])
@@ -1019,15 +1021,16 @@ async def spawn_ritual(scene: "Scene") -> tuple[bool, int, bool, Any]:
         log.info("Ritual of %d players ends without a boss: the scheduled one is arriving (phase %s).",
                  len(users), state.boss_phase.name)
         await scene.send(MSG_RITUAL_OVERTAKEN)
-        return False, 0, False, None
+        return False, 0, False, None, ""
     log.info("Ritual of %d players summons a boss of rarity %d.", len(users), rarity)
 
     with state.hold_busy("event:RITUAL"):
         await io.clear_channel(scene.channel)
-        is_player_boss, player_boss = await boss.send_boss_image(scene, rarity)
+        shown = await boss.send_boss_image(scene, rarity)
+        is_player_boss, player_boss, *_ = shown
     if not bot.boss_cycle.can_summon():
         # The scheduled boss began to arrive while the picture was being posted.
         log.info("Ritual boss shown, but the scheduled boss is arriving (phase %s).", state.boss_phase.name)
         await scene.send(MSG_RITUAL_OVERTAKEN)
-        return False, 0, False, None
-    return True, rarity, is_player_boss, player_boss
+        return False, 0, False, None, ""
+    return True, rarity, is_player_boss, player_boss, bossvariants.variant_of(shown)

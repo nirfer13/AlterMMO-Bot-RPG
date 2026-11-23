@@ -92,5 +92,14 @@
             "W czasie zapisów działa stajnia, więc zdążysz wybrać, kogo wyślesz. Jajka jeszcze nie trenują.",
             "Za udział też coś wpada, a najlepszych czekają lepsze nagrody."
         ]
+    },
+    {
+        "id": 9,
+        "date": "2026-11-23",
+        "title": "Wyjątkowe spotkania z bossami",
+        "changes": [
+            "Boss może teraz czasem pojawić się w wyjątkowej odsłonie - poznacie ją po ozdobnej oprawie portretu.",
+            "Jajko zdobyte na takim bossie ma większą szansę na ozdoby karty towarzysza, a im rzadszy boss, tym ta szansa większa. Ozdoby to wyłącznie elementy kosmetyczne i są tylko dla wspierających."
+        ]
     }
 ]

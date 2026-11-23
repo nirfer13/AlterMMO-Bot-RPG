@@ -266,6 +266,66 @@ async def test_ritual_sign_up_leaves_the_channel_free_and_the_boss_can_be_attack
     assert not game.channel.ever_sent(events.MSG_RITUAL_OVERTAKEN)
 
 
+async def test_ritual_can_summon_a_special_boss_and_its_variant_reaches_the_boss_cycle(game, special_bosses,
+                                                                                       monkeypatch):
+    """The real boss picture (features/bossvariants.py): what the ritual showed is what is fought."""
+    from altermmo.features import bossvariants, fight_types
+
+    bot = game.bot
+    special_bosses(chance_percent=20)                                      # the tests' own config
+    monkeypatch.setattr(timing, "TIMEOUT_SCALE", 0.01)
+    monkeypatch.setattr(random, "gauss", lambda mu, sigma: 2.0)            # an epic boss
+    monkeypatch.setattr(random, "randint", lambda low, high: low)          # a monster, its first picture
+    monkeypatch.setattr(random, "random", lambda: 0.0)                     # ...in its special variant
+    join_ritual(game, game.add_member("Ala"))
+
+    cog = events_cog.EventsCog(bot)
+    assert await cog.run_one_event(forced=EventType.RITUAL) is EventType.RITUAL
+    state = bot.state
+    assert state.boss_phase is BossPhase.VISIBLE and not state.busy and not state.event_alive
+    assert (state.boss.rarity, state.boss.is_player_boss, state.boss.variant) == (2, False, "mgla")
+    picture, embed_message = game.channel.messages[-2:]
+    assert picture.files == ["100.gif"] and bossvariants.HINT in embed_message.embeds[0].description
+
+    # The fight the boss cycle starts is told the variant (and only a special boss's fight is).
+    fights: list[dict] = []
+
+    async def single_init(scene, rarity):
+        return scene.author
+
+    async def single_fight(scene, hunter, rarity, is_player_boss, player_boss, **special):
+        fights.append(special)
+        return fight_types.FightResult(won=True)
+
+    async def reset_end(bot_):
+        return None
+
+    monkeypatch.setattr(events.boss, "single_init", single_init)
+    monkeypatch.setattr(events.boss, "single_fight", single_fight)
+    monkeypatch.setattr(events.boss, "reset_end", reset_end)
+    await bot.boss_cycle.attack(game.scene(game.add_member("Ola")))
+    assert fights == [{"variant": "mgla"}] and bot.state.boss.variant == ""
+
+
+@pytest.mark.parametrize("result, variant", [
+    ((True, 2, False, None), ""),                 # the four values of before the special bosses
+    ((True, 2, False, None, None), ""),           # a fifth value that is not a text
+    ((True, 2, False, None, "mgla"), "mgla")])
+async def test_ritual_result_without_a_variant_means_an_ordinary_boss(game, monkeypatch, result, variant):
+    """The cog reads the fifth value of ``spawn_ritual`` tolerantly: without it the boss is an ordinary one."""
+    bot = game.bot
+
+    async def spawn_ritual(scene):
+        return result
+
+    monkeypatch.setattr(events, "spawn_ritual", spawn_ritual)
+    cog = events_cog.EventsCog(bot)
+    assert await cog.run_one_event(forced=EventType.RITUAL) is EventType.RITUAL
+    state = bot.state
+    assert state.boss_phase is BossPhase.VISIBLE and not state.busy and not state.event_alive
+    assert (state.boss.rarity, state.boss.is_player_boss, state.boss.variant) == (2, False, variant)
+
+
 async def test_ritual_waits_for_a_running_hunt_before_showing_the_boss(game, boss_image, monkeypatch):
     bot = game.bot
     ala = game.add_member("Ala")
@@ -285,7 +345,7 @@ async def test_ritual_waits_for_a_running_hunt_before_showing_the_boss(game, bos
     monkeypatch.setattr(events.asyncio, "sleep", fast_sleep)
     result = await events.spawn_ritual(game.scene())
     order.append("boss shown")
-    assert result == (True, 2, True, "Szef") and order == ["hunt over", "boss shown"]
+    assert result == (True, 2, True, "Szef", "") and order == ["hunt over", "boss shown"]
     assert boss_image == [(2, True)] and not bot.state.busy
 
 

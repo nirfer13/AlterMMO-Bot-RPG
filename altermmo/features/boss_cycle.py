@@ -59,6 +59,7 @@ import discord
 from ..core import clock, guards, io, ui
 from ..core.scene import Scene
 from ..core.state import BossInfo, BossPhase, EventType
+from . import bossvariants
 from .fight_types import FightInterrupted, FightResult
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -673,9 +674,11 @@ class BossCycle:
             await io.clear_channel(channel)
             await self._announce_spawn()
             scene = bot.boss_scene()
-            is_player_boss, player_boss = await self._boss.send_boss_image(scene, state.boss.rarity)
+            shown = await self._boss.send_boss_image(scene, state.boss.rarity)
+            is_player_boss, player_boss, *_ = shown
+            # (The special variant the boss appeared as goes with it into the fight: the loot needs it.)
             state.boss = BossInfo(rarity=state.boss.rarity, is_player_boss=is_player_boss,
-                                  player_boss=player_boss)
+                                  player_boss=player_boss, variant=bossvariants.variant_of(shown))
         self._wind_sent = False
         self._appears_at = None
         self._resume_phase = None
@@ -811,7 +814,7 @@ class BossCycle:
         return state.busy or (state.event_alive and state.event_type not in _PASSIVE_EVENTS)
 
     async def summon(self, scene: Scene, rarity: int, *, show_image: bool = True,
-                     is_player_boss: bool = False, player_boss: Any = None) -> bool:
+                     is_player_boss: bool = False, player_boss: Any = None, variant: str = "") -> bool:
         """Put an extra boss on the channel right now (skill gem / ritual).
 
         The regular schedule is only paused: when the summoned boss is dealt
@@ -822,7 +825,9 @@ class BossCycle:
 
         ``show_image=True`` clears the channel and posts the boss picture (skill
         gem); with ``show_image=False`` the caller already presented the boss
-        (ritual) and passes ``is_player_boss`` / ``player_boss`` itself.
+        (ritual) and passes ``is_player_boss`` / ``player_boss`` itself - and
+        ``variant``, the special variant it showed the boss as ('' = ordinary;
+        with ``show_image=True`` the picture posted here decides).
         """
         bot = self.bot
         state = bot.state
@@ -836,7 +841,9 @@ class BossCycle:
             with state.hold_busy("boss-summon"):
                 state.close_event()
                 await io.clear_channel(scene.channel)
-                is_player_boss, player_boss = await self._boss.send_boss_image(scene, rarity)
+                shown = await self._boss.send_boss_image(scene, rarity)
+                is_player_boss, player_boss, *_ = shown
+                variant = bossvariants.variant_of(shown)
             if not self.can_summon():
                 return False  # the scheduled boss started arriving while we were posting
         else:
@@ -845,7 +852,8 @@ class BossCycle:
         self._resume_phase = state.boss_phase
         self._summoned_at = clock.utcnow()
         self._encounters += 1  # a new boss: notices about the previous one are out of date
-        state.boss = BossInfo(rarity=int(rarity), is_player_boss=is_player_boss, player_boss=player_boss)
+        state.boss = BossInfo(rarity=int(rarity), is_player_boss=is_player_boss, player_boss=player_boss,
+                              variant=variant if isinstance(variant, str) else "")
         self._remember_summoned(int(rarity))
         await state.set_boss_phase(BossPhase.VISIBLE)
         return True
@@ -946,17 +954,22 @@ class BossCycle:
     async def _encounter(self, scene: Scene, info: BossInfo) -> FightResult:
         boss = self._boss
         state = self.bot.state
+        # A special boss (features/bossvariants.py) tells the fight which variant it is: the
+        # loot of a won fight depends on it.  An ordinary boss is fought by exactly the call
+        # it always was.
+        special = {"variant": info.variant} if getattr(info, "variant", "") else {}
         if info.rarity == 3:
             players = await boss.group_init(scene, info.rarity)
             if not players:
                 return FightResult(won=False)
             await state.set_boss_phase(BossPhase.FIGHTING)
-            return await boss.group_fight(scene, players, info.is_player_boss, info.player_boss)
+            return await boss.group_fight(scene, players, info.is_player_boss, info.player_boss, **special)
         hunter = await boss.single_init(scene, info.rarity)
         if hunter is None:
             return FightResult(won=False)
         await state.set_boss_phase(BossPhase.FIGHTING)
-        return await boss.single_fight(scene, hunter, info.rarity, info.is_player_boss, info.player_boss)
+        return await boss.single_fight(scene, hunter, info.rarity, info.is_player_boss, info.player_boss,
+                                       **special)
 
     async def mark_decided(self, result: FightResult) -> None:
         """The running fight is decided - the boss is dead or the hunters have lost.  Never raises.

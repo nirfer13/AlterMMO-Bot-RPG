@@ -18,6 +18,17 @@ from ..features import boss_cycle
 
 log = logging.getLogger(__name__)
 
+#: Second word of ``$image`` that asks for the special variant of the boss (compared casefolded).
+SPECIAL_WORDS = frozenset({"s", "special", "specjalny", "specjalna", "wariant", "1", "tak", "t", "yes", "true"})
+#: Under an ``$image`` preview that shows a special boss: its embed says what a real one says.
+#: (Public like every answer of the bot; names no ornament and no chance.)
+MSG_PREVIEW_ONLY = ("*To tylko podgląd wyjątkowej odsłony bossa - nie zmienia gry i niczego nie obiecuje. "
+                    "Przycisk pod podglądem atakuje wyłącznie prawdziwego bossa, jeśli ten stoi na kanale.*")
+#: ``$image <rarity> s`` could not show the special variant of the picture it drew.
+MSG_PREVIEW_NO_VARIANT = ("Podgląd: ten portret nie ma wyjątkowej odsłony albo brakuje jej pliku, więc widać "
+                          "zwykłego bossa. Sprawdź `config/bossVariants.json` i folder `assets/boss/special` "
+                          "(szczegóły w logu bota).")
+
 
 class BossCog(commands.Cog, name="Boss"):
     def __init__(self, bot) -> None:
@@ -87,10 +98,32 @@ class BossCog(commands.Cog, name="Boss"):
 
     @commands.command(name="image")
     @guards.owner_or_admin()
-    async def boss_image(self, ctx: commands.Context, rarity: int) -> None:
-        """Post the picture of a boss of the given rarity (0-4)."""
-        from ..features import boss
-        await boss.send_boss_image(Scene.from_ctx(ctx), max(0, min(4, rarity)))
+    async def boss_image(self, ctx: commands.Context, rarity: int, variant: str = "") -> None:
+        """Post the picture of a boss of the given rarity (0-4): ``$image <rarity> [wariant]``.
+
+        Without the second word the picture is rolled like a real spawn (now
+        and then a special variant, now and then a player as the boss, see
+        features/bossvariants.py); with one of :data:`SPECIAL_WORDS` ("s",
+        "specjalny" ...) the special variant is forced: a monster is always
+        shown (``monster_only`` - no supporter is drawn, the shrine's player
+        is not asked for), in its framed portrait.  A preview only: the boss
+        on the channel, its variant and the loot are not touched.
+
+        The preview looks exactly like a real special boss (the hint about the
+        egg, the "Zaatakuj" button, which attacks the REAL boss if one stands
+        there), so a special portrait is followed by :data:`MSG_PREVIEW_ONLY`.
+        A forced preview that could not be special (the drawn picture has no
+        variant, its file is missing, the config is broken) says so instead of
+        silently showing an ordinary boss (:data:`MSG_PREVIEW_NO_VARIANT`).
+        """
+        from ..features import boss, bossvariants
+        forced = variant.strip().casefold() in SPECIAL_WORDS
+        shown = await boss.send_boss_image(Scene.from_ctx(ctx), max(0, min(4, rarity)),
+                                           special=True if forced else None, monster_only=forced)
+        if bossvariants.variant_of(shown):
+            await io.send(ctx.channel, MSG_PREVIEW_ONLY)
+        elif forced:
+            await io.send(ctx.channel, MSG_PREVIEW_NO_VARIANT)
 
     @commands.command(name="loot")
     @guards.owner_or_admin()
@@ -105,7 +138,9 @@ class BossCog(commands.Cog, name="Boss"):
         """Health report: game state, background loops, database, gateway."""
         bot = self.bot
         lines = ["**Stan gry**"]
-        lines += [f"- {key}: `{value}`" for key, value in bot.state.snapshot().items()]
+        # (An empty text - boss_variant of an ordinary boss - is shown as "-": an empty code span
+        # is no code span on Discord, just two stray backticks.  0 and False are values: they stay.)
+        lines += [f"- {key}: `{'-' if value == '' else value}`" for key, value in bot.state.snapshot().items()]
         seconds = bot.boss_cycle.seconds_to_arrival()
         lines.append(f"- boss za: `{round(seconds) if seconds is not None else '-'} s` "
                      f"(respawn włączony: `{bot.boss_cycle.enabled}`)")

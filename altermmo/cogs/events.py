@@ -296,7 +296,10 @@ class EventsCog(commands.Cog, name="Events"):
         with state.running_event(event_type, exclusive=not open_sign_up):
             await io.clear_channel(scene.channel)
             if event_type is EventType.RITUAL:
-                success, rarity, is_player_boss, player_boss = await events.spawn_ritual(scene)
+                # (The fifth value, the special variant the boss was shown as, is read
+                # tolerantly: '' - an ordinary boss - when it is not there.)
+                success, rarity, is_player_boss, player_boss, *shown_as = await events.spawn_ritual(scene)
+                variant = shown_as[0] if shown_as and isinstance(shown_as[0], str) else ""
             else:
                 await runners[event_type](scene)
                 return
@@ -304,7 +307,7 @@ class EventsCog(commands.Cog, name="Events"):
         if success:
             summoned = await bot.boss_cycle.summon(scene, rarity, show_image=False,
                                                    is_player_boss=is_player_boss,
-                                                   player_boss=player_boss)
+                                                   player_boss=player_boss, variant=variant)
             if not summoned:
                 # Cannot happen in practice (spawn_ritual checked a moment ago and
                 # nothing was awaited since); if it does, say that this boss is not real.

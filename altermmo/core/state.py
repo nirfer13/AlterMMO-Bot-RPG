@@ -65,6 +65,9 @@ class BossInfo:
     is_player_boss: bool = False
     #: ``discord.Member`` when a player/supporter poses as the boss, otherwise None.
     player_boss: Any = None
+    #: Id of the special variant the boss was shown as (``features/bossvariants.py``); '' for an
+    #: ordinary boss.  Only in memory: a boss shown again after a restart is rolled anew.
+    variant: str = ""
 
 
 class GameState:
@@ -321,6 +324,7 @@ class GameState:
             "boss_phase": self._boss_phase.name,
             "boss_rarity": self.boss.rarity,
             "is_player_boss": self.boss.is_player_boss,
+            "boss_variant": self.boss.variant,
             "busy_owner": self._busy_owner,
             "busy_for_s": round(time.monotonic() - self._busy_since) if self._busy_since else 0,
             "stable_open": self.stable_open,

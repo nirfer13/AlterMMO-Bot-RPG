@@ -12,7 +12,7 @@ import pytest
 
 import altermmo.features
 from altermmo.core import clock, io
-from altermmo.core.state import BossPhase
+from altermmo.core.state import BossInfo, BossPhase
 from altermmo.features import boss_cycle, database
 from altermmo.features.fight_types import FightInterrupted, FightResult
 from altermmo.settings import Timings
@@ -33,6 +33,10 @@ class StubBoss:
         self.fight_gate: asyncio.Event | None = None
         self.init_gate: asyncio.Event | None = None
         self.base_rarity = 1
+        #: The special variant the next boss picture shows ('' = an ordinary boss: the old pair).
+        self.variant = ""
+        #: The extra keywords of every fight ({} = the call as it always was).
+        self.special: list[dict] = []
 
     def rarity_for_respawn_time(self, seconds, *, debug):
         return self.base_rarity
@@ -43,7 +47,7 @@ class StubBoss:
             raise ConnectionError("discord down")
         self.calls.append(("image", rarity))
         await scene.send(f"BOSS rarity {rarity}")
-        return False, "boss"
+        return (False, "boss", self.variant) if self.variant else (False, "boss")
 
     async def single_init(self, scene, rarity):
         self.calls.append(("single_init", rarity))
@@ -51,8 +55,9 @@ class StubBoss:
             await self.init_gate.wait()
         return scene.author
 
-    async def single_fight(self, scene, hunter, rarity, is_player_boss, player_boss):
+    async def single_fight(self, scene, hunter, rarity, is_player_boss, player_boss, **special):
         self.calls.append(("single_fight", hunter.name, rarity))
+        self.special.append(special)
         if self.fight_gate is not None:
             await self.fight_gate.wait()
         if self.fight_error is not None:
@@ -64,8 +69,9 @@ class StubBoss:
         self.calls.append(("group_init", rarity))
         return [scene.author]
 
-    async def group_fight(self, scene, players, is_player_boss, player_boss):
+    async def group_fight(self, scene, players, is_player_boss, player_boss, **special):
         self.calls.append(("group_fight", len(players)))
+        self.special.append(special)
         return self.result
 
     async def reset_end(self, bot):
@@ -579,6 +585,156 @@ async def test_gem_boss_never_barges_into_an_activity_or_a_sign_up(game_db, cycl
     assert await cycle.summon(game_db.scene(player), 4)
     assert busy_while_posting == ["boss-summon"] and not state.busy and not state.event_alive
     assert state.boss_phase is BossPhase.VISIBLE
+
+
+# -- special bosses (features/bossvariants.py): the variant goes with the boss into its fight ------
+
+async def test_scheduled_special_boss_keeps_its_variant_until_the_fight(game_db, cycle, stub):
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    stub.variant = "krwawy-ksiezyc"
+    cycle.start()
+    await wait_phase(bot, BossPhase.VISIBLE)
+    assert (bot.state.boss.rarity, bot.state.boss.variant) == (1, "krwawy-ksiezyc")
+    assert bot.state.snapshot()["boss_variant"] == "krwawy-ksiezyc"
+    stub.variant = ""                                             # (whatever is drawn later is another boss)
+    await cycle.attack(game_db.scene(player, "$zaatakuj"))
+    assert ("single_fight", "Ala", 1) in stub.calls
+    assert stub.special == [{"variant": "krwawy-ksiezyc"}]
+    assert bot.state.boss.variant == ""                           # gone with the boss
+
+
+async def test_ordinary_boss_is_fought_by_the_old_call(game_db, cycle, stub):
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.VISIBLE)
+    assert bot.state.boss.variant == ""
+    await cycle.attack(game_db.scene(player, "$zaatakuj"))
+    assert stub.special == [{}]                                   # no keyword at all
+
+
+async def test_special_boss_keeps_its_variant_through_an_interrupted_fight(game_db, cycle, stub):
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    bot.state.boss = BossInfo(rarity=1, variant="smocza-wylinka")
+    await bot.state.set_boss_phase(BossPhase.VISIBLE)
+    stub.fight_error = FightInterrupted("connection lost")
+    await cycle.attack(game_db.scene(player))
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss.variant == "smocza-wylinka"
+    await cycle.attack(game_db.scene(player))                     # the same boss, the same promise
+    assert stub.special == [{"variant": "smocza-wylinka"}] * 2
+
+
+async def test_summoned_special_boss_keeps_its_variant(game_db, cycle, stub):
+    """A skill gem boss: the picture posted by the cycle decides, also for a legendary party."""
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    stub.variant = "widmowe-okowy"
+    assert await cycle.summon(game_db.scene(player), 3)
+    assert (bot.state.boss.rarity, bot.state.boss.variant) == (3, "widmowe-okowy")
+    await cycle.attack(game_db.scene(player))
+    assert ("group_fight", 1) in stub.calls and stub.special == [{"variant": "widmowe-okowy"}]
+
+    # The next one is ordinary: nothing of the previous boss is left.
+    stub.variant = ""
+    assert await cycle.summon(game_db.scene(player), 2)
+    assert bot.state.boss.variant == ""
+    await cycle.attack(game_db.scene(player))
+    assert stub.special[-1] == {}
+
+
+async def test_ritual_boss_brings_the_variant_it_was_shown_as(game_db, cycle, stub):
+    """``show_image=False``: the ritual showed the boss itself and says what it showed."""
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    assert await cycle.summon(game_db.scene(player), 4, show_image=False, variant="krwawy-ksiezyc")
+    assert not [call for call in stub.calls if call[0] == "image"]
+    assert (bot.state.boss.rarity, bot.state.boss.variant) == (4, "krwawy-ksiezyc")
+    await cycle.attack(game_db.scene(player))
+    assert ("single_fight", "Ala", 4) in stub.calls and stub.special == [{"variant": "krwawy-ksiezyc"}]
+
+    assert await cycle.summon(game_db.scene(player), 4, show_image=False)   # an ordinary ritual boss
+    assert bot.state.boss.variant == ""
+    assert await cycle.summon(game_db.scene(player), 4, show_image=False) is False                 # (one at a time)
+
+
+@pytest.mark.parametrize("not_a_text", [None, 7, ("krwawy-ksiezyc",)])
+async def test_ritual_boss_with_a_variant_that_is_no_text_is_ordinary(game_db, cycle, stub, not_a_text):
+    """Whatever a caller hands over as the variant, BossInfo holds a text - '' = an ordinary boss."""
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    assert await cycle.summon(game_db.scene(player), 4, show_image=False, variant=not_a_text)
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss.variant == ""
+    await cycle.attack(game_db.scene(player))
+    assert ("single_fight", "Ala", 4) in stub.calls and stub.special == [{}]
+
+
+@pytest.mark.parametrize("before, after", [("krwawy-ksiezyc", ""), ("", "widmowe-okowy"),
+                                           ("krwawy-ksiezyc", "smocza-wylinka")])
+async def test_restart_rolls_the_variant_anew_with_the_picture(game_db, cycle, stub, before, after):
+    """The variant lives only in memory: after a restart it is what the picture shown AGAIN says.
+
+    Never a leftover of the previous picture (a framed boss without its bonus, or a bonus
+    behind an ordinary picture).
+    """
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN
+    player = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    stub.variant = before
+    assert await cycle.summon(game_db.scene(player), 4)
+    assert bot.state.boss.variant == before
+
+    # "Restart" as in test_summoned_boss_comes_back_after_a_restart (the same bot.state: a stale
+    # variant would show).
+    bot.supervisor.stop(boss_cycle.LOOP_NAME)
+    await bot.state.set_boss_phase(BossPhase.IDLE)
+    stub.calls.clear()
+    stub.variant = after
+    bot.boss_cycle = boss_cycle.BossCycle(bot)
+    bot.boss_cycle.start()
+    await wait_phase(bot, BossPhase.VISIBLE)
+    assert ("image", 4) in stub.calls and bot.state.boss.rarity == 4
+    assert bot.state.boss.variant == after
+    await bot.boss_cycle.attack(game_db.scene(player))
+    assert stub.special == ([{"variant": after}] if after else [{}])
+
+
+async def test_switching_spawning_on_keeps_the_variant_of_a_summoned_boss(game_db, cycle, stub):
+    """$startSpawnBoss restarts the loop, not the boss: its picture stays, so does its variant."""
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    await cycle.disable()
+    stub.variant = "widmowe-okowy"
+    assert await cycle.summon(game_db.scene(player), 2)
+    stub.variant = ""                                             # (a picture posted now would be ordinary)
+    stub.calls.clear()
+    await cycle.enable()
+    await asyncio.sleep(0.1)
+    assert bot.state.boss_phase is BossPhase.VISIBLE
+    assert (bot.state.boss.rarity, bot.state.boss.variant) == (2, "widmowe-okowy")
+    assert not [call for call in stub.calls if call[0] == "image"]
+    await cycle.attack(game_db.scene(player))
+    assert ("single_fight", "Ala", 2) in stub.calls and stub.special == [{"variant": "widmowe-okowy"}]
+
+
+async def test_start_spawn_keeps_the_variant_of_the_scheduled_boss(game_db, cycle, stub):
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    stub.variant = "smocza-wylinka"
+    cycle.start()
+    await wait_phase(bot, BossPhase.VISIBLE)
+    stub.variant = ""
+    stub.calls.clear()
+    await cycle.enable()
+    await asyncio.sleep(0.3)
+    assert bot.state.boss_phase is BossPhase.VISIBLE
+    assert (bot.state.boss.rarity, bot.state.boss.variant) == (1, "smocza-wylinka")
+    assert not [call for call in stub.calls if call[0] == "image"]
+    await cycle.attack(game_db.scene(player))
+    assert stub.special == [{"variant": "smocza-wylinka"}]
 
 
 # -- after a start of the bot: what the previous run left behind goes (owner's request) ----------

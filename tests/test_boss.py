@@ -20,7 +20,8 @@ from altermmo.core import challenge, io, timing
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossInfo, BossPhase
-from altermmo.features import achievements, boss, database, fight_types, modifiers, patrons, xpsteal
+from altermmo.features import (achievements, boss, bossvariants, database, fight_types, modifiers, patrons,
+                               xpsteal)
 
 from fakes import FakeAttachment, FakeMember, FakeMessage, requested_word
 
@@ -38,6 +39,8 @@ class PetStub:
         self.calls: list[tuple[str, int]] = []
         self.refuse: set[str] = set()
         self.errors: dict[str, BaseException] = {}
+        #: The extra keywords of every ``assign_pet`` ({} = the call as it always was).
+        self.bonus: list[dict] = []
 
     async def get_pet_skills(self, bot, player_id):
         return {**NO_PET, **self.skills.get(player_id, {})}
@@ -48,7 +51,8 @@ class PetStub:
             raise self.errors[name]
         return name not in self.refuse
 
-    async def assign_pet(self, scene, hunter):
+    async def assign_pet(self, scene, hunter, **bonus):
+        self.bonus.append(bonus)
         return await self._give("assign_pet", hunter.id)
 
     async def level_up_pet(self, scene, player_id):
@@ -203,7 +207,7 @@ def test_real_loot_config_is_readable(monkeypatch):
 async def test_boss_image_of_a_monster(game, monkeypatch):
     monkeypatch.setattr(random, "randint", lambda a, b: a)     # 0 % -> no player boss, picture 0
     game.add_member("Patron", roles=[patrons.PATRON_ROLES[0]])
-    assert await boss.send_boss_image(game.scene(), 2) == (False, None)
+    assert await boss.send_boss_image(game.scene(), 2) == (False, None, "")
     picture, embed_message = game.channel.messages[-2:]
     assert picture.files == ["100.gif"]
     embed = embed_message.embeds[0]
@@ -217,7 +221,7 @@ async def test_boss_image_of_a_monster(game, monkeypatch):
 async def test_boss_image_of_a_patron(game, monkeypatch):
     monkeypatch.setattr(random, "randint", lambda a, b: b)     # 100 % -> a patron is the boss
     patron = game.add_member("Patron", roles=[patrons.CRAFTER_ROLE])
-    assert await boss.send_boss_image(game.scene(), 3) == (True, patron)
+    assert await boss.send_boss_image(game.scene(), 3) == (True, patron, "")
     avatar, embed_message = game.channel.messages[-2:]
     assert avatar.content == patron.display_avatar.url
     embed = embed_message.embeds[0]
@@ -229,7 +233,7 @@ async def test_boss_image_of_a_patron(game, monkeypatch):
 
 async def test_boss_image_without_patrons_falls_back_to_a_monster(game, monkeypatch):
     monkeypatch.setattr(random, "randint", lambda a, b: b)
-    assert await boss.send_boss_image(game.scene(), 4) == (False, None)
+    assert await boss.send_boss_image(game.scene(), 4) == (False, None, "")
     assert game.channel.messages[-2].files == ["10007.gif"]
     assert game.channel.messages[-1].embeds[0].title == "💀 🟥 Mityczny boss! 🟥 💀"
     assert "Pojawił się MITYCZNY boss!" in game.channel.messages[-1].text
@@ -240,7 +244,7 @@ async def test_boss_chosen_at_the_shrine_is_a_player_boss(game, monkeypatch):
     chosen = game.add_member("Wybraniec")
     await modifiers.modify_modifiers(game.bot, "player_id", chosen.id)
     await modifiers.modify_modifiers(game.bot, "drop_boost_perc", 20)
-    assert await boss.send_boss_image(game.scene(), 1) == (True, chosen)   # ...the shrine wins
+    assert await boss.send_boss_image(game.scene(), 1) == (True, chosen, "")   # ...the shrine wins
     text = game.channel.messages[-1].text
     assert "💀 🟦 Rzadki Wybraniec! 🟦 💀" in text
     assert "to ten gracz zgarnia 1000 doświadczenia!*" in text
@@ -251,7 +255,7 @@ async def test_shrine_player_who_left_becomes_a_monster(game, monkeypatch):
     monkeypatch.setattr(random, "randint", lambda a, b: b)     # even when a patron was drawn
     game.add_member("Patron", roles=[patrons.CRAFTER_ROLE])
     await modifiers.modify_modifiers(game.bot, "player_id", 123456789)
-    assert await boss.send_boss_image(game.scene(), 0) == (False, None)
+    assert await boss.send_boss_image(game.scene(), 0) == (False, None, "")
     assert game.channel.messages[-2].files == ["7.gif"]
     assert game.channel.messages[-1].embeds[0].title == "💀 🟩 Zwykły boss! 🟩 💀"
 
@@ -999,6 +1003,184 @@ async def test_duel_pets_defend_and_soften_mistakes(game_db, pets):
     # Ala wrote during Ola's turn; Ola's pet rolled 40 % against "random() * 100 < 40" -> see below.
     assert (channel.contains("Nie Twoja kolej! <:PepeHands:783992337377918986> Przeciwnik zadaje maksymalne obrażenia!")
             or channel.contains("Nie Twoja kolej, ale Twój towarzysz Cię broni!"))
+
+
+# -- the egg of a special boss (features/bossvariants.py) ------------------------------------------
+
+EGG_ONLY = [{"id": 10, "descr": "Jajko", "weight": 100}]
+BLOOD_MOON = "krwawy-ksiezyc"
+
+
+@pytest.fixture
+def special(special_bosses):
+    """Special bosses with a bonus instead of the tests' "no special bosses".
+
+    A config of the tests' own (conftest ``special_bosses``: repeats 1..5 for
+    rarity 0..4), not the shipped config/bossVariants.json - its numbers are
+    the owner's to tune and no test of the fights may depend on them.
+    """
+    config = special_bosses()
+    assert [config.rerolls[rarity] for rarity in range(5)] == [1, 2, 3, 4, 5]     # (the tests' own numbers)
+    return config
+
+
+def spy_on_loot(monkeypatch) -> list[tuple[int, int, dict]]:
+    """Record ``(rarity, hunter id, extra keywords)`` of every ``boss.rand_loot`` and let it run."""
+    real_loot = boss.rand_loot
+    seen: list[tuple[int, int, dict]] = []
+
+    async def rand_loot(scene, rarity, hunter, boost_percent, **extra):
+        seen.append((rarity, hunter.id, extra))
+        return await real_loot(scene, rarity, hunter, boost_percent, **extra)
+
+    monkeypatch.setattr(boss, "rand_loot", rand_loot)
+    return seen
+
+
+@pytest.mark.parametrize("rarity, table", [(0, "Normal"), (1, "Rare"), (2, "Epic"), (4, "Mythic")])
+async def test_egg_of_a_special_boss_gets_the_bonus_of_its_rarity(game_db, pets, loot, special, monkeypatch,
+                                                                  rarity, table):
+    loot(**{table: EXP_ONLY + EGG_ONLY})
+    seen = spy_on_loot(monkeypatch)
+    hunter = game_db.add_member("Ala")
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 2)
+    game_db.auto_answer(hunter)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, rarity, False, None, variant=BLOOD_MOON)).won
+    repeats = special.rerolls[rarity]
+    assert seen == [(rarity, hunter.id, {"cosmetic_rerolls": repeats})]
+    assert pets.calls == [("assign_pet", hunter.id)] and pets.bonus == [{"cosmetic_rerolls": repeats}]
+    # Nothing else about the drop changes, and nobody is told a number.
+    assert "Ala otrzymał: \n👉 250 doświadczenia na Discordzie\n👉 Jajko\n" in game_db.bot.owner_log
+    drop = next(m.embeds[0] for m in game_db.channel.messages if m.embeds and m.embeds[0].title == "Boss Drop - Ala")
+    assert drop.description == "Boss wydropił:\n👉 250 doświadczenia na Discordzie\n👉 Jajko\n"
+
+
+async def test_ordinary_boss_rolls_its_loot_by_the_old_call(game_db, pets, loot, special, monkeypatch):
+    """No variant, no keyword: not for the loot, not for the egg."""
+    loot(Rare=EGG_ONLY)
+    seen = spy_on_loot(monkeypatch)
+    hunter = game_db.add_member("Ala")
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 2)
+    game_db.auto_answer(hunter)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, 1, False, None)).won
+    assert seen == [(1, hunter.id, {})] and pets.bonus == [{}]
+
+
+async def test_special_boss_without_a_usable_config_still_pays_its_loot(game_db, pets, loot, monkeypatch, tmp_path):
+    """The file was broken (or its bonus set to 0) while the boss stood there: an ordinary drop."""
+    loot(Rare=EGG_ONLY)
+    seen = spy_on_loot(monkeypatch)
+    monkeypatch.setattr(bossvariants, "CONFIG_DIR", tmp_path)          # no file at all
+    hunter = game_db.add_member("Ala")
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 2)
+    game_db.auto_answer(hunter)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, 1, False, None, variant=BLOOD_MOON)).won
+    assert seen == [(1, hunter.id, {})] and pets.calls == [("assign_pet", hunter.id)] and pets.bonus == [{}]
+    assert not any("Błąd po wygranej walce" in line for line in game_db.bot.owner_log)
+
+
+async def test_every_member_of_the_party_gets_the_bonus(game_db, pets, loot, special, monkeypatch):
+    loot(Legend=EGG_ONLY)
+    seen = spy_on_loot(monkeypatch)
+    players = [game_db.add_member(name) for name in ("Ala", "Ola", "Ela", "Ula")]
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 3)
+    team_answers(game_db, players)
+    assert (await boss.group_fight(game_db.scene(players[0]), players, False, None, variant=BLOOD_MOON)).won
+    bonus = {"cosmetic_rerolls": special.rerolls[3]}
+    assert seen == [(3, player.id, bonus) for player in players]
+    assert pets.calls == [("assign_pet", player.id) for player in players] and pets.bonus == [bonus] * 4
+
+    # An ordinary legendary boss: the old call for everybody.
+    seen.clear()
+    pets.bonus.clear()
+    team_answers(game_db, players)
+    assert (await boss.group_fight(game_db.scene(players[0]), players, False, None)).won
+    assert seen == [(3, player.id, {}) for player in players] and pets.bonus == [{}] * 4
+
+
+async def test_duel_loot_never_gets_the_bonus(game_db, pets, loot, special, monkeypatch):
+    """Not even while a special boss stands on the channel: the bonus belongs to its own fight."""
+    loot(Epic=EGG_ONLY)
+    seen = spy_on_loot(monkeypatch)
+    game_db.bot.state.boss = BossInfo(rarity=2, variant=BLOOD_MOON)
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    pets.skills[ala.id] = {"CRIT_PERC": Decimal("100"), "LOWHP_PERC": Decimal("50")}
+    duel_setup(game_db, ala, ola, starter=ala)
+    assert await boss.duel_fight(game_db.scene(), [ala, ola]) == (True, ala)
+    assert seen == [(boss.DUEL_RARITY, ala.id, {})] and pets.bonus == [{}]
+
+
+async def test_the_bonus_concerns_only_the_egg_and_never_brings_a_second_one(game, pets, loot, monkeypatch):
+    loot(Rare=FULL_TABLE)
+    monkeypatch.setattr(random, "random", lambda: 0.1)
+    player = game.add_member("Ala")
+    with_bonus = await boss.rand_loot(game.scene(), 1, player, 100, cosmetic_rerolls=3)
+    calls, pets.calls = pets.calls, []
+    assert pets.bonus == [{"cosmetic_rerolls": 3}]                # one egg (never the "(Bonus)" one), one bonus
+    assert calls.count(("assign_pet", player.id)) == 1 and with_bonus.count("Jajko") == 1
+
+    # The same dice without the bonus: the same drop, item for item.
+    assert await boss.rand_loot(game.scene(), 1, player, 100) == with_bonus
+    assert pets.calls == calls and pets.bonus == [{"cosmetic_rerolls": 3}, {}]
+
+    # A player who already has a pet gets no egg - the bonus changes nothing about that.
+    pets.refuse.add("assign_pet")
+    assert "Jajko" not in await boss.rand_loot(game.scene(), 1, player, 0, cosmetic_rerolls=3)
+
+
+async def test_supporters_egg_from_a_special_boss_with_the_real_pets_module(game_db, real_pets, loot, special,
+                                                                            monkeypatch, caplog):
+    """The whole way: the won fight, the loot, the repeated cosmetic roll, the stored egg."""
+    bot = game_db.bot
+    loot(Normal=EGG_ONLY, Rare=EGG_ONLY)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 2)
+    monkeypatch.setattr(random, "randint", lambda low, high: low)          # ordinary eggs: seal and foil dice only
+    cast: list[tuple] = []
+
+    def scripted(*rolls: int) -> None:
+        script = iter(rolls)
+        cast.clear()
+        monkeypatch.setattr(random, "randrange", lambda *args: cast.append(args) or next(script, 999))
+
+    async def seal_of(player) -> tuple:
+        return tuple(await bot.db.fetchrow(
+            "SELECT p.SEAL::int, p.HOLO FROM PETS p JOIN PETOWNER o ON o.PET_ID = p.PET_ID WHERE o.PLAYER_ID = $1",
+            player.id))
+
+    lucky = game_db.add_member("Ala", roles=[patrons.CRAFTER_ROLE])
+    game_db.auto_answer(lucky)
+    scripted(999, 999, 30, 400)                                    # the base look, then the middle seal
+    with caplog.at_level("INFO"):
+        assert (await boss.single_fight(game_db.scene(lucky), lucky, 0, False, None, variant=BLOOD_MOON)).won
+    assert await seal_of(lucky) == (2, False) and len(cast) == 4   # a common special boss: one repeat
+    logged = [record.getMessage() for record in caplog.records]
+    assert any("Egg of Ala" in line and "dropped by a special boss: its cosmetic roll could be repeated "
+               "up to 1 time(s)." in line for line in logged)
+    assert any("repeated 1 time(s) of 1 allowed" in line for line in logged)
+    assert not any("not a supporter" in line for line in logged)
+
+    # The same dice against an ordinary boss: one roll, the base look.
+    other = game_db.add_member("Ola", roles=[patrons.CRAFTER_ROLE])
+    game_db.auto_answer(other)
+    scripted(999, 999, 30, 400)
+    assert (await boss.single_fight(game_db.scene(other), other, 0, False, None)).won
+    assert await seal_of(other) == (0, False) and len(cast) == 2
+
+    # A player who does not support: no roll at all, whatever the boss.
+    plain = game_db.add_member("Ela")
+    game_db.auto_answer(plain)
+    scripted(0, 0)
+    caplog.clear()
+    with caplog.at_level("INFO"):
+        assert (await boss.single_fight(game_db.scene(plain), plain, 1, False, None, variant=BLOOD_MOON)).won
+    assert await seal_of(plain) == (0, False) and cast == []
+    assert not any("Nie udało się przyznać łupu" in line or "Błąd po wygranej walce" in line
+                   for line in bot.owner_log), bot.owner_log
+    # The log does not count a bonus for that egg: it had no cosmetic roll that could be repeated.
+    logged = [record.getMessage() for record in caplog.records]
+    assert [line for line in logged if "dropped by a special boss" in line] == [
+        f"Egg of {plain} ({plain.id}) dropped by a special boss: not a supporter, so no cosmetic roll and no bonus."]
+    assert not any("could be repeated" in line or "was repeated" in line for line in logged)
 
 
 # -- roles -------------------------------------------------------------------------------

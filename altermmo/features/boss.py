@@ -45,14 +45,15 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, Sequence
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, NamedTuple, Sequence
 
 import discord
 
 from ..core import challenge, fightlog, io, timing, ui
 from ..core.challenge import Outcome
 from ..settings import ASSETS_DIR, CONFIG_DIR
-from . import achievements, boss_cycle, database, expsum, fight_types, general, modifiers, patrons, xpsteal
+from . import (achievements, boss_cycle, bossvariants, database, expsum, fight_types, general, modifiers,
+               patrons, xpsteal)
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -581,12 +582,19 @@ def _loot_table(rarity: int) -> list[dict[str, Any]]:
     return config[_LOOT_TABLES.get(int(rarity), _LOOT_TABLE_FALLBACK)]
 
 
-async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool | str:
+async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
+                      cosmetic_rerolls: int = 0) -> bool | str:
     """Hand one loot item to ``hunter``; False when there was nothing to give.
 
     (A pet that cannot level up any more, a player without room for another
     egg...).  Items without a mechanic of their own are text only - the owner
     hands them out from the log channel.
+
+    ``cosmetic_rerolls`` (the drop of a special boss, see :func:`rand_loot`)
+    concerns only an egg: it is handed on to ``pets.assign_pet``.  Without it
+    the call is exactly the one it always was.  The log says whether the egg
+    could use the bonus at all (a supporter's egg) or not (anybody else's: no
+    cosmetic roll); how many repeats really happened is logged by pets.
     """
     bot = scene.bot
     loot_id = loot["id"]
@@ -598,7 +606,19 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool
         expsum.add_file_exp(bot, hunter.id, experience)
         return True
     if loot_id == LOOT_EGG:
-        return await _pets().assign_pet(scene, hunter)  # (``pets.INTO_POUCH`` is truthy as well)
+        if cosmetic_rerolls <= 0:
+            return await _pets().assign_pet(scene, hunter)  # (``pets.INTO_POUCH`` is truthy as well)
+        granted = await _pets().assign_pet(scene, hunter, cosmetic_rerolls=cosmetic_rerolls)
+        if granted:
+            # (Cosmetics are rolled for supporters only: say which of the two eggs this was, so
+            # that the log does not count a bonus for an egg that had no cosmetic roll at all.)
+            if patrons.check_if_patron(hunter):
+                log.info("Egg of %s (%s) dropped by a special boss: its cosmetic roll could be repeated "
+                         "up to %d time(s).", hunter, hunter.id, cosmetic_rerolls)
+            else:
+                log.info("Egg of %s (%s) dropped by a special boss: not a supporter, so no cosmetic roll "
+                         "and no bonus.", hunter, hunter.id)
+        return granted
     if loot_id == LOOT_PET_LEVEL:
         return bool(await _pets().level_up_pet(scene, hunter.id))
     if loot_id == LOOT_REBIRTH_STONE:
@@ -614,13 +634,13 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool
 
 
 async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: bool,
-                granted_out: list[Any] | None = None) -> str:
+                granted_out: list[Any] | None = None, cosmetic_rerolls: int = 0) -> str:
     """Grant one drop and return its line(s) for the drop message ("" when nothing dropped)."""
     bot = scene.bot
     if bonus and loot["id"] == LOOT_EGG:
         return ""  # a second egg never drops (legacy rule)
     try:
-        granted = await _grant_loot(scene, hunter, loot)
+        granted = await _grant_loot(scene, hunter, loot, cosmetic_rerolls=cosmetic_rerolls)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - one broken item must not cost the player the others
@@ -642,7 +662,8 @@ async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: boo
     return line
 
 
-async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: float) -> str:
+async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: float, *,
+                    cosmetic_rerolls: int = 0) -> str:
     """Draw the loot of a boss of ``rarity`` for ``hunter``, grant it and post the drop embed.
 
     ``boost_percent`` raises every weight; a weight above 100 % is a certain
@@ -658,6 +679,13 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     does not call ``pets.level_up_pet``, so the random draws of a level-up (the
     talent, the skill) are not made either and the draws after it in this drop
     differ from what they would have been.
+
+    ``cosmetic_rerolls`` (owner's request of 2026-11-22): the boss was a special
+    variant (:mod:`altermmo.features.bossvariants`) - should this drop bring an
+    egg, its cosmetic roll may be repeated that many times
+    (``pets.assign_pet``).  What drops, and how often, is not changed by it.
+    Only the two boss fights pass it: the duel, the tower and the admin's
+    ``$loot`` roll as always.
     """
     bot = scene.bot
     boost = int(boost_percent)
@@ -672,7 +700,8 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
                      hunter.id)
             return ""
         granted: list[Any] = []
-        line = await _drop(scene, hunter, loot, bonus=bonus, granted_out=granted)
+        line = await _drop(scene, hunter, loot, bonus=bonus, granted_out=granted,
+                           cosmetic_rerolls=cosmetic_rerolls)
         if line and loot["id"] == LOOT_EGG and granted and granted[0] is True:  # (not pets.INTO_POUCH)
             new_egg = True
         return line
@@ -701,8 +730,22 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
                                f"(`{type(exc).__name__}`); łup został przyznany.")
     if len(xpsteal.pending(bot, hunter.id)) > thefts_before:
         await xpsteal.remind(scene, hunter)  # how to use the theft: ping + private message
-    log.info("Loot for %s (rarity %s, boost %s%%): %r", hunter, rarity, boost, drop_message)
+    log.info("Loot for %s (rarity %s, boost %s%%%s): %r", hunter, rarity, boost,
+             f", special boss: up to {cosmetic_rerolls} cosmetic repeat(s) for an egg" if cosmetic_rerolls else "",
+             drop_message)
     return drop_message
+
+
+def _special_loot(variant: str, rarity: int) -> dict[str, int]:
+    """The extra keyword of :func:`rand_loot` for the boss that was just killed.
+
+    Empty for an ordinary boss (and for a special one whose rarity has no bonus
+    in ``config/bossVariants.json`` - :func:`send_boss_image` shows such a boss
+    without the promise of a better egg): the loot is then rolled by exactly
+    the call it always was.  Never raises.
+    """
+    rerolls = bossvariants.rerolls_for(variant, rarity)
+    return {"cosmetic_rerolls": rerolls} if rerolls > 0 else {}
 
 
 # -- the boss appears ----------------------------------------------------------------
@@ -750,26 +793,76 @@ def _boss_picture(rarity: int):
     return ASSETS_DIR / "boss" / f"{random.randint(0, 7) + first}.gif"
 
 
-async def send_boss_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
+class BossShown(NamedTuple):
+    """What :func:`send_boss_image` put on the channel.
+
+    ``player_boss`` is the member who earns experience when the boss is not
+    beaten, or None; ``variant`` the id of the special variant the boss appeared
+    as (:mod:`altermmo.features.bossvariants`), '' for an ordinary boss.
+    Unpacking only the first two (``is_player_boss, player_boss, *_ = ...``)
+    is fine; ``bossvariants.variant_of`` reads the third from any shape.
+    """
+
+    is_player_boss: bool
+    player_boss: Any
+    variant: str = ""
+
+
+def _special_variant(picture: Any, special: bool | None) -> "bossvariants.Variant | None":
+    """The special variant the monster on ``picture`` appears as, or None (an ordinary boss).
+
+    Decoration only: whatever goes wrong here, the boss comes as an ordinary one.
+    """
+    try:
+        return bossvariants.roll(int(picture.stem), special=special)
+    except Exception:  # noqa: BLE001 - never let the variants stop a boss from appearing
+        log.exception("Could not decide the special variant of boss picture %s.", picture)
+        return None
+
+
+async def send_boss_image(scene: "Scene", rarity: int, *, special: bool | None = None,
+                          monster_only: bool = False) -> BossShown:
     """Show the boss: its picture (or the avatar of the player posing as it) and the embed.
 
     The embed carries the permanent "Zaatakuj" button; the boss cycle takes it
-    off when the boss is engaged or leaves.  Returns ``(is_player_boss,
-    player_boss)``; ``player_boss`` is the member who earns experience when the
-    boss is not beaten, or None.
+    off when the boss is engaged or leaves.  Returns :class:`BossShown`.
+
+    Owner's request (2026-11-22): a monster boss sometimes appears as a special
+    variant - the framed portrait ``assets/boss/special/<n>.gif`` instead of
+    ``assets/boss/<n>.gif``, and in the embed the variant's own sentence and,
+    under it, the hint that an egg from this boss has a better chance of
+    ornaments.  The hint is there only when the config pays a bonus for this
+    rarity (``bossvariants.rerolls_for(...) > 0``): a special boss of a rarity
+    without one keeps its look and promises nothing.  ``special=None`` rolls
+    the variant with the chance of ``config/bossVariants.json``, ``True``
+    forces it when this picture has a variant (the admin preview), ``False``
+    forbids it.  A player posing as the boss is never special (there is no
+    framed avatar), also when forced.  The roll comes after every other draw
+    of this function, so those are what they always were; with the chance at 0
+    nothing more is drawn.  The ready GIF is uploaded like the ordinary
+    picture - nothing is composed here.
+
+    ``monster_only=True`` is for the admin preview alone (``$image <rarity>
+    s``, which exists to look at the framed portraits): nobody poses as the
+    boss - no supporter is drawn and the player the shrine chose is not asked
+    for - so the preview always shows a monster.  The game itself never passes
+    it: a real boss makes the draws it always made, in the same order.
     """
     bot = scene.bot
     rarity = int(rarity)
 
-    percentage = random.randint(0, 100)
-    player_boss = patrons.get_patron(bot) if percentage >= 50 else None
+    if monster_only:
+        player_boss = None
+    else:
+        percentage = random.randint(0, 100)
+        player_boss = patrons.get_patron(bot) if percentage >= 50 else None
 
-    # The shrine may have chosen who the next boss is.
-    forced_id = (await modifiers.load_modifiers(bot))["player_id"]
-    if forced_id > 0:
-        player_boss = await bot.member(forced_id)
-        if player_boss is None:
-            log.info("The player chosen as the boss (%s) left the server; a monster comes instead.", forced_id)
+        # The shrine may have chosen who the next boss is.
+        forced_id = (await modifiers.load_modifiers(bot))["player_id"]
+        if forced_id > 0:
+            player_boss = await bot.member(forced_id)
+            if player_boss is None:
+                log.info("The player chosen as the boss (%s) left the server; a monster comes instead.", forced_id)
 
     is_player_boss = player_boss is not None
     add_desc = ""
@@ -777,6 +870,17 @@ async def send_boss_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
         add_desc = ("\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
                     "to ten gracz zgarnia " + str(_boss_reward(rarity)) + " doświadczenia!*")
     picture = None if is_player_boss else _boss_picture(rarity)
+    variant = None if is_player_boss else _special_variant(picture, special)
+    if variant is not None:
+        picture = bossvariants.special_picture(int(picture.stem))
+        # The promise of a better egg is shown only when the loot will pay it: the same key
+        # of the config (cosmetic_rerolls of this rarity) that _special_loot reads after the
+        # fight.  (No random draw, never raises.)
+        pays_bonus = bossvariants.rerolls_for(variant.id, rarity) > 0
+        if not pays_bonus:
+            log.info("Special boss %s of rarity %s has no egg bonus in %s: shown without the hint.",
+                     variant.id, rarity, bossvariants.CONFIG_FILE)
+        add_desc += bossvariants.description(variant, bonus=pays_bonus)
     add_desc += await modifiers.load_desc_modifiers(bot)
 
     name = player_boss.name if is_player_boss else "boss"
@@ -805,8 +909,9 @@ async def send_boss_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
     cycle = getattr(bot, "boss_cycle", None)
     if cycle is not None:
         cycle.note_attack_button(message)
-    log.info("Boss shown: rarity %s, player boss: %s.", rarity, player_boss)
-    return is_player_boss, player_boss
+    log.info("Boss shown: rarity %s, player boss: %s, special variant: %s.", rarity, player_boss,
+             variant.id if variant is not None else "-")
+    return BossShown(is_player_boss, player_boss, variant.id if variant is not None else "")
 
 
 # -- single fight --------------------------------------------------------------------
@@ -914,12 +1019,16 @@ async def _settle_record(scene: "Scene", fighters: Sequence[Any], nick: str, tur
 
 
 async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss: bool,
-                       player_boss: Any) -> fight_types.FightResult:
+                       player_boss: Any, *, variant: str = "") -> fight_types.FightResult:
     """``hunter`` fights the boss alone: type every requested word in time.
 
     One mistake or one missed word loses the fight (unless the pet protects).
     A technical failure before the kill propagates; after the kill the fight
     is won whatever happens.
+
+    ``variant``: the special variant the boss was shown as ('' = an ordinary
+    boss).  It changes nothing in the fight; only an egg in the loot gets the
+    cosmetic bonus of :func:`_special_loot`.
     """
     bot = scene.bot
     channel = scene.channel
@@ -1005,7 +1114,8 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
     await _guarded(bot, "punkty rankingowe",
                    database.update_ranking_table(bot, hunter.id, rarity, mods["points_boost"]))
     drop = await _guarded(bot, "łup", rand_loot(scene, rarity, hunter,
-                                                mods["drop_boost_perc"] + pet["DROP_PERC"]), default="")
+                                                mods["drop_boost_perc"] + pet["DROP_PERC"],
+                                                **_special_loot(variant, rarity)), default="")
     await bot.log_to_owner(hunter.name + " otrzymał: \n" + drop, ping=True)
     if rarity == 4 and patrons.check_if_patron(hunter):
         await _guarded(bot, "rola pogromcy mitycznego bossa", set_mythic_slayer(scene, hunter.id))
@@ -1448,12 +1558,16 @@ async def group_init(scene: "Scene", rarity: int) -> list[Any] | None:
 
 
 async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bool,
-                      player_boss: Any) -> fight_types.FightResult:
+                      player_boss: Any, *, variant: str = "") -> fight_types.FightResult:
     """The party fights a legendary boss: each word is addressed to one random member.
 
     Any message of a party member ends the round; a wrong word, a word typed
     by somebody else than the addressed player, or silence is a mistake.  The
     party may make one mistake; the second one loses the fight.
+
+    ``variant``: the special variant the boss was shown as ('' = an ordinary
+    boss); the egg of every member of the party gets its cosmetic bonus
+    (:func:`_special_loot`).
     """
     bot = scene.bot
     channel = scene.channel
@@ -1541,11 +1655,13 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
         f"Jedna tura zajęła Wam średnio {round(turn_time.total_seconds(), 2):.2f} sekundy!"))
     await _guarded(bot, "rekord", _settle_record(
         scene, players, party, turn_time, MSG_GROUP_RECORD, mentions + " otrzymali: 1500 expa za rekord"))
+    special_loot = _special_loot(variant, rarity)  # (read once: the same bonus for the whole party)
     for hunter in players:
         await _guarded(bot, f"punkty rankingowe gracza {hunter}",
                        database.update_ranking_table(bot, hunter.id, rarity, mods["points_boost"]))
         drop = await _guarded(bot, f"łup gracza {hunter}", rand_loot(
-            scene, rarity, hunter, mods["drop_boost_perc"] + pets[hunter.id]["DROP_PERC"]), default="")
+            scene, rarity, hunter, mods["drop_boost_perc"] + pets[hunter.id]["DROP_PERC"], **special_loot),
+            default="")
         await bot.log_to_owner(str(hunter) + " otrzymał: " + drop, ping=True)
     return fight_types.FightResult(won=True)
 

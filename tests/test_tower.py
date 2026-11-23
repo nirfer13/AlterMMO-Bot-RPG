@@ -368,6 +368,27 @@ async def test_floor_with_real_boss_loot_and_pet_from_the_database(game_db):
     assert bot.owner_log == []
 
 
+async def test_tower_loot_never_gets_the_bonus_of_a_special_boss(game, skills, special_bosses, monkeypatch):
+    """The cosmetic bonus belongs to the fight with the special boss itself (features/bossvariants.py)."""
+    from altermmo.core.state import BossInfo
+    from altermmo.features import bossvariants
+
+    special_bosses()                                                       # the tests' own config: bonuses are on
+    assert bossvariants.rerolls_for("mgla", 4) == 5 and bossvariants.rerolls_for("mgla", 0) == 1
+    game.bot.state.boss = BossInfo(rarity=4, variant="mgla")               # even with such a boss around
+    seen: list[tuple] = []
+
+    async def loot(scene, rarity, hunter, boost, **extra):
+        seen.append((rarity, hunter.id, extra))
+        return ""
+
+    monkeypatch.setattr(boss, "rand_loot", loot)
+    hunter = game.add_member("Ala")
+    game.auto_answer(hunter)
+    assert await tower.tower_fight(game.scene(hunter), 2) is True
+    assert seen == [(0, hunter.id, {})]
+
+
 async def test_mistake_loses_the_floor(game, skills, drops):
     hunter = game.add_member("Ala")
     game.auto_answer(hunter, wrong_on_round=2)

@@ -83,6 +83,63 @@ def _fast_rounds(monkeypatch):
     monkeypatch.setattr(timing, "PAUSE_SCALE", 0.0)
 
 
+@pytest.fixture(autouse=True)
+def _ordinary_bosses(monkeypatch, tmp_path_factory):
+    """No special boss variants unless a test asks for them (features/bossvariants.py).
+
+    The shipped ``config/bossVariants.json`` makes a boss special now and then
+    - by chance, which would change the picture and the embed of tests that
+    know nothing about it.  Every test starts with a config whose chance is 0
+    (nothing is rolled, exactly as before the variants existed); a test of the
+    variants points ``bossvariants.CONFIG_DIR`` at its own file
+    (``special_bosses`` below) - at the real one only to check the shape of
+    that file, never its numbers: those are the owner's to tune.
+    """
+    from altermmo.features import bossvariants
+
+    config_dir = tmp_path_factory.getbasetemp() / "no-special-bosses"
+    if not config_dir.is_dir():
+        config_dir.mkdir()
+        (config_dir / bossvariants.CONFIG_FILE).write_text('{"chance_percent": 0}', encoding="utf-8")
+    monkeypatch.setattr(bossvariants, "CONFIG_DIR", config_dir)
+
+
+#: The ``bossVariants.json`` of ``special_bosses``: every boss is special, one variant ("mgla"),
+#: the first picture of every rarity has it, repeats 1..5 for rarity 0..4.
+SPECIAL_BOSSES = {
+    "chance_percent": 100,
+    "cosmetic_rerolls": {"0": 1, "1": 2, "2": 3, "3": 4, "4": 5},
+    "variants": {"mgla": {"name": "Mgła", "line": "🌫️ Tego bossa spowija **Mgła**."}},
+    "bosses": {"0": "mgla", "10": "mgla", "100": "mgla", "1000": "mgla", "10000": "mgla"},
+}
+
+
+@pytest.fixture
+def special_bosses(monkeypatch, tmp_path):
+    """``special_bosses(**changes)`` switches the special bosses on with a config of the test's own.
+
+    Writes :data:`SPECIAL_BOSSES` (with ``changes`` replacing whole keys) into a
+    folder of the test, points ``bossvariants.CONFIG_DIR`` there and returns
+    the loaded config.  The numbers a test relies on are therefore its own: a
+    retune of the shipped ``config/bossVariants.json`` (the chance set to 0,
+    fewer repeats) must never turn a behaviour test red.
+    """
+    import json
+
+    from altermmo.features import bossvariants
+
+    folder = tmp_path / "special-bosses"
+    folder.mkdir()
+    monkeypatch.setattr(bossvariants, "CONFIG_DIR", folder)
+
+    def write(**changes):
+        (folder / bossvariants.CONFIG_FILE).write_text(
+            json.dumps({**SPECIAL_BOSSES, **changes}, ensure_ascii=False), encoding="utf-8")
+        return bossvariants.load()
+
+    return write
+
+
 @pytest.fixture
 def short_timeouts(monkeypatch):
     """Scale every ``timing.timeout(...)`` down 1000x (600 s -> 0.6 s)."""

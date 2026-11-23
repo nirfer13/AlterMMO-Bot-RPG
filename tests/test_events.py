@@ -799,7 +799,7 @@ def test_ritual_rarity_is_clamped(monkeypatch):
 
 
 async def test_ritual_without_players_fails(game, boss_image, quick):
-    assert await events.spawn_ritual(game.scene()) == (False, 0, False, None)
+    assert await events.spawn_ritual(game.scene()) == (False, 0, False, None, "")
     assert game.channel.contains("Rytuał przywołania nie powiódł się...")
     assert files(game)[-1] == "4.png"
     assert boss_image == []
@@ -813,7 +813,7 @@ async def test_ritual_summons_a_boss(game, boss_image, quick, monkeypatch, roll,
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     clicked = clicks_on(game, "Rozpoczął się rytuał przywołania!", (ala, "join"), (ola, "join"),
                         (game.bot.user, "join"), (ola, "join"))
-    assert await events.spawn_ritual(game.scene()) == (True, expected, True, "Szef")
+    assert await events.spawn_ritual(game.scene()) == (True, expected, True, "Szef", "")
     assert boss_image == [expected]
     assert not game.channel.contains("Rozpoczął się rytuał przywołania!")  # channel cleared for the boss
     refusal = f"<@{ola.id}> {events.MSG_ALREADY_SIGNED}"
@@ -830,7 +830,7 @@ async def test_ritual_message_deleted(game, boss_image, quick, monkeypatch):
         raise not_found()
 
     monkeypatch.setattr(game.channel, "fetch_message", fetch_message)
-    assert await events.spawn_ritual(game.scene()) == (False, 0, False, None)
+    assert await events.spawn_ritual(game.scene()) == (False, 0, False, None, "")
     assert boss_image == []
     assert not game.channel.contains("nie powiódł się")
 
