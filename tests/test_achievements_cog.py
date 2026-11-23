@@ -208,7 +208,7 @@ async def test_no_name_clashes_with_the_other_extensions(game, monkeypatch, star
     monkeypatch.setattr(bot.supervisor, "start", lambda *args, **kwargs: None)  # no background loops
     for extension in bot_module.EXTENSIONS:
         await bot.load_extension(extension)                                 # a clash would raise here
-    assert len(bot.extensions) == len(bot_module.EXTENSIONS) == 22                 # (the fight journal: 2026-11-22)
+    assert len(bot.extensions) == len(bot_module.EXTENSIONS) == 23                 # (the collector's rank: 2026-11-23)
     owners: dict[str, list[str]] = {}
     for command in bot.commands:                                         # (top level: what "$name" finds)
         for name in {command.name, *command.aliases}:

@@ -626,8 +626,10 @@ async def saved(scene: "Scene", player: Any) -> None:
     (``challenge.fight_on``: nothing may be posted between its prompts) nothing
     is said - "Pełny album" is still given, without its announcement.
     """
-    from . import achievements  # (lazily: achievements builds on the album)
+    from . import achievements, collector  # (lazily: both build on the album)
 
+    # The entry may have changed who leads the collection ranking (only a flag is raised here).
+    collector.request(getattr(scene, "bot", None), "an album entry was kept")
     fighting = challenge.fight_on(getattr(scene, "channel", None))
     if fighting:
         log.info("Album: %s's pet was kept during a typed fight; not announced.", getattr(player, "id", player))
@@ -935,6 +937,10 @@ async def remove_from_panel(panel: AlbumPanel, interaction: Any) -> bool:
                                              allowed_mentions=quiet)
                 if answer:
                     removed = await remove(bot.db, player_id, entry_id)
+                    if removed:  # (the leader of the collection ranking may have changed: a flag only)
+                        from . import collector
+
+                        collector.request(bot, "an album entry was removed")
                     await pets._thank(answer, "<:MonkaS:882181709100097587>")
                 if challenge.fight_on(scene.channel):  # a typed fight began during the question
                     log.info("Album of %s: entry %s %s during a typed fight; nothing posted.", player_id,

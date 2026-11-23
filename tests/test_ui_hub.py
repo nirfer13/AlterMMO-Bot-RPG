@@ -244,8 +244,9 @@ def test_panel_fits_discord_limits_and_stays_compact():
     # A pinned message everybody sees: the supporters' part is no longer than the game's part
     # plus the role mentions (8 x 23 characters, which Discord shows as short role names).
     # (1400 since 2026-11-22: the premium eggs' and the ornaments' lines say in bold that they
-    # are cosmetic only.)
-    assert len(hub.PANEL_SUPPORT_TEXT) <= 1400
+    # are cosmetic only.  1500 since 2026-11-23: the album's line names the rank of the collection
+    # ranking's first place.)
+    assert len(hub.PANEL_SUPPORT_TEXT) <= 1500
     # (The achievements line also names the "Osiągnięcia" button and $osiagniecia.)
     assert all(len(line) <= 240 for line in hub.PANEL_BENEFITS)
 
@@ -309,9 +310,13 @@ def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
                   "**To tylko element kosmetyczny**: inny wygląd, te same statystyki."):
         assert words in benefits
     # The album's line (2026-11-21): one line, no species, no ornaments (checked below as well);
-    # since 2026-11-22 it names the ranking of the collections.
+    # since 2026-11-22 it names the ranking of the collections, since 2026-11-23 the rank its first
+    # place carries (features/collector.py) - without a number and without naming Horus.
     assert hub.PANEL_BENEFITS[-1] == ("📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**) "
-                                      "i liczą się w rankingu kolekcji.")
+                                      "i liczą się w rankingu kolekcji; jego pierwsze miejsce nosi rangę "
+                                      "**Kolekcjoner Pupili** (dodatkowa szansa w giveawayach).")
+    assert "Horus" not in hub.PANEL_TEXT and "%" not in hub.PANEL_BENEFITS[-1]
+    assert not any(character.isdigit() for character in hub.PANEL_BENEFITS[-1])
     # Not spelled out (owner's decision): which species supporters can find, which ornaments exist.
     for secret in ("smok", "feniks", "jednoroż", "holo", "pieczę", "tropiciel", "łowcy", "arcyłowc"):
         assert secret not in benefits.lower(), secret

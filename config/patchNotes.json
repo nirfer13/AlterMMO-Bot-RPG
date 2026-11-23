@@ -101,5 +101,15 @@
             "Boss może teraz czasem pojawić się w wyjątkowej odsłonie - poznacie ją po ozdobnej oprawie portretu.",
             "Jajko zdobyte na takim bossie ma większą szansę na ozdoby karty towarzysza, a im rzadszy boss, tym ta szansa większa. Ozdoby to wyłącznie elementy kosmetyczne i są tylko dla wspierających."
         ]
+    },
+    {
+        "id": 10,
+        "date": "2026-11-23",
+        "title": "Ranga Kolekcjoner Pupili",
+        "changes": [
+            "Pierwsze miejsce w rankingu kolekcji ($rankingalbumow) nosi teraz rangę Kolekcjoner Pupili. Ranga daje dodatkową szansę na wygraną w giveawayach.",
+            "Rangę ma zawsze ten, kto prowadzi w rankingu: gdy ktoś wyprzedzi lidera, ranga przechodzi na niego, a bot ogłasza to na kanale bossa.",
+            "Ranking kolekcji to ranking wspierających - liczą się w nim albumy osób, które wspierają AlterMMO w danej chwili."
+        ]
     }
 ]

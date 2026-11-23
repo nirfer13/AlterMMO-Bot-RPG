@@ -78,6 +78,7 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.slayer",
     "altermmo.cogs.achievements",
     "altermmo.cogs.album",
+    "altermmo.cogs.collector",
     "altermmo.cogs.xpsteal",
     "altermmo.cogs.twitch",
     "altermmo.cogs.schedule",
@@ -270,6 +271,11 @@ class Stores:
         self.xp_transfers_written = JsonFile(data_dir / "xpTransfersWritten.json", dict)
         #: Roles of the achievements the bot made itself: ``{key: role id}`` (features/achievements.py).
         self.achievement_roles = JsonFile(data_dir / "achievementRoles.json", dict)
+        #: The rank of place 1 of the collection ranking (features/collector.py): the id of its role
+        #: and whose rank was announced last.  A file of its own on purpose - the role is taken away
+        #: again, so it is no achievement, and ``achievements.retire_roles`` deletes the role of every
+        #: key of ``achievementRoles.json`` it does not know.
+        self.collector = JsonFile(data_dir / "petCollector.json", dict)
         #: Players who switched the "a boss is coming" warnings off (features/bossdetect.py).
         self.detect_off = IdListFile(data_dir / "boss_detection_off.txt")
 

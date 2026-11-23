@@ -140,8 +140,10 @@ PANEL_BENEFITS: tuple[str, ...] = (
     # (Owner, 2026-11-22: "W Panelu gry podkreśl, że są to tylko elementy kosmetyczne.")
     "🔖 **Kolekcjonerskie ozdoby karty** - **wyłącznie elementy kosmetyczne**, bez wpływu na grę. "
     "Każdy nowy towarzysz ma na nie szansę; zdobią kartę, dopóki wspierasz (po przerwie wracają).",
+    # (2026-11-23: the rank of the ranking's first place, features/collector.py - no number, no
+    # ornament is named.)
     "📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**) i liczą się w rankingu "
-    "kolekcji.",
+    "kolekcji; jego pierwsze miejsce nosi rangę **Kolekcjoner Pupili** (dodatkowa szansa w giveawayach).",
 )
 #: Where to become a supporter: markdown links (they work in an embed description), the
 #: recommended way first and in bold.

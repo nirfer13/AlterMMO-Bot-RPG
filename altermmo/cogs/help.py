@@ -70,7 +70,7 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
 - $transformacja - Zmienia wygląd towarzysza (zużywa lustro wizualiów).
 - $osiagniecia - Pokazuje Twoje kolekcjonerskie osiągnięcia i ile ich już masz.
 - $album - Album Twoich poświęconych towarzyszy (każdy trafia tam po **$porzucam**): przeglądaj go i kompletuj kolekcję. Skrót $kolekcja.
-- $rankingalbumow - Ranking najcenniejszych kolekcji wspierających (album pokazuje też wartość Twojej kolekcji i miejsce). Skróty $rankingkolekcji, $ra.
+- $rankingalbumow - Ranking najcenniejszych kolekcji wspierających (album pokazuje też wartość Twojej kolekcji i miejsce). Pierwsze miejsce nosi rangę **Kolekcjoner Pupili** - dodatkowa szansa w giveawayach. Skróty $rankingkolekcji, $ra.
 Wszystkie benefity wspierających i sposoby wsparcia znajdziesz w przypiętym **Panelu gry**."""),
 )
 

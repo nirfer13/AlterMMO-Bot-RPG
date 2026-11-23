@@ -635,7 +635,12 @@ def _name(member: Any) -> str:
 
 
 def ranking_embed(board: Ranking, viewer: Any) -> discord.Embed:
-    """The top :data:`TOP`, and the viewer's own line when he is below it (or not ranked yet)."""
+    """The top :data:`TOP`, and the viewer's own line when he is below it (or not ranked yet).
+
+    Under them one line about the rank place 1 carries (:mod:`altermmo.features.collector`).
+    """
+    from . import collector  # (lazily: the collector builds on this module)
+
     lines = [MSG_LINE.format(place=ui.place(item.place), name=_name(item.member),
                              points=points_text(item.points), cards=cards_word(item.cards))
              for item in board.standings[:TOP]]
@@ -650,6 +655,8 @@ def ranking_embed(board: Ranking, viewer: Any) -> discord.Embed:
     embed = discord.Embed(title=MSG_TITLE, url=pets.RANKING_IMAGE, description="\n".join(lines),
                           color=0xFF0000)
     embed.set_thumbnail(url=pets.RANKING_IMAGE)
+    # What place 1 carries (owner, 2026-11-23): the rank of features/collector.py.
+    embed.add_field(name=collector.MSG_RANKING_NAME, value=collector.MSG_RANKING_LINE, inline=False)
     embed.set_footer(text=MSG_HOW)
     return embed
 
