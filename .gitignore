@@ -15,6 +15,8 @@ backups-debug/
 eksport-do-gry/
 # the owner's package with the pet card graphics (its files live in assets/petcards/)
 /pieczecie-dla-bota.zip
+# the owner's package with the merchant and training pictures (its files live in assets/events/)
+/alterage-eventy-kupiec-i-trening.zip
 
 # python
 __pycache__/

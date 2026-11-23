@@ -908,18 +908,18 @@ async def test_a_second_update_on_the_same_day_is_posted_without_the_ping(live, 
 
 
 async def test_the_next_day_pings_again_once(live, channel, notes_file, day):
-    day("2026-11-22")
+    day("2099-01-01")
     notes_file(entries(1))
     await patchnotes.announce(live.bot)
     notes_file(entries(1, 2))
     await patchnotes.announce(live.bot)                                   # the same day: held back
-    day("2026-11-23")
+    day("2099-01-02")
     notes_file(entries(1, 2, 3))
     await patchnotes.announce(live.bot)
     notes_file(entries(1, 2, 3, 4))
     await patchnotes.announce(live.bot)                                   # the same new day: held back
     assert contents(channel) == [MENTION, "", MENTION, ""]
-    assert live.bot.store.runtime_get(patchnotes.PING_KEY) == "2026-11-23"
+    assert live.bot.store.runtime_get(patchnotes.PING_KEY) == "2099-01-02"
 
 
 async def test_todays_ping_is_also_read_from_the_channel_when_the_local_note_is_lost(live, channel, notes_file):
@@ -983,7 +983,7 @@ async def test_a_changed_text_of_an_announced_entry_edits_its_message(live, chan
 
 
 async def test_an_older_message_is_corrected_too_and_new_entries_still_go_out(live, channel, notes_file, day):
-    day("2026-11-22")
+    day("2099-01-01")
     notes_file(entries(1))
     await patchnotes.announce(live.bot)
     notes_file(entries(1, 2))

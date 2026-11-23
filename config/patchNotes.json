@@ -82,5 +82,15 @@
             "Jeśli zakup się nie uda (za mało zwojów albo towar Ci się nie przyda), nic nie tracisz, a towar czeka na innych.",
             "Komenda $wyjmijjajko (skrót $wj) i lista pod $stajnia przydadzą się tym, którzy dobiją z kupcem pewnego interesu..."
         ]
+    },
+    {
+        "id": 8,
+        "date": "2026-11-23",
+        "title": "Trening towarzyszy",
+        "changes": [
+            "Nowe wydarzenie na kanale bossa: trening towarzyszy. Przez minutę możesz zapisać swojego towarzysza przyciskiem pod postem, a potem zapisani towarzysze sami stają do sparingów - nic nie trzeba wpisywać.",
+            "W czasie zapisów działa stajnia, więc zdążysz wybrać, kogo wyślesz. Jajka jeszcze nie trenują.",
+            "Za udział też coś wpada, a najlepszych czekają lepsze nagrody."
+        ]
     }
 ]
