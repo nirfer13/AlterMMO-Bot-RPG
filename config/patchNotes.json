@@ -171,5 +171,13 @@
         "changes": [
             "Gdy w łupie Twój towarzysz awansuje, wiadomość z łupem pokaże też, jak ma się do Twojego albumu: na którym etapie jest teraz i które etapy, od obecnego w górę, może jeszcze uzupełnić w kolekcji. Dotyczy wspierających, jak sam album."
         ]
+    },
+    {
+        "id": 17,
+        "date": "2026-11-24",
+        "title": "Kopalnia bez mapy",
+        "changes": [
+            "Kopalnia Ostatniej Lampy ma krótszy opis. W każdej komorze widzisz tylko łup, który wyniesiesz, jeśli wrócisz teraz, i szansę na zejście niżej - co czeka głębiej, odkryjesz dopiero na miejscu."
+        ]
     }
 ]

@@ -386,26 +386,25 @@ def test_the_mine_is_a_random_event_with_the_merchants_weight():
 
 # -- the texts: the table, the warning, Discord's limits ----------------------------------------
 
-def test_the_announcement_has_the_open_table_the_real_eggs_and_the_warning():
+def test_the_announcement_is_a_short_introduction_with_the_rule_and_the_warning():
+    """Owner, 2026-11-24: "Skróć opis kopalni ostatniej lampy. Zrób tylko wprowadzenie, takie lorowe, krótkie.
+    Wytłumacz, na czym polega" - no table, no "solo or with a pet", no chance of the treasury."""
     config = dungeon.load_config()
     embed = dungeon.announcement_embed(config, latest=dungeon.LATEST.format(when="<t:1:R>"), picture_name="00.jpg")
     text = embed.description
     assert embed.title == dungeon.TITLE and embed.image.url == "attachment://00.jpg"
+    assert text.split("\n\n") == [
+        dungeon.INTRO, dungeon.RULES,
+        dungeon.WARNING.format(latest=dungeon.LATEST.format(when="<t:1:R>")) + " " + dungeon.WARNING_HOW,
+        dungeon.MSG_ONE_ENTRANCE]
     assert text.startswith("Od trzydziestu lat nad szybem wisiała zgaszona lampa.")       # the package, verbatim
-    for line in ("**1. Lampownia** · 100% · 20 XP",
-                 "**4. Zatopiona pompownia** · 2 na 3 · 110 XP + 2 zwoje + 1 jajo",
-                 "**5. Błękitna żyła** · 62,5% · 180 XP + 2 zwoje + 2 jaja",
-                 "**7. Wrota sztygara** · 40% · 550 XP + 4 zwoje + 4 jaja",
-                 "**8. Skarbiec Ostatniej Lampy** · 25% · 1000 XP + 16 zwojów + 5 jaj + 1 poziom aktywnego peta",
-                 "**Od wejścia do skarbca · 1,5%.**"):
-        assert line in text
     assert LOST_ALL in text and "następne wydarzenie albo boss - najpóźniej <t:1:R>" in text
-    assert text.endswith(dungeon.MSG_ONE_ENTRANCE) and "kto pierwszy kliknie" in text
-    # What the owner's rules replaced is gone: no "as much time as you need", no "one egg at most",
-    # no "standard" egg, nothing about everybody playing an expedition of his own.
-    for gone in ("tyle czasu, ile potrzebujesz", "najwyżej jedno", "standardow", "Każdy gracz", "lobby"):
-        assert gone not in text
-    assert len(text) <= 4096 and len(embed) <= 6000
+    for chamber in config.chambers:                                            # nothing of the table
+        assert chamber.name not in text and chamber.loot not in text
+    for gone in ("solo", "z petem", "%", "1,5", "skarbca ·", "Jawne nagrody", "tyle czasu, ile potrzebujesz",
+                 "najwyżej jedno", "standardow", "Każdy gracz", "lobby"):
+        assert gone not in text, gone
+    assert len(text) < 1000 and len(embed) <= 6000                             # short
     # Without a known closing time only the rule is stated.
     assert "najpóźniej" not in dungeon.announcement_embed(config).description
     # Once somebody went down the post names him; after the closing it says so.
@@ -416,12 +415,33 @@ def test_the_announcement_has_the_open_table_the_real_eggs_and_the_warning():
     assert over.endswith(dungeon.MSG_HAD_GONE_DOWN.format(mention="<@5>") + "\n" + dungeon.MSG_ANNOUNCE_CLOSED)
     # A closed mine warns of nothing any more: no rule in the present tense, no moment that has passed.
     assert "najpóźniej" not in over and LOST_ALL not in over and "schodzi <@5>" not in over
-    assert "**4. Zatopiona pompownia** · 2 na 3" in over                       # (the table stays)
     unused = dungeon.announcement_embed(config, closed=True).description
     assert unused.endswith(dungeon.MSG_ANNOUNCE_CLOSED) and dungeon.MSG_ONE_ENTRANCE not in unused
     assert LOST_ALL not in unused
     assert len(dungeon.announcement_embed(config, went_down="<@" + "9" * 20 + ">", closed=True,
                                           latest=dungeon.LATEST.format(when="<t:1700000000:R>"))) <= 6000
+
+
+def test_a_chamber_tells_only_its_own_loot_and_the_next_chance():
+    """Owner, 2026-11-24: "w zależności od tego, na którym etapie jest ktoś, to dopiero pokazuj nagrodę ... jak
+    przejdzie do kolejnego etapu, to kolejny etap pokazuje znowu kolejną nagrodę, a nie wszystko od razu. Nie
+    podawaj też szansy procentowej wejścia do skarbca samego, tylko ile jest szans na aktualnym etapie.\""""
+    config = dungeon.load_config()
+    for number in range(1, config.last):
+        text = dungeon.chamber_embed(config, 1, number, None).description
+        chamber, following = config.chamber(number), config.chamber(number + 1)
+        assert (dungeon.MSG_NOW.format(loot=chamber.loot) + "\n"
+                + dungeon.MSG_NEXT.format(chance=dungeon.chance_text(following.chance))) in text
+        for deeper in config.chambers[number:]:                                 # nothing of what lies deeper
+            assert deeper.name not in text and deeper.loot not in text
+        assert "1,5" not in text and "skarbc" not in text.lower()
+    assert dungeon.MSG_NEXT.format(chance="2 na 3") in dungeon.chamber_embed(config, 1, 3, None).description
+    treasury = dungeon.chamber_embed(config, 1, config.last, None).description
+    assert dungeon.MSG_TO_CLAIM.format(loot=config.chamber(config.last).loot) in treasury
+    assert "Szansa na zejście" not in treasury
+    assert dungeon.chamber_buttons(config, 3) == [b for b in dungeon.chamber_buttons(config, 3) if b[0] != "table"]
+    assert [b[0] for b in dungeon.chamber_buttons(config, 3)] == ["leave", "deeper", "stable"]
+    assert [b[0] for b in dungeon.chamber_buttons(config, config.last)] == ["claim", "stable"]
 
 
 def test_every_panel_version_fits_discord_and_warns_about_the_closing():
@@ -439,24 +459,20 @@ def test_every_panel_version_fits_discord_and_warns_about_the_closing():
                 assert LOST_ALL in embed.description and "najpóźniej <t:1700000000:R>" in embed.description
                 assert len(embed.description) <= 4096 and len(embed.title) <= 256 and len(embed) <= 6000
                 assert "lobby" not in embed.description.lower() and "standardow" not in embed.description
-        table = dungeon.table_embed(config, 10 ** 18, number, latest=latest)
-        assert LOST_ALL in table.description and "**4. Zatopiona pompownia** · 2 na 3" in table.description
-        assert len(table.description) <= 4096 and len(table) <= 6000
-    # Every chamber's page says where an egg could go right now (the package: "stan miejsca na jajo") ...
+    # A chamber whose own loot holds eggs says where an egg could go right now ...
     for number in range(1, config.last + 1):
-        assert "🥚 **Jaja:**" in dungeon.chamber_embed(config, 1, number, roomy).description
-        assert dungeon.ROOM_ACTIVE in dungeon.chamber_embed(config, 1, number, roomy).description
-        assert dungeon.MSG_NO_ROOM in dungeon.chamber_embed(config, 1, number, crowded).description
-    # ... unless no egg can be reached from there (a table without eggs in that row and below).
-    shallow = dungeon.Config(tuple(dataclasses.replace(c, eggs=0 if c.number != 4 else 1) for c in config.chambers))
-    assert "🥚" in dungeon.chamber_embed(shallow, 1, 4, roomy).description
-    assert "🥚" not in dungeon.chamber_embed(shallow, 1, 5, roomy).description
-    # ... and the level before and in the treasury, with the pet's name and the change.
-    assert "🐾" not in dungeon.chamber_embed(config, 1, 6, roomy).description
-    for number in (7, 8):
-        assert "poziom 2 → 3" in dungeon.chamber_embed(config, 1, number, crowded).description
-        assert dungeon.MSG_LEVEL_NONE in dungeon.chamber_embed(config, 1, number, roomy).description
-    assert "szansa zejścia **25%**" in dungeon.chamber_embed(config, 1, 7, roomy).description
+        page = dungeon.chamber_embed(config, 1, number, roomy).description
+        if config.chamber(number).eggs:
+            assert "🥚 **Jaja:**" in page and dungeon.ROOM_ACTIVE in page
+            assert dungeon.MSG_NO_ROOM in dungeon.chamber_embed(config, 1, number, crowded).description
+        else:                                                                  # (the deeper eggs are not told)
+            assert "🥚" not in page
+    # ... and only the treasury names the pet that would level up, with the change.
+    for number in range(1, config.last):
+        assert "🐾" not in dungeon.chamber_embed(config, 1, number, crowded).description
+    assert "poziom 2 → 3" in dungeon.chamber_embed(config, 1, 8, crowded).description
+    assert dungeon.MSG_LEVEL_NONE in dungeon.chamber_embed(config, 1, 8, roomy).description
+    assert dungeon.MSG_NEXT.format(chance="25%") in dungeon.chamber_embed(config, 1, 7, roomy).description
     assert dungeon.MSG_TREASURY in dungeon.chamber_embed(config, 1, 8, roomy).description
     # After leaving: the worst case of eggs, each with its fate, and the egg warning while one is undecided.
     eggs = [{"egg": {}, "fate": pets.EGG_SWAPPED, "place": 10, "pet": "**" + "Ż" * 120 + "** · Kot · poziom 3"}
@@ -530,15 +546,14 @@ async def test_the_first_player_who_clicks_goes_down_safely(game_db, luck):
 
     message = await enter(game, mine, ala)
     assert luck.calls == []                                                   # entering never rolls
-    assert message.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, dungeon.STABLE_LABEL,
-                                     dungeon.TABLE_LABEL]
+    assert message.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, dungeon.STABLE_LABEL]
     embed = message.embeds[0]
     assert embed.title == "⛏️ 1/8 · Lampownia" and ala.mention in embed.description
     assert "*Opis komory 1.*" in embed.description                             # the chamber's text of the config
-    assert "**Powrót teraz:** 20 XP" in embed.description
-    # The state of her places for an egg is on the page from the first chamber on (she has nothing yet).
-    assert "🥚 **Jaja:**" in embed.description and dungeon.ROOM_ACTIVE in embed.description
-    assert "**Następna komora (Rozjazd wagoników):** 40 XP + 1 zwój · szansa zejścia **90%**" in embed.description
+    assert "**Łup za powrót teraz:** 20 XP" in embed.description
+    assert dungeon.MSG_NEXT.format(chance="90%") in embed.description          # the next descent's chance only
+    assert "🥚" not in embed.description                                       # no egg in this chamber's loot
+    assert "Rozjazd wagoników" not in embed.description and "40 XP" not in embed.description   # nothing deeper
     assert LOST_ALL in embed.description and message.files == ["01.jpg"]
     assert record_of(game, ala) == {"state": "chamber", "chamber": 1, "eggs": [], "granted": None}
     assert xp_of(game, ala) == 0 and await pets_count(db) == 0               # nothing is given for entering
@@ -661,7 +676,7 @@ async def test_exactly_one_draw_per_descent_with_the_exact_chance(game_db, luck)
         assert luck.calls[before:] == [stop] and mine.expeditions[ala.id].chamber == chamber
         assert record_of(game, ala)["chamber"] == chamber
     assert message.embeds[0].title == "⛏️ 8/8 · Skarbiec Ostatniej Lampy"
-    assert message.button_labels == [dungeon.CLAIM_LABEL, dungeon.STABLE_LABEL, dungeon.TABLE_LABEL]
+    assert message.button_labels == [dungeon.CLAIM_LABEL, dungeon.STABLE_LABEL]
     assert message.files == ["08.jpg"] and dungeon.MSG_TREASURY in message.embeds[0].description
     assert xp_of(game, ala) == 0                                               # nothing until she takes it
 
@@ -704,8 +719,6 @@ async def test_a_descent_makes_one_random_draw_and_nothing_else(game_db, monkeyp
 
         monkeypatch.setattr(random, name, counted)
     monkeypatch.setattr(random, "randrange", lambda stop: draws.append(f"randrange({stop})") or 0)
-    await game.click(message, ala, "table")
-    await game.click(message, ala, "back")
     await game.click(message, ala, "stable")
     assert draws == []                                                        # looking around never rolls
     await game.click(message, ala, "deeper")
@@ -735,16 +748,15 @@ async def test_a_click_on_a_button_the_page_no_longer_has_is_acknowledged(game_d
     ala = game.add_member("Ala")
     monkeypatch.setattr(dungeon, "ORPHAN_WAIT", 0.01)
     mine, message = await go_down(game, ala, 2)
-    await game.click(message, ala, "table")                                    # the page has only "back" now
 
     def click_on(custom_id: str, target=message) -> FakeInteraction:
         return FakeInteraction(game.bot, ala, target, data={"custom_id": custom_id, "component_type": 2})
 
-    orphan = click_on(dungeon.KEY_PREFIX + "leave")                             # pressed on the page before
+    orphan = click_on(dungeon.KEY_PREFIX + "table")                             # a page drawn before 2026-11-24
     await dungeon.answer_orphan(orphan)
     assert orphan.response.deferred and orphan.replies == [] and xp_of(game, ala) == 0 and luck.calls == [10]
     # A click its view answers is left alone; so is every button that is not the mine's.
-    answered = await game.click(message, ala, "back")
+    answered = await game.click(message, ala, "stable")
     await dungeon.answer_orphan(answered)
     foreign = click_on(ui.FLOW_PREFIX + "yes")
     await dungeon.answer_orphan(foreign)
@@ -761,23 +773,6 @@ async def test_a_click_on_a_button_the_page_no_longer_has_is_acknowledged(game_d
     assert not dead.response.is_done()
 
 
-async def test_the_table_button_shows_the_table_and_never_rolls(game_db, luck):
-    game = game_db
-    ala = game.add_member("Ala")
-    mine, message = await go_down(game, ala, 3)
-    calls = list(luck.calls)
-    click = await game.click(message, ala, "table")
-    assert click.replies == []                                                # a page of the same message
-    page = message.embeds[0]
-    assert page.title == "⛏️ 3/8 · Most nad Czarną Wodą · Tabela nagród"
-    assert "**6. Szyb wiszących klatek** · 50% · 300 XP + 3 zwoje + 3 jaja" in page.description
-    assert LOST_ALL in page.description and message.button_labels == [dungeon.BACK_LABEL]
-    await game.click(message, ala, "back")
-    assert message.embeds[0].title == "⛏️ 3/8 · Most nad Czarną Wodą" and dungeon.DEEPER_LABEL in message.button_labels
-    assert luck.calls == calls and record_of(game, ala)["chamber"] == 3
-    assert message.files == ["03.jpg"]                                        # (no pet at her side: the plain bridge)
-
-
 async def test_the_stable_button_moves_the_pet_and_refreshes_the_offer(game_db, luck):
     game, db = game_db, game_db.bot.db
     ala = game.add_member("Ala")
@@ -788,14 +783,14 @@ async def test_the_stable_button_moves_the_pet_and_refreshes_the_offer(game_db, 
     assert message.files == ["03-pet.jpg"]                                    # a hatched pet walks with her
     assert mine.announcement.files == ["00-pet.jpg"]                           # ... also on the entrance picture
     assert mine.announcement.embeds[0].image.url == "attachment://00-pet.jpg"
-    assert dungeon.ROOM_STABLE.format(count=1) in message.embeds[0].description
+    assert "🥚" not in message.embeds[0].description                          # (no egg in this chamber's loot)
     calls = list(luck.calls)
     await game.click(message, ala, "stable")
     now = await row(db, ala.id)
     assert (now["pet_id"], now["pet_id_alt4"]) == (0, 1)                       # the first free place
     text = message.embeds[0].description
     assert "Iskra odpoczywa w stajni. Masz teraz miejsce na jajo." in text
-    assert dungeon.ROOM_ACTIVE in text and "wolne miejsca w stajni" not in text
+    assert "🥚" not in text
     assert message.files == ["03.jpg"] and luck.calls == calls                 # never rolls
     await game.click(message, ala, "stable")
     assert dungeon.MSG_STABLE_NOBODY in message.embeds[0].description
@@ -815,7 +810,7 @@ async def test_clicks_of_somebody_else_are_refused(game_db, luck):
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     mine = await open_mine(game)
     message = await enter(game, mine, ala)
-    for key in ("deeper", "leave", "stable", "table"):
+    for key in ("deeper", "leave", "stable"):
         foreign = await game.click(message, ola, key)
         assert foreign.answers == [ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)]
     assert luck.calls == [] and record_of(game, ala)["chamber"] == 1 and xp_of(game, ola) == 0
@@ -906,21 +901,21 @@ async def test_the_treasury_level_goes_to_the_pet_at_the_players_side(game_db, l
     await make_pet(db, 4, level=1, name="Stajenny")
 
     ala, before, inside, after = await claim("Ala", pet_id=1)
-    assert "Iskra · poziom 2 → 3" in before and "Iskra · poziom 2 → 3" in inside
+    assert "🐾" not in before and "Iskra · poziom 2 → 3" in inside             # told in the treasury only
     assert "✅ awans: Iskra · poziom 2 → 3" in after
     assert int(await db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = 1")) == 3
 
     _, before, inside, after = await claim("Ola", pet_id=2)                     # at its last level
-    assert dungeon.MSG_LEVEL_MAX.format(name="Stary") in before and dungeon.MSG_LEVEL_MAX.format(name="Stary") in inside
+    assert "🐾" not in before and dungeon.MSG_LEVEL_MAX.format(name="Stary") in inside
     assert dungeon.MSG_GOT_NO_LEVEL_MAX in after and "✅ awans" not in after
     assert int(await db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = 2")) == pets.MAX_LEVEL
 
     ela, before, inside, after = await claim("Ela", pet_id=3)                   # an egg at her side hatches
-    assert "wykluje się · poziom 0 → 1" in before and "poziom 0 → 1" in after
+    assert "wykluje się · poziom 0 → 1" in inside and "poziom 0 → 1" in after
     assert int(await db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = 3")) == 1
 
     ula, before, inside, after = await claim("Ula", pet_id=0, pet_id_alt1=4)    # nobody at her side
-    assert dungeon.MSG_LEVEL_NONE in before and dungeon.MSG_LEVEL_NONE in inside
+    assert "🐾" not in before and dungeon.MSG_LEVEL_NONE in inside
     assert dungeon.MSG_GOT_NO_LEVEL_NONE in after
     assert int(await db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = 4")) == 1   # a stabled pet gets nothing
     for player in (ala, ela, ula):
@@ -1716,14 +1711,14 @@ async def test_the_latest_closing_time_is_shown_once_it_is_known(game_db, luck):
     assert stamp in message.embeds[0].description and stamp in mine.announcement.embeds[0].description
     await game.click(message, ala, "deeper")
     assert stamp in message.embeds[0].description
-    await game.click(message, ala, "table")
+    await game.click(message, ala, "stable")
     assert stamp in message.embeds[0].description
     # A moment that has passed is never shown: not on the pages, and the watch takes it off the announcement.
     mine.closes_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     assert mine.latest() == "" and stamp in mine.announcement.embeds[0].description
     await dungeon.tick(game.bot)
     assert "najpóźniej" not in mine.announcement.embeds[0].description and LOST_ALL in mine.announcement.embeds[0].description
-    await game.click(message, ala, "back")
+    await game.click(message, ala, "stable")
     assert "najpóźniej" not in message.embeds[0].description and LOST_ALL in message.embeds[0].description
     # A moment that changes is shown anew; one that is no longer known leaves the rule alone.
     later = datetime.now(timezone.utc) + timedelta(minutes=50)
@@ -1841,7 +1836,7 @@ async def test_stop_spawn_boss_tells_the_open_mine_its_new_latest_closing(game_d
     after = f"najpóźniej <t:{math.ceil(slot.timestamp())}:R>"
     assert dungeon.is_open(bot, mine) and mine.closes_at == slot
     assert after in mine.announcement.embeds[0].description and before not in mine.announcement.embeds[0].description
-    await game.click(message, ala, "table")
+    await game.click(message, ala, "stable")
     assert after in message.embeds[0].description
     # A moment changed behind the mine's back is put right by the watch's next look ...
     cycle.quiet_until = quiet
@@ -2599,13 +2594,11 @@ async def test_a_page_discord_refuses_is_shown_in_words_and_the_buttons_work(gam
     page = message.embeds[0]
     assert refused == ["⛏️ 3/8 · Most nad Czarną Wodą"] and page.title == refused[0]   # shown all the same:
     assert page.image.url is None and message.files == []                         # in words, without the picture
-    assert "**Powrót teraz:** 70 XP + 1 zwój" in page.description and LOST_ALL in page.description
-    assert message.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, dungeon.STABLE_LABEL,
-                                     dungeon.TABLE_LABEL]
+    assert "**Łup za powrót teraz:** 70 XP + 1 zwój" in page.description and LOST_ALL in page.description
+    assert message.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, dungeon.STABLE_LABEL]
     assert len(bot.owner_log) == 1 and "odrzucił stronę wyprawy" in bot.owner_log[0] and f"<@{ala.id}>" in bot.owner_log[0]
-    await game.click(message, ala, "table")                                       # every button answers
-    assert message.embeds[0].title.endswith(dungeon.TABLE_LABEL)
-    await game.click(message, ala, "back")
+    await game.click(message, ala, "stable")                                      # every button answers
+    assert dungeon.MSG_STABLE_NOBODY in message.embeds[0].description
     await game.click(message, ala, "leave")                                       # ... and she can take her loot
     assert xp_of(game, ala) == 70 and record_of(game, ala)["state"] == "done"
     assert "✅ 70 XP" in message.embeds[0].description and len(bot.owner_log) == 1   # the owner was told once
@@ -2630,8 +2623,7 @@ async def test_an_expedition_whose_message_takes_no_edit_gets_a_new_message(game
     fresh = mine.expeditions[ala.id].message
     assert fresh is not message and fresh in game.channel.messages
     assert fresh.embeds[0].title == "⛏️ 3/8 · Most nad Czarną Wodą" and ala.mention in fresh.embeds[0].description
-    assert fresh.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, dungeon.STABLE_LABEL,
-                                   dungeon.TABLE_LABEL]
+    assert fresh.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, dungeon.STABLE_LABEL]
     assert ui.is_live(fresh.id) and not ui.is_live(message.id)
     assert len(bot.owner_log) == (0 if gone else 1)                               # (a deleted message is no refusal)
     await game.click(fresh, ala, "leave")

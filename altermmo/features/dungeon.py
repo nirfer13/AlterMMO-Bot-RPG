@@ -165,21 +165,16 @@ TITLE = "⛏️ Kopalnia Ostatniej Lampy"
 INTRO = ("Od trzydziestu lat nad szybem wisiała zgaszona lampa. Dziś znów płonie. Po trzecim uderzeniu kilofa "
          "płomień kurczy się do błękitnej kropki. Nikt nie wie, czy wytrzyma do czwartego. Wracasz z łupem czy "
          "schodzisz, póki widać tory?")
-RULES = ("Wejdź solo lub z petem. Po każdym udanym zejściu możesz zabrać łup albo zaryzykować go w kolejnej "
-         "komorze. Rzut wykonujesz dopiero przyciskiem „Schodzę niżej”.")
+#: How it works, in short (owner, 2026-11-24: "Zrób tylko wprowadzenie, takie lorowe, krótkie. Wytłumacz, na
+#: czym polega" - no reward table, no chance of reaching the treasury; each chamber shows its own loot).
+RULES = ("Schodzisz w głąb kopalni komora po komorze. W każdej widzisz łup, który wyniesiesz, jeśli wrócisz "
+         "teraz, i szansę na zejście niżej - im głębiej, tym cenniejszy łup. Nieudane zejście to powrót z "
+         "pustymi rękami.")
 #: On the announcement and on every page of a running expedition.
 WARNING = ("⚠️ **Kopalnia zamyka się, gdy nadejdzie następne wydarzenie albo boss{latest}. Kto do tej chwili "
            "nie zabierze łupu, traci wszystko z tej wyprawy.**")
 WARNING_HOW = "Łup zabierasz przyciskiem „Wracam z łupem” (w skarbcu „Odbierz łup”)."
 LATEST = " - najpóźniej {when}"
-TABLE_HEAD = ("**Jawne nagrody** · Każdy wiersz podaje szansę pojedynczego zejścia i pełną nagrodę za powrót "
-              "z danej komory. Odbierasz jeden wiersz. XP trafia do gracza.")
-TABLE_ROW = "**{number}. {name}** · {chance} · {loot}"
-EGG_RULES = ("Po wyjściu z łupem o każdym jaju decydujesz osobno: bierzesz je (wolne miejsce aktywnego peta "
-             "albo wolna sakwa na jajko), wkładasz do stajni, zamieniasz z petem ze stajni (tamten zostaje "
-             "poświęcony) albo poświęcasz samo jajo. Między zejściami możesz schować peta do stajni. W skarbcu "
-             "aktywny pet poniżej limitu otrzymuje pełny poziom.")
-FOOT = "**Od wejścia do skarbca · {chance}.** Porażka oznacza utratę łupu z tej wyprawy. Pet wraca bezpiecznie."
 #: The last line of the announcement: before anybody went down, once somebody did, after the closing.
 MSG_ONE_ENTRANCE = "⛏️ **Wejście jest tylko jedno - schodzi ten, kto pierwszy kliknie „Wejdź do kopalni”.**"
 MSG_WENT_DOWN = "⛏️ Do kopalni schodzi {mention}!"
@@ -187,14 +182,17 @@ MSG_HAD_GONE_DOWN = "⛏️ Do kopalni zszedł {mention}."
 MSG_ANNOUNCE_CLOSED = "⌛ Kopalnia została zamknięta."
 ENTER_LABEL = "Wejdź do kopalni"
 
-LEAVE_LABEL, DEEPER_LABEL, STABLE_LABEL, TABLE_LABEL = "Wracam z łupem", "Schodzę niżej", "Stajnia", "Tabela nagród"
-CLAIM_LABEL, BACK_LABEL, REFRESH_LABEL = "Odbierz łup", "Wróć do komory", "Odśwież"
+LEAVE_LABEL, DEEPER_LABEL, STABLE_LABEL = "Wracam z łupem", "Schodzę niżej", "Stajnia"
+CLAIM_LABEL, REFRESH_LABEL = "Odbierz łup", "Odśwież"
 EGG_ACTIVE_LABEL, EGG_POUCH_LABEL = "Weź jako towarzysza", "Do sakwy"
 EGG_STABLE_LABEL, EGG_SWAP_LABEL, EGG_SACRIFICE_LABEL = "Do stajni", "Zamień w stajni", "Poświęć jajko"
 
 PAGE_TITLE = "⛏️ {number}/{total} · {name}"
-MSG_NOW = "💰 **Powrót teraz:** {loot}"
-MSG_NEXT = "⬇️ **Następna komora ({name}):** {loot} · szansa zejścia **{chance}**"
+#: A chamber shows only its own loot and the chance of the next descent - what lies deeper is found
+#: there (owner, 2026-11-24: "jak przejdzie do kolejnego etapu, to kolejny etap pokazuje znowu kolejną
+#: nagrodę, a nie wszystko od razu").
+MSG_NOW = "💰 **Łup za powrót teraz:** {loot}"
+MSG_NEXT = "⬇️ **Szansa na zejście niżej:** {chance}"
 MSG_TREASURY = "Masz już drogę powrotną. Zanim zamkniesz kufer, sprawdź swoją zdobycz."
 MSG_TO_CLAIM = "🎁 **Do odebrania:** {loot}"
 MSG_EGGS_RULE = "🥚 **Jaja:** o każdym zdecydujesz po wyjściu z łupem. {room}"
@@ -473,7 +471,6 @@ def page_too_long(config: Config) -> str:
         pages += [(f"the page of chamber {number}",
                    chamber_embed(config, player_id, number, places, latest=latest, notice=notice))
                   for places in (crowded, roomy, None)]
-        pages.append((f"the table page of chamber {number}", table_embed(config, player_id, number, latest=latest)))
         eggs: list[dict[str, Any]] = [{"egg": {}, "fate": pets.EGG_SWAPPED, "place": 99, "pet": "W" * 150}
                                       for _ in range(chamber.eggs - 1)]
         if chamber.eggs:
@@ -697,15 +694,9 @@ def _mention_only(member: Any) -> discord.AllowedMentions:
 
 # -- what the pages say ----------------------------------------------------------------------
 
-def table_rows(config: Config) -> str:
-    return "\n".join(TABLE_ROW.format(number=chamber.number, name=chamber.name,
-                                      chance=chance_text(chamber.chance), loot=chamber.loot)
-                     for chamber in config.chambers)
-
-
 def announcement_embed(config: Config, *, went_down: str = "", latest: str = "", closed: bool = False,
                        picture_name: str | None = None) -> discord.Embed:
-    """The package's announcement with the open reward table (the real numbers of eggs) and the closing rule.
+    """The announcement: a short introduction, how the mine works and the closing rule (no table).
 
     ``went_down``: the mention of the player who took the one entrance ('' = it is still free).
     ``closed``: the mine is closed - the post then warns of nothing any more (no closing rule
@@ -717,9 +708,7 @@ def announcement_embed(config: Config, *, went_down: str = "", latest: str = "",
     else:
         status = [MSG_WENT_DOWN.format(mention=went_down) if went_down else MSG_ONE_ENTRANCE]
         warning = [WARNING.format(latest=latest) + " " + WARNING_HOW]
-    parts = [INTRO, RULES, *warning, TABLE_HEAD + "\n" + table_rows(config),
-             EGG_RULES, FOOT.format(chance=chance_text(config.reach(config.last), approximate=True)),
-             "\n".join(status)]
+    parts = [INTRO, RULES, *warning, "\n".join(status)]
     embed = discord.Embed(title=TITLE, description="\n\n".join(parts), color=COLOUR)
     if picture_name is not None:
         embed.set_image(url=f"attachment://{picture_name}")
@@ -761,27 +750,25 @@ def level_line(places: pets.EggPlaces | None) -> str:
 
 def chamber_embed(config: Config, player_id: int, number: int, places: pets.EggPlaces | None, *,
                   latest: str = "", notice: str = "", picture_name: str | None = None) -> discord.Embed:
-    """The offer of chamber ``number``: its text, the loot of returning now, the next chamber and its chance.
+    """The offer of chamber ``number``: its text, the loot of returning now and the chance of the next descent.
 
-    In the treasury: what waits to be claimed.  Always with the closing warning
-    and - as the package asks for every chamber - with the state of the
-    player's places for an egg (in every chamber from which an egg can still
-    be reached: with the shipped table that is all of them).
+    Nothing of the deeper chambers is told (owner, 2026-11-24).  In the treasury:
+    what waits to be claimed.  Always with the closing warning; the state of the
+    player's places for an egg and the pet that would level up only when THIS
+    chamber's loot holds eggs / the level.
     """
     chamber = config.chamber(number)
     lines = [f"<@{player_id}>"]
     if notice:
         lines.append(notice)
     lines.append(f"*{chamber.text}*" if chamber.text else "")
-    eggs_at_stake = any(deeper.eggs for deeper in config.chambers[number - 1:])
+    eggs_at_stake = bool(chamber.eggs)
     level_at_stake = chamber.pet_level
     if number >= config.last:
         lines += [MSG_TREASURY, MSG_TO_CLAIM.format(loot=chamber.loot)]
     else:
         following = config.chamber(number + 1)
-        lines.append(MSG_NOW.format(loot=chamber.loot) + "\n" + MSG_NEXT.format(
-            name=following.name, loot=following.loot, chance=chance_text(following.chance)))
-        level_at_stake = level_at_stake or following.pet_level
+        lines.append(MSG_NOW.format(loot=chamber.loot) + "\n" + MSG_NEXT.format(chance=chance_text(following.chance)))
     if level_at_stake:
         lines.append(level_line(places))
     if eggs_at_stake:
@@ -789,20 +776,6 @@ def chamber_embed(config: Config, player_id: int, number: int, places: pets.EggP
     lines.append(WARNING.format(latest=latest))
     embed = discord.Embed(title=PAGE_TITLE.format(number=number, total=config.last, name=chamber.name),
                           description="\n\n".join(line for line in lines if line), color=COLOUR)
-    if picture_name is not None:
-        embed.set_image(url=f"attachment://{picture_name}")
-    return embed
-
-
-def table_embed(config: Config, player_id: int, number: int, *, latest: str = "",
-                picture_name: str | None = None) -> discord.Embed:
-    """The reward table as a page of the expedition (looking at it never rolls)."""
-    chamber = config.chamber(number)
-    lines = [f"<@{player_id}>", TABLE_HEAD + "\n" + table_rows(config),
-             FOOT.format(chance=chance_text(config.reach(config.last), approximate=True)),
-             WARNING.format(latest=latest)]
-    embed = discord.Embed(title=PAGE_TITLE.format(number=number, total=config.last, name=chamber.name) + " · "
-                          + TABLE_LABEL, description="\n\n".join(lines), color=COLOUR)
     if picture_name is not None:
         embed.set_image(url=f"attachment://{picture_name}")
     return embed
@@ -889,8 +862,7 @@ def chamber_buttons(config: Config, number: int) -> list[Button]:
     take = (("claim", CLAIM_LABEL, discord.ButtonStyle.success, "🎁") if number >= config.last
             else ("leave", LEAVE_LABEL, discord.ButtonStyle.success, "💰"))
     deeper = [] if number >= config.last else [("deeper", DEEPER_LABEL, discord.ButtonStyle.danger, "⬇️")]
-    return [take, *deeper, ("stable", STABLE_LABEL, discord.ButtonStyle.secondary, "🐴"),
-            ("table", TABLE_LABEL, discord.ButtonStyle.secondary, "📜")]
+    return [take, *deeper, ("stable", STABLE_LABEL, discord.ButtonStyle.secondary, "🐴")]
 
 
 def egg_buttons(places: pets.EggPlaces | None) -> list[Button]:
@@ -1006,9 +978,6 @@ async def _page(mine: Mine, expedition: Expedition) -> tuple[discord.Embed, Path
         expedition.with_pet = _hatched(places)
         shown = picture(number, with_pet=expedition.with_pet)
         name = None if shown is None else shown.name
-        if expedition.table:
-            return (table_embed(config, player_id, number, latest=mine.latest(), picture_name=name), shown,
-                    [("back", BACK_LABEL, discord.ButtonStyle.secondary, "↩️")])
         return (chamber_embed(config, player_id, number, places, latest=mine.latest(), notice=expedition.notice,
                               picture_name=name), shown, chamber_buttons(config, number))
     shown = expedition.picture
@@ -1284,10 +1253,10 @@ async def clicked(mine: Mine, expedition: Expedition, key: str, interaction: Any
         async with expedition.lock:
             if not _stale(mine, expedition, received) and expedition.state == CHAMBER:
                 if key in ("table", "back"):
-                    expedition.table = key == "table"
+                    # (Buttons of the reward table that existed until 2026-11-24, on a page drawn before
+                    # the update: the page is simply drawn anew, without them.)
+                    expedition.table = False
                     expedition.touch()
-                elif expedition.table:
-                    pass  # (the table page has only "back")
                 elif key == "stable" and expedition.player_id in pets._awaiting_confirmation:
                     await ui.reply(interaction, pets.MSG_ALREADY_WAITING)  # as !schowajtowarzysza
                 elif key == "stable":
