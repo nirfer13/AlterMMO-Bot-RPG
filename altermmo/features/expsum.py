@@ -29,15 +29,23 @@ def init_file_exp(bot: "AlterBot") -> None:
     bot.store.exp_summary.save({})
 
 
-def add_file_exp(bot: "AlterBot", player_id: int | str, experience: int) -> None:
-    """Add ``experience`` to the player's pending total.  Never raises."""
+def add_file_exp(bot: "AlterBot", player_id: int | str, experience: int) -> bool:
+    """Add ``experience`` to the player's pending total.  Never raises.
+
+    True when it was written; False when the file could not be saved (logged).
+    Most callers do not look: a fight goes on whatever the bookkeeping does.
+    The mine (features/dungeon.py) does - its reward is paid once, and an
+    experience that was not recorded is reported to the owner.
+    """
     try:
         players = _load(bot)
         key = str(player_id)
         players[key] = int(players.get(key, 0)) + int(experience)
         bot.store.exp_summary.save(players)
+        return True
     except Exception:  # noqa: BLE001 - bookkeeping must not break a fight
         log.exception("Could not record %s exp for player %s.", experience, player_id)
+        return False
 
 
 def add_file_exp_many(bot: "AlterBot", changes: dict[int | str, int]) -> None:

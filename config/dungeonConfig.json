@@ -1,0 +1,21 @@
+{
+    "_opis": "Kopalnia Ostatniej Lampy (features/dungeon.py). Wejscie jest jedno: schodzi gracz, ktory pierwszy kliknie; wyprawa trwa, dopoki kopalni nie zamknie nastepne wydarzenie albo boss. 'chambers' = komory po kolei: 'chance' to szansa zejscia DO tej komory (np. \"90%\", \"62.5%\" albo ulamek \"2/3\"; pierwsza komora musi miec 100% - wejscie jest bezpieczne), a 'xp' / 'scrolls' (zwoje odrodzenia) / 'eggs' (jaja - zwykle jaja gry, takie jak z lupu) / 'pet_level' (1 = poziom dla aktywnego towarzysza) to lup za powrot z tej komory - gracz zabiera jeden wiersz. 'text' to opis komory. Plik jest czytany przy kazdym pojawieniu sie kopalni - restart bota nie jest potrzebny.",
+    "chambers": [
+        {"name": "Lampownia", "chance": "100%", "xp": 20, "scrolls": 0, "eggs": 0, "pet_level": 0,
+         "text": "Większość haków jest pusta. Zdejmujesz jedyną zapaloną lampę. Pod nią w węglowym pyle widać świeże ślady butów. Prowadzą w stronę torów."},
+        {"name": "Rozjazd wagoników", "chance": "90%", "xp": 40, "scrolls": 1, "eggs": 0, "pet_level": 0,
+         "text": "Wykolejony wózek tarasuje lewy tunel. Wybierasz prawy. Gdy mijasz zwrotnicę, jej dźwignia sama przeskakuje za twoimi plecami."},
+        {"name": "Most nad Czarną Wodą", "chance": "80%", "xp": 70, "scrolls": 1, "eggs": 0, "pet_level": 0,
+         "text": "Z pomostu odpada drzazga. Czekasz na plusk. Jedynym dźwiękiem jest syk knota. Przez chwilę nie widzisz drugiego brzegu."},
+        {"name": "Zatopiona pompownia", "chance": "2/3", "xp": 110, "scrolls": 2, "eggs": 1, "pet_level": 0,
+         "text": "Spomiędzy żeber starej pompy sączy się woda. Wkładasz rękę do suchej wnęki i trafiasz na skorupkę. Ktoś ułożył tu jajo na posłaniu ze szmat."},
+        {"name": "Błękitna żyła", "chance": "62.5%", "xp": 180, "scrolls": 2, "eggs": 2, "pet_level": 0,
+         "text": "W błękitnym krysztale widzisz odbicie lampy, a w nim płomień wysoki na palec. Spoglądasz na własną dłoń. Twój knot ledwie się żarzy."},
+        {"name": "Szyb wiszących klatek", "chance": "50%", "xp": 300, "scrolls": 3, "eggs": 3, "pet_level": 0,
+         "text": "Klatka zatrzymuje się tuż poniżej pomostu. Na deskach leży zwój z pękniętą pieczęcią. Kiedy się po niego schylasz, z dna szybu odpowiada chrzęst łańcucha."},
+        {"name": "Wrota sztygara", "chance": "40%", "xp": 550, "scrolls": 4, "eggs": 4, "pet_level": 0,
+         "text": "Dwaj kamienni górnicy opierają kilofy o wrota. Przykładasz ucho do zamka. Trzy stuknięcia. Potem cisza. Płomień kładzie się prawie poziomo. Teraz zawrócić czy nacisnąć klamkę?"},
+        {"name": "Skarbiec Ostatniej Lampy", "chance": "25%", "xp": 1000, "scrolls": 16, "eggs": 5, "pet_level": 1,
+         "text": "Za wrotami czeka kufer pełen zwojów. W słomie obok pergaminów spoczywa nakrapiane jajo. Na spodzie wieka sztygar wyrył rząd kresek. W świetle dogasającej lampy rozpoznajesz w nich drogę powrotną."}
+    ]
+}

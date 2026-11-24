@@ -910,6 +910,17 @@ def ornament_lines(pet: Any) -> list[str]:
     return lines
 
 
+def _class_look(pet: Any) -> tuple[int, str]:
+    """``(embed colour, the sentence under the pet)`` of the pet's class; ``""`` for an ordinary one."""
+    if pet["mythic"]:
+        return 0xff4815, "*Mityczny towarzysz.*"
+    if pet["ultra_shiny"]:
+        return 0xff8d15, "*Absolutnie nadzwyczajny towarzysz.*"
+    if pet["shiny"]:
+        return 0xffdd00, "*Rzadki towarzysz. Miałeś niesamowite szczęście.*"
+    return 0xfffffc, ""
+
+
 def _pet_embed(player_id: int, pet: Any, items: Any, *, cosmetics: bool = True) -> discord.Embed:
     """The pet's embed.  ``cosmetics``: whether its ornaments are shown (the owner supports)."""
     scroll_desc = (f"\n**💎 PRZEDMIOTY:**\nZwoje odrodzenia: {_int(items['reroll_scroll'])}\n" +
@@ -917,18 +928,8 @@ def _pet_embed(player_id: int, pet: Any, items: Any, *, cosmetics: bool = True) 
                    f"Kamienie olśnienia: {_int(items['rebirth_stones'])}" +
                    f"\nLustra wizualiów: {_int(items['mirrors'])}")
 
-    if pet["mythic"]:
-        color = 0xff4815
-        add_desc = "\n\n*Mityczny towarzysz.*"
-    elif pet["ultra_shiny"]:
-        color = 0xff8d15
-        add_desc = "\n\n*Absolutnie nadzwyczajny towarzysz.*"
-    elif pet["shiny"]:
-        color = 0xffdd00
-        add_desc = "\n\n*Rzadki towarzysz. Miałeś niesamowite szczęście.*"
-    else:
-        color = 0xfffffc
-        add_desc = ""
+    color, words = _class_look(pet)
+    add_desc = f"\n\n{words}" if words else ""
 
     # A rarer frame, the seal and the foil in words as well - for an egg too (owner's decision
     # of 2026-11-20: they are visible from the egg on).  They are shown only while the owner
@@ -1292,19 +1293,24 @@ def _and(parts: Sequence[str]) -> str:
 
 
 async def _egg_stored(bot: "AlterBot", player_id: int, pet_id: int, egg: dict[str, Any],
-                      cosmetics: bool, frames: bool = False) -> None:
+                      cosmetics: bool, frames: bool = False, *, kept: bool = True) -> None:
     """After a new egg is saved: remember lost columns, tell the owner about rare cosmetics.
 
     The best seal, full Holo, an animated frame and the rarest static frame of a
     pool (:data:`RARE_FRAME_PERCENT`) are rare enough for the owner to want to
     know - in ONE message per egg; the player sees them on his egg
     (``$towarzysz``), so nothing is announced.  A partial Holo (1%) is not
-    reported.  Never raises.
+    reported.  ``kept=False``: the egg was stored only to be sacrificed in the
+    same transaction (:func:`place_egg`) - there is no such ``PET_ID`` in
+    ``PETS``, so the owner is told nothing; only the columns are remembered.
+    Never raises.
     """
     if frames and "FRAME" not in egg:
         bot._pet_frames = False  # type: ignore[attr-defined]  # see _insert_egg: the columns are gone
     if cosmetics and "SEAL" not in egg:
         bot._pet_cosmetics = bot._pet_frames = False  # type: ignore[attr-defined]
+        return
+    if not kept:
         return
     found = _rare_finds(egg)
     if not found:
@@ -2144,11 +2150,8 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
                 pet_id = _int(owner["pet_id"]) if owner is not None else 0
                 other = _other_pet(pet_id, expected_pet)
                 if pet_id > 0 and not other:
-                    pet = await _pet(con, pet_id, lock=True) if keeps else None
-                    if pet is not None:
-                        kept = await album.keep(con, player_id, pet)  # NotSaved: everything is rolled back
+                    kept = await _sacrifice_in(con, player_id, pet_id, keeps)  # NotSaved: everything is rolled back
                     await con.execute("UPDATE PETOWNER SET PET_ID = 0 WHERE PLAYER_ID = $1", player_id)
-                    await con.execute("DELETE FROM PETS WHERE PET_ID = $1", pet_id)
         except album.NotSaved as exc:
             log.error("Player %s: pet %s not sacrificed, the album could not be written (%s).",
                       player_id, pet_id, exc)
@@ -2166,15 +2169,47 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
             return False
         log.info("Player %s discarded pet %s%s.", player_id, pet_id,
                  "" if kept is None else f" (kept in the album as entry {kept})")
-        try:
-            await modifiers.random_modifiers(scene, True, True)
-            await _thank(answer, "<:MonkaS:882181709100097587>")
-        finally:
-            # Committed: the pet IS in the album, whatever the modifier step does (its error,
-            # e.g. Discord down, still goes on to the caller).
-            if kept is not None:
-                await album.saved(scene, player)  # the answer and the album's achievement; never raises
+        await _sacrificed(scene, player, kept, answer=answer)
     return True
+
+
+async def _sacrifice_in(con: Any, player_id: int, pet_id: int, keeps: bool) -> int | None:
+    """The sacrifice of one pet inside the caller's transaction: its row leaves ``PETS``.
+
+    ``keeps`` (the owner supports at this moment): the row goes into his album
+    first (``album.keep``) and the new ``ENTRY_ID`` is returned; otherwise None
+    - the pet is gone, as it always was.  ``album.NotSaved`` passes through:
+    the caller's transaction is rolled back and nothing was sacrificed.  The
+    caller empties the place the pet stood on (``PETOWNER``) in the same
+    transaction.  One path for every sacrifice of the game: ``$porzucam``
+    (:func:`discard_pet`) and the mine's egg decisions (:func:`place_egg`).
+    """
+    from . import album  # (lazily: the album builds on this module)
+
+    pet = await _pet(con, pet_id, lock=True) if keeps else None
+    kept = await album.keep(con, player_id, pet) if pet is not None else None
+    await con.execute("DELETE FROM PETS WHERE PET_ID = $1", pet_id)
+    return kept
+
+
+async def _sacrificed(scene: "Scene", player: Any, kept: int | None, *, answer: ui.Confirmation | None = None) -> None:
+    """What follows every committed sacrifice: the random boss modifier, then the album's word.
+
+    ``answer``: the confirmation of ``$porzucam`` (gets the legacy "seen"
+    reaction).  The pet IS in the album once the sacrifice is committed,
+    whatever the modifier step does - so the player is told and "Pełny album"
+    is checked even when that step fails (its error, e.g. Discord down, still
+    goes on to the caller).
+    """
+    from . import album
+
+    try:
+        await modifiers.random_modifiers(scene, True, True)
+        if answer is not None:
+            await _thank(answer, "<:MonkaS:882181709100097587>")
+    finally:
+        if kept is not None:
+            await album.saved(scene, player)  # the answer and the album's achievement; never raises
 
 
 async def name_pet(scene: "Scene", name: str, *, expected_pet: int | None = None) -> bool:
@@ -2494,6 +2529,259 @@ async def check_stable(scene: "Scene") -> bool:
         panel.stop()
         raise
     return True
+
+
+# -- an egg the player places himself (the mine, features/dungeon.py) -------------------
+
+async def store_in_free_place(bot: "AlterBot", player_id: Any) -> tuple[str, int, Any]:
+    """Put the pet at the player's side into his FIRST FREE stable place, in one locked transaction.
+
+    ``$schowajtowarzysza <slot>`` (:func:`store_pet`) names a place and swaps
+    with whoever stands there; the mine's "Stajnia" button only ever moves the
+    active pet out of the way, so it must not bring another pet back.  Returns
+    ``(status, place, the pet's PETS row)``: ``alone`` (no row at all),
+    ``no_pet`` (nobody at his side), ``full`` (no free place) or ``_OK``.
+    """
+    player_id = _pid(player_id)
+    upgrades = await upgrades_available(bot)
+    async with bot.db.transaction() as con:
+        owner = await _owner(con, player_id, _owner_columns(upgrades), lock=True)
+        if owner is None:
+            return "alone", 0, None
+        current = _int(owner["pet_id"])
+        if current <= 0:
+            return "no_pet", 0, None
+        for place in range(1, _places_of(owner) + 1):
+            column = _STABLE_SLOTS[place]
+            if _int(owner[column.lower()]) <= 0:
+                await con.execute(f"UPDATE PETOWNER SET {column} = $2, PET_ID = 0 WHERE PLAYER_ID = $1",
+                                  player_id, current)
+                pet = await _pet(con, current)
+                log.info("Player %s put pet %s into the free stable place %s.", player_id, current, place)
+                return _OK, place, pet
+        return "full", 0, None
+
+
+class EggPlaces(NamedTuple):
+    """Where a new egg of a player could go right now (read without a lock; :func:`place_egg` decides again)."""
+
+    #: Nobody at his side: the egg can become his companion.
+    active: bool
+    #: He owns the egg pouch and it is empty.
+    pouch: bool
+    #: How many stable places he has.
+    places: int
+    #: The numbers of his free stable places.
+    free: tuple[int, ...]
+    #: His occupied stable places as ``(place, PET_ID, the pet's row or None without data)``.
+    occupied: tuple[tuple[int, int, Any], ...]
+    #: The pet at his side (``PET_ID`` / ``PET_NAME`` / ``PET_LVL`` / ``TYPE``), or None.
+    active_pet: Any = None
+
+    @property
+    def room(self) -> str:
+        """The answer of :func:`egg_room`: ``"active"``, ``"pouch"`` or ``""``."""
+        return "active" if self.active else "pouch" if self.pouch else ""
+
+
+async def egg_places(bot: "AlterBot", player_id: Any) -> EggPlaces:
+    """The player's places for a new egg: at his side, the pouch, every stable place (see :class:`EggPlaces`)."""
+    player_id = _pid(player_id)
+    upgrades = await upgrades_available(bot)
+    owner = await _owner(bot.db, player_id, _owner_columns(upgrades))
+    if owner is None:
+        return EggPlaces(True, False, STABLE_BASE_PLACES, tuple(range(1, STABLE_BASE_PLACES + 1)), ())
+    places = _places_of(owner)
+    stabled = {place: _int(owner[_STABLE_SLOTS[place].lower()]) for place in range(1, places + 1)}
+    active = _int(owner["pet_id"])
+    has_pouch, in_pouch = _pouch_of(owner)
+    wanted = [pet_id for pet_id in (active, *stabled.values()) if pet_id > 0]
+    rows: dict[int, Any] = {}
+    if wanted:
+        for row in await bot.db.fetch(
+                "SELECT PET_ID, PET_NAME, PET_LVL, TYPE FROM PETS WHERE PET_ID = ANY($1::numeric[])", wanted):
+            rows.setdefault(_int(row["pet_id"]), row)
+    return EggPlaces(
+        active <= 0, has_pouch and in_pouch <= 0, places,
+        tuple(place for place, pet_id in stabled.items() if pet_id <= 0),
+        tuple((place, pet_id, rows.get(pet_id)) for place, pet_id in stabled.items() if pet_id > 0),
+        rows.get(active) if active > 0 else None)
+
+
+def roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True) -> dict[str, Any]:
+    """A new egg for ``player``, rolled exactly as :func:`assign_pet` rolls one - but not stored yet.
+
+    The egg of the mine: the game's normal egg (a supporter's may be of a
+    premium species and gets the usual cosmetic roll, anybody else's is of the
+    standard pool; a mythic one is possible for everybody).  It is stored when
+    the player has said where it goes (:func:`place_egg`).  The result holds
+    plain numbers, texts and booleans, so it can wait in a JSON file.
+    """
+    return _roll_egg(player, cosmetics=cosmetics, frames=frames)
+
+
+def egg_row(egg: dict[str, Any]) -> dict[str, Any]:
+    """A rolled egg as the ``PETS`` row it will become (lower-case keys), for the code that shows a pet."""
+    return {"pet_id": 0, "pet_name": DEFAULT_NAME, "pet_lvl": 0, "pet_skills": 0,
+            "quality": egg["QUALITY"], "type": egg["TYPE"], "variant": str(egg["VARIANT"]),
+            "shiny": bool(egg["SHINY"]), "ultra_shiny": bool(egg["ULTRA_SHINY"]), "mythic": bool(egg["MYTHIC"]),
+            "seal": int(egg.get("SEAL", 0) or 0), "holo": bool(egg.get("HOLO", False)),
+            "frame": str(egg.get("FRAME", "") or ""), "holo_partial": bool(egg.get("HOLO_PARTIAL", False))}
+
+
+async def egg_shown(bot: "AlterBot", guild: Any, player: Any, egg: dict[str, Any]) -> tuple[list[str], Path | None]:
+    """How the game shows a rolled egg to ``player``: ``(lines of words, the picture or None)``.
+
+    Exactly what ``$towarzysz`` shows of an egg (:func:`_pet_embed`,
+    :func:`_pet_card`): never its species; the sentence of its class; its
+    ornaments in words and on the card only while he supports (one line says
+    so when they are hidden).  The picture is the egg's card, or None when the
+    egg has no picture.  Never raises for a card problem.
+    """
+    row = egg_row(egg)
+    ornaments = ornaments_of(row).any
+    cosmetics = ornaments and await _is_supporter(bot, player)
+    lines = [words] if (words := _class_look(row)[1]) else []
+    if cosmetics:
+        lines += ornament_lines(row)
+    elif ornaments:
+        lines.append(MSG_COSMETICS_HIDDEN)
+    source = _pet_image(row)
+    if source is None or not source.is_file():
+        log.warning("A rolled egg (%s, variant %s) has no picture (%s); showing it in words only.",
+                    row["quality"], row["variant"], source)
+        return lines, None
+    return lines, await _pet_card(bot, guild, row, source, cosmetics=cosmetics)
+
+
+#: ``where`` of :func:`place_egg`: by the game's normal rule (at the player's side, else the
+#: free pouch); the first free stable place; the stable place of a pet that is sacrificed for
+#: it; nowhere - the egg itself is sacrificed; and, for an egg nobody decided about, wherever
+#: there is room without a sacrifice (side, pouch, a free stable place - in that order).
+EGG_TO_ROOM, EGG_TO_STABLE, EGG_SWAP, EGG_SACRIFICE, EGG_ANYWHERE = "room", "stable", "swap", "sacrifice", "anywhere"
+#: ``EggPlaced.status``: where the egg is now ...
+EGG_ACTIVE, EGG_IN_POUCH, EGG_IN_STABLE, EGG_SWAPPED, EGG_SACRIFICED = "active", "pouch", "stable", "swapped", "sacrificed"
+#: ... or why nothing happened: the place is not what the player was shown (choose again) /
+#: there is no room anywhere.
+EGG_CHANGED, EGG_NO_ROOM = "changed", "no_room"
+
+
+class EggPlaced(NamedTuple):
+    """What :func:`place_egg` did."""
+
+    status: str
+    #: ``PET_ID`` of the stored egg (0: it was not stored - sacrificed, or nothing happened).
+    pet_id: int = 0
+    #: The stable place it took (``EGG_IN_STABLE`` / ``EGG_SWAPPED``).
+    place: int = 0
+    #: Album entry of what was sacrificed (a supporter's pet / egg); None: nothing was kept.
+    kept: int | None = None
+    #: ``PET_ID`` of the pet that was sacrificed for the egg (``EGG_SWAPPED``).
+    gone: int = 0
+
+    @property
+    def done(self) -> bool:
+        """True when the egg's fate is settled (stored or sacrificed)."""
+        return self.status not in (EGG_CHANGED, EGG_NO_ROOM)
+
+
+async def place_egg(scene: "Scene", player: Any, egg: dict[str, Any], where: str, *, place: Any = None,
+                    expected_pet: int | None = None, announce: bool = True) -> EggPlaced:
+    """Store a rolled egg (:func:`roll_egg`) where the player said - or sacrifice it.
+
+    ONE transaction under the player's lock, with the state read again in it:
+
+    * :data:`EGG_TO_ROOM` - the rule of :func:`assign_pet`: his companion when
+      nobody is at his side, else into his empty egg pouch;
+    * :data:`EGG_TO_STABLE` - his first free stable place;
+    * :data:`EGG_SWAP` - stable place ``place``, when it still holds
+      ``expected_pet``: that pet is sacrificed (:func:`_sacrifice_in`, the
+      path of ``$porzucam``: a supporter's pet goes into his album, anybody
+      else's is gone) and the egg takes its place - both or neither;
+    * :data:`EGG_SACRIFICE` - the egg itself is sacrificed by the same rule: a
+      supporter's egg becomes an album entry (stored and sacrificed in the
+      same transaction), anybody else's is simply gone;
+    * :data:`EGG_ANYWHERE` - at his side, else the pouch, else a free stable
+      place; nothing is ever sacrificed for it.
+
+    When the place is not what the caller saw (a pet moved meanwhile, the pouch
+    filled) nothing happens and the status is :data:`EGG_CHANGED` - or
+    :data:`EGG_NO_ROOM` for :data:`EGG_ANYWHERE`: the caller still holds the
+    egg.  ``album.NotSaved`` passes through with nothing changed.
+
+    After the commit the hooks of a new egg run (:func:`_egg_stored`, the
+    announcement of a mythic egg, ``achievements.check_pets``) and, when
+    something was sacrificed, the
+    hooks of a sacrifice (:func:`_sacrificed`: the random boss modifier, the
+    album's word and achievement).  A hook that fails is logged - what was
+    committed is reported in any case.  ``announce=False`` keeps the hooks
+    quiet (an egg placed while the channel belongs to somebody else).
+    Whether the player supports is asked at this moment (``player``: a
+    member, or a bare id that is looked up).
+    """
+    bot = scene.bot
+    player_id = _pid(player)
+    member = player if getattr(player, "roles", None) is not None else None
+    if member is None and where in (EGG_SWAP, EGG_SACRIFICE):
+        member = await bot.member(player_id)
+    keeps = member is not None and patrons.check_if_patron(member)
+    upgrades = await upgrades_available(bot)
+    cosmetics, frames = await _cosmetic_state(bot)
+    pet_id, kept, gone = 0, None, 0
+    async with bot.db.transaction() as con:
+        await _lock_player(con, player_id)
+        owner = await _owner(con, player_id, _owner_columns(upgrades), lock=True)
+        if where == EGG_SACRIFICE:
+            if keeps:  # the album keeps a PETS row: the egg is one for the length of this transaction
+                pet_id = await _insert_egg(con, egg)
+                kept = await _sacrifice_in(con, player_id, pet_id, True)
+            status, column, number = EGG_SACRIFICED, None, 0
+        else:
+            active = _int(owner["pet_id"]) if owner is not None else 0
+            has_pouch, in_pouch = _pouch_of(owner) if owner is not None else (False, 0)
+            places = _places_of(owner) if owner is not None else STABLE_BASE_PLACES
+            free = [number for number in range(1, places + 1)
+                    if owner is None or _int(owner[_STABLE_SLOTS[number].lower()]) <= 0]
+            column, number = None, 0
+            if where in (EGG_TO_ROOM, EGG_ANYWHERE) and active <= 0:
+                status, column = EGG_ACTIVE, "PET_ID"
+            elif where in (EGG_TO_ROOM, EGG_ANYWHERE) and has_pouch and in_pouch <= 0:
+                status, column = EGG_IN_POUCH, "POUCH_PET_ID"
+            elif where in (EGG_TO_STABLE, EGG_ANYWHERE) and free:
+                status, number = EGG_IN_STABLE, free[0]
+                column = _STABLE_SLOTS[number]
+            elif where == EGG_SWAP:
+                number = _slot_number(place) or 0
+                column = _slot_column(number, places) if owner is not None else None
+                wanted = _int(expected_pet)
+                if column is None or wanted <= 0 or _int(owner[column.lower()]) != wanted:
+                    return EggPlaced(EGG_CHANGED)
+                status, gone = EGG_SWAPPED, wanted
+                kept = await _sacrifice_in(con, player_id, wanted, keeps)  # NotSaved: nothing happened
+            else:
+                return EggPlaced(EGG_NO_ROOM if where == EGG_ANYWHERE else EGG_CHANGED)
+            pet_id = await _insert_egg(con, egg)
+            if owner is None:  # (PET_OWNED as assign_pet / _add_item write it for a first row)
+                await _insert_owner(con, player_id, 0, status == EGG_ACTIVE, 0, 0, 0, 0, 0)
+            await con.execute(f"UPDATE PETOWNER SET {column} = $2 WHERE PLAYER_ID = $1", player_id, pet_id)
+    log.info("Egg of player %s: %s (pet %s, place %s%s%s).", player_id, status, pet_id or "-", number or "-",
+             f", pet {gone} sacrificed for it" if gone else "",
+             "" if kept is None else f", kept in the album as entry {kept}")
+    result = EggPlaced(status, 0 if status == EGG_SACRIFICED else pet_id, number, kept, gone)
+    try:
+        if pet_id:  # (a sacrificed egg is not reported as a stored one: its PET_ID is not in PETS)
+            await _egg_stored(bot, player_id, pet_id, egg, cosmetics, frames, kept=status != EGG_SACRIFICED)
+        if status != EGG_SACRIFICED:
+            if egg["MYTHIC"] and announce:
+                await _announce_mythic(scene, player_id)
+            await achievements.check_pets(scene, member if member is not None else player_id, announce=announce)
+        if status in (EGG_SWAPPED, EGG_SACRIFICED) and member is not None:
+            await _sacrificed(scene.with_author(member), member, kept)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - committed: the caller must hear what happened to the egg
+        log.exception("Egg of player %s (%s): a hook after the commit failed.", player_id, status)
+    return result
 
 
 # -- panels (buttons under a shown pet and under the stable) ---------------------------

@@ -689,7 +689,7 @@ def test_the_training_has_the_weights_of_the_duel():
     order = events_cog.EVENT_ORDER
     here, duel = order.index(EventType.TRAINING), order.index(EventType.DUEL)
     assert len(order) == len(events_cog.PEAK_WEIGHTS) == len(events_cog.OFF_PEAK_WEIGHTS) == len(
-        events_cog.DEBUG_WEIGHTS) == 11
+        events_cog.DEBUG_WEIGHTS) == 12                                      # (the mine: 2026-11-23)
     assert events_cog.PEAK_WEIGHTS[here] == events_cog.PEAK_WEIGHTS[duel] == 2
     assert events_cog.OFF_PEAK_WEIGHTS[here] == events_cog.OFF_PEAK_WEIGHTS[duel] == 0
     assert events_cog.DEBUG_WEIGHTS[here] == 0

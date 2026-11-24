@@ -120,7 +120,11 @@ _KEY_SPAWN_NOTICE = "boss_spawn_notice"
 #: How far back the general chat is searched for left-over notices after a start.
 NOTICE_SWEEP_LIMIT = 300
 #: Events that only wait for a command; everything else is an activity in progress.
-_PASSIVE_EVENTS = (EventType.SHRINE, EventType.CHEST, EventType.MERCHANT)
+_PASSIVE_EVENTS = (EventType.SHRINE, EventType.CHEST, EventType.MERCHANT, EventType.DUNGEON)
+#: How long (seconds) the boss waits for a running hunt / event before it takes the channel,
+#: and how often it looks (``GameState.wait_until_idle``).  It never waits for the mine.
+IDLE_TIMEOUT = 1800.0
+IDLE_POLL = 5.0
 
 
 def somebody_was_first(rarity: int) -> str:
@@ -330,11 +334,18 @@ class BossCycle:
         self.start()
 
     async def disable(self) -> None:
-        """``$stopSpawnBoss``: no more bosses until enabled again (survives restarts)."""
+        """``$stopSpawnBoss``: no more bosses until enabled again (survives restarts).
+
+        An open mine stays open, but no longer closes at the end of the quiet
+        hour (:meth:`silence_at`): it is told its new latest closing at once.
+        """
+        from . import dungeon
+
         self.bot.store.runtime_set(_KEY_ENABLED, False)
         self.bot.supervisor.stop(LOOP_NAME)
         self._forget_schedule()
         await self.bot.state.set_boss_phase(BossPhase.IDLE)
+        await dungeon.recheck_closing_time(self.bot)
         await self.retire_attack_buttons()
         await self.remove_spawn_notice()
         await self._database.update_boss_table(self.bot, 0, 0, False)
@@ -603,13 +614,18 @@ class BossCycle:
         await bot.state.set_boss_phase(BossPhase.SCHEDULED)
 
     async def _phase_scheduled(self) -> None:
-        """Quiet hour after the last fight, then clear the channel and announce silence."""
+        """Quiet hour after the last fight, then clear the channel and announce silence.
+
+        The moment the quiet hour ends the boss cycle needs the channel: an
+        open mine is closed at once (:meth:`_wait_for_the_channel`) - that is
+        the moment :meth:`silence_at` tells.
+        """
         bot = self.bot
         if self.quiet_until is not None:
             remaining = clock.seconds_until(self.quiet_until)
             if remaining > 0 and not await bot.state.sleep_while_boss_phase(BossPhase.SCHEDULED, remaining):
                 return
-        await bot.state.wait_until_idle()
+        await self._wait_for_the_channel()
         if bot.state.boss_phase is not BossPhase.SCHEDULED:
             return
         channel = bot.boss_channel
@@ -637,7 +653,7 @@ class BossCycle:
         timings = bot.timings
 
         if not self._wind_sent:
-            await state.wait_until_idle()
+            await self._wait_for_the_channel()
             if state.boss_phase is not BossPhase.PRE_SPAWN:
                 return
             rarity = self.base_rarity
@@ -661,7 +677,7 @@ class BossCycle:
         if remaining > 0 and not await state.sleep_while_boss_phase(BossPhase.PRE_SPAWN, remaining):
             return
 
-        if not await state.wait_until_idle() and state.busy:
+        if not await self._wait_for_the_channel() and state.busy:
             # An activity still holds the channel after half an hour: the loop comes
             # back here and waits on.  (An unclaimed shrine/chest does not stop the
             # boss: as in the old bot it is closed below once the wait is over.)
@@ -683,6 +699,67 @@ class BossCycle:
         self._appears_at = None
         self._resume_phase = None
         await state.set_boss_phase(BossPhase.VISIBLE)
+
+    async def _close_mine(self) -> None:
+        """The boss needs the channel: an open mine (``features/dungeon.py``) closes NOW.  Never raises.
+
+        Owner's rule: the mine is closed BY the boss - the boss never waits
+        for it.  It is closed by its own rule (only who took his loot has it:
+        an expedition still in a chamber loses everything, undecided eggs go
+        where there is room or are lost), and that waits for nobody's answer -
+        at most a few seconds for a click that is being handled
+        (``dungeon.CLOSE_WAIT``).  A no-op without an open mine.
+        """
+        from . import dungeon
+
+        await self._guarded("closing the mine", dungeon.close(self.bot))
+
+    async def _wait_for_the_channel(self) -> bool:
+        """``state.wait_until_idle`` for the boss; False when the channel is still taken after half an hour.
+
+        A hunt, a tower run, an interactive event and an unclaimed chest /
+        shrine are waited for as they always were.  The mine is not: it is
+        closed at the first look, and at every later one should it have been
+        opened while the boss still waits for something else.
+        """
+        return await self.bot.state.wait_until_idle(timeout=IDLE_TIMEOUT, poll=IDLE_POLL, each_look=self._close_mine)
+
+    def wants_the_channel(self) -> bool:
+        """True while an open mine would be closed at once: the boss cycle is taking the channel.
+
+        From the end of the quiet hour until the "silence" line is posted, and
+        from the moment the scheduled boss is due.  The events cog does not
+        draw the mine then (it would live for seconds).
+        """
+        phase = self.bot.state.boss_phase
+        if phase is BossPhase.SCHEDULED:
+            return self.quiet_until is None or self.quiet_until <= clock.utcnow()
+        return phase >= BossPhase.PRE_SPAWN
+
+    @property
+    def tidied(self) -> bool:
+        """True once the start-up tidying of the boss channel has begun (see :meth:`tidy_after_start`).
+
+        The channel is held busy while it is cleared, so "tidied and not busy"
+        means: what is posted now stays.
+        """
+        return self._tidied
+
+    def silence_at(self) -> datetime | None:
+        """When the quiet hour after the last fight ends, while that is still ahead - else None.
+
+        At that moment the boss cycle needs the channel for its "silence"
+        line and closes an open mine AT ONCE (:meth:`_phase_scheduled` - also
+        when it then still has to wait for a hunt before it clears the
+        channel), so no mine is open after it.  It is the only moment of the
+        boss's way that is no secret (a fixed pause after the fight): the
+        arrival itself is never told - the rarity follows from it and the
+        pets' boss detection is a reward - so a mine opened after the silence
+        only knows the next slot of the event loop.
+        """
+        if self.bot.state.boss_phase is not BossPhase.SCHEDULED or self.quiet_until is None:
+            return None
+        return self.quiet_until if self.quiet_until > clock.utcnow() else None
 
     async def _detect(self, rarity: int) -> None:
         from . import pets
@@ -839,6 +916,7 @@ class BossCycle:
             # Posting the picture takes a moment: the channel is kept meanwhile, so
             # nothing else (a ritual that has just ended...) can show a second boss.
             with state.hold_busy("boss-summon"):
+                await self._close_mine()
                 state.close_event()
                 await io.clear_channel(scene.channel)
                 shown = await self._boss.send_boss_image(scene, rarity)

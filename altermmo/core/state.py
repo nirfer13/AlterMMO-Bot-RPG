@@ -20,7 +20,7 @@ import enum
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any, Awaitable, Callable, Iterator
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ class EventType(enum.Enum):
     PVPTOURNAMENT = 10
     TRAINING = 11
     MERCHANT = 12
+    DUNGEON = 13
 
 
 class Busy(RuntimeError):
@@ -242,20 +243,28 @@ class GameState:
         finally:
             self._stable_open_for = None
 
-    async def wait_until_idle(self, *, timeout: float = 1800.0, poll: float = 5.0) -> bool:
+    async def wait_until_idle(self, *, timeout: float = 1800.0, poll: float = 5.0,
+                              each_look: Callable[[], Awaitable[Any]] | None = None) -> bool:
         """Wait until no exclusive activity and no event runs; False on timeout.
 
         Legacy ``wait_until_not_busy``: the boss spawn sequence waits (at most
         30 minutes) for a running event/hunt to finish before touching the channel.
+
+        ``each_look``: awaited before every look at the flags - the boss cycle
+        closes an open mine there (the boss never waits for the mine; see
+        ``BossCycle._close_mine``).
         """
         deadline = time.monotonic() + timeout
-        while self.busy or self._event_alive:
+        while True:
+            if each_look is not None:
+                await each_look()
+            if not (self.busy or self._event_alive):
+                return True
             if time.monotonic() >= deadline:
                 log.warning("wait_until_idle timed out (busy=%s, event=%s)",
                             self._busy_owner, self._event_type.name)
                 return False
             await asyncio.sleep(poll)
-        return True
 
     # -- random events ----------------------------------------------------------
 

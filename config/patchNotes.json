@@ -123,5 +123,16 @@
             "Trening towarzyszy: w wiadomości z walką jest teraz pasek przewagi, który przesuwa się w trakcie sparingu - od razu widać, kto prowadzi.",
             "Wydarzenia na kanale bossa pojawiają się teraz trochę częściej."
         ]
+    },
+    {
+        "id": 12,
+        "date": "2026-11-23",
+        "title": "Kopalnia Ostatniej Lampy",
+        "changes": [
+            "Nowe wydarzenie na kanale bossa: Kopalnia Ostatniej Lampy. Wejście jest tylko jedno: schodzi ten, kto pierwszy kliknie przycisk pod ogłoszeniem.",
+            "Po każdej komorze decydujesz: wracasz z łupem czy schodzisz niżej po lepszy. Nieudane zejście to powrót z pustymi rękami - ale wszystko, co miałeś przed wyprawą, jest bezpieczne. Szanse i nagrody każdej komory są jawne: znajdziesz je w ogłoszeniu i pod przyciskiem Tabela nagród.",
+            "Uwaga: łup jest Twój dopiero wtedy, gdy go zabierzesz. Kopalnia zamyka się, gdy nadejdzie następne wydarzenie albo boss - kto do tej chwili nie wyjdzie z łupem, traci wszystko z tej wyprawy.",
+            "W głębszych komorach czekają jaja. Po wyjściu o każdym decydujesz osobno: bierzesz je, wkładasz do stajni, zamieniasz z towarzyszem ze stajni albo poświęcasz."
+        ]
     }
 ]

@@ -247,6 +247,15 @@ class FakeMessage:
             self.embeds = [kwargs["embed"]]
         if "embeds" in kwargs and kwargs["embeds"] is not None:
             self.embeds = list(kwargs["embeds"])
+        if "attachments" in kwargs and kwargs["attachments"] is not None:
+            # As Discord: the given files replace what the message carried (``[]`` removes it).
+            names = []
+            for item in kwargs["attachments"]:
+                names.append(getattr(item, "filename", str(item)))
+                close = getattr(item, "close", None)
+                if close is not None:
+                    close()
+            self.files = names
         if "view" in kwargs:
             self.view = kwargs["view"]
             self.channel._store_view(self.view, self.id)

@@ -15,6 +15,16 @@ claim, the refusals answered with ``ui.reply``.  The cog remembers the panel and
 its button off once the event is claimed (by a click or by the command) or
 closed by the next event / the tournament; a click on a panel the cog no longer
 knows (e.g. from before a restart) is refused and its button removed.
+
+The mine ("Kopalnia Ostatniej Lampy", ``features/dungeon.py``) is passive too,
+but closing it means settling its expeditions: whoever closes a passive event
+here calls :meth:`EventsCog.close_mine` (the boss cycle closes it itself, the
+moment it needs the channel), the mine's own supervised loop
+(``dungeon.watch``) notices every other closing, finishes a closing that was
+interrupted and closes a mine the previous run of the bot left open, and the
+event loop tells the mine the latest moment it can be open
+(:meth:`EventsCog.closing_slot`: its next slot - or, when they come sooner,
+the end of the boss's quiet hour and the tournament).
 """
 
 from __future__ import annotations
@@ -22,7 +32,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
 
 import discord
@@ -36,23 +46,27 @@ log = logging.getLogger(__name__)
 
 LOOP_NAME = "event-loop"
 TOURNAMENT_JOB = "pvp-tournament"
+#: When the weekly PvP tournament starts: ``(weekday - Monday is 0 -, hour, minute)``, Warsaw time.
+TOURNAMENT_AT = (5, 19, 0)
 
 #: Order matters: the weight tuples below are positional (legacy order; the companion
 #: training of 2026-11-22 stands next to the duel, then the wandering merchant of the same
-#: day; the ritual stays last).
+#: day and the mine of 2026-11-23; the ritual stays last).
 EVENT_ORDER = (EventType.SHRINE, EventType.CHEST, EventType.INVASION, EventType.PARTY,
                EventType.MEMORY, EventType.HUNTING, EventType.HAZARD, EventType.DUEL,
-               EventType.TRAINING, EventType.MERCHANT, EventType.RITUAL)
+               EventType.TRAINING, EventType.MERCHANT, EventType.DUNGEON, EventType.RITUAL)
 #: Evenings (18-21) and weekends: more multiplayer events.  The ritual (last
 #: place) was switched off in the old bot (weight 0); the owner enabled it in v2.
 #: The companion training has the weights of the duel; it is left out of the draw
 #: until the owner has supplied its picture (``EventsCog.not_drawable``).  The wandering
 #: merchant has weight 1 at every hour (like the ritual) but comes at most once a day
 #: (``merchant.came_today``); what he sells and how often each ware comes is in
-#: ``config/merchantConfig.json``.
-PEAK_WEIGHTS = (1, 1, 2, 1, 1, 1, 1, 2, 2, 1, 1)
-OFF_PEAK_WEIGHTS = (2, 2, 1, 0, 2, 2, 2, 0, 0, 1, 1)
-DEBUG_WEIGHTS = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+#: ``config/merchantConfig.json``.  The mine ("Kopalnia Ostatniej Lampy") has the merchant's
+#: weight - 1 at every hour - and no limit per day; its chambers, chances and loot are in
+#: ``config/dungeonConfig.json``.
+PEAK_WEIGHTS = (1, 1, 2, 1, 1, 1, 1, 2, 2, 1, 1, 1)
+OFF_PEAK_WEIGHTS = (2, 2, 1, 0, 2, 2, 2, 0, 0, 1, 1, 1)
+DEBUG_WEIGHTS = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
 PEAK_HOURS = range(18, 22)
 #: A ritual is not started when the scheduled boss is due sooner than the
 #: ritual lasts plus this margin (seconds): its boss could not be summoned.
@@ -61,9 +75,10 @@ RITUAL_MARGIN, RITUAL_MARGIN_DEBUG = 180.0, 10.0
 #: Passive events: posted, then they wait for ``$modlitwa`` / ``$skrzynia``.
 PASSIVE = (EventType.SHRINE, EventType.CHEST)
 #: Events that stay open with the channel free and are closed by the next event / the
-#: tournament: the chest, the shrine and the wandering merchant (passive since 2026-11-23,
-#: his own coroutine notices the close and leaves).
-CLOSED_BY_NEXT = (*PASSIVE, EventType.MERCHANT)
+#: tournament: the chest, the shrine, the wandering merchant (passive since 2026-11-23,
+#: his own coroutine notices the close and leaves) and the mine (its expeditions are
+#: settled by ``EventsCog.close_mine``).
+CLOSED_BY_NEXT = (*PASSIVE, EventType.MERCHANT, EventType.DUNGEON)
 
 MSG_NOT_A_BELIEVER = ("Nie umiesz pacierza. Poczekaj na kogoś bardziej wierzącego. "
                       "<:prayge:1063891597760139304>")
@@ -140,6 +155,10 @@ class EventsCog(commands.Cog, name="Events"):
         #: The panel of the open chest / shrine (its button is taken off when the event ends).
         self._panel: Any = None
         self._panel_type: EventType | None = None
+        #: When the event loop wakes up for its next event (None: not known - the loop is not
+        #: sleeping).  That slot closes every passive event, so an open mine closes then at the
+        #: latest; the mine shows the moment to its players (see :meth:`closing_slot`).
+        self.next_event_at: datetime | None = None
 
     def register_views(self) -> None:
         """Make the chest / shrine buttons work, also under panels posted before a restart."""
@@ -147,15 +166,30 @@ class EventsCog(commands.Cog, name="Events"):
         ui.register(self.bot, ShrineView(self))
 
     async def cog_load(self) -> None:
+        from ..features import dungeon
+
         self.register_views()
         self.bot.supervisor.start(LOOP_NAME, self.event_loop)
-        job = scheduler.weekly(TOURNAMENT_JOB, 5, 19, 0, self.run_tournament,
+        # The mine's own look at itself: a mine left open by the previous run is closed once,
+        # a closing nobody announced ($ResetBoss ...) is noticed, the closing summary is posted.
+        self.bot.supervisor.start(dungeon.WATCH_NAME, lambda: dungeon.watch(self.bot))
+        job = scheduler.weekly(TOURNAMENT_JOB, *TOURNAMENT_AT, self.run_tournament,
                                catch_up_within=timedelta(hours=2))
         self.bot.supervisor.start(TOURNAMENT_JOB, lambda: scheduler.run_job(job, self.bot.store))
 
     async def cog_unload(self) -> None:
+        from ..features import dungeon
+
         self.bot.supervisor.stop(LOOP_NAME)
         self.bot.supervisor.stop(TOURNAMENT_JOB)
+        self.bot.supervisor.stop(dungeon.WATCH_NAME)
+
+    @commands.Cog.listener()
+    async def on_interaction(self, interaction: discord.Interaction) -> None:
+        """A click on a button an expedition of the mine no longer has is acknowledged (never raises)."""
+        from ..features import dungeon
+
+        await dungeon.answer_orphan(interaction)
 
     # -- the loop -----------------------------------------------------------------
 
@@ -165,8 +199,74 @@ class EventsCog(commands.Cog, name="Events"):
         log.info("Event loop started.")
         while True:
             timings = bot.timings
-            await asyncio.sleep(random.uniform(timings.event_gap_min, timings.event_gap_max))
+            gap = random.uniform(timings.event_gap_min, timings.event_gap_max)
+            self.next_event_at = clock.utcnow() + timedelta(seconds=gap)
+            await self.tell_closing_time()
+            # (Until the moment that was told - telling it took a moment itself.)
+            try:
+                await asyncio.sleep(max(0.0, clock.seconds_until(self.next_event_at)))
+            finally:
+                self.next_event_at = None  # (also when the loop is stopped: no slot is coming then)
             await self.run_one_event()
+
+    def closing_slot(self) -> datetime | None:
+        """The latest moment an open mine can still be open, or None when nobody knows one.
+
+        An upper bound the code guarantees - the soonest of:
+
+        * the next slot of the event loop, while the loop sleeps
+          (:meth:`run_one_event` closes every passive event first, whatever it
+          then plays or skips);
+        * the end of the boss's quiet hour (``BossCycle.silence_at``): the
+          boss cycle needs the channel for its "silence" then and closes the
+          mine at once - it never waits for it;
+        * the weekly tournament (:meth:`run_tournament` closes it first thing).
+
+        The boss's ARRIVAL is left out on purpose: it is a secret of the
+        game, so the moment is an "at the latest" - a boss on its way closes
+        the mine sooner, as the mine's warning says ("następne wydarzenie albo
+        boss").  Without the first two only the rule is shown (None): the
+        tournament alone may be days away.  Never raises.
+        """
+        try:
+            now = clock.utcnow()
+            known = [when for when in (self.next_event_at, self.bot.boss_cycle.silence_at())
+                     if when is not None and when > now]
+            if not known:
+                return None
+            return min(*known, clock.next_weekly(*TOURNAMENT_AT, after=now).astimezone(clock.UTC))
+        except Exception:  # noqa: BLE001 - a line on a panel is never worth an event
+            log.exception("Could not work out when the open event closes.")
+            return None
+
+    async def tell_closing_time(self) -> None:
+        """Tell an open mine the latest moment it closes (:meth:`closing_slot`).  Never raises."""
+        from ..features import dungeon
+
+        try:
+            await dungeon.closing_time(self.bot, self.closing_slot())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a line on a panel is never worth the event loop
+            log.exception("Could not tell the mine when it closes.")
+
+    async def close_mine(self) -> None:
+        """Settle the mine once its event is closed (``features/dungeon.close``).  Never raises.
+
+        Only who took his loot has it: expeditions still in a chamber get
+        nothing, undecided eggs are placed or lost.  A no-op without an open mine.
+        """
+        from ..features import dungeon
+
+        try:
+            if not dungeon.is_open(self.bot):
+                await dungeon.close(self.bot)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the next event must still run
+            log.exception("Could not close the mine.")
+            await self.bot.log_to_owner(f"Kopalnia Ostatniej Lampy: błąd przy zamykaniu "
+                                        f"(`{type(exc).__name__}: {exc}`) - sprawdź log.")
 
     async def run_one_event(self, forced: EventType | None = None) -> EventType | None:
         """Close the previous passive event and (if the channel is free) run a new one.
@@ -178,9 +278,10 @@ class EventsCog(commands.Cog, name="Events"):
         if state.event_alive and state.event_type in CLOSED_BY_NEXT:
             state.close_event()  # an unclaimed shrine/chest expires now, the merchant leaves
         await self.retire_panel()
+        await self.close_mine()  # (the mine closes: only who took his loot has it)
 
         left_out = self.not_drawable()
-        not_drawn = (*left_out, *self.not_again_today())
+        not_drawn = (*left_out, *self.not_again_today(), *self.closed_at_once())
         event_type = forced or pick_event(clock.now(), debug=bot.debug, exclude=not_drawn)
         if forced is None and event_type is EventType.RITUAL and not self.ritual_fits():
             # The scheduled boss is too close: play something else in this slot.
@@ -231,6 +332,21 @@ class EventsCog(commands.Cog, name="Events"):
 
         return (EventType.MERCHANT,) if merchant.came_today(self.bot) else ()
 
+    def closed_at_once(self) -> tuple[EventType, ...]:
+        """Events left out of the draw because the boss would close them within seconds: the mine.
+
+        The boss never waits for the mine (owner's rule): while the boss cycle
+        is taking the channel (``BossCycle.wants_the_channel`` - e.g. it waits
+        for a hunt to end before its "silence") a mine would be closed at its
+        next look.  Only the draw: ``$SpawnEvent dungeon`` still calls it.
+        Never raises.
+        """
+        try:
+            return (EventType.DUNGEON,) if self.bot.boss_cycle.wants_the_channel() else ()
+        except Exception:  # noqa: BLE001 - the draw goes on without this rule
+            log.exception("Could not ask the boss cycle whether it is taking the channel.")
+            return ()
+
     def ritual_fits(self) -> bool:
         """True when a whole ritual can be played before the scheduled boss arrives.
 
@@ -248,11 +364,17 @@ class EventsCog(commands.Cog, name="Events"):
         return remaining is None or remaining > events.ritual_duration(self.bot) + margin
 
     async def _run(self, event_type: EventType) -> None:
-        from ..features import events, merchant, modifiers, training
+        from ..features import dungeon, events, merchant, modifiers, training
 
         bot = self.bot
         state = bot.state
         scene = bot.boss_scene()
+
+        if event_type is EventType.DUNGEON:
+            # Passive like the merchant: the channel is held only while the announcement is
+            # posted; the expeditions are driven by their buttons (see features/dungeon.py).
+            await dungeon.spawn_dungeon(scene, closes_at=self.closing_slot())
+            return
 
         if event_type is EventType.MERCHANT:
             # Passive like the chest, but he sells on his own: he holds the channel only while
@@ -335,6 +457,7 @@ class EventsCog(commands.Cog, name="Events"):
             if state.event_alive and state.event_type in CLOSED_BY_NEXT:
                 state.close_event()
                 await self.retire_panel()
+                await self.close_mine()
                 continue
             if not owner_told and clock.monotonic() - waiting_since >= 2 * 3600:
                 owner_told = True

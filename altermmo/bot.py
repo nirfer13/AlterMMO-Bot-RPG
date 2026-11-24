@@ -276,6 +276,9 @@ class Stores:
         #: again, so it is no achievement, and ``achievements.retire_roles`` deletes the role of every
         #: key of ``achievementRoles.json`` it does not know.
         self.collector = JsonFile(data_dir / "petCollector.json", dict)
+        #: The open "Kopalnia Ostatniej Lampy" event and its expeditions (features/dungeon.py): what was
+        #: paid, which eggs wait for a decision - so that a restart pays nothing twice.
+        self.dungeon = JsonFile(data_dir / "dungeon.json", dict)
         #: Players who switched the "a boss is coming" warnings off (features/bossdetect.py).
         self.detect_off = IdListFile(data_dir / "boss_detection_off.txt")
 

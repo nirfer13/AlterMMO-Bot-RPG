@@ -26,6 +26,8 @@ Wspierający ({patrons.SUPPORTERS_LONG}) mogą zostać bossami. Jest to losowe. 
 
 🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży oraz pokazuje towarzysza, stajnię, klejnoty, rankingi (wspierającym także ranking kolekcji) i album. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo - jak dotąd - wpisując **$potwierdzam**. Wszystkie komendy poniżej działają nadal. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
 
+⛏️ **Kopalnia Ostatniej Lampy:** schodzi do niej tylko ten, kto pierwszy kliknie **Wejdź do kopalni**. Łup trzeba zabrać, zanim kopalnię zamknie następne wydarzenie albo boss - inaczej przepada.
+
 Gra toczy się na kanale bossa; komendy, które tylko coś pokazują (rankingi, towarzysz, klejnoty...), działają na każdym kanale serwera.
 
 Więcej informacji w wiadomości https://discord.com/channels/686137998177206281/1093905013480378519/1093905013480378519."""
