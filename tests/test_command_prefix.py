@@ -268,9 +268,8 @@ def test_the_patch_notes_already_posted_still_say_dollar():
     """Entries 1-8 were posted with "$" and are never changed (they stay true: "$" still works)."""
     notes = {note["id"]: note for note in json.loads((ROOT / "config" / "patchNotes.json").read_text(encoding="utf-8"))}
     assert "$kradnijxp" in json.dumps(notes[1], ensure_ascii=False)
-    newest = notes[max(notes)]
-    assert newest["id"] == 13 and newest["date"] == "2026-11-24"
-    assert "!" in " ".join(newest["changes"])
+    prefix = notes[13]                                                     # the entry of this change
+    assert prefix["date"] == "2026-11-24" and "!" in " ".join(prefix["changes"])
 
 
 #: SHA-256 of the posted entries 1-8 (``json.dumps(..., ensure_ascii=False, sort_keys=True)`` of

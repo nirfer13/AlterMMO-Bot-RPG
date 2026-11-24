@@ -144,5 +144,15 @@
             "Tak samo wpisujesz słowa, którymi odpowiadasz botowi: !potwierdzam przy potwierdzeniach, !tak przed walką z legendarnym bossem, !zaatakuj i !polowanie, żeby dołączyć.",
             "Dotychczasowy znak $ na razie nadal działa, więc nic nie przepadnie - ale przyzwyczajajcie się do wykrzyknika."
         ]
+    },
+    {
+        "id": 14,
+        "date": "2026-11-24",
+        "title": "Skróty i obrona wioski",
+        "changes": [
+            "Gdy w łupie wypadnie Ci jajko albo Twój towarzysz awansuje, pod wiadomością z łupem pojawi się przycisk „Pokaż towarzysza” - jedno kliknięcie i widzisz go na kanale.",
+            "Gdy wspierający poświęci towarzysza, pod informacją o zapisaniu go w albumie pojawi się przycisk „Album”, który od razu pokazuje album.",
+            "Inwazja na wioskę pokazuje teraz na bieżąco szansę na uratowanie wioski - rośnie z każdym obrońcą, który dołączy."
+        ]
     }
 ]

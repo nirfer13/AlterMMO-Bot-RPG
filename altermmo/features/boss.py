@@ -53,7 +53,7 @@ from ..core import challenge, fightlog, io, timing, ui
 from ..core.challenge import Outcome
 from ..settings import ASSETS_DIR, CONFIG_DIR, says_command
 from . import (achievements, boss_cycle, bossvariants, database, expsum, fight_types, general, modifiers,
-               patrons, xpsteal)
+               patrons, shortcuts, xpsteal)
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -692,9 +692,12 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     drop_message = ""
     thefts_before = len(xpsteal.pending(bot, hunter.id))
     new_egg = False  # this very drop gave the hunter an egg that is now the ACTIVE pet
+    # The drop changed the pet at the hunter's side (a new egg there, a level): the drop embed
+    # gets the "Pokaż towarzysza" button (owner, 2026-11-24; features/shortcuts.py).
+    pet_changed = False
 
     async def drop(loot: dict[str, Any], bonus: bool) -> str:
-        nonlocal new_egg
+        nonlocal new_egg, pet_changed
         if new_egg and loot["id"] == LOOT_PET_LEVEL:
             log.info("Pet level rolled for %s together with a new egg: not granted (never both in one drop).",
                      hunter.id)
@@ -704,6 +707,9 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
                            cosmetic_rerolls=cosmetic_rerolls)
         if line and loot["id"] == LOOT_EGG and granted and granted[0] is True:  # (not pets.INTO_POUCH)
             new_egg = True
+            pet_changed = True
+        if line and loot["id"] == LOOT_PET_LEVEL:
+            pet_changed = True
         return line
 
     for loot in _loot_table(int(rarity)):
@@ -720,7 +726,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     embed.set_thumbnail(url=LOOT_IMAGE)
     embed.set_footer(text="Gratulacje!")
     try:
-        await scene.send(embed=embed)
+        await scene.send(embed=embed, **({"view": shortcuts.pet_view(hunter)} if pet_changed else {}))
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - the loot is already granted; keep the caller's log line

@@ -15,7 +15,7 @@ import logging
 from discord.ext import commands
 
 from ..core import guards, io
-from ..features import hub
+from ..features import hub, shortcuts
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ class HubCog(commands.Cog, name="Hub"):
 
     async def cog_load(self) -> None:
         hub.register(self.bot)
+        shortcuts.register(self.bot)  # "Pokaż towarzysza" / "Album" under drops and sacrifices
 
     @commands.command(name="panel", aliases=["centrum"], brief="Post and pin the 'Panel gry'.")
     @guards.owner_or_admin()

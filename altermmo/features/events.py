@@ -37,7 +37,8 @@ import logging
 import random
 import time
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, Iterator
+from fractions import Fraction
+from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 import discord
 
@@ -144,6 +145,12 @@ INVASION_DESCR = ('Pobliska wioska została zaatakowana przez bezdusznych najeź
                   ' tym większa szansa, że odpędzicie najeźdźców i odbijecie zrabowane przez nich łupy!'
                   '\n\n*Wspierający mogą wydropić dodatkowe, kosmetyczne przedmioty!*')
 INVASION_THUMB = 'https://www.altermmo.pl/wp-content/uploads/altermmo-3-112.png'
+#: The chance to save the village, on the sign-up panel and updated with every defender who joins
+#: (owner, 2026-11-24: "na bieżąco pokazywało procent szans na uratowanie wioski, w zależności od
+#: tego, kto dołączył").  Exactly the odds of :func:`spawn_invasion` (:func:`invasion_chance`).
+MSG_INVASION_CHANCE = "🛡️ Szansa na uratowanie wioski: **{percent}%**"
+MSG_INVASION_NO_CHANCE = "🛡️ Szansa na uratowanie wioski: **0%** - bez obrońców wioska upadnie!"
+MSG_INVASION_NEXT = " (każdy kolejny obrońca ją zwiększa)"
 MSG_INVASION_LOST = ('Niestety nie udało się obronić wioski... Mężczyźni leżą w kałuży krwi, dzieci'
                      ' zostały rozszarpane na kwałki, a kobiety skończą jako kurtyzany. '
                      'Co z Was za bohaterowie? <:PepeKMS:783992337029267487>')
@@ -343,8 +350,11 @@ class _SignUp:
     """
 
     def __init__(self, scene: "Scene", embed: discord.Embed, *, emoji: Any,
-                 roster_name: str = ROSTER_NAME) -> None:
+                 roster_name: str = ROSTER_NAME,
+                 status: Callable[[int], str] | None = None) -> None:
         self.scene = scene
+        #: An extra line from the number signed up (the invasion's chance); repainted with the roster.
+        self.status = status
         self.embed = embed
         self.roster_name = roster_name
         self.members: list[Any] = []
@@ -374,6 +384,8 @@ class _SignUp:
         """The panel: event text, deadline (or "closed") and the roster."""
         status = MSG_SIGN_UP_CLOSED if closed else MSG_SIGN_UP_UNTIL.format(when=ui.when(self._ends_at))
         embed = _with_line(self.embed, status)
+        if self.status is not None:
+            embed = _with_line(embed, self.status(len(self.members)))
         embed.clear_fields()
         mentions = [member.mention for member in self.members]
         if not mentions:
@@ -462,13 +474,42 @@ async def open_chest(scene: "Scene") -> None:
 
 # -- invasion ------------------------------------------------------------------------
 
+def invasion_threshold(defenders: int) -> int:
+    """The legacy rule: the village is saved when ``randint(0, 100)`` is at most this (and somebody came)."""
+    return int(defenders) * 10 + 10
+
+
+def invasion_chance(defenders: int) -> Fraction:
+    """The exact chance to save the village with ``defenders``: 0 without anybody, else
+    ``(threshold + 1) / 101`` - 21/101 with one defender, a certainty from nine on."""
+    if defenders <= 0:
+        return Fraction(0)
+    return Fraction(min(invasion_threshold(defenders), 100) + 1, 101)
+
+
+def invasion_percent(defenders: int) -> int:
+    """:func:`invasion_chance` in whole percent, rounded half up (never 100 unless certain)."""
+    chance = invasion_chance(defenders)
+    if chance >= 1:
+        return 100
+    return min(99, int(chance * 100 + Fraction(1, 2)))
+
+
+def invasion_status(defenders: int) -> str:
+    """The chance line of the invasion's sign-up panel."""
+    if defenders <= 0:
+        return MSG_INVASION_NO_CHANCE
+    percent = invasion_percent(defenders)
+    return MSG_INVASION_CHANCE.format(percent=percent) + (MSG_INVASION_NEXT if percent < 100 else "")
+
+
 async def spawn_invasion(scene: "Scene") -> None:
     """Village invasion: the more players sign up, the better the odds and the loot."""
     bot = scene.bot
     log.info("Invasion spawn.")
     await _send_image(scene, "invasion", f"{random.randint(0, 4)}.png")
     async with _SignUp(scene, _embed(INVASION_TITLE, INVASION_DESCR, 0xFC0303, INVASION_THUMB),
-                       emoji=SWORDS) as sign_up:
+                       emoji=SWORDS, status=invasion_status) as sign_up:
         await sign_up.open(_wait(bot, INVASION_WAIT))
         users = await sign_up.collect()
         if await sign_up.deleted():
@@ -476,7 +517,7 @@ async def spawn_invasion(scene: "Scene") -> None:
             return
 
     chance = random.randint(0, 100)
-    if users and chance <= len(users) * 10 + 10:
+    if users and chance <= invasion_threshold(len(users)):
         boost_percent = len(users) * 10
         log.info("Invasion repelled by %d players (loot boost %d%%).", len(users), boost_percent)
         for user in users:

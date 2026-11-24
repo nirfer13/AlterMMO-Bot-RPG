@@ -21,7 +21,7 @@ from altermmo.cogs import help as help_cog
 from altermmo.cogs.ui import UiCog
 from altermmo.core import timing, ui
 from altermmo.core.state import BossPhase, EventType
-from altermmo.features import boss_cycle, dungeon, expsum, modifiers, patchnotes, patrons, pets
+from altermmo.features import boss_cycle, dungeon, expsum, modifiers, patchnotes, patrons, pets, shortcuts
 from altermmo.features import events as events_feature
 
 from fakes import FakeInteraction
@@ -52,6 +52,11 @@ LOST_ALL = "traci wszystko z tej wyprawy"
 
 
 # -- helpers -------------------------------------------------------------------------------
+
+def asks(sent) -> bool:
+    """A message with buttons that asks something (not the "Album" shortcut under a kept sacrifice)."""
+    return sent.view is not None and not any(isinstance(item, shortcuts.AlbumButton) for item in sent.view.children)
+
 
 class Luck:
     """Stands in for ``random`` inside the mine: every descent succeeds unless a result is queued."""
@@ -1104,7 +1109,7 @@ async def test_choice_c_the_swap_sacrifices_the_stabled_pet_once_and_the_egg_tak
     mine, message = await leave(game, ala, 4)
     assert message.button_labels == [dungeon.EGG_SWAP_LABEL, dungeon.EGG_SACRIFICE_LABEL]
     questions: list[str] = []
-    game.channel.send_hooks.append(lambda sent: questions.append(sent.content) if sent.view is not None else None)
+    game.channel.send_hooks.append(lambda sent: questions.append(sent.content) if asks(sent) else None)
     picked = game.auto_click(ala, "pick", values=["3:4"])
     confirmed = game.auto_click(ala, "yes", times=2)
     await game.click(message, ala, "egg-swap")
@@ -1129,7 +1134,7 @@ async def test_choice_c_the_swap_sacrifices_the_stabled_pet_once_and_the_egg_tak
     text = message.embeds[0].description
     assert "1. jajo zajęło miejsce 3 w stajni - **Pet4** · Kot · poziom 2 został poświęcony" in text
     assert message.view is None and mine.closed
-    assert not any(m.view is not None and not m.view.is_finished() for m in game.channel.messages)  # no question left
+    assert not any(asks(m) and not m.view.is_finished() for m in game.channel.messages)  # no question left
 
 
 @pytest.mark.parametrize("answers", [["no"], ["yes", "no"], ["yes"], ["cancel"], []])
@@ -1143,7 +1148,7 @@ async def test_anything_but_two_clear_yes_changes_nothing(game_db, luck, no_modi
     mine, message = await leave(game, ala, 4)
     before = await row(db, ala.id)
     questions: list[str] = []
-    game.channel.send_hooks.append(lambda sent: questions.append(sent.content) if sent.view is not None else None)
+    game.channel.send_hooks.append(lambda sent: questions.append(sent.content) if asks(sent) else None)
     if answers in (["yes"], []):
         # Only these two cases wait for a time-out; the others are answered at the usual 15 / 20 s, so a
         # stalled machine cannot turn a clear "no" into a time-out without this test noticing.
@@ -1210,7 +1215,7 @@ async def test_choice_d_the_egg_itself_is_sacrificed(game_db, luck, supporter):
     _mine, message = await leave(game, ala, 5)
     rolled = record_of(game, ala)["eggs"][0]["egg"]
     questions: list[str] = []
-    game.channel.send_hooks.append(lambda sent: questions.append(sent.content) if sent.view is not None else None)
+    game.channel.send_hooks.append(lambda sent: questions.append(sent.content) if asks(sent) else None)
     game.auto_click(ala, "no")
     await game.click(message, ala, "egg-sacrifice")                             # "no": nothing happens
     assert fates(game, ala) == ["", ""] and dungeon.MSG_NOTHING_CHANGED in message.embeds[0].description

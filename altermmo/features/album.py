@@ -105,7 +105,7 @@ import discord
 
 from ..core import challenge, ui, waiting
 from ..core.db import DatabaseUnavailable
-from . import hub, patrons, petcards, pets
+from . import hub, patrons, petcards, pets, shortcuts
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -719,7 +719,9 @@ async def saved(scene: "Scene", player: Any) -> None:
         log.info("Album: %s's pet was kept during a typed fight; not announced.", getattr(player, "id", player))
     else:
         try:
-            await scene.send(MSG_DISCARD_SAVED.format(player_id=pets._pid(player)))
+            # With the "Album" button (owner, 2026-11-24): one click and the album is on the channel.
+            await scene.send(MSG_DISCARD_SAVED.format(player_id=pets._pid(player)),
+                             view=shortcuts.album_view(pets._pid(player)))
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - the pet is in the album, whatever Discord says
