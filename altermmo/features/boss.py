@@ -583,7 +583,7 @@ def _loot_table(rarity: int) -> list[dict[str, Any]]:
 
 
 async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
-                      cosmetic_rerolls: int = 0) -> bool | str:
+                      cosmetic_rerolls: int = 0, notes: list[str] | None = None) -> bool | str:
     """Hand one loot item to ``hunter``; False when there was nothing to give.
 
     (A pet that cannot level up any more, a player without room for another
@@ -607,8 +607,8 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
         return True
     if loot_id == LOOT_EGG:
         if cosmetic_rerolls <= 0:
-            return await _pets().assign_pet(scene, hunter)  # (``pets.INTO_POUCH`` is truthy as well)
-        granted = await _pets().assign_pet(scene, hunter, cosmetic_rerolls=cosmetic_rerolls)
+            return await _pets().assign_pet(scene, hunter, album_note=notes)  # (``pets.INTO_POUCH`` is truthy too)
+        granted = await _pets().assign_pet(scene, hunter, cosmetic_rerolls=cosmetic_rerolls, album_note=notes)
         if granted:
             # (Cosmetics are rolled for supporters only: say which of the two eggs this was, so
             # that the log does not count a bonus for an egg that had no cosmetic roll at all.)
@@ -634,13 +634,14 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
 
 
 async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: bool,
-                granted_out: list[Any] | None = None, cosmetic_rerolls: int = 0) -> str:
+                granted_out: list[Any] | None = None, cosmetic_rerolls: int = 0,
+                notes: list[str] | None = None) -> str:
     """Grant one drop and return its line(s) for the drop message ("" when nothing dropped)."""
     bot = scene.bot
     if bonus and loot["id"] == LOOT_EGG:
         return ""  # a second egg never drops (legacy rule)
     try:
-        granted = await _grant_loot(scene, hunter, loot, cosmetic_rerolls=cosmetic_rerolls)
+        granted = await _grant_loot(scene, hunter, loot, cosmetic_rerolls=cosmetic_rerolls, notes=notes)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - one broken item must not cost the player the others
@@ -695,6 +696,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     # The drop changed the pet at the hunter's side (a new egg there, a level): the drop embed
     # gets the "Pokaż towarzysza" button (owner, 2026-11-24; features/shortcuts.py).
     pet_changed = False
+    notes: list[str] = []  # the album's note about a new egg: under the drop's lines (owner, 2026-11-24)
 
     async def drop(loot: dict[str, Any], bonus: bool) -> str:
         nonlocal new_egg, pet_changed
@@ -703,7 +705,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
                      hunter.id)
             return ""
         granted: list[Any] = []
-        line = await _drop(scene, hunter, loot, bonus=bonus, granted_out=granted,
+        line = await _drop(scene, hunter, loot, bonus=bonus, granted_out=granted, notes=notes,
                            cosmetic_rerolls=cosmetic_rerolls)
         if line and loot["id"] == LOOT_EGG and granted and granted[0] is True:  # (not pets.INTO_POUCH)
             new_egg = True
@@ -722,7 +724,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
             drop_message += await drop(loot, False)
 
     embed = discord.Embed(title="Boss Drop - " + str(hunter), url=LOOT_IMAGE,
-                          description="Boss wydropił:\n" + drop_message, color=0xFCDB03)
+                          description=_with_notes("Boss wydropił:\n" + drop_message, notes), color=0xFCDB03)
     embed.set_thumbnail(url=LOOT_IMAGE)
     embed.set_footer(text="Gratulacje!")
     try:
@@ -740,6 +742,13 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
              f", special boss: up to {cosmetic_rerolls} cosmetic repeat(s) for an egg" if cosmetic_rerolls else "",
              drop_message)
     return drop_message
+
+
+def _with_notes(description: str, notes: Sequence[str]) -> str:
+    """A drop's description with the album's notes about its egg under it (cut to Discord's limit)."""
+    if not notes:
+        return description
+    return (description.rstrip("\n") + "\n\n" + "\n\n".join(notes))[:4096]
 
 
 def _special_loot(variant: str, rarity: int) -> dict[str, int]:

@@ -93,8 +93,39 @@ def recorded(game, monkeypatch) -> list[tuple]:
     return sent
 
 
+class Note:
+    """A posted note (an embed since 2026-11-24): ``content`` is the embed's text, the rest is the message's."""
+
+    def __init__(self, message) -> None:
+        self.message = message
+        self.content = message.embeds[0].description
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, Note) and other.message is self.message
+
+    def __getattr__(self, name):
+        return getattr(self.message, name)
+
+
+def is_note(message) -> bool:
+    """The album's note of its own (not inside a drop): an embed whose text starts with the book."""
+    return bool(message.embeds) and (message.embeds[0].description or "").startswith("📖 ")
+
+
+def text_of(message) -> str:
+    """What a player reads in a message: a note's embed text, else the message's content."""
+    return message.embeds[0].description if is_note(message) else (message.content or "")
+
+
 def notes(sent) -> list:
-    return [message for message, _ in sent if (message.content or "").startswith("📖 ")]
+    return [Note(message) for message, _ in sent if is_note(message)]
+
+
+def drop_note(message) -> str:
+    """The album's note inside a drop's embed ("" when it has none)."""
+    description = message.embeds[0].description or ""
+    head = album.MSG_EGG_NOTE_IN_DROP
+    return description[description.index(head):] if head in description else ""
 
 
 # -- the text -------------------------------------------------------------------------------------
@@ -337,10 +368,12 @@ async def test_a_supporter_gets_the_note_and_nobody_else_gets_anything_new(game_
         sent.clear()
         ala = game.add_member("Ala", roles=[role])
         assert await pets.assign_pet(game.scene(), ala) is True
-        ((message, mentions),) = sent                                         # ONE message
+        ((posted, mentions),) = sent                                          # ONE message
+        (message,) = notes(sent)                                              # an embed (owner, 2026-11-24)
         assert message.content == EMPTY_NOTE.format(player_id=ala.id)
-        assert message.embeds == [] and message.view is None and message.files == []   # an ordinary public one
-        assert message in game.channel.messages
+        assert posted.content == "" and posted.view is None and posted.files == []   # a public one
+        assert posted.embeds[0].colour.value == album.ALBUM_COLOUR
+        assert posted in game.channel.messages
         assert mentions is not None and not mentions.everyone and not mentions.users and not mentions.roles
         assert (await pet_row(db, (await owner_row(db, ala.id))["pet_id"]))["type"] == "Cat"
 
@@ -363,8 +396,8 @@ async def test_the_note_follows_the_player_who_got_the_egg_not_the_scenes_author
     await put(db, other.id, "Cat", 0, holo=True)                              # (the author's album: not read)
     await put(db, fan.id, "Cat", 1, seal=2)
     assert await pets.assign_pet(game.scene(other), fan) is True
-    ((message, _),) = sent
-    assert message.content == "\n".join([
+    (message,) = notes(sent)
+    assert len(sent) == 1 and message.content == "\n".join([
         HEAD.format(player_id=fan.id),
         "▫️ Jajko - brak",
         "✅ Poziom 1 - masz: pieczęć Łowcy",
@@ -407,7 +440,7 @@ async def test_a_note_whose_answer_was_lost_is_never_sent_a_second_time(game_db,
     attempts = []
 
     async def send(content=None, **kwargs):
-        attempts.append(content)
+        attempts.append(kwargs["embed"].description if kwargs.get("embed") else content)
         message = await real(content, **kwargs)                               # it IS on the channel ...
         if answers_lost:
             raise answers_lost.pop()                                          # ... but the bot never hears so
@@ -417,7 +450,7 @@ async def test_a_note_whose_answer_was_lost_is_never_sent_a_second_time(game_db,
     assert io.is_transient(lost)                                              # (what io.retry would repeat)
     with caplog.at_level(logging.WARNING):
         assert await pets.assign_pet(game.scene(), ala) is True               # the egg is hers all the same
-    on_channel = [message.content for message in game.channel.messages if (message.content or "").startswith("📖 ")]
+    on_channel = [text_of(message) for message in game.channel.messages if is_note(message)]
     assert attempts == on_channel == [EMPTY_NOTE.format(player_id=ala.id)]
     assert (await owner_row(db, ala.id))["pet_id"] > 0
     assert any("no note about the new egg" in record.getMessage() for record in caplog.records)
@@ -457,9 +490,9 @@ async def test_an_egg_into_the_pouch_comes_with_the_note_too(game_db, monkeypatc
     force(monkeypatch, new_egg("Dragon"))
     sent = recorded(game, monkeypatch)
     assert await pets.assign_pet(game.scene(), ala) == pets.INTO_POUCH
-    assert [message.content.split("\n")[0] for message, _ in sent] == [
+    assert [text_of(message).split("\n")[0] for message, _ in sent] == [
         pets.MSG_EGG_TO_POUCH.format(player_id=ala.id), HEAD.format(player_id=ala.id)]
-    assert sent[1][0].content.split("\n")[1:] == [
+    assert text_of(sent[1][0]).split("\n")[1:] == [
         "✅ Jajko - masz: Holo", "▫️ Poziom 1 - brak", "▫️ Poziom 2 - brak", "▫️ Poziom 3 - brak",
         "Ten towarzysz może jeszcze uzupełnić Twoją kolekcję: Poziom 1, Poziom 2, Poziom 3."]
     owner = await owner_row(db, ala.id)
@@ -504,7 +537,7 @@ async def test_a_mythic_egg_is_announced_and_then_noted(game_db, monkeypatch):
     texts = [message.content for message, _ in sent]
     assert texts[0] == f"Łowca <@{ala.id}> zdobył mitycznego towarzysza! <:POGGERS:936907543849078844>"
     (message,) = notes(sent)
-    assert sent[-1][0] is message                                             # after everything else of the egg
+    assert sent[-1][0] is message.message                                     # after everything else of the egg
     assert message.content.endswith("w albumie brakuje: Jajko, Poziom 1, Poziom 2, Poziom 3.")
     assert names_a_species(message.content) == []
 
@@ -560,7 +593,7 @@ async def test_a_note_discord_refuses_costs_only_the_note(game_db, monkeypatch, 
     # The next egg (another player) is noted again: nothing was left behind.
     ela = game.add_member("Ela", roles=[PATRON])
     assert await pets.assign_pet(game.scene(), ela) is True
-    assert [message.content for message in game.channel.bot_messages[len(before):]] == [
+    assert [text_of(message) for message in game.channel.bot_messages[len(before):]] == [
         EMPTY_NOTE.format(player_id=ela.id)]
 
 
@@ -606,7 +639,7 @@ async def test_the_note_draws_nothing_at_random(game_db, monkeypatch, seed):
     noted = await drop(with_note)
     assert len(notes(sent)) == 1
 
-    async def nothing(scene, player, egg):
+    async def nothing(scene, player, egg, **kwargs):
         return None
 
     monkeypatch.setattr(pets, "_album_note", nothing)
@@ -617,8 +650,8 @@ async def test_the_note_draws_nothing_at_random(game_db, monkeypatch, seed):
 @pytest.mark.parametrize("seed", [7, 20261123])
 async def test_a_whole_boss_drop_is_what_it_was(game_db, monkeypatch, seed):
     """A boss drop with an egg in it (``boss.rand_loot``, the egg of a special boss): what drops, the egg and
-    the state of the dice after the drop are the same with the note and without it - the note only comes
-    between the egg and the drop's embed."""
+    the state of the dice after the drop are the same with the note and without it.  The note is not a
+    message of its own: it stands in the drop's embed, under the drop's lines (owner, 2026-11-24)."""
     game, db = game_db, game_db.bot.db
     table = [{"id": boss.LOOT_EGG, "descr": "Jajko", "weight": 150},          # certain; the bonus egg never drops
              {"id": boss.LOOT_PET_LEVEL, "descr": "Poziom towarzysza", "weight": 60},   # never with a new egg
@@ -639,21 +672,23 @@ async def test_a_whole_boss_drop_is_what_it_was(game_db, monkeypatch, seed):
         return lines, {key: value for key, value in egg.items() if key != "pet_id"}, random.getstate()
 
     noted = await drop(with_note)
-    (message,) = notes(sent)
-    assert message.content.startswith(HEAD.format(player_id=with_note.id)) and names_a_species(message.content) == []
-    posted = [posted for posted, _ in sent if posted is message or posted.embeds]
-    assert posted[0] is message and posted[-1].embeds[0].title.startswith("Boss Drop")   # the note, then the drop
+    assert notes(sent) == []                                                  # no message of its own
+    (embed_message,) = [posted for posted, _ in sent if posted.embeds]
+    description = embed_message.embeds[0].description
+    assert embed_message.embeds[0].title.startswith("Boss Drop")
+    assert description.startswith("Boss wydropił:\n" + noted[0].rstrip("\n") + "\n\n" + album.MSG_EGG_NOTE_IN_DROP)
+    assert names_a_species(drop_note(embed_message)) == [] and str(with_note.id) not in description
 
-    async def nothing(scene, player, egg):
+    async def nothing(scene, player, egg, **kwargs):
         return None
 
     monkeypatch.setattr(pets, "_album_note", nothing)
     assert await drop(without) == noted
-    assert len(notes(sent)) == 1
 
 
-async def test_the_egg_of_a_monster_drop_is_noted_once_and_before_the_drop_is_shown(game_db, monkeypatch):
-    """``pets.assign_pet`` is the one place an egg is granted: the note comes with every such egg."""
+async def test_the_egg_of_a_monster_drop_is_noted_in_the_drop(game_db, monkeypatch):
+    """``pets.assign_pet`` is the one place an egg is granted: in a drop the note goes into the drop's embed,
+    under its lines - one note per egg, none without one."""
     game = game_db
     monkeypatch.setattr(daily, "_loot_table", lambda rarity: [{"id": daily.LOOT_EGG, "descr": "Jajko", "weight": 100}])
     monkeypatch.setattr(random, "random", lambda: 0.0)
@@ -661,9 +696,17 @@ async def test_the_egg_of_a_monster_drop_is_noted_once_and_before_the_drop_is_sh
     sent = recorded(game, monkeypatch)
     ala = game.add_member("Ala", roles=[PATRON])
     assert await daily.rand_loot(game.scene(ala), 1, ala, 0) == "👉 Jajko\n"
-    (message,) = notes(sent)
-    assert message.content == EMPTY_NOTE.format(player_id=ala.id)
-    assert [bool(posted.embeds) for posted, _ in sent] == [False, True]      # the note, then the drop's embed
+    ((message, _),) = sent                                                    # ONE message: the drop
+    assert notes(sent) == [] and message.embeds[0].title.startswith("Drop - ")
+    expected = EMPTY_NOTE.format(player_id=ala.id).replace(HEAD.format(player_id=ala.id), album.MSG_EGG_NOTE_IN_DROP)
+    assert message.embeds[0].description == "Otrzymałeś:\n👉 Jajko\n\n" + expected
+    assert drop_note(message) == expected
     sent.clear()
     assert await daily.rand_loot(game.scene(ala), 1, ala, 0) == ""           # no room: no egg, no note
-    assert notes(sent) == []
+    ((message, _),) = sent
+    assert drop_note(message) == "" and notes(sent) == []
+    ola = game.add_member("Ola")                                              # not a supporter: a drop as ever
+    sent.clear()
+    assert await daily.rand_loot(game.scene(ola), 1, ola, 0) == "👉 Jajko\n"
+    ((message, _),) = sent
+    assert message.embeds[0].description == "Otrzymałeś:\n👉 Jajko\n"

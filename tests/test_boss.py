@@ -51,7 +51,8 @@ class PetStub:
             raise self.errors[name]
         return name not in self.refuse
 
-    async def assign_pet(self, scene, hunter, **bonus):
+    async def assign_pet(self, scene, hunter, *, album_note=None, **bonus):
+        assert isinstance(album_note, list)                    # a drop collects the album's note for its embed
         self.bonus.append(bonus)
         return await self._give("assign_pet", hunter.id)
 

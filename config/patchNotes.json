@@ -154,5 +154,14 @@
             "Gdy wspierający poświęci towarzysza, pod informacją o zapisaniu go w albumie pojawi się przycisk „Album”, który od razu pokazuje album.",
             "Inwazja na wioskę pokazuje teraz na bieżąco szansę na uratowanie wioski - rośnie z każdym obrońcą, który dołączy."
         ]
+    },
+    {
+        "id": 15,
+        "date": "2026-11-24",
+        "title": "Album pod ręką",
+        "changes": [
+            "Pod informacją, że poświęcony towarzysz trafił do albumu, obok przycisku „Album” jest teraz także „Pokaż towarzysza z albumu” - od razu zobaczysz swój nowy nabytek.",
+            "Notka o albumie przy nowym jajku jest teraz częścią wiadomości z łupem - stoi pod listą tego, co wypadło."
+        ]
     }
 ]

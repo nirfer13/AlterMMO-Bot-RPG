@@ -913,9 +913,10 @@ async def test_an_egg_bought_by_a_supporter_comes_with_the_album_note_once(game_
     assert stock[0].buyer == ala and await scrolls_of(db, ala.id) == 0
     (note,) = notes(sent)
     assert note.content == EMPTY_NOTE.format(player_id=ala.id) == album.egg_note(ala.id, new_egg("Cat"), [])
-    texts = [message.content or "" for message, _ in sent]
-    (bought,) = [text for text in texts if text.startswith(f"🛒 {ala.mention} kupuje **Losowe jajko** za 25 zwojów!")]
-    assert texts.index(note.content) < texts.index(bought)                   # the egg's note, then the sale
+    posted = [message for message, _ in sent]
+    (bought,) = [message for message in posted
+                 if (message.content or "").startswith(f"🛒 {ala.mention} kupuje **Losowe jajko** za 25 zwojów!")]
+    assert posted.index(note.message) < posted.index(bought)                # the egg's note, then the sale
 
     task = start(game)                                                        # somebody who does not support
     panel = await game.wait_for_buttons(merchant.buy_key(0))

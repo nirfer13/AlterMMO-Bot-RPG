@@ -703,12 +703,15 @@ async def show_album(scene: "Scene") -> bool:
     return True
 
 
-async def saved(scene: "Scene", player: Any) -> None:
+async def saved(scene: "Scene", player: Any, entry_id: int | None = None) -> None:
     """After a supporter's sacrifice was kept: tell him, then check the achievement.  Never raises.
 
     When a typed fight began on the channel during the sacrifice's question
     (``challenge.fight_on``: nothing may be posted between its prompts) nothing
     is said - "Pełny album" is still given, without its announcement.
+
+    ``entry_id``: the new entry - the message then also carries "Pokaż towarzysza z albumu"
+    (owner, 2026-11-24: "żeby ktoś mógł popatrzeć bezpośrednio na nowy nabytek").
     """
     from . import achievements, collector  # (lazily: both build on the album)
 
@@ -719,9 +722,9 @@ async def saved(scene: "Scene", player: Any) -> None:
         log.info("Album: %s's pet was kept during a typed fight; not announced.", getattr(player, "id", player))
     else:
         try:
-            # With the "Album" button (owner, 2026-11-24): one click and the album is on the channel.
+            # With the "Album" button and the new entry's own (owner, 2026-11-24).
             await scene.send(MSG_DISCARD_SAVED.format(player_id=pets._pid(player)),
-                             view=shortcuts.album_view(pets._pid(player)))
+                             view=shortcuts.album_view(pets._pid(player), entry_id=entry_id))
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - the pet is in the album, whatever Discord says
@@ -730,12 +733,44 @@ async def saved(scene: "Scene", player: Any) -> None:
     await achievements.check_album(scene, player, announce=not fighting)  # never raises
 
 
+async def show_entry(scene: "Scene", entry_id: int) -> bool:
+    """The album of ``scene.author`` opened at the entry ``entry_id`` (the button under a kept
+    sacrifice: "Pokaż towarzysza z albumu").  The same panel as ``!album`` - he can page on from
+    there.  False (he is told) when he does not support or the entry is gone (removed since).
+    """
+    member = scene.author
+    if member is None or not patrons.check_if_patron(member):
+        await scene.send(supporters_only_text(member))
+        return False
+    rows = await entries(scene.bot.db, member.id)
+    position = next((index for index, row in enumerate(rows) if int(row["entry_id"]) == int(entry_id)), None)
+    if position is None:
+        await scene.send(MSG_ALREADY_GONE.format(player_id=member.id))
+        return False
+    row = rows[position]
+    guild = getattr(scene.channel, "guild", None) or getattr(member, "guild", None)
+    async with waiting.notice(scene.channel) as wait:
+        embed, image = await entry_view(scene.bot, guild, row, position, len(rows), wait=wait, rows=rows)
+    panel = AlbumPanel(member, rows)
+    panel._arrange(rows, position)
+    try:
+        await panel.send(scene.channel, embed=embed, **({} if image is None else {"file_path": image}))
+    except BaseException:
+        panel.stop()
+        raise
+    panel.position, panel.entry_id, panel.image = position, int(row["entry_id"]), image
+    return True
+
+
 # -- a new egg and the album ---------------------------------------------------------------
 
 #: The note a supporter gets with a new egg (:func:`egg_note`).  It never names the species (an
 #: egg does not tell it) and explains nothing about chances or about what else exists - it names
 #: only what the player's OWN cards have.
 MSG_EGG_NOTE = "📖 <@{player_id}>, Twój album a to jajko:"
+#: ... and its head inside a drop's embed (owner, 2026-11-24: "w sposób embedded, tak jak drop. Tylko
+#: dorzucić ten cały tekst pod informację o dropie jajka"): the drop's title names the player already.
+MSG_EGG_NOTE_IN_DROP = "📖 **Twój album a to jajko:**"
 MSG_EGG_NOTE_HELD = "{mark} {stage} - masz: {card}"
 MSG_EGG_NOTE_MISSING = "{mark} {stage} - brak"
 #: A counted card in words: its class when it is not an ordinary one, a rarer frame, the seal,
@@ -782,7 +817,7 @@ def card_words(row: Any) -> str:
     return ", ".join(parts) or MSG_EGG_NOTE_PLAIN
 
 
-def egg_note(player_id: int, egg: Any, rows: Sequence[Any]) -> str:
+def egg_note(player_id: int, egg: Any, rows: Sequence[Any], *, head: str | None = None) -> str:
     """What the album says about a new egg; "" for an egg of a species that has no cards.
 
     ``egg``: the rolled egg as ``pets._roll_egg`` makes it (``TYPE``, the class flags and
@@ -795,7 +830,8 @@ def egg_note(player_id: int, egg: Any, rows: Sequence[Any]) -> str:
     look at that stage: ornaments do not change while a pet grows).  The closing line answers
     the owner's question: which stages this companion can still complete, or that the album has
     them all - for a mythic egg, which is no part of the collection, what its cards are for.
-    The species is never named (module docstring).
+    The species is never named (module docstring).  ``head``: the first line instead of
+    :data:`MSG_EGG_NOTE` (:data:`MSG_EGG_NOTE_IN_DROP` inside a drop's embed).
     """
     from . import albumrank
 
@@ -805,7 +841,7 @@ def egg_note(player_id: int, egg: Any, rows: Sequence[Any]) -> str:
         return ""
     value = albumrank.collection(rows)
     by_id = {pets._int(row["entry_id"]): row for row in rows}
-    lines = [MSG_EGG_NOTE.format(player_id=player_id)]
+    lines = [MSG_EGG_NOTE.format(player_id=player_id) if head is None else head]
     missing: list[str] = []
     better = False
     for level in stages():
@@ -831,7 +867,7 @@ def egg_note(player_id: int, egg: Any, rows: Sequence[Any]) -> str:
     return "\n".join(lines)
 
 
-async def note_new_egg(scene: "Scene", player: Any, egg: Any) -> bool:
+async def note_new_egg(scene: "Scene", player: Any, egg: Any, *, into: list[str] | None = None) -> bool:
     """After a new egg was stored for ``player``: tell a supporter what his album says about it.
 
     Called by ``pets.assign_pet`` - the one place an egg is granted (boss loot, monster loot,
@@ -846,16 +882,26 @@ async def note_new_egg(scene: "Scene", player: Any, egg: Any) -> bool:
     announcement in features/collector.py): a send whose answer got lost would be repeated by
     ``io.send`` and put the same note on the channel twice - and the pauses between the tries
     would hold back the drop's embed, which comes right after.  A note that fails is only lost.
+
+    The note is an embed (owner, 2026-11-24: "w sposób embedded, tak jak drop").  ``into``: the
+    egg is part of a drop (``boss.rand_loot`` / ``daily.rand_loot``) - the note's text is added
+    to that list instead (head :data:`MSG_EGG_NOTE_IN_DROP`) and the drop puts it under its own
+    lines, in the same embed; nothing is posted here then.  Without ``into`` (the merchant's
+    egg) the note is an embed of its own.
     """
     try:
         if not patrons.check_if_patron(player):
             return False
         player_id = pets._pid(player)
         rows = await _fetch(scene.bot.db, "fetch", _SQL_OF_SPECIES, player_id, str(egg["TYPE"]))
-        text = egg_note(player_id, egg, rows)
+        text = egg_note(player_id, egg, rows, head=None if into is None else MSG_EGG_NOTE_IN_DROP)
         if not text:
             return False
-        await scene.send(text[:2000], allowed_mentions=EGG_NOTE_MENTIONS, attempts=1)
+        if into is not None:
+            into.append(text)
+            return True
+        embed = discord.Embed(description=text[:4096], color=ALBUM_COLOUR)
+        await scene.send(embed=embed, allowed_mentions=EGG_NOTE_MENTIONS, attempts=1)
         return True
     except asyncio.CancelledError:
         raise

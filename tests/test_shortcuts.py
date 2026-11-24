@@ -19,7 +19,7 @@ import pytest
 from altermmo.core import challenge, ui
 from altermmo.features import album, boss, daily, events, hub, pets, shortcuts
 
-from test_album import PATRON, confirms, own_pet, sacrifices  # noqa: F401 - fixture
+from test_album import PATRON, confirms, own_pet, put, sacrifices  # noqa: F401 - fixture
 from test_events import clicks_on, high_rolls, loot, low_rolls, panel, quick  # noqa: F401 - fixtures
 from test_pets import add_owner, add_pet, owner_row
 from test_pets import plain_cards  # noqa: F401 - autouse: no card is composed here
@@ -233,25 +233,66 @@ async def test_the_drop_is_what_it_was(game_db, monkeypatch):
 
 # -- "Album" under a sacrifice ----------------------------------------------------------------
 
-async def test_a_supporters_sacrifice_has_the_album_button(game_db, sacrifices):  # noqa: F811
+async def test_a_supporters_sacrifice_has_the_album_button_and_the_new_entrys(game_db, sacrifices):  # noqa: F811
     game, db = game_db, game_db.bot.db
     ala = game.add_member("Ala", roles=[PATRON])
+    await put(db, ala.id, "Dog", 1)                                          # an older entry: the album has two
     await own_pet(db, ala.id, 5, pet_name="Mruczek", pet_lvl=2)
     confirms(game, ala)
     assert await pets.discard_pet(game.scene(ala)) is True
     saved = next(m for m in game.channel.sent if m.content == album.MSG_DISCARD_SAVED.format(player_id=ala.id))
-    button = shortcut(saved)
-    assert isinstance(button, shortcuts.AlbumButton) and button.player_id == ala.id
+    shelf, entry = saved.view.children
+    assert isinstance(shelf, shortcuts.AlbumButton) and shelf.player_id == ala.id
+    (kept,) = [row for row in await album.entries(db, ala.id) if row["pet_name"] == "Mruczek"]
+    assert isinstance(entry, shortcuts.EntryButton) and (entry.player_id, entry.entry_id) == (ala.id, kept["entry_id"])
+    assert entry.item.label == "Pokaż towarzysza z albumu"
+    assert entry.custom_id == f"altermmo:show:entry:{ala.id}:{kept['entry_id']}"
 
     before = len(game.channel.sent)
-    click = await game.click(saved, ala, album_key(ala))
+    click = await game.click(saved, ala, album_key(ala))                    # "Album": the overview
     assert click.response.deferred and click.replies == []
     shown = next(m for m in game.channel.sent[before:] if m.embeds)
-    assert shown.embeds[0].title == album.MSG_TITLE and "jest **1** towarzysz" in shown.text   # with Mruczek
+    assert shown.embeds[0].title == album.MSG_TITLE and "są **2** towarzysze" in shown.text
+
+    before = len(game.channel.sent)
+    click = await game.click(saved, ala, entry.custom_id)                   # the new entry itself
+    assert click.response.deferred and click.replies == []
+    page = next(m for m in game.channel.sent[before:] if m.embeds)
+    assert "Mruczek" in page.embeds[0].title and isinstance(page.view, album.AlbumPanel)
+    assert page.view.entry_id == kept["entry_id"] and page.view.position is not None
+    assert page.view.message is page and not page.view.overview.disabled  # the panel goes on from here
 
     ola = game.add_member("Ola")
-    click = await game.click(saved, ola, album_key(ala))
-    assert click.answers == [ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)]
+    for key in (album_key(ala), entry.custom_id):
+        click = await game.click(saved, ola, key)
+        assert click.answers == [ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)]
+
+
+async def test_the_new_entry_button_after_the_entry_was_removed(game_db):
+    game, db = game_db, game_db.bot.db
+    ala = game.add_member("Ala", roles=[PATRON])
+    entry_id = await put(db, ala.id, "Cat", 2, pet_name="Mruczek")
+    message = await game.channel.send("test", view=shortcuts.album_view(ala, entry_id=entry_id))
+    assert await album.remove(db, ala.id, entry_id) is True
+    before = len(game.channel.sent)
+    await game.click(message, ala, shortcuts.ENTRY_ID.format(player_id=ala.id, entry_id=entry_id))
+    assert [m.content for m in game.channel.sent[before:]] == [album.MSG_ALREADY_GONE.format(player_id=ala.id)]
+    ala.roles.clear()                                                        # no longer a supporter
+    before = len(game.channel.sent)
+    await game.click(message, ala, shortcuts.ENTRY_ID.format(player_id=ala.id, entry_id=entry_id))
+    assert "dla wspierających" in game.channel.sent[before].content
+
+
+async def test_the_entry_button_is_rebuilt_from_its_custom_id(game):
+    cls = shortcuts.EntryButton
+    match = cls.__discord_ui_compiled_template__.fullmatch("altermmo:show:entry:77:1234")
+    rebuilt = await cls.from_custom_id(None, None, match)
+    assert (rebuilt.player_id, rebuilt.entry_id) == (77, 1234)
+    assert cls.__discord_ui_compiled_template__.fullmatch("altermmo:show:entry:77") is None
+    assert shortcuts.album_view(77).children[0].custom_id == "altermmo:show:album:77"   # without an entry: one button
+    assert len(shortcuts.album_view(77).children) == 1
+    await game.bot.load_extension("altermmo.cogs.hub")
+    assert cls in set(game.bot._connection._view_store._dynamic_items.values())
 
 
 async def test_everybody_elses_sacrifice_has_no_album_button(game_db, sacrifices):  # noqa: F811

@@ -1387,7 +1387,8 @@ async def egg_room(bot: "AlterBot", player_id: Any) -> str:
 INTO_POUCH = "pouch"
 
 
-async def assign_pet(scene: "Scene", player: Any, *, cosmetic_rerolls: int = 0) -> bool | str:
+async def assign_pet(scene: "Scene", player: Any, *, cosmetic_rerolls: int = 0,
+                     album_note: list[str] | None = None) -> bool | str:
     """Give the player a new egg; False when there is no room for it.
 
     Returns ``True`` when the egg became the active pet and :data:`INTO_POUCH`
@@ -1407,7 +1408,9 @@ async def assign_pet(scene: "Scene", player: Any, *, cosmetic_rerolls: int = 0) 
     the egg (owner's request of 2026-11-23, ``album.note_new_egg``: which of
     its stages the album has, as what card, and which this companion can still
     complete) - after everything else the egg brings, also for an egg in the
-    pouch, and never at the cost of the egg (:func:`_album_note`).
+    pouch, and never at the cost of the egg (:func:`_album_note`).  ``album_note``: the egg is
+    part of a drop - the note's text goes into this list, for the drop's embed, instead of a
+    message of its own (owner, 2026-11-24).
     """
     bot = scene.bot
     player_id = _pid(player)
@@ -1439,11 +1442,11 @@ async def assign_pet(scene: "Scene", player: Any, *, cosmetic_rerolls: int = 0) 
     if egg["MYTHIC"]:
         await _announce_mythic(scene, player_id)
     await achievements.check_pets(scene, player)  # a mythic pet (with Holo / the rarest seal); never raises
-    await _album_note(scene, player, egg)  # supporters only; never raises
+    await _album_note(scene, player, egg, into=album_note)  # supporters only; never raises
     return INTO_POUCH if to_pouch else True
 
 
-async def _album_note(scene: "Scene", player: Any, egg: dict[str, Any]) -> None:
+async def _album_note(scene: "Scene", player: Any, egg: dict[str, Any], *, into: list[str] | None = None) -> None:
     """Tell a supporter what his album says about the egg he was just given.  Never raises.
 
     The egg is stored and announced before this is called; whatever goes wrong
@@ -1453,7 +1456,7 @@ async def _album_note(scene: "Scene", player: Any, egg: dict[str, Any]) -> None:
     try:
         from . import album  # (lazily: the album builds on this module)
 
-        await album.note_new_egg(scene, player, egg)
+        await album.note_new_egg(scene, player, egg, into=into)
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001 - the egg is the player's already
@@ -2209,7 +2212,7 @@ async def _sacrificed(scene: "Scene", player: Any, kept: int | None, *, answer: 
             await _thank(answer, "<:MonkaS:882181709100097587>")
     finally:
         if kept is not None:
-            await album.saved(scene, player)  # the answer and the album's achievement; never raises
+            await album.saved(scene, player, kept)  # the answer and the album's achievement; never raises
 
 
 async def name_pet(scene: "Scene", name: str, *, expected_pet: int | None = None) -> bool:

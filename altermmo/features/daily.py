@@ -298,7 +298,8 @@ def _loot_table(rarity: int) -> list[dict[str, Any]]:
     return config[_LOOT_TABLES.get(int(rarity), _LOOT_TABLE_FALLBACK)]
 
 
-async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool | str:
+async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
+                      notes: list[str] | None = None) -> bool | str:
     """Hand one loot item to ``hunter``; False when there was nothing to give.
 
     (A player who already has a pet gets no egg, a pet at the top level cannot
@@ -306,7 +307,7 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool
     """
     loot_id = loot["id"]
     if loot_id == LOOT_EGG:
-        return await _pets().assign_pet(scene, hunter)  # (``pets.INTO_POUCH`` is truthy as well)
+        return await _pets().assign_pet(scene, hunter, album_note=notes)  # (``pets.INTO_POUCH`` is truthy too)
     if loot_id == LOOT_SCROLL:
         await _pets().assign_scroll(scene, 1, hunter.id)
         return True
@@ -323,12 +324,12 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any]) -> bool
 
 
 async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: bool,
-                granted_out: list[Any] | None = None) -> str:
+                granted_out: list[Any] | None = None, notes: list[str] | None = None) -> str:
     """Grant one drop and return its line for the drop message ("" when nothing dropped)."""
     if bonus and loot["id"] == LOOT_EGG:
         return ""  # a second egg never drops (legacy rule)
     try:
-        granted = await _grant_loot(scene, hunter, loot)
+        granted = await _grant_loot(scene, hunter, loot, notes=notes)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - one broken item must not cost the player the others
@@ -369,6 +370,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     # The drop changed the pet at the hunter's side (a new egg there, a level): the drop embed
     # gets the "Pokaż towarzysza" button (owner, 2026-11-24; features/shortcuts.py).
     pet_changed = False
+    notes: list[str] = []  # the album's note about a new egg: under the drop's lines (owner, 2026-11-24)
 
     async def drop(loot: dict[str, Any], bonus: bool) -> str:
         nonlocal new_egg, pet_changed
@@ -377,7 +379,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
                      hunter.id)
             return ""
         granted: list[Any] = []
-        line = await _drop(scene, hunter, loot, bonus=bonus, granted_out=granted)
+        line = await _drop(scene, hunter, loot, bonus=bonus, granted_out=granted, notes=notes)
         if line and loot["id"] == LOOT_EGG and granted and granted[0] is True:  # (not pets.INTO_POUCH)
             new_egg = True
             pet_changed = True
@@ -395,7 +397,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
             drop_message += await drop(loot, False)
 
     embed = discord.Embed(title="Drop - " + str(hunter), url=LOOT_IMAGE,
-                          description="Otrzymałeś:\n" + drop_message, color=0xFCDB03)
+                          description=boss._with_notes("Otrzymałeś:\n" + drop_message, notes), color=0xFCDB03)
     embed.set_thumbnail(url=LOOT_IMAGE)
     embed.set_footer(text="Gratulacje!")
     try:

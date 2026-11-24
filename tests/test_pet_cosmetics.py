@@ -387,7 +387,8 @@ async def test_owner_hears_about_rare_cosmetics_and_nobody_else(game_db, monkeyp
     # a Holo or a seal on any other egg is no achievement - and nothing else is posted but, last of
     # all, the album note a supporter's new egg comes with (owner, 2026-11-23; tests/test_album_note.py).
     # That note tells what the ALBUM holds (here: nothing), never what the new egg has.
-    public = [message.content for message in game_db.channel.bot_messages[1:]]
+    public = [message.embeds[0].description if message.embeds else message.content
+              for message in game_db.channel.bot_messages[1:]]
     note = public.pop()
     assert note.startswith(album.MSG_EGG_NOTE.format(player_id=lucky.id) + "\n") and note.count(" - brak") == 4
     for ornament in ("ieczę", "Holo", "olię", "amk", "Arcyłowc", "Oko Otchłani", "Astrolabium"):
