@@ -620,7 +620,7 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
                          "and no bonus.", hunter, hunter.id)
         return granted
     if loot_id == LOOT_PET_LEVEL:
-        return bool(await _pets().level_up_pet(scene, hunter.id))
+        return bool(await _pets().level_up_pet(scene, hunter, album_note=notes))
     if loot_id == LOOT_REBIRTH_STONE:
         return bool(await _pets().assign_rebirth_stone(scene, 1, hunter.id))
     if loot_id == LOOT_MIRROR:

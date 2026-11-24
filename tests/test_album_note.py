@@ -710,3 +710,88 @@ async def test_the_egg_of_a_monster_drop_is_noted_in_the_drop(game_db, monkeypat
     assert await daily.rand_loot(game.scene(ola), 1, ola, 0) == "👉 Jajko\n"
     ((message, _),) = sent
     assert message.embeds[0].description == "Otrzymałeś:\n👉 Jajko\n"
+
+
+# -- the same note at a level-up (owner, 2026-11-24) -------------------------------------------------
+LEVEL_HEAD = "📖 **Twój album a ten towarzysz:**"
+
+
+def test_the_texts_of_the_level_note():
+    assert album.MSG_LEVEL_NOTE_IN_DROP == LEVEL_HEAD and album.MSG_LEVEL_NOTE_NOW == "👈 teraz"
+    for text in (album.MSG_LEVEL_NOTE, album.MSG_LEVEL_NOTE_IN_DROP, album.MSG_LEVEL_NOTE_CAN, album.MSG_LEVEL_NOTE_ALL,
+                 album.MSG_LEVEL_NOTE_MYTHIC_CAN, album.MSG_LEVEL_NOTE_MYTHIC_ALL):
+        assert "lobby" not in text.lower() and "%" not in text and "$" not in text, text
+
+
+def test_a_pet_at_a_new_level_names_only_the_stages_it_can_still_reach():
+    rows = [entry("Cat", 0, 1), entry("Cat", 3, 2, seal=1)]
+    pet = {"type": "Cat", "pet_lvl": 2, "shiny": False, "seal": 0, "holo": False, "frame": ""}
+    text = album.egg_note(5, pet, rows, head=LEVEL_HEAD, level=2)
+    assert text.split("\n") == [
+        LEVEL_HEAD,
+        "✅ Jajko - masz: zwykła karta bez ozdób",                              # behind it: never marked better
+        "▫️ Poziom 1 - brak",                                                  # behind it: not offered
+        "▫️ Poziom 2 - brak 👈 teraz",
+        "✅ Poziom 3 - masz: pieczęć Tropiciela",
+        "Na tym i wyższych etapach ten towarzysz może jeszcze uzupełnić Twoją kolekcję: Poziom 2."]
+    full = rows + [entry("Cat", 2, 3)]
+    assert album.egg_note(5, pet, full, head=LEVEL_HEAD, level=2).split("\n")[-1] == album.MSG_LEVEL_NOTE_ALL
+    holo = {**pet, "holo": True}                                              # a rarer card than the one held
+    assert album.egg_note(5, holo, full, head=LEVEL_HEAD, level=2).split("\n")[3:5] == [
+        "✅ Poziom 2 - masz: zwykła karta bez ozdób ⬆️ 👈 teraz", "✅ Poziom 3 - masz: pieczęć Tropiciela ⬆️"]
+    mythic = {"type": "Void", "pet_lvl": 3, "mythic": True, "shiny": True, "ultra_shiny": True}
+    assert album.egg_note(5, mythic, [], level=3).split("\n")[-1] == album.MSG_LEVEL_NOTE_MYTHIC_CAN.format(stages="Poziom 3")
+    assert album.egg_note(5, mythic, [], level=3).split("\n")[0] == album.MSG_LEVEL_NOTE.format(player_id=5)
+    assert album.egg_note(5, new_egg("Cat"), []) == EMPTY_NOTE.format(player_id=5)   # the egg's note as it was
+
+
+@pytest.mark.parametrize("module", [boss, daily])
+async def test_a_level_in_a_drop_brings_the_note_into_the_drop(game_db, monkeypatch, module):
+    game, db = game_db, game_db.bot.db
+    item = {"id": module.LOOT_PET_LEVEL, "descr": "Poziom towarzysza", "weight": 100}
+    monkeypatch.setattr(module, "_loot_table", lambda rarity: [dict(item)])
+    monkeypatch.setattr(random, "random", lambda: 0.999)
+    ala = game.add_member("Ala", roles=[PATRON])
+    await add_owner(db, ala.id, 7)
+    await add_pet(db, 7, pet_lvl=1, type="Dog", pet_name="Burek")
+    await put(db, ala.id, "Dog", 1)
+    sent = recorded(game, monkeypatch)
+    await module.rand_loot(game.scene(ala), 1, ala, 0)
+    ((message, _),) = sent                                                    # ONE message: the drop
+    description = message.embeds[0].description
+    assert description.endswith("\n".join([
+        "👉 Poziom towarzysza", "", LEVEL_HEAD,
+        "▫️ Jajko - brak", "✅ Poziom 1 - masz: zwykła karta bez ozdób", "▫️ Poziom 2 - brak 👈 teraz",
+        "▫️ Poziom 3 - brak",
+        "Na tym i wyższych etapach ten towarzysz może jeszcze uzupełnić Twoją kolekcję: Poziom 2, Poziom 3."]))
+    assert notes(sent) == []
+    ola = game.add_member("Ola")                                              # not a supporter: the drop as ever
+    await add_owner(db, ola.id, 8)
+    await add_pet(db, 8, pet_lvl=1)
+    sent.clear()
+    await module.rand_loot(game.scene(ola), 1, ola, 0)
+    ((message, _),) = sent
+    assert message.embeds[0].description.endswith("👉 Poziom towarzysza\n")
+
+
+async def test_the_level_note_draws_nothing_and_never_costs_the_level(game_db, monkeypatch):
+    game, db = game_db, game_db.bot.db
+    ala, ola = game.add_member("Ala", roles=[PATRON]), game.add_member("Ola", roles=[PATRON])
+    for member, pet_id in ((ala, 7), (ola, 8)):
+        await add_owner(db, member.id, pet_id)
+        await add_pet(db, pet_id, pet_lvl=1, type="Dog")
+    random.seed(2026)
+    notes_a: list[str] = []
+    assert await pets.level_up_pet(game.scene(ala), ala, album_note=notes_a) is True
+    state = random.getstate()
+    random.seed(2026)
+    assert await pets.level_up_pet(game.scene(ola), ola) is True              # (no list: no note at all)
+    assert random.getstate() == state and len(notes_a) == 1
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("test: the note failed")
+
+    monkeypatch.setattr(album, "note_level_up", broken)
+    sink: list[str] = []
+    assert await pets.level_up_pet(game.scene(ala), ala, album_note=sink) is True and sink == []
+    assert (await pet_row(db, 7))["pet_lvl"] == 3

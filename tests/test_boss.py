@@ -56,8 +56,9 @@ class PetStub:
         self.bonus.append(bonus)
         return await self._give("assign_pet", hunter.id)
 
-    async def level_up_pet(self, scene, player_id):
-        return await self._give("level_up_pet", player_id)
+    async def level_up_pet(self, scene, player, *, album_note=None):
+        assert isinstance(album_note, list)                    # a drop collects the album's note for its embed
+        return await self._give("level_up_pet", getattr(player, "id", player))
 
     async def assign_rebirth_stone(self, scene, number, player_id):
         assert number == 1

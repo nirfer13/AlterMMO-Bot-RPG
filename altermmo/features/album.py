@@ -771,6 +771,17 @@ MSG_EGG_NOTE = "📖 <@{player_id}>, Twój album a to jajko:"
 #: ... and its head inside a drop's embed (owner, 2026-11-24: "w sposób embedded, tak jak drop. Tylko
 #: dorzucić ten cały tekst pod informację o dropie jajka"): the drop's title names the player already.
 MSG_EGG_NOTE_IN_DROP = "📖 **Twój album a to jajko:**"
+#: The same note when the pet at a player's side levels up (owner, 2026-11-24: "przy awansie towarzysza też
+#: dać informację, że ten towarzysz na wyższym poziomie może uzupełnić kolekcję, również w embedded"):
+#: its stage now is marked, and the closing line names only the stages it can still reach.
+MSG_LEVEL_NOTE = "📖 <@{player_id}>, Twój album a ten towarzysz:"
+MSG_LEVEL_NOTE_IN_DROP = "📖 **Twój album a ten towarzysz:**"
+MSG_LEVEL_NOTE_NOW = "👈 teraz"
+MSG_LEVEL_NOTE_CAN = "Na tym i wyższych etapach ten towarzysz może jeszcze uzupełnić Twoją kolekcję: {stages}."
+MSG_LEVEL_NOTE_ALL = "Album ma już ten i każdy wyższy etap tego towarzysza."
+MSG_LEVEL_NOTE_MYTHIC_CAN = ("Mityczny towarzysz nie należy do kolekcji, ale jego karty liczą się do jej wartości - "
+                             "na tym i wyższych etapach w albumie brakuje: {stages}.")
+MSG_LEVEL_NOTE_MYTHIC_ALL = "Mityczny towarzysz nie należy do kolekcji, a album ma już ten i każdy wyższy jego etap."
 MSG_EGG_NOTE_HELD = "{mark} {stage} - masz: {card}"
 MSG_EGG_NOTE_MISSING = "{mark} {stage} - brak"
 #: A counted card in words: its class when it is not an ordinary one, a rarer frame, the seal,
@@ -817,7 +828,8 @@ def card_words(row: Any) -> str:
     return ", ".join(parts) or MSG_EGG_NOTE_PLAIN
 
 
-def egg_note(player_id: int, egg: Any, rows: Sequence[Any], *, head: str | None = None) -> str:
+def egg_note(player_id: int, egg: Any, rows: Sequence[Any], *, head: str | None = None,
+             level: int = 0) -> str:
     """What the album says about a new egg; "" for an egg of a species that has no cards.
 
     ``egg``: the rolled egg as ``pets._roll_egg`` makes it (``TYPE``, the class flags and
@@ -832,6 +844,11 @@ def egg_note(player_id: int, egg: Any, rows: Sequence[Any], *, head: str | None 
     them all - for a mythic egg, which is no part of the collection, what its cards are for.
     The species is never named (module docstring).  ``head``: the first line instead of
     :data:`MSG_EGG_NOTE` (:data:`MSG_EGG_NOTE_IN_DROP` inside a drop's embed).
+
+    ``level`` above 0: the note of a pet that has just reached that stage (:func:`note_level_up`)
+    - its line is marked :data:`MSG_LEVEL_NOTE_NOW`, a stage it has left behind is neither marked
+    better nor named in the closing line (:data:`MSG_LEVEL_NOTE_CAN`): only the stages it can
+    still be sacrificed at count.  The head defaults to :data:`MSG_LEVEL_NOTE` then.
     """
     from . import albumrank
 
@@ -841,33 +858,41 @@ def egg_note(player_id: int, egg: Any, rows: Sequence[Any], *, head: str | None 
         return ""
     value = albumrank.collection(rows)
     by_id = {pets._int(row["entry_id"]): row for row in rows}
-    lines = [MSG_EGG_NOTE.format(player_id=player_id) if head is None else head]
+    now = max(0, int(level))
+    default = MSG_LEVEL_NOTE if now else MSG_EGG_NOTE
+    lines = [default.format(player_id=player_id) if head is None else head]
     missing: list[str] = []
     better = False
     for level in stages():
         name = stage_name(level)
+        ahead = level >= now  # (a pet never goes back to a stage it has left)
         held = value.best.get((species, level))
         counted = by_id.get(held[1]) if held is not None else None
         if held is None or counted is None:
-            missing.append(name)
-            lines.append(MSG_EGG_NOTE_MISSING.format(mark=MISSING_MARK, stage=name))
-            continue
-        line = MSG_EGG_NOTE_HELD.format(mark=COLLECTED_MARK, stage=name, card=card_words(counted))
-        if albumrank.card_points({**look, "pet_lvl": level}) > held[0]:
-            better = True
-            line += " " + EGG_NOTE_BETTER_MARK
+            if ahead:
+                missing.append(name)
+            line = MSG_EGG_NOTE_MISSING.format(mark=MISSING_MARK, stage=name)
+        else:
+            line = MSG_EGG_NOTE_HELD.format(mark=COLLECTED_MARK, stage=name, card=card_words(counted))
+            if ahead and albumrank.card_points({**look, "pet_lvl": level}) > held[0]:
+                better = True
+                line += " " + EGG_NOTE_BETTER_MARK
+        if now and level == now:
+            line += " " + MSG_LEVEL_NOTE_NOW
         lines.append(line)
     if species in collection_species():
-        lines.append(MSG_EGG_NOTE_CAN.format(stages=", ".join(missing)) if missing else MSG_EGG_NOTE_ALL)
+        can, done = (MSG_LEVEL_NOTE_CAN, MSG_LEVEL_NOTE_ALL) if now else (MSG_EGG_NOTE_CAN, MSG_EGG_NOTE_ALL)
     else:
-        lines.append(MSG_EGG_NOTE_MYTHIC_CAN.format(stages=", ".join(missing)) if missing
-                     else MSG_EGG_NOTE_MYTHIC_ALL)
+        can, done = ((MSG_LEVEL_NOTE_MYTHIC_CAN, MSG_LEVEL_NOTE_MYTHIC_ALL) if now
+                     else (MSG_EGG_NOTE_MYTHIC_CAN, MSG_EGG_NOTE_MYTHIC_ALL))
+    lines.append(can.format(stages=", ".join(missing)) if missing else done)
     if better:
         lines.append(MSG_EGG_NOTE_BETTER)
     return "\n".join(lines)
 
 
-async def note_new_egg(scene: "Scene", player: Any, egg: Any, *, into: list[str] | None = None) -> bool:
+async def note_new_egg(scene: "Scene", player: Any, egg: Any, *, into: list[str] | None = None,
+                       level: int = 0) -> bool:
     """After a new egg was stored for ``player``: tell a supporter what his album says about it.
 
     Called by ``pets.assign_pet`` - the one place an egg is granted (boss loot, monster loot,
@@ -893,8 +918,11 @@ async def note_new_egg(scene: "Scene", player: Any, egg: Any, *, into: list[str]
         if not patrons.check_if_patron(player):
             return False
         player_id = pets._pid(player)
-        rows = await _fetch(scene.bot.db, "fetch", _SQL_OF_SPECIES, player_id, str(egg["TYPE"]))
-        text = egg_note(player_id, egg, rows, head=None if into is None else MSG_EGG_NOTE_IN_DROP)
+        # (A rolled egg has upper-case keys, a ``PETS`` row of a levelled pet lower-case ones.)
+        species = {str(key).lower(): value for key, value in dict(egg).items()}.get("type")
+        rows = await _fetch(scene.bot.db, "fetch", _SQL_OF_SPECIES, player_id, str(species))
+        head = None if into is None else MSG_LEVEL_NOTE_IN_DROP if level else MSG_EGG_NOTE_IN_DROP
+        text = egg_note(player_id, egg, rows, head=head, level=level)
         if not text:
             return False
         if into is not None:
@@ -909,6 +937,17 @@ async def note_new_egg(scene: "Scene", player: Any, egg: Any, *, into: list[str]
         log.warning("Album: no note about the new egg of %s (%s: %s).", getattr(player, "id", player),
                     type(exc).__name__, exc)
         return False
+
+
+async def note_level_up(scene: "Scene", player: Any, pet: Any, *, into: list[str] | None = None) -> bool:
+    """After the pet at ``player``'s side reached a new stage: what his album says about it.
+
+    The note of :func:`note_new_egg` for a pet (``pet``: its ``PETS`` row after the level-up):
+    supporters only, one small read, never raises; ``into``: part of a drop's embed.
+    """
+    if pet is None:
+        return False
+    return await note_new_egg(scene, player, pet, into=into, level=max(1, pets._int(pet["pet_lvl"])))
 
 
 # -- the panel ---------------------------------------------------------------------------

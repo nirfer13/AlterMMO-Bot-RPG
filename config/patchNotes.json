@@ -163,5 +163,13 @@
             "Pod informacją, że poświęcony towarzysz trafił do albumu, obok przycisku „Album” jest teraz także „Pokaż towarzysza z albumu” - od razu zobaczysz swój nowy nabytek.",
             "Notka o albumie przy nowym jajku jest teraz częścią wiadomości z łupem - stoi pod listą tego, co wypadło."
         ]
+    },
+    {
+        "id": 16,
+        "date": "2026-11-24",
+        "title": "Album przy awansie",
+        "changes": [
+            "Gdy w łupie Twój towarzysz awansuje, wiadomość z łupem pokaże też, jak ma się do Twojego albumu: na którym etapie jest teraz i które etapy, od obecnego w górę, może jeszcze uzupełnić w kolekcji. Dotyczy wspierających, jak sam album."
+        ]
     }
 ]

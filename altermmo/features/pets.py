@@ -1743,8 +1743,14 @@ async def assign_mirror(scene: "Scene", number: Any, player_id: Any) -> bool:
 
 # -- growing --------------------------------------------------------------------------
 
-async def level_up_pet(scene: "Scene", player_id: Any) -> bool:
-    """Level up the player's pet (an egg hatches); False without a pet or at the top level."""
+async def level_up_pet(scene: "Scene", player_id: Any, *, album_note: list[str] | None = None) -> bool:
+    """Level up the player's pet (an egg hatches); False without a pet or at the top level.
+
+    ``album_note`` (a drop: ``boss.rand_loot`` / ``daily.rand_loot``; ``player_id`` is then the
+    member): a supporter's album note about the pet at its new stage is added to the list for
+    the drop's embed (owner, 2026-11-24; ``album.note_level_up``).  Never at the cost of the level.
+    """
+    player = player_id
     player_id = _pid(player_id)
     async with scene.bot.db.transaction() as con:
         pet = await _active_pet(con, player_id, lock=True)
@@ -1763,7 +1769,23 @@ async def level_up_pet(scene: "Scene", player_id: Any) -> bool:
         await _save_pet(con, pet, stats, level=level + 1,
                         skills=_int(pet["pet_skills"]) + add_skill, variant=variant)
     log.info("Pet %s of player %s reached level %s (+%s talent).", pet["pet_id"], player_id, level + 1, add_skill)
+    if album_note is not None:
+        await _level_note(scene, player, player_id, album_note)
     return True
+
+
+async def _level_note(scene: "Scene", player: Any, player_id: int, into: list[str]) -> None:
+    """The album's note about the pet that has just levelled up, for the drop's embed.  Never raises;
+    draws nothing at random (the level's own draws are made already)."""
+    try:
+        from . import album  # (lazily: the album builds on this module)
+
+        pet = await _active_pet(scene.bot.db, player_id)
+        await album.note_level_up(scene, player, pet, into=into)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - the level is the player's already
+        log.exception("Player %s: the album note about the level failed.", player_id)
 
 
 async def get_pet_skills(bot: "AlterBot", player_id: Any) -> dict[str, Any]:
