@@ -928,6 +928,31 @@ def test_cache_key_follows_everything_the_picture_depends_on(tmp_path, cache, as
     assert name() != resealed
 
 
+def test_an_eggs_card_is_not_named_after_its_species(tmp_path, assets):
+    """An egg does not tell its species before it hatches (owner, 2026-11-23), and a player can read the
+    name of an attachment: the folder of a premium / mythic egg - its species - is no part of the name
+    of its card.  The cards of different eggs are still different files (the digest)."""
+    look = Look(frame="S0", seal=2)
+    sources = [make_png(tmp_path / "assets" / "eggs" / "premium" / "Dragon" / "0.png"),
+               make_png(tmp_path / "assets" / "eggs" / "premium" / "Unicorn" / "0.png"),
+               make_png(tmp_path / "assets" / "eggs" / "mythic" / "Void" / "0.png"),
+               make_png(tmp_path / "assets" / "eggs" / "standard" / "0.png")]
+    names = [petcards._stem(source, look, petcards.DEFAULT_MAX_BYTES) for source in sources]
+    assert len(set(names)) == 4
+    for name in names:
+        assert name.startswith("card-egg-0-S0-seal2-") and petcards._CARD_NAME.fullmatch(name + ".png")
+        for species in ("Dragon", "Unicorn", "Void", "premium", "mythic", "standard"):
+            assert species.lower() not in name.lower(), name
+    # A hatched pet is named after its folder as before.
+    hatched = make_png(tmp_path / "assets" / "pets" / "Dragon" / "0.png")
+    assert petcards._stem(hatched, look, petcards.DEFAULT_MAX_BYTES).startswith("card-Dragon-0-S0-seal2-")
+    # ... and the pictures the game really has are where this looks for them.
+    pets_eggs = REAL_ASSETS.parent / petcards.EGG_FOLDER
+    for real in (pets_eggs / "premium" / "Dragon" / "0.png", pets_eggs / "mythic" / "Void" / "0.gif",
+                 pets_eggs / "standard" / "0.png"):
+        assert real.is_file() and petcards._label(real) == ["egg", "0"], real
+
+
 @pytest.mark.parametrize("look, changed_file, other_file", [
     (Look(frame="S1-A"), "frames/S1-A.apng", "frames/R5-A.apng"),
     (Look(frame="S1"), "frames/S1.png", "frames/R5.png"),

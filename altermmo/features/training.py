@@ -25,7 +25,10 @@ walkach PvP, ale bez wpisywania poleceń."  The rules he approved:
 * **a fight** - nobody types.  :func:`simulate` plays the players' duel
   (``boss.duel_fight``) with luck in place of the reaction time, as a pure
   function; :func:`_play` only shows the blows it returns: ONE message per
-  fight, edited as the fight goes;
+  fight, edited as the fight goes - a life bar per companion and, since
+  2026-11-23, the advantage bar of the players' duel between them
+  (:func:`advantage_bar`: one bar in the two sides' colours, split by the
+  lives, with who leads), so the owners see at a glance who is winning;
 * **rewards** - once, after the winner is known: the winner a loot roll (the
   call of the duel event in ``features/events.py``, where the challenger
   who wins without a fight gets ``daily.rand_loot(scene, 2, challenger, 0)``:
@@ -112,6 +115,9 @@ PAW = "🐾"
 SQUARES = ("🟥", "🟦")
 EMPTY_SQUARE = "⬛"
 BAR_LENGTH = 10
+#: Squares of the advantage bar (:func:`advantage_bar`).  Even, so that equal lives split it in
+#: the middle; no wider than a life bar with its numbers, so it stays one line on a phone.
+ADVANTAGE_LENGTH = 14
 
 TRAINING_TITLE = "<:peepoBlush:984769061340737586> Trening towarzyszy! <a:PeepoRiot:1067317732942565416>"
 TRAINING_DESCR = ('Na placu treningowym robi się tłoczno! Wyślijcie swoich towarzyszy na sparing - zmierzą się '
@@ -150,6 +156,10 @@ REWARD_SHARD, REWARD_SCROLL, REWARD_LOOT = "fragment zwoju", "zwój odrodzenia",
 FIGHT_TITLE = "⚔️ {first} kontra {second}"
 FIGHT_VERSUS = "{first} ⚔️ {second}"
 FIGHT_SIDE = "{square} **{pet}** · {owner}\n{bar} **{life}** / {full}"
+#: Under the advantage bar: who has more life left (the square tells two companions of one name
+#: apart) / nobody.  Not shown in the last version - there the result says who won.
+FIGHT_LEADS = "{square} Prowadzi **{pet}**"
+FIGHT_EVEN = "⚖️ Walka wyrównana"
 FIGHT_STARTS = "*Zaczyna **{pet}**.*"
 FIGHT_EARLIER = "*...wcześniej: {count} {blows}*"
 LINE_HIT = "{square} **{pet}** uderza za **{damage}**"
@@ -434,6 +444,30 @@ def life_bar(life: int, square: str) -> str:
     return square * filled + EMPTY_SQUARE * (BAR_LENGTH - filled)
 
 
+def advantage_bar(life: Sequence[int]) -> str:
+    """``🟥🟥🟥🟥🟥🟥🟥🟥🟥🟦🟦🟦🟦🟦``: ONE bar shared by the two lives - who is winning, at a glance.
+
+    The bar of the players' duel (``general.victory_bar``) in the colours of the two sides
+    (:data:`SQUARES`): each companion gets its share of the life both have left, so the border
+    moves towards the one that is losing.  A companion that still stands keeps one square; one
+    that fell has none - only a fight that is over shows a bar of one colour.  (Both at 0 cannot
+    happen in a fight; the bar is empty then.)
+    """
+    first, second = (max(0, int(value)) for value in life)
+    if first + second <= 0:
+        return EMPTY_SQUARE * ADVANTAGE_LENGTH
+    share = round(ADVANTAGE_LENGTH * first / (first + second))
+    share = max(1 if first else 0, min(ADVANTAGE_LENGTH - (1 if second else 0), share))
+    return SQUARES[0] * share + SQUARES[1] * (ADVANTAGE_LENGTH - share)
+
+
+def leader(life: Sequence[int]) -> int | None:
+    """Who leads - the companion with more life left: 0 or 1; None while they are even."""
+    if life[0] == life[1]:
+        return None
+    return 0 if life[0] > life[1] else 1
+
+
 def blow_line(blow: Blow, pair: Sequence[Fighter]) -> str:
     """One blow in words: who hit, how hard, critical / full power / what was blocked."""
     me, foe = pair[blow.attacker], pair[1 - blow.attacker]
@@ -461,13 +495,22 @@ def fight_embed(pair: Sequence[Fighter], sparring: Sparring, shown: int, *,
                 winner: int | None = None) -> discord.Embed:
     """The fight message after ``shown`` blows; with ``winner`` (0 / 1) its last version.
 
-    Both companions with their owners and life bars, the latest blows in
-    words and - at the end - who won (after a draw: whom the lot chose).
+    Both companions with their owners and life bars, the advantage bar
+    (owner, 2026-11-23: "żeby właściciele w napięciu mogli śledzić postęp
+    walki" - it moves with every edit) with who leads, the latest blows in
+    words and - at the end - who won (after a draw: whom the lot chose).  The
+    last version keeps the bar in its final state and says who won instead of
+    who leads.
     """
     life = sparring.life_after(shown)
     lines = [FIGHT_SIDE.format(square=SQUARES[index], pet=fighter.shown, owner=fighter.owner,
                                bar=life_bar(life[index], SQUARES[index]), life=life[index], full=START_LIFE)
              for index, fighter in enumerate(pair)]
+    lines += ["", advantage_bar(life)]
+    if winner is None:
+        ahead = leader(life)
+        lines.append(FIGHT_EVEN if ahead is None
+                     else FIGHT_LEADS.format(square=SQUARES[ahead], pet=pair[ahead].shown))
     lines.append("")
     if shown <= 0:
         lines.append(FIGHT_STARTS.format(pet=pair[sparring.first].shown))

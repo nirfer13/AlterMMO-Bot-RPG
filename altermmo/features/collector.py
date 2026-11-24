@@ -57,7 +57,10 @@ Without the loop (a test, a cog that did not load) a request does nothing at all
 that could not look (no server, no ranking) the loop tries again after :data:`RETRY_SOON`; after
 a run that knew the ranking but could not give the role to the leader or take it from somebody
 else (a network failure, or the role lies above the bot's own) it does so too, but at most
-:data:`QUICK_RETRIES` times in a row - then it is back to :data:`PERIOD`.
+:data:`QUICK_RETRIES` times in a row - then it is back to :data:`PERIOD`.  A ``$kolekcjoner``
+whose own run ended like that (:func:`sync_now`) leaves a request, so that the loop - which did
+not see that run - takes the tries over instead of coming back only with its safety net; its
+quick tries are counted anew then, also when the loop had used them up on the same trouble.
 
 **A supporter role that blinks**: when the support of the CURRENT HOLDER ends, the loop waits
 :data:`HOLDER_GRACE` before the run that would move the rank - a renewal or a change of tier can
@@ -385,6 +388,10 @@ class _Desk:
     #: or not synchronised yet) - what the member events are compared with.
     role_id: int | None = None
     holder_id: int | None = None
+    #: The loop's quick tries in a row after runs that left the role in the wrong hands
+    #: (:data:`QUICK_RETRIES`).  Counted by the loop; a ``$kolekcjoner`` that could not finish
+    #: sets it back (:func:`sync_now`), so that its promise is kept with a full round of tries.
+    quick: int = 0
     #: How many synchronisations ran, and what the last one found.
     runs: int = 0
     last: Outcome | None = None
@@ -751,6 +758,15 @@ async def sync_now(bot: "AlterBot") -> Outcome:
     left for the loop, which runs it once the channel is quiet - and tries to make the role at
     once then, as this command would have (``force_next``).  The command is the owner's word: it
     does not wait for the grace period of a holder whose support ended, and ends it.
+
+    A run that ends with something the loop would try again soon (it could not look -
+    ``try_soon`` - or left the role in the wrong hands - ``unfinished``) leaves a request for
+    the loop: the answer promises "spróbuję ponownie sam", and the loop, which did not see this
+    run, would otherwise come back only with its safety net (:data:`PERIOD`).  The loop answers
+    the request like any other and from there on follows its own rule (:data:`RETRY_SOON`) - with
+    its quick tries counted anew: a loop that had already used them up on the same trouble would
+    answer the request once, moments later, and then be silent for :data:`PERIOD` after all.
+    (One round of at most :data:`QUICK_RETRIES` tries per command; nothing polls for ever.)
     """
     desk = _desk(bot)
     if not quiet(bot):
@@ -760,7 +776,11 @@ async def sync_now(bot: "AlterBot") -> Outcome:
     desk.wanted.clear()  # (what was asked for so far is done by this run)
     desk.force_next = False
     desk.grace_until = 0.0
-    return await sync(bot, force=True)
+    outcome = await sync(bot, force=True)
+    if outcome.try_soon or outcome.unfinished:
+        desk.quick = 0  # (the owner asked: the loop's quick tries begin anew)
+        request(bot, f"$kolekcjoner ended with {outcome.status}: to be tried again")
+    return outcome
 
 
 # -- when ------------------------------------------------------------------------------------------
@@ -796,14 +816,15 @@ async def run(bot: "AlterBot") -> None:
     waiting is done here, outside the lock of :func:`sync`.  A request that comes during a run is
     answered by one more run.  After a run that could not look (no server, no ranking) the next
     one comes after :data:`RETRY_SOON` instead of :data:`PERIOD`; so it does after a run that
-    could not give the role or take it away, at most :data:`QUICK_RETRIES` times in a row.
+    could not give the role or take it away, at most :data:`QUICK_RETRIES` times in a row
+    (``desk.quick``; a ``$kolekcjoner`` that could not finish starts that count anew).
     """
     await bot.wait_until_ready()
     desk = _desk(bot)
     request(bot, "start-up")
     desk.force_next = True  # (the first run of a start tries the role at once, whatever failed before)
     patience = PERIOD
-    quick = 0  # quick tries in a row after runs that left the role in the wrong hands
+    desk.quick = 0  # quick tries in a row after runs that left the role in the wrong hands
     while True:
         try:
             await asyncio.wait_for(desk.wanted.wait(), patience)
@@ -824,13 +845,13 @@ async def run(bot: "AlterBot") -> None:
         outcome = await sync(bot, force=force)
         if outcome.try_soon:
             patience = RETRY_SOON
-        elif outcome.unfinished and quick < QUICK_RETRIES:
-            quick += 1
+        elif outcome.unfinished and desk.quick < QUICK_RETRIES:
+            desk.quick += 1
             patience = RETRY_SOON
         else:
             patience = PERIOD
         if outcome.looked and not outcome.unfinished:
-            quick = 0
+            desk.quick = 0
 
 
 def member_changed(bot: Any, before: Any, after: Any) -> bool:

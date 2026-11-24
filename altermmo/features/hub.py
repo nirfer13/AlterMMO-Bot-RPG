@@ -122,6 +122,8 @@ PANEL_GAME_TEXT = (
 #: mythic slayer role in ``boss.py``; the seals and the Holo foil rolled for a new pet in ``pets.py``
 #: (stored with the pet for good, shown only while its owner supports); the album of sacrificed pets
 #: (``album.py``, ``pets.discard_pet``) - its line names no species and no ornament either.
+#: (The album's note at a new egg, ``album.note_new_egg`` of 2026-11-23, is part of the album and
+#: has no line of its own here: the panel's text was not changed for it.)
 #: (The silver / gold frames of shiny pets are for everybody, so they are not listed.)
 #: Owner's decision of 2026-11-20: the panel does not name WHICH species supporters can find nor
 #: WHICH card ornaments exist (seals, Holo) - players discover them.

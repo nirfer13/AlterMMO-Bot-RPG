@@ -16,7 +16,13 @@ The rules (the lead's design, told to the owner):
 * The value of ONE card (one album entry, :func:`card_points`): :data:`CARD_POINTS` for the card
   itself plus a bonus per ornament - ``round(BONUS_SCALE * log2(100 / p))`` where ``p`` is the
   chance of that ornament in percent (:func:`bonus`): the rarer, the more, and twice as rare is
-  always :data:`BONUS_SCALE` points more.  Every number of the score is in THE SCORE TABLE below.
+  always :data:`BONUS_SCALE` points more.  That sum is multiplied by the STAGE of the pet
+  (:data:`STAGE_MULTIPLIER`; owner's request of 2026-11-23: "Dodaj też mnożnik do punktacji
+  albumu jeśli pet awansował. Tzn. holo jajko powinno być mniej warte niż holo 3 lvl pet"): the
+  whole card, its own points and every ornament's bonus - an ordinary pet of level 3 took more
+  than an ordinary egg, too.  An egg counts once, so its value is what it always was.  The
+  result is a whole number, a half rounded UP (:func:`staged`).  Every number of the score is
+  in THE SCORE TABLE below.
 * The value of a **collection** (:func:`collection`): per slot only the highest-valued card the
   player has (several cards of one slot: the best one counts, the others add nothing), summed.
   It is a property of the stored cards - whether the ornaments are *shown* (the owner supports)
@@ -61,7 +67,7 @@ import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
 import asyncpg
@@ -106,6 +112,12 @@ FRAME_PERCENT: dict[str, float] = {
     "U1": 8.0, "U1-A": 0.55, "R3": 4.0, "R3-A": 0.2, "R4": 2.0, "R4-A": 0.15, "R8": 1.0, "R8-A": 0.1,
     "R5": 5.0, "R5-A": 0.5, "R6": 3.0, "R6-A": 0.3, "R9": 1.0, "R9-A": 0.2,
 }
+#: The stage of the pet (0 = the egg .. :data:`pets.MAX_LEVEL`): the card's points AND every
+#: ornament's bonus are multiplied by it (:func:`staged`) - a pet that grew is worth more than
+#: the egg it was, whatever it has.  The egg is x1: an egg's value never moved.  A stage missing
+#: here counts as x1 (a new :data:`pets.MAX_LEVEL` must get its number: a test says so).  The
+#: lead's defaults of 2026-11-23; the owner may change them.
+STAGE_MULTIPLIER: dict[int, float] = {0: 1.0, 1: 1.5, 2: 2.0, 3: 3.0}
 # ================================================================================================
 
 
@@ -121,6 +133,33 @@ def bonus(percent: float) -> int:
     if not 0 < percent < 100:
         return 0
     return round(BONUS_SCALE * math.log2(100 / percent))
+
+
+def stage_multiplier(level: Any) -> float:
+    """The multiplier of stage ``level``; 1.0 for a stage :data:`STAGE_MULTIPLIER` does not know
+    (or holds no positive number for)."""
+    try:
+        factor = float(STAGE_MULTIPLIER.get(level, 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+    return factor if factor > 0 and math.isfinite(factor) else 1.0
+
+
+def staged(points: int, level: Any) -> int:
+    """``points`` of a card at stage ``level``: times :func:`stage_multiplier`, a half rounded UP.
+
+    THE one place the stage enters the score and the one place it is rounded - explicitly half
+    up (64.5 -> 65; Python's ``round`` would give the even 64), in decimal arithmetic on the
+    multiplier as it is written in the table (1.15 is 1.15, not the binary 1.1499...).  Never
+    raises: points that cannot be multiplied are returned as they are.
+    """
+    try:
+        factor = stage_multiplier(level)
+        if factor == 1.0:  # (the egg, and every stage without a number: nothing to round)
+            return int(points)
+        return int((Decimal(int(points)) * Decimal(str(factor))).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+    except (TypeError, ValueError, ArithmeticError):
+        return points
 
 
 def score_slots() -> frozenset[tuple[str, int]]:
@@ -179,9 +218,17 @@ def foil_points(row: Any) -> int:
     return bonus(FOIL_PERCENT[foil]) if foil in FOIL_PERCENT else 0
 
 
-def ornament_points(row: Any) -> int:
-    """The card's value without the slot check: :data:`CARD_POINTS` + every ornament's bonus."""
+def base_points(row: Any) -> int:
+    """What the card has, the stage NOT counted: :data:`CARD_POINTS` + every ornament's bonus
+    (= the value of the same card as an egg)."""
     return CARD_POINTS + class_points(row) + frame_points(row) + seal_points(row) + foil_points(row)
+
+
+def ornament_points(row: Any) -> int:
+    """The card's value without the slot check: :func:`base_points` times the multiplier of the
+    row's stage (:func:`staged`; a row without a usable level counts once)."""
+    slot = _slot(row)
+    return staged(base_points(row), slot[1] if slot is not None else None)
 
 
 def card_points(row: Any, slots: frozenset[tuple[str, int]] | None = None) -> int:
@@ -189,19 +236,21 @@ def card_points(row: Any, slots: frozenset[tuple[str, int]] | None = None) -> in
 
     Reads ``type``, ``pet_lvl``, ``mythic``, ``ultra_shiny``, ``shiny``, ``frame``, ``seal``,
     ``holo``, ``holo_partial`` - each optional (rows from before the frames or the partial foil
-    have none of them; a NULL counts as nothing).  Never raises.
+    have none of them; a NULL counts as nothing).  The stage (``pet_lvl``) multiplies the whole
+    card (:data:`STAGE_MULTIPLIER`).  Never raises.
     """
     slot = _slot(row)
     if slot is None or slot not in (score_slots() if slots is None else slots):
         return 0
     try:
-        return ornament_points(row)
+        return staged(base_points(row), slot[1])
     except Exception:  # noqa: BLE001 - a row the game cannot read is worth the card alone
         log.exception("Album entry %s: its ornaments could not be read.", _field(row, "entry_id"))
-        return CARD_POINTS
+        return staged(CARD_POINTS, slot[1])
 
 
-#: Every column :func:`card_points` reads: the memo key of :class:`_Scorer`.
+#: Every column :func:`card_points` reads: the memo key of :class:`_Scorer` (``pet_lvl`` is in
+#: it: since the stage multiplier the same ornaments are worth more at a higher stage).
 _SCORED_COLUMNS = ("type", "pet_lvl", "mythic", "ultra_shiny", "shiny", "frame", "seal", "holo", "holo_partial")
 
 
@@ -594,8 +643,9 @@ MSG_LINE = "{place} **{name}** · **{points} pkt** · {cards}"
 MSG_OWN_LINE = "Twoje miejsce: **{place}.** z {total} · **{points} pkt** · {cards}"
 MSG_OWN_NONE = "Twojej kolekcji jeszcze tu nie ma - pierwszy wpis w albumie (**$porzucam**) da Ci miejsce."
 MSG_NOBODY = "Nikt jeszcze nie ma kolekcji w albumie - bądź pierwszy! <:peepoBlush:984769061340737586>"
-#: How it works, without naming any ornament (owner's spoiler rule).
-MSG_HOW = "Liczy się najrzadsza karta każdego gatunku na każdym etapie - im rzadsza, tym więcej punktów."
+#: How it works, without naming any ornament and without a number (owner's spoiler rule).
+MSG_HOW = ("Liczy się najrzadsza karta każdego gatunku na każdym etapie - im rzadsza i im wyższy etap "
+           "towarzysza, tym więcej punktów.")
 MSG_UNAVAILABLE = ("Ranking kolekcji jest chwilowo niedostępny - spróbuj ponownie za chwilę "
                    "<:Sadge:936907659142111273>")
 #: The album's overview (features/album.py).

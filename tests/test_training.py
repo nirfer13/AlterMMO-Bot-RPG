@@ -475,6 +475,121 @@ def test_life_bars():
     assert training.life_bar(0, "🟥") == "⬛" * 10
 
 
+RED, BLUE = training.SQUARES
+
+
+@pytest.mark.parametrize("life, red", [
+    ((3000, 3000), 7), ((1, 1), 7), ((2700, 3000), 7),          # even, or nearly: the middle
+    ((3000, 1500), 9), ((1500, 3000), 5),                       # two thirds of the life left: 9.33 of 14 squares
+    ((3000, 1000), 10), ((1000, 3000), 4), ((2400, 600), 11), ((600, 2400), 3),
+    ((3000, 1), 13), ((1, 3000), 1), ((2999, 20), 13), ((20, 2999), 1),   # still standing: one square stays
+    ((3000, 0), 14), ((0, 3000), 0), ((1, 0), 14), ((0, 1), 0)])          # fallen: none - one colour = over
+def test_the_advantage_bar_is_split_by_the_two_lives(life, red):
+    """Owner, 2026-11-23: who is winning, "w postaci pasków tak jak przy walce PvP"."""
+    assert (RED, BLUE) == ("🟥", "🟦") and training.ADVANTAGE_LENGTH == 14
+    assert training.advantage_bar(life) == RED * red + BLUE * (14 - red)
+
+
+def test_the_advantage_bar_at_its_edges():
+    assert training.advantage_bar((0, 0)) == "⬛" * 14                       # (no fight ends like this)
+    assert training.advantage_bar((-5, 3000)) == BLUE * 14                  # life never shows below 0
+    assert training.advantage_bar((Decimal(1500), 1500.0)) == RED * 7 + BLUE * 7
+    mirror = str.maketrans(RED + BLUE, BLUE + RED)
+    for first in range(0, 3001, 125):
+        for second in range(0, 3001, 125):
+            bar = training.advantage_bar((first, second))
+            assert len(bar) == 14 and set(bar) <= {RED, BLUE, "⬛"}
+            # Neither side is favoured: the same lives the other way round are the mirrored bar.
+            assert training.advantage_bar((second, first)) == bar[::-1].translate(mirror)
+            # More life never means fewer squares.
+            if first:
+                assert training.advantage_bar((first, second)).count(RED) >= \
+                    training.advantage_bar((first - 125, second)).count(RED)
+    # Even (equal lives meet in the middle) and no wider than a life bar with its numbers.
+    assert training.ADVANTAGE_LENGTH % 2 == 0 and training.BAR_LENGTH < training.ADVANTAGE_LENGTH <= 16
+
+
+def test_who_leads_is_who_has_more_life_left():
+    assert training.leader((3000, 2999)) == 0 and training.leader((1, 2)) == 1 and training.leader((0, 5)) == 1
+    assert training.leader((3000, 3000)) is None and training.leader((0, 0)) is None
+
+
+def bar_and_lead(embed) -> tuple[str, str]:
+    """The advantage bar of a fight message and the line under it ("" when the next line is empty)."""
+    lines = embed.description.split("\n")
+    bars = [index for index, line in enumerate(lines) if line and set(line) <= {RED, BLUE, "⬛"}]
+    assert len(bars) == 1, embed.description                                 # one advantage bar, never two
+    (at,) = bars
+    # Between the two sides (four lines) and the blow log, set off by empty lines.
+    assert at == 5 and lines[4] == "" and "" in lines[at + 1:at + 3]
+    return lines[at], lines[at + 1]
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3, 4, 5, 6])
+def test_every_version_of_the_fight_message_shows_who_is_winning(game, seed):
+    burek, mruczek = fighter(game, "Ala", "Burek", crit_perc=20), fighter(game, "Ola", "Mruczek", lowhp_perc=10)
+    pair = (burek, mruczek)
+    sparring = training.simulate(burek.stats, mruczek.stats, random.Random(seed))
+    assert sparring.winner is not None
+    counts = training.frame_counts(len(sparring.blows))
+    seen = set()
+    luck = random.getstate()
+    for shown in (0, *counts):
+        last = shown == len(sparring.blows)
+        embed = training.fight_embed(pair, sparring, shown, winner=sparring.winner if last else None)
+        life = sparring.life_after(shown)
+        bar, lead = bar_and_lead(embed)
+        assert bar == training.advantage_bar(life) and len(bar) == 14
+        seen.add(bar)
+        if last:                                                             # the final state; the result says who won
+            assert lead == "" and "Prowadzi" not in embed.description and "wyrównana" not in embed.description
+            assert bar == (RED if sparring.winner == 0 else BLUE) * 14
+        elif life[0] == life[1]:
+            assert lead == "⚖️ Walka wyrównana"
+        else:
+            ahead = 0 if life[0] > life[1] else 1
+            assert lead == f"{training.SQUARES[ahead]} Prowadzi **{pair[ahead].shown}**"
+            assert bar.count(training.SQUARES[ahead]) >= 7                   # the bar never contradicts the line
+        # The life bars stay.
+        assert embed.description.count(" / 3000") == 2
+        assert len(embed.description) <= 4096 and len(embed) <= 6000
+    assert len(seen) > 3                                                     # the bar moves as the fight goes
+    # Showing the bar draws nothing, and the fight is the one its seed gives.
+    assert random.getstate() == luck
+    assert sparring == training.simulate(burek.stats, mruczek.stats, random.Random(seed))
+
+
+def test_two_companions_of_one_name_are_told_apart_by_the_square(game):
+    """Unnamed companions are called by their species, so "Kot" may well fight "Kot"."""
+    pair = (fighter(game, "Ala", "Kot"), fighter(game, "Ola", "Kot"))
+    sparring = training.simulate({}, {}, Luck(starter=0, bases=[400, 100]))
+    after_one = training.fight_embed(pair, sparring, 1)                      # the first struck: the second is behind
+    assert sparring.life_after(1) == (3000, 2600)
+    assert bar_and_lead(after_one) == (RED * 8 + BLUE * 6, "🟥 Prowadzi **Kot**")
+    after_two = training.fight_embed(pair, sparring, 2)                      # a small lead: the line still tells
+    assert sparring.life_after(2) == (2900, 2600)
+    assert bar_and_lead(after_two) == (RED * 7 + BLUE * 7, "🟥 Prowadzi **Kot**")
+    start = training.fight_embed(pair, sparring, 0)
+    assert bar_and_lead(start) == (RED * 7 + BLUE * 7, "⚖️ Walka wyrównana")
+
+
+@pytest.mark.parametrize("starter", [0, 1])
+def test_the_lead_line_shows_the_name_as_plain_text(game, starter):
+    """A companion's name is its owner's free text: in the "Prowadzi" line it is escaped like everywhere
+    else in the fight message (``Fighter.shown``) - it neither breaks the bold nor pings anybody."""
+    role = "<@&985071779787730944>"
+    pair = (fighter(game, "Ala", "**Bu_rek** @everyone"), fighter(game, "Ola", f"__Mru~~czek {role}"))
+    sparring = training.simulate({}, {}, Luck(starter=starter, bases=[400, 100]))
+    assert training.leader(sparring.life_after(1)) == starter                 # who struck first is ahead
+    _, lead = bar_and_lead(training.fight_embed(pair, sparring, 1))
+    ahead = pair[starter]
+    assert ahead.shown != ahead.name.strip()[:training.NAME_LENGTH]           # (the name needs escaping)
+    assert lead == f"{training.SQUARES[starter]} Prowadzi **{ahead.shown}**"
+    assert lead == ("🟥 Prowadzi **\\*\\*Bu\\_rek\\*\\* @​everyone**",
+                    "🟦 Prowadzi **\\_\\_Mru\\~\\~czek <@​&985071779787730944>**")[starter]
+    assert "@everyone" not in lead and role not in lead and ahead.name not in lead
+
+
 def test_blows_in_words(game):
     burek, mruczek = fighter(game, "Ala", "Burek"), fighter(game, "Ola", "Mruczek")
     pair = (burek, mruczek)
@@ -501,17 +616,24 @@ def test_the_fight_message_from_the_first_to_the_last_version(game):
     assert start.title == "⚔️ Burek kontra Mruczek" and start.colour.value == training.FIGHT_COLOUR
     assert start.description == (
         "🟥 **Burek** · Ala\n" + "🟥" * 9 + "⬛ **2700** / 3000\n"
-        "🟦 **Mruczek** · Ola\n" + "🟦" * 10 + " **3000** / 3000\n\n*Zaczyna **Mruczek**.*")
+        "🟦 **Mruczek** · Ola\n" + "🟦" * 10 + " **3000** / 3000\n\n"
+        + "🟥" * 7 + "🟦" * 7 + "\n🟦 Prowadzi **Mruczek**\n\n*Zaczyna **Mruczek**.*")
     middle = training.fight_embed(pair, sparring, 6)
     assert "**1900** / 3000" in middle.description and "**2400** / 3000" in middle.description
+    assert "\n\n" + "🟥" * 6 + "🟦" * 8 + "\n🟦 Prowadzi **Mruczek**\n\n*...wcześniej" in middle.description
     assert "*...wcześniej: 2 ciosy*\n🟦 **Mruczek** uderza za **250**\n" in middle.description
     assert middle.description.count("uderza za") == 4 and "Wygrywa" not in middle.description
     last = training.fight_embed(pair, sparring, len(sparring.blows), winner=sparring.winner)
     assert sparring.winner == 1 and last.colour.value == training.FIGHT_OVER_COLOUR
     assert "⬛" * 10 + " **0** / 3000" in last.description
+    # The advantage bar in its final state; the result says who won, so no "who leads" line.
+    assert "\n\n" + "🟦" * 14 + "\n\n" in last.description and "Prowadzi" not in last.description
     assert last.description.endswith("\n\n🏆 **Wygrywa Mruczek** (Ola)!")
     drawn = training.simulate({"DEF_PERC": 100}, {"DEF_PERC": 100}, Luck())
+    even = "\n\n" + "🟥" * 7 + "🟦" * 7
+    assert even + "\n⚖️ Walka wyrównana\n\n" in training.fight_embed(pair, drawn, 36).description
     after_a_draw = training.fight_embed(pair, drawn, 40, winner=0).description
+    assert even + "\n\n" in after_a_draw and "wyrównana" not in after_a_draw
     assert after_a_draw.endswith("⚖️ Remis po 40 ciosach! Los zdecydował: dalej przechodzi **Burek** (Ala).")
 
 
@@ -1124,6 +1246,14 @@ async def test_a_fight_is_one_message_edited_at_a_safe_pace(game, picture, enrol
                for edit in message.edits)
     assert [edit["embed"].description for edit in message.edits[:-1]] == [
         training.fight_embed((burek, mruczek), sparring, shown).description for shown in counts[:-1]]
+    # Every version shows who is winning: the advantage bar of that moment, moving as the fight goes
+    # (in the same message and the same edits - no extra message, no extra edit).
+    versions = [first_versions[message.id], *(edit["embed"] for edit in message.edits)]
+    bars = [bar_and_lead(version)[0] for version in versions]
+    assert bars == [training.advantage_bar(sparring.life_after(shown)) for shown in (0, *counts)]
+    assert bars[0] == RED * 7 + BLUE * 7 and bars[-1] == BLUE * 14 and len(set(bars)) > 3
+    assert all("Prowadzi **" in version.description or "Walka wyrównana" in version.description
+               for version in versions[:-1])
     # The last version: the loser has no life left and the winner is named.
     final = message.embeds[0]
     assert final.description == training.fight_embed((burek, mruczek), sparring, 22, winner=1).description

@@ -111,5 +111,17 @@
             "Rangę ma zawsze ten, kto prowadzi w rankingu: gdy ktoś wyprzedzi lidera, ranga przechodzi na niego, a bot ogłasza to na kanale bossa.",
             "Ranking kolekcji to ranking wspierających - liczą się w nim albumy osób, które wspierają AlterMMO w danej chwili."
         ]
+    },
+    {
+        "id": 11,
+        "date": "2026-11-23",
+        "title": "Album, trening i wydarzenia",
+        "changes": [
+            "Wspierający dostają teraz przy każdym nowym jajku krótką notkę o albumie: które etapy tego towarzysza są już w albumie i z jaką kartą, a które mogą jeszcze uzupełnić kolekcję.",
+            "W rankingu kolekcji ($rankingalbumow) liczy się teraz także etap towarzysza: im wyższy etap, tym więcej warta jest jego karta. Jajka są warte tyle, co dotąd.",
+            "Jajko w albumie nie zdradza już swojego gatunku - tak jak w grze. To samo dotyczy rankingu towarzyszy. Jajka są teraz w albumie razem, osobno od wyklutych towarzyszy, i nadal liczą się do kolekcji.",
+            "Trening towarzyszy: w wiadomości z walką jest teraz pasek przewagi, który przesuwa się w trakcie sparingu - od razu widać, kto prowadzi.",
+            "Wydarzenia na kanale bossa pojawiają się teraz trochę częściej."
+        ]
     }
 ]

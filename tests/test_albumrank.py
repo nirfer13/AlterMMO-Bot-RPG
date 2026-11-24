@@ -6,6 +6,10 @@ not support are not counted in the ranking, and they cannot look at it either". 
 score table and its examples, odd rows, best-of-slot, who is ranked (supporters right now) and in
 which order, the incomplete member cache, the overview / entry page of the album, ``$rankingalbumow``
 and the hub's "Rankingi", and what a ranking of 300 players x 100 entries costs.
+
+Owner's request of 2026-11-23: "Dodaj też mnożnik do punktacji albumu jeśli pet awansował. Tzn. holo
+jajko powinno być mniej warte niż holo 3 lvl pet" - the stage multiplier (``STAGE_MULTIPLIER``): a card
+of each stage, the rounding (a half goes up), eggs worth what they always were, the ranking moving.
 """
 
 from __future__ import annotations
@@ -63,6 +67,143 @@ def test_the_score_table_states_its_numbers():
         36, 46, 56, 66, 43, 51, 75, 76, 84, 90, 94, 100]
     for nothing in (100, 150, 0, -3, None, "x"):
         assert albumrank.bonus(nothing) == 0
+    assert albumrank.STAGE_MULTIPLIER == {0: 1.0, 1: 1.5, 2: 2.0, 3: 3.0}
+
+
+# -- the stage multiplier -------------------------------------------------------------------------
+
+def test_the_stage_table_covers_every_stage_and_never_goes_down():
+    """A new ``pets.MAX_LEVEL`` must get its number: a stage missing from the table counts once."""
+    assert set(albumrank.STAGE_MULTIPLIER) == set(album.stages())
+    factors = [albumrank.STAGE_MULTIPLIER[level] for level in album.stages()]
+    assert factors[0] == 1.0 and factors == sorted(factors) and len(set(factors)) == len(factors)
+    assert [albumrank.stage_multiplier(level) for level in album.stages()] == factors
+
+
+def test_a_card_of_each_stage():
+    """The WHOLE card is multiplied: the card's own points and every ornament's bonus."""
+    assert [card_points(row(level=level)) for level in album.stages()] == [10, 15, 20, 30]
+    assert [card_points(row(level=level, shiny=True)) for level in album.stages()] == [46, 69, 92, 138]
+    assert [card_points(row("Void", level)) for level in album.stages()] == [94, 141, 188, 282]
+    rich = dict(shiny=True, frame="R7-A", seal=3, holo=True)                     # 10 + 36 + 100 + 90 + 100
+    assert [card_points(row(level=level, **rich)) for level in album.stages()] == [336, 504, 672, 1008]
+    for level in album.stages():                                               # ... and nothing else moved
+        assert albumrank.base_points(row(level=level, **rich)) == 336
+        assert albumrank.ornament_points(row(level=level, **rich)) == card_points(row(level=level, **rich))
+    assert card_points(row(level=Decimal("2"), seal=Decimal("2"))) == 108      # NUMERIC from the database
+    assert card_points(row(level=2.0, seal=2.0)) == 108                        # float8 of the ranking's query
+
+
+def test_a_half_point_is_rounded_up():
+    """Explicitly half up - Python's ``round`` would give the even neighbour."""
+    odd = row(level=1, seal=1)                                                 # (10 + 33) x 1.5 = 64.5
+    assert albumrank.base_points(odd) == 43 and card_points(odd) == 65 and round(43 * 1.5) == 64
+    assert card_points(row(level=1, seal=1, holo_partial=True)) == 164         # 109 x 1.5 = 163.5
+    assert [albumrank.staged(points, 1) for points in (1, 2, 3, 4, 5, 43, 109)] == [2, 3, 5, 6, 8, 65, 164]
+    assert [albumrank.staged(points, 0) for points in (0, 1, 43, 374)] == [0, 1, 43, 374]
+    assert albumrank.staged(43, 2) == 86 and albumrank.staged(43, 3) == 129
+
+
+def test_a_multiplier_is_read_as_it_is_written(monkeypatch):
+    """1.15 is 1.15 (110 x 1.15 = 126.5 -> 127), not the binary 1.1499... (126.4999... -> 126)."""
+    monkeypatch.setitem(albumrank.STAGE_MULTIPLIER, 1, 1.15)
+    assert 110 * 1.15 < 126.5 and albumrank.staged(110, 1) == 127
+    assert card_points(row(level=1, holo=True)) == 127 and card_points(row(level=1)) == 12   # 11.5
+    assert card_points(row(level=1, shiny=True)) == 53                                        # 52.9
+
+
+def test_less_than_a_half_point_is_rounded_down(monkeypatch):
+    """Half UP is not "always up": the owner may retune the table, and 46 x 1.2 = 55.2 is 55, not 56."""
+    monkeypatch.setitem(albumrank.STAGE_MULTIPLIER, 1, 1.2)
+    #                                                    12.0 13.2 14.4 15.6 16.8 55.2
+    assert [albumrank.staged(points, 1) for points in (10, 11, 12, 13, 14, 46)] == [12, 13, 14, 16, 17, 55]
+    assert card_points(row(level=1, shiny=True)) == 55 and card_points(row(level=1)) == 12
+    monkeypatch.setitem(albumrank.STAGE_MULTIPLIER, 2, 2.25)
+    #                                                    22.5 29.25 96.75 103.5
+    assert [albumrank.staged(points, 2) for points in (10, 13, 43, 46)] == [23, 29, 97, 104]
+    assert card_points(row(level=2, seal=1)) == 97 and card_points(row(level=2, shiny=True)) == 104
+
+
+def test_a_card_whose_ornaments_cannot_be_read_is_worth_the_plain_card_of_its_stage(monkeypatch):
+    """The fallback follows the stage too: an unreadable card of level 3 is a card of level 3."""
+    def unreadable(entry):
+        raise RuntimeError("test: the ornaments cannot be read")
+
+    monkeypatch.setattr(albumrank, "base_points", unreadable)
+    assert [card_points(row(level=level, shiny=True, holo=True)) for level in album.stages()] == [10, 15, 20, 30]
+    assert [albumrank.staged(albumrank.CARD_POINTS, level) for level in album.stages()] == [10, 15, 20, 30]
+    assert card_points({"type": "Dinozaur", "pet_lvl": 3}) == 0                # outside every slot: nothing, as ever
+
+
+def test_staged_never_raises():
+    """Points that cannot be multiplied come back as they are - at every stage."""
+    odd = object()
+    for level in (0, 1, 2, 3, None, "x"):
+        for garbage in ("x", None, [], odd):
+            assert albumrank.staged(garbage, level) is garbage, (garbage, level)
+        assert math.isnan(albumrank.staged(float("nan"), level))
+        assert albumrank.staged(float("inf"), level) == float("inf")
+    assert albumrank.staged(True, 3) == 3 and albumrank.staged("7", 2) == 14   # (what can be read as a number is)
+
+
+def test_a_holo_egg_is_worth_less_than_the_same_holo_card_at_level_three():
+    """The owner's sentence."""
+    egg, grown = row(level=0, holo=True), row(level=3, holo=True)
+    assert card_points(egg) == 110 and card_points(grown) == 330
+    assert card_points(egg) < card_points(row(level=1, holo=True)) < card_points(row(level=2, holo=True)) \
+        < card_points(grown)
+    assert card_points(row(level=3)) > card_points(row(level=0))                # an ordinary pet took more, too
+
+
+@pytest.mark.parametrize("look", [
+    {}, {"shiny": True}, {"ultra_shiny": True}, {"shiny": True, "frame": "R7-A", "seal": 3, "holo": True},
+    {"seal": 1, "holo_partial": True}, {"seal": 2}, {"holo": True}, {"ultra_shiny": True, "frame": "U1"}])
+def test_an_eggs_value_is_what_it_always_was(look):
+    """x1: the examples published for eggs do not move."""
+    egg = row(level=0, **look)
+    assert card_points(egg) == albumrank.base_points(egg) == albumrank.staged(albumrank.base_points(egg), 0)
+    assert card_points(row(level=None, **look)) == card_points(egg)            # NULL is the egg
+
+
+def test_a_stage_the_table_does_not_know_counts_once(monkeypatch):
+    monkeypatch.delitem(albumrank.STAGE_MULTIPLIER, 2)
+    assert [card_points(row(level=level, shiny=True)) for level in album.stages()] == [46, 69, 46, 138]
+    monkeypatch.setattr(pets, "MAX_LEVEL", 4)                                  # a new stage without a number
+    assert card_points(row(level=4, shiny=True)) == 46
+    for garbage in (None, "x", 0, -2, float("nan"), float("inf")):             # never a broken score
+        monkeypatch.setitem(albumrank.STAGE_MULTIPLIER, 1, garbage)
+        assert albumrank.stage_multiplier(1) == 1.0 and card_points(row(level=1, shiny=True)) == 46, garbage
+    for level in (None, "x", 2.5, 7, -1):
+        assert albumrank.stage_multiplier(level) == 1.0 and albumrank.staged(46, level) == 46, level
+
+
+def test_the_memo_tells_the_stages_apart():
+    """One scorer, the same look at two stages: two values (the level is part of the memo key)."""
+    assert "pet_lvl" in albumrank._SCORED_COLUMNS
+    scorer = albumrank._Scorer()
+    egg, grown = row(level=0, holo=True, entry_id=1), row(level=3, holo=True, entry_id=2)
+    assert scorer(egg) == (("Cat", 0), 110) and scorer(grown) == (("Cat", 3), 330)
+    assert scorer(egg) == (("Cat", 0), 110) and len(scorer._memo) == 2
+    value = albumrank.collection([egg, grown, row(level=3, entry_id=3)], scorer)
+    assert value.points == 440 and value.best == {("Cat", 0): (110, 1), ("Cat", 3): (330, 2)}
+    assert value.beaten(row(level=3, entry_id=3)) and not value.beaten(grown)  # the per-slot rule is as it was
+
+
+async def test_the_ranking_moves_with_the_stage(game_db):
+    """Before the multiplier Ala's Holo egg (110) led; now Ola's grown pets are worth more."""
+    game = game_db
+    db = game.bot.db
+    ala = game.add_member("Ala", roles=[PATRON])
+    ola = game.add_member("Ola", roles=[PATRON])
+    ela = game.add_member("Ela", roles=[PATRON])
+    await put(db, ala.id, "Cat", 0, holo=True)                                 # 110
+    await put(db, ola.id, "Cat", 3, shiny=True)                                # 46 x 3 = 138
+    await put(db, ela.id, "Cat", 0, shiny=True)                                # 46 ...
+    await put(db, ela.id, "Cat", 1, seal=1)                                    # ... + 65 = 111
+    assert table(await albumrank.ranking(game.bot)) == [(1, ola.id, 138, 1), (2, ela.id, 111, 2), (3, ala.id, 110, 1)]
+    assert albumrank.collection(await album_rows(db, ela.id)).points == 111   # the album agrees with the ranking
+    await put(db, ala.id, "Cat", 3, holo=True)                                 # the same Holo, grown: + 330
+    assert table(await albumrank.ranking(game.bot))[0] == (1, ala.id, 440, 2)
 
 
 def test_the_frame_bonuses_follow_the_catalogue(monkeypatch):
@@ -88,7 +229,8 @@ def test_the_owners_examples():
     assert card_points(row(shiny=True)) == 46                                 # Shiny, base frame
     assert card_points(row(ultra_shiny=True)) == 68                           # Ultra Shiny, base frame
     assert card_points(row("Void", 0)) == 94                                  # mythic, nothing else
-    assert card_points(row("Void", 2, frame="R9-A", seal=3, holo=True)) == 10 + 84 + 90 + 90 + 100 == 374
+    assert card_points(row("Void", 0, frame="R9-A", seal=3, holo=True)) == 10 + 84 + 90 + 90 + 100 == 374
+    assert card_points(row("Void", 2, frame="R9-A", seal=3, holo=True)) == 374 * 2 == 748   # ... at level 2
     assert card_points(row(shiny=True, frame="R7-A", seal=3, holo=True)) == 336
     assert card_points(row(shiny=True, seal=1, holo_partial=True)) == 10 + 36 + 33 + 66
 
@@ -112,7 +254,7 @@ def test_odd_rows_never_raise():
     assert card_points({**row(), "type": None}) == 0
     assert card_points(row(level=7)) == 0 and card_points(row(level=-1)) == 0
     assert card_points(row(level=Decimal("1.5"))) == 0
-    assert card_points(row(level=Decimal("3"))) == 10
+    assert card_points(row(level=Decimal("3"))) == 30                          # (level 3: x3)
     assert card_points(row(level=None)) == 10                                  # NULL is the egg, as everywhere
     assert card_points(None) == 0 and card_points({}) == 0
 
@@ -138,7 +280,7 @@ def test_only_the_best_card_of_a_slot_counts():
     assert value.beaten(plain) and not value.beaten(shiny)
     others = albumrank.collection([plain, shiny, row("Cat", 1, entry_id=5), row("Void", 0, entry_id=6),
                                    row("Cat", 7, entry_id=7), {**row(entry_id=8), "type": "Dinozaur"}])
-    assert others.points == 46 + 10 + 94 and others.slots == 3                             # the Void counts
+    assert others.points == 46 + 15 + 94 and others.slots == 3                             # the Void counts
     assert albumrank.collection([]).points == 0 and albumrank.collection([]).slots == 0
 
 
@@ -169,11 +311,13 @@ def table(board) -> list[tuple]:
     return [(item.place, item.player_id, item.points, item.cards) for item in board.standings]
 
 
-SLOTS = [(species, level) for species in album.collection_species() for level in album.stages()]
+#: Every slot of the collection, the eggs first: a plain egg is worth 10, so up to 17 ``cards`` are
+#: worth 10 each (the stage multiplier starts with the 18th, a pet of level 1).
+SLOTS = [(species, level) for level in album.stages() for species in album.collection_species()]
 
 
 async def cards(db, player_id: int, count: int, **columns) -> list[int]:
-    """``count`` plain cards of different slots."""
+    """``count`` plain cards of different slots (the first 17: eggs, 10 points each)."""
     return [await put(db, player_id, species, level, **columns) for species, level in SLOTS[:count]]
 
 
@@ -184,7 +328,7 @@ async def test_the_ranking_order_and_every_tie_break(game_db):
     ala, ola, ela, iza, ewa = (game.add_member(name, roles=[PATRON], member_id=member_id)
                                for name, member_id in (("Ala", 105), ("Ola", 104), ("Ela", 103),
                                                        ("Iza", 102), ("Ewa", 101)))
-    await put(db, ala.id, "Void", 0)                                  # 188, two slots: the most points
+    await put(db, ala.id, "Void", 0)                                  # 94 + 141 = 235, two slots: the most
     await put(db, ala.id, "Void", 1)
     for member in (ola, iza, ewa):                                    # 100 in ten slots each ...
         for entry_id in await cards(db, member.id, 10):
@@ -192,7 +336,7 @@ async def test_the_ranking_order_and_every_tie_break(game_db):
     await at(db, (await album_rows(db, iza.id))[-1]["entry_id"], day + timedelta(days=1))  # Iza: a day later
     await at(db, await put(db, ela.id, "Cat", 0, seal=3), day - timedelta(days=30))       # 100 in ONE slot
     board = await albumrank.ranking(game.bot)
-    assert [item.points for item in board.standings] == [188, 100, 100, 100, 100]
+    assert [item.points for item in board.standings] == [235, 100, 100, 100, 100]
     # Points first; then more slots (Ela, earliest of all, is last); then the older newest counted
     # card (Iza after Ewa and Ola); then the player id (Ewa 101 before Ola 104).
     assert [item.player_id for item in board.standings] == [ala.id, ewa.id, ola.id, iza.id, ela.id]
@@ -209,20 +353,20 @@ async def test_a_better_duplicate_and_removals(game_db):
         return (await albumrank.ranking(game.bot)).of(ala.id).points
 
     plain = await put(db, ala.id, "Cat", 0)
-    await put(db, ala.id, "Dog", 1)
-    assert await value() == 20
+    await put(db, ala.id, "Dog", 1)                                   # (level 1: 15)
+    assert await value() == 25
     twin = await put(db, ala.id, "Cat", 0)
-    assert await value() == 20                                        # a duplicate adds nothing
+    assert await value() == 25                                        # a duplicate adds nothing
     shiny = await put(db, ala.id, "Cat", 0, shiny=True)
-    assert await value() == 20 + 36                                   # a better one: the difference only
+    assert await value() == 25 + 36                                   # a better one: the difference only
     ultra = await put(db, ala.id, "Cat", 0, ultra_shiny=True)
-    assert await value() == 10 + 68
+    assert await value() == 15 + 68
     assert await album.remove(db, ala.id, twin)                       # a duplicate that did not count
-    assert await value() == 10 + 68
+    assert await value() == 15 + 68
     assert await album.remove(db, ala.id, ultra)                      # the best one: the next best counts
-    assert await value() == 10 + 46
-    assert await album.remove(db, ala.id, shiny) and await value() == 20
-    assert await album.remove(db, ala.id, plain) and await value() == 10
+    assert await value() == 15 + 46
+    assert await album.remove(db, ala.id, shiny) and await value() == 25
+    assert await album.remove(db, ala.id, plain) and await value() == 15
 
 
 async def test_only_supporters_right_now_are_ranked(game_db):
@@ -247,7 +391,8 @@ async def test_only_supporters_right_now_are_ranked(game_db):
 
     big.roles.append(game.guild.get_role(PATRON))                      # supports again: back with his cards
     board = await albumrank.ranking(game.bot)
-    assert table(board) == [(1, big.id, 30 * 46, 30), (2, ala.id, 30, 3), (3, ola.id, 20, 2)]
+    assert 17 * 46 + 13 * 69 == 1679                                   # 17 shiny eggs, 13 shiny pets of level 1
+    assert table(board) == [(1, big.id, 1679, 30), (2, ala.id, 30, 3), (3, ola.id, 20, 2)]
 
 
 async def test_an_album_without_the_later_columns_is_ranked(game_db):
@@ -295,9 +440,9 @@ async def test_the_overview_shows_the_value_the_place_was_given_for(cogs, monkey
     ala = game.add_member("Ala", roles=[PATRON])
     await put(db, ala.id, "Cat", 0)
     rows = await album_rows(db, ala.id)
-    await put(db, ala.id, "Dog", 1)                                              # (meanwhile)
+    await put(db, ala.id, "Dog", 1)                                              # (meanwhile: + 15)
     overview = await albumrank.overview_of(game.bot, ala, rows)
-    assert (overview.points, overview.place, overview.total) == (20, 1, 1)
+    assert (overview.points, overview.place, overview.total) == (25, 1, 1)
 
 
 # -- an incomplete member cache -------------------------------------------------------------------
@@ -493,7 +638,7 @@ async def test_the_overview_shows_the_value_and_the_place(cogs):
     day = datetime(2026, 11, 1, tzinfo=timezone.utc)
     await at(db, (await album_rows(db, ala.id))[0]["entry_id"], day + timedelta(days=1))
     ola = game.add_member("Ola", roles=[patrons.CRAFTER_ROLE])
-    await at(db, await put(db, ola.id, "Dog", 2, shiny=True), day)       # as much, but earlier: she leads
+    await at(db, await put(db, ola.id, "Dog", 0, shiny=True), day)       # as much, but earlier: she leads
     assert "Miejsce w rankingu: **2.** (z 2)" in page(await show(game, ala))
     assert "Miejsce w rankingu: **1.** (z 2)" in page(await show(game, ola))
     # Several players, no ornament named, no species he has not found.
@@ -518,8 +663,9 @@ async def test_a_full_album_with_five_digit_value_fits(cogs):
         await put(db, ala.id, species, level, shiny=True, frame="R7-A", seal=3, holo=True)
     await put(db, ala.id, "Void", 3, frame="R9-A", seal=3, holo=True)
     text = page(await show(game, ala))
-    assert 68 * 336 + 374 == 23222
-    assert f"Wartość kolekcji: **23{NBSP}222 pkt**\nMiejsce w rankingu: **1.** (z 1)" in text
+    # Per species 336 x (1 + 1.5 + 2 + 3), and the Void of level 3.
+    assert 17 * (336 + 504 + 672 + 1008) + 374 * 3 == 43962
+    assert f"Wartość kolekcji: **43{NBSP}962 pkt**\nMiejsce w rankingu: **1.** (z 1)" in text
     assert len(text) <= 4096
 
 
@@ -532,18 +678,21 @@ async def test_the_entry_page_shows_the_cards_value_and_what_does_not_count(cogs
     await put(db, ala.id, "Dog", 1)                                       # two equal ones: nothing said
     await put(db, ala.id, "Dog", 1)
     panel = await show(game, ala)
-    assert "Wartość kolekcji: **56 pkt**" in page(panel)
-    await game.click(panel, ala, "Następny")
+    assert "Wartość kolekcji: **61 pkt**" in page(panel)                  # 46 + 15 (level 1)
+    for position in (1, 2):                                               # the hatched pets come first
+        await game.click(panel, ala, "Następny")
+        assert "Wartość karty: **15 pkt**" in page(panel) and albumrank.MSG_NOT_COUNTED not in page(panel)
+        assert page(panel).endswith(f"Wpis **{position} z 4**")
+    await game.click(panel, ala, "Następny")                              # the eggs, as they were kept
     assert "Wartość karty: **10 pkt**" in page(panel) and albumrank.MSG_NOT_COUNTED in page(panel)
-    assert page(panel).endswith("Wpis **1 z 4**")
+    assert page(panel).endswith("Wpis **3 z 4**")
     await game.click(panel, ala, "Następny")
     assert "Wartość karty: **46 pkt**" in page(panel) and albumrank.MSG_NOT_COUNTED not in page(panel)
-    for _ in range(2):
-        await game.click(panel, ala, "Następny")
-        assert "Wartość karty: **10 pkt**" in page(panel) and albumrank.MSG_NOT_COUNTED not in page(panel)
-    for text in (albumrank.MSG_NOT_COUNTED, albumrank.MSG_HOW):           # no ornament is named
+    for text in (albumrank.MSG_NOT_COUNTED, albumrank.MSG_HOW):           # no ornament is named, no number
         for secret in ("Shiny", "shiny", "Holo", "holo", "ieczę", "amk", "Tropiciel", "Łowc"):
             assert secret not in text, secret
+        assert not any(character.isdigit() for character in text) and "%" not in text
+    assert "wyższy etap" in albumrank.MSG_HOW                             # a higher stage is worth more
 
 
 async def test_the_overview_after_a_removal_shows_the_new_value_and_place(cogs):
@@ -552,15 +701,17 @@ async def test_the_overview_after_a_removal_shows_the_new_value_and_place(cogs):
     ala = game.add_member("Ala", roles=[PATRON])
     ola = game.add_member("Ola", roles=[PATRON])
     await put(db, ala.id, "Cat", 0, ultra_shiny=True)                     # 68: first
-    await put(db, ala.id, "Cat", 1)
+    await put(db, ala.id, "Cat", 1)                                       # + 15
     await cards(db, ola.id, 6)                                            # 60
     panel = await show(game, ala)
-    assert "Wartość kolekcji: **78 pkt**\nMiejsce w rankingu: **1.** (z 2)" in page(panel)
-    await game.click(panel, ala, "Następny")
+    assert "Wartość kolekcji: **83 pkt**\nMiejsce w rankingu: **1.** (z 2)" in page(panel)
+    await game.click(panel, ala, "Następny")                              # the cat of level 1
+    await game.click(panel, ala, "Następny")                              # the egg (eggs come last)
+    assert "Wartość karty: **68 pkt**" in page(panel)
     game.auto_click(ala, "yes")
     await game.click(panel, ala, "Usuń z albumu")                         # the ultra shiny egg
     await game.click(panel, ala, "Przegląd")
-    assert "Wartość kolekcji: **10 pkt**\nMiejsce w rankingu: **2.** (z 2)" in page(panel)
+    assert "Wartość kolekcji: **15 pkt**\nMiejsce w rankingu: **2.** (z 2)" in page(panel)
 
 
 # -- $rankingalbumow and the hub -----------------------------------------------------------------
@@ -732,8 +883,16 @@ async def test_the_ranking_is_cheap(game_db, capsys):
         await ticking
     assert board.total == 300 and [item.place for item in board.standings] == list(range(1, 301))
     started = time.perf_counter()
-    albumrank.collection(await album.entries(db, players[0].id))
+    mine = albumrank.collection(await album.entries(db, players[0].id))
     own = time.perf_counter() - started
+    # The stage multiplier is in what was measured: the rows have every stage, the ranking's memo
+    # (one card per distinct look AND level) gives what a fresh score of the player's rows gives,
+    # and that is more than the same cards would be worth as eggs.
+    levels = {int(entry["pet_lvl"]) for entry in await album_rows(db, players[0].id)}
+    assert levels == {0, 1, 2, 3, 4}
+    assert board.of(players[0].id).points == mine.points > 0
+    by_id = {entry["entry_id"]: entry for entry in await album_rows(db, players[0].id)}
+    assert mine.points > sum(albumrank.base_points(by_id[entry_id]) for _, entry_id in mine.best.values())
     with capsys.disabled():
         print(f"\n[album ranking: 300 x 100 entries: {min(times) * 1000:.0f} ms best, "
               f"{max(times) * 1000:.0f} ms worst of 3; longest hold of the event loop "

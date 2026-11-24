@@ -76,6 +76,39 @@ def test_the_notes_promise_only_what_the_game_does(game):
     assert "Akcje towarzysza są teraz dostępne jako przyciski pod nim" in text[1]
 
 
+def test_the_notes_of_the_album_update_tell_what_changed_and_not_a_word_about_the_merchants_prices():
+    """Entry 11 (2026-11-23): the album note at a new egg, the stage in the collection ranking, the
+    egg that keeps its species to itself, the training's advantage bar, events a little more often.
+    The owner: "Nie wspominaj w patch notesach o zmianach cen u merchanta" - players find out themselves."""
+    notes = {item.id: item for item in patchnotes.load_notes()}
+    note = notes[11]
+    assert note.date == "2026-11-23" and note.title and len(note.changes) == 5
+    text = " ".join(note.changes)
+    low = text.lower()
+    for told in ("wspierający", "nowym jajku", "notkę o albumie", "uzupełnić kolekcję",       # the album note
+                 "rankingu kolekcji", "im wyższy etap, tym więcej warta",                    # the stage counts
+                 "jajko w albumie nie zdradza już swojego gatunku",                          # the egg's species
+                 "to samo dotyczy rankingu towarzyszy",                                      # ... in the pet ranking too
+                 "trening towarzyszy", "kto prowadzi",                                       # the advantage bar
+                 "wydarzenia na kanale bossa pojawiają się teraz trochę częściej"):          # events
+        assert told in low, told
+    # The note at a new egg lists the album's cards of that companion, so a player who knows his album can
+    # work the species out: the entry must not promise that it stays a secret.
+    assert "tajemnic" not in low and "sekret" not in low
+    # The merchant's prices: nothing - by none of the words one would use for him, his wares or a price.
+    merchant_words = (r"kupiec|kupc|kupi|kupuj|kupn|merchant|handl|kram|towar\b|towar[yuóe]|sprzeda|\bcen|koszt|"
+                      r"płac|płat|zapłac|sakw|zwoj|zwój|taniej|drożej|drożs|tańs|rabat|zniżk|promocj")
+    assert not re.search(merchant_words, f"{note.title} {text}".lower())
+    for sentence in ("U handlarza jajko kosztuje teraz raz mniej, raz więcej.", "Kupiec zmienia ceny.",
+                     "Sakwa bywa tańsza.", "Za jajko zapłacisz różnie.", "Towary kupca mają nowe ceny."):
+        assert re.search(merchant_words, sentence.lower()), sentence          # (the guard knows these ways round)
+    # No numbers (how much a stage is worth, how much more often), no chances, no names of ornaments.
+    assert not re.search(r"\d", text) and patchnotes.spoiler_in(note) is None
+    assert "lobby" not in low and "wygląd" not in low and "rankingalbumow" in text
+    # Earlier entries are final: this one is the next number after the rank's entry.
+    assert notes[10].title == "Ranga Kolekcjoner Pupili" and notes[8].title == "Trening towarzyszy"
+
+
 def test_a_good_file_is_read_with_stripped_texts_and_an_optional_title(tmp_path):
     path = write(tmp_path, [entry(1, "  Pierwsza zmiana.  ", title=" Nowości "),
                             {"id": 2, "date": "2026-12-01", "changes": ["Druga."]}])

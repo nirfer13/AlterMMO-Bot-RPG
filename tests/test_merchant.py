@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import random
 from collections import Counter
 
@@ -12,12 +13,44 @@ import pytest
 from altermmo.cogs import events as events_cog
 from altermmo.core import timing, ui
 from altermmo.core.state import EventType
-from altermmo.features import daily, merchant, pets, skills, tower
+from altermmo.features import album, daily, merchant, patrons, pets, skills, tower
+
+from test_album_note import EMPTY_NOTE, force, new_egg, notes, recorded
 
 # -- helpers -------------------------------------------------------------------------------
 
+#: The config the owner ships (``config/merchantConfig.json``).  He retunes it without a restart, so
+#: only ONE test reads it - the pin ``test_the_shipped_config_has_every_ware_at_the_owners_price``.
+SHIPPED_CONFIG = merchant.CONFIG_FILE
+#: The tests' OWN config: every other test here (the rules of the draw, the cart, buying, the refund)
+#: runs on these numbers (``own_config``), so a retune of the shipped file never turns a behaviour test
+#: red.  (Today they are the owner's numbers, which the pin test says.)
+OWN_CONFIG = {
+    "stay_seconds": 600,
+    "stock_weights": {"1": 80, "2": 15, "3": 5},
+    "items": [
+        {"id": "random_egg", "name": "Losowe jajko", "price": 25, "price_spread_percent": 30, "weight": 30},
+        {"id": "rest_kit", "name": "Zestaw do wypoczynku", "price": 10, "weight": 30},
+        {"id": "stable_place", "name": "Powiększenie stajni", "price": 100, "weight": 25, "max_places": 10},
+        {"id": "egg_pouch", "name": "Sakwa na jajko", "price": 250, "price_spread_percent": 30, "weight": 10},
+        {"id": "tower_ticket", "name": "Wejściówka do wieży", "price": 50, "weight": 3},
+        {"id": "random_gem", "name": "Losowy klejnot", "price": 1000, "weight": 2},
+    ],
+}
 PRICES = {"egg_pouch": 250, "random_egg": 25, "stable_place": 100, "random_gem": 1000, "rest_kit": 10,
           "tower_ticket": 50}
+#: The wares whose price is drawn at every visit (owner, 2026-11-23: "+ - 30% for egg bag and egg") and
+#: what they can cost: 25 less / plus 30 % is 17.5 / 32.5, a half rounded up; 250 less / plus 30 % is 175 / 325.
+PRICE_RANGES = {"random_egg": (18, 33), "egg_pouch": (175, 325)}
+
+
+@pytest.fixture(autouse=True)
+def own_config(monkeypatch, tmp_path):
+    """The merchant reads the tests' own config (:data:`OWN_CONFIG`), through the real loader."""
+    path = tmp_path / "own-merchantConfig.json"
+    path.write_text(json.dumps(OWN_CONFIG, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(merchant, "CONFIG_FILE", path)
+    return path
 
 
 @pytest.fixture
@@ -36,7 +69,8 @@ def no_pictures(monkeypatch, tmp_path):
 
 @pytest.fixture
 def cart(monkeypatch, no_pictures):
-    """``cart("rest_kit", ...)``: the merchant brings exactly these wares (prices of the real config)."""
+    """``cart("rest_kit", ...)``: the merchant brings exactly these wares at the list prices of the tests'
+    config (nothing is drawn here, no price either - see ``visit`` for the real draw)."""
     chosen: list[str] = []
 
     def draw(config, *, upgrades=True, rng=None):
@@ -50,6 +84,27 @@ def cart(monkeypatch, no_pictures):
         chosen[:] = wares
 
     return choose
+
+
+def only(*wares: str) -> merchant.Config:
+    """The tests' config with nothing but ``wares`` on sale, all of them in every cart."""
+    real = merchant.load_config()
+    return merchant.Config(real.stay_seconds, {len(wares): 1},
+                           tuple(item for item in real.items if item[0] in wares))
+
+
+@pytest.fixture
+def visit(monkeypatch, no_pictures):
+    """``visit(seed, "random_egg", ...)``: the merchant brings exactly these wares through the REAL draw
+    (``merchant.draw_stock`` with the module's own source of luck, seeded with ``seed``); returns the cart
+    that draw gives - its order and its prices - replayed from the same seed."""
+    def arrange(seed: int, *wares: str) -> list[merchant.Offer]:
+        config = only(*wares)
+        monkeypatch.setattr(merchant, "load_config", lambda path=None: config)
+        monkeypatch.setattr(merchant, "random", random.Random(seed))
+        return merchant.draw_stock(config, rng=random.Random(seed))
+
+    return arrange
 
 
 async def until(predicate, timeout: float = 5.0) -> None:
@@ -93,7 +148,9 @@ def start(game):
 # -- config and the draw ---------------------------------------------------------------------
 
 def test_the_shipped_config_has_every_ware_at_the_owners_price():
-    config = merchant.load_config()
+    """THE pin of ``config/merchantConfig.json``: the one test a retune of that file turns red."""
+    config = merchant.load_config(SHIPPED_CONFIG)
+    assert SHIPPED_CONFIG.name == "merchantConfig.json" and SHIPPED_CONFIG.parent.name == "config"
     assert {item[0]: item[2] for item in config.items} == PRICES
     assert set(PRICES) == set(merchant.WARES)
     weights = {item[0]: item[3] for item in config.items}
@@ -106,6 +163,23 @@ def test_the_shipped_config_has_every_ware_at_the_owners_price():
     # mostly one ware, rarely two or three
     assert set(config.stock_weights) == {1, 2, 3} and config.stock_weights[1] > config.stock_weights[2] + \
         config.stock_weights[3]
+    # The egg and the egg pouch cost something else at every visit, by up to 30 %; the rest is fixed.
+    spreads = {item[0]: merchant.price_spread(item[4]) for item in config.items}
+    assert {ware for ware, spread in spreads.items() if spread} == set(PRICE_RANGES) == {"random_egg", "egg_pouch"}
+    assert spreads["random_egg"] == spreads["egg_pouch"] == 30
+    assert all(merchant.SPREAD_KEY not in item[4] for item in config.items if item[0] not in PRICE_RANGES)
+
+
+def test_every_other_test_runs_on_the_tests_own_numbers(own_config):
+    """The owner retunes the shipped file without a restart: a behaviour test must not depend on it."""
+    assert merchant.CONFIG_FILE == own_config != SHIPPED_CONFIG
+    config = merchant.load_config()                                      # (what the merchant reads when he comes)
+    assert [(ware, name, price, weight) for ware, name, price, weight, _ in config.items] == [
+        (item["id"], item["name"], item["price"], item["weight"]) for item in OWN_CONFIG["items"]]
+    assert {item[0]: item[2] for item in config.items} == PRICES
+    assert {item[0]: merchant.price_range(item[2], merchant.price_spread(item[4])) for item in config.items
+            if merchant.price_spread(item[4])} == PRICE_RANGES
+    assert only("rest_kit").items == tuple(item for item in config.items if item[0] == "rest_kit")
 
 
 def test_a_broken_config_is_refused(tmp_path):
@@ -123,20 +197,129 @@ def test_a_broken_config_is_refused(tmp_path):
         merchant.load_config(path)
 
 
+@pytest.mark.parametrize("spread", [-1, -0.5, 100, 100.0, 250, 1e9, float("nan"), float("inf"), float("-inf"),
+                                    "dużo", "", True, False, [30], {"percent": 30},
+                                    10 ** 400, -10 ** 400, "1" + "0" * 400],      # too long for a float
+                         ids=lambda spread: repr(spread)[:24])
+def test_a_price_spread_that_makes_no_sense_is_refused(tmp_path, spread):
+    path = tmp_path / "merchantConfig.json"
+    good = json.loads(merchant.CONFIG_FILE.read_text(encoding="utf-8"))
+    egg = next(item for item in good["items"] if item["id"] == "random_egg")
+    egg["price_spread_percent"] = spread
+    path.write_text(json.dumps(good), encoding="utf-8")
+    with pytest.raises(merchant.ConfigError, match="random_egg.*price_spread_percent"):
+        merchant.load_config(path)
+    # ... and a cart never gets a price out of it either (a config built by hand).
+    with pytest.raises(merchant.ConfigError):
+        merchant.price_spread({"id": "random_egg", "price": 25, "price_spread_percent": spread})
+
+
+@pytest.mark.parametrize("spread, expected", [(30, 30.0), (12.5, 12.5), ("30", 30.0), (0, 0.0), (None, 0.0),
+                                              (99.9, 99.9), (0.5, 0.5)])
+def test_a_price_spread_is_a_number_from_nothing_to_just_below_the_whole_price(tmp_path, spread, expected):
+    path = tmp_path / "merchantConfig.json"
+    good = json.loads(merchant.CONFIG_FILE.read_text(encoding="utf-8"))
+    egg = next(item for item in good["items"] if item["id"] == "random_egg")
+    egg["price_spread_percent"] = spread
+    path.write_text(json.dumps(good), encoding="utf-8")
+    config = merchant.load_config(path)
+    entry = next(item for item in config.items if item[0] == "random_egg")
+    assert merchant.price_spread(entry[4]) == expected and entry[2] == 25      # the list price stays the list price
+    assert merchant.price_spread({"id": "rest_kit", "price": 10}) == 0.0       # absent: the fixed price
+
+
+def test_the_bounds_of_a_drawn_price():
+    """From 70 % to 130 % of the list price, the bounds rounded half UP to whole scrolls, never below 1."""
+    assert merchant.price_range(25, 30) == (18, 33) == PRICE_RANGES["random_egg"]      # 17.5 and 32.5
+    assert merchant.price_range(250, 30) == (175, 325) == PRICE_RANGES["egg_pouch"]    # 175.0 and 325.0
+    assert merchant.price_range(25, 30.0) == (18, 33) and merchant.price_range(250, 30.0) == (175, 325)
+    assert merchant.price_range(15, 30) == (11, 20)                       # 10.5 and 19.5: both halves go up
+    assert merchant.price_range(5, 30) == (4, 7)                          # 3.5 and 6.5
+    assert merchant.price_range(10, 30) == (7, 13) and merchant.price_range(100, 30) == (70, 130)
+    assert merchant.price_range(1000, 30) == (700, 1300)
+    assert merchant.price_range(25, 12.5) == (22, 28)                     # 21.875 and 28.125
+    assert merchant.price_range(10, 1.15) == (10, 10)                     # 9.885 and 10.115: nothing to draw
+    assert merchant.price_range(1, 30) == (1, 1) and merchant.price_range(2, 30) == (1, 3)
+    assert merchant.price_range(1, 99.9) == (1, 2) and merchant.price_range(3, 99) == (1, 6)   # never below 1
+    # No spread - and a ware that costs nothing - is the price itself.
+    assert merchant.price_range(25, 0) == (25, 25) and merchant.price_range(250, 0.0) == (250, 250)
+    assert merchant.price_range(0, 30) == (0, 0)
+    # The rule, for every price the merchant could ask and every whole spread.
+    for price in range(1, 1100):
+        for spread in (1, 5, 10, 30, 50, 75, 99):
+            low, high = merchant.price_range(price, spread)
+            exact_low, exact_high = price * (100 - spread), price * (100 + spread)      # in hundredths
+            assert low == max(1, (exact_low + 50) // 100) and high == max(low, (exact_high + 50) // 100)
+            assert 1 <= low <= price <= high
+
+
+@pytest.mark.parametrize("ware", ["random_egg", "egg_pouch"])
+def test_every_price_of_the_range_can_come_and_none_outside_it(ware):
+    low, high = PRICE_RANGES[ware]
+    config = only(ware)
+    rng = random.Random(11)
+    drawn = Counter()
+    for _ in range(40000):
+        (offer,) = merchant.draw_stock(config, rng=rng)
+        drawn[offer.price] += 1
+    assert sorted(drawn) == list(range(low, high + 1))                   # 16 prices of the egg, 151 of the pouch
+    even = 40000 / (high - low + 1)
+    assert 0.7 * even < min(drawn.values()) and max(drawn.values()) < 1.3 * even      # each as likely as the other
+    # The same through the one-price helper; a fixed price draws nothing at all.
+    assert {merchant.draw_price(PRICES[ware], 30, rng) for _ in range(5000)} == set(range(low, high + 1))
+    state = rng.getstate()
+    assert merchant.draw_price(PRICES[ware], 0, rng) == PRICES[ware] and rng.getstate() == state
+    assert merchant.draw_price(1, 30, rng) == 1 and rng.getstate() == state
+
+
+def test_wares_without_a_spread_cost_what_they_cost_and_the_cart_is_the_one_it_was():
+    """The prices are drawn after the wares: which wares come for a seed did not change, and a cart
+    without the egg and the pouch draws nothing more than it did before prices could vary."""
+    config = merchant.load_config()
+    fixed = merchant.Config(config.stay_seconds, config.stock_weights, tuple(
+        (ware, name, price, weight, {key: value for key, value in entry.items() if key != merchant.SPREAD_KEY})
+        for ware, name, price, weight, entry in config.items))
+    varied = 0
+    for seed in range(600):
+        now, before = random.Random(seed), random.Random(seed)
+        stock, old = merchant.draw_stock(config, rng=now), merchant.draw_stock(fixed, rng=before)
+        assert [offer.ware.id for offer in stock] == [offer.ware.id for offer in old]
+        assert all(offer.price == PRICES[offer.ware.id] for offer in old)
+        drawn = [offer for offer in stock if offer.ware.id in PRICE_RANGES]
+        assert all(offer.price == PRICES[offer.ware.id] for offer in stock if offer not in drawn)
+        if not drawn:
+            assert now.getstate() == before.getstate()                     # not one draw more than before
+            continue
+        varied += 1
+        assert now.getstate() != before.getstate()
+        # One draw per such ware, after the whole cart was chosen, in the order of the cart.
+        expected = [merchant.draw_price(PRICES[offer.ware.id], 30, before) for offer in drawn]
+        assert [offer.price for offer in drawn] == expected and now.getstate() == before.getstate()
+        assert all(PRICE_RANGES[offer.ware.id][0] <= offer.price <= PRICE_RANGES[offer.ware.id][1] for offer in drawn)
+    assert 100 < varied < 500
+
+
 def test_the_cart_holds_different_wares_mostly_one():
     config = merchant.load_config()
     rng = random.Random(7)
     sizes = Counter()
     seen = Counter()
+    prices: dict[str, set] = {ware: set() for ware in PRICES}
     for _ in range(4000):
         stock = merchant.draw_stock(config, rng=rng)
         ids = [offer.ware.id for offer in stock]
         assert len(ids) == len(set(ids)) and 1 <= len(ids) <= 3
-        assert all(offer.price == PRICES[offer.ware.id] and not offer.sold for offer in stock)
+        assert not any(offer.sold for offer in stock)
+        for offer in stock:
+            prices[offer.ware.id].add(offer.price)
         sizes[len(ids)] += 1
         seen.update(ids)
     assert sizes[1] > 0.7 * 4000 and sizes[2] > 0 and sizes[3] > 0
     assert seen["random_egg"] > seen["egg_pouch"] > seen["random_gem"] > 0
+    # Only the egg and the pouch change their price from visit to visit.
+    assert all(prices[ware] == {PRICES[ware]} for ware in PRICES if ware not in PRICE_RANGES)
+    assert prices["random_egg"] == set(range(18, 34)) and len(prices["egg_pouch"]) > 100
+    assert min(prices["egg_pouch"]) >= 175 and max(prices["egg_pouch"]) <= 325
 
 
 def test_without_the_new_columns_neither_the_pouch_nor_stable_places_come():
@@ -533,6 +716,242 @@ async def test_an_egg_into_the_pouch_does_not_block_the_level_of_the_same_drop(g
 
     ola = game.add_member("Ola")                                              # nobody at her side
     assert await daily.rand_loot(game.scene(ola), 1, ola, 0) == "👉 Jajko\n"   # the old rule stays
+
+
+# -- a price drawn for the visit: shown, asked, paid, given back ------------------------------
+
+@pytest.mark.parametrize("ware, name, seed", [("random_egg", "Losowe jajko", 1), ("random_egg", "Losowe jajko", 2),
+                                              ("egg_pouch", "Sakwa na jajko", 1), ("egg_pouch", "Sakwa na jajko", 2)])
+async def test_the_price_of_the_visit_is_the_one_shown_asked_and_paid(game_db, visit, caplog, ware, name, seed):
+    game, db = game_db, game_db.bot.db
+    (expected,) = visit(seed, ware)
+    price, (low, high) = expected.price, PRICE_RANGES[ware]
+    assert low <= price <= high and price != PRICES[ware]                    # (seeds that do not hit the list price)
+    cost = merchant.scrolls(price)
+    poor, rich = game.add_member("Biedak"), game.add_member("Bogacz")
+    await make_owner(db, poor.id, scrolls=price - 1)
+    await make_owner(db, rich.id, scrolls=price + 7)
+    with caplog.at_level(logging.INFO, logger="altermmo.features.merchant"):
+        task = start(game)
+        panel = await game.wait_for_buttons(merchant.buy_key(0))
+        # Shown: on the button and in the panel.
+        assert panel.button_labels == [f"{name} ({cost})"]
+        assert f"**{name}** - {cost}\n" in panel.embeds[0].description
+        assert merchant.scrolls(PRICES[ware]) not in panel.embeds[0].description
+        # Asked: one scroll short is too few - and nothing is taken.
+        refused = await game.click(panel, poor, merchant.buy_key(0))
+        await until(lambda: refused.answers)
+        assert refused.answers == [merchant.MSG_POOR.format(name=name, price=cost,
+                                                            have=merchant.scrolls(price - 1))]
+        assert await scrolls_of(db, poor.id) == price - 1
+        # Paid: exactly that many scrolls.
+        await game.click(panel, rich, merchant.buy_key(0))
+        stock = await asyncio.wait_for(task, 5)
+    assert stock[0].buyer == rich and stock[0].price == price
+    assert await scrolls_of(db, rich.id) == 7 and await scrolls_of(db, poor.id) == price - 1
+    assert game.channel.contains(f"🛒 {rich.mention} kupuje **{name}** za {cost}!")
+    assert f"~~{stock[0].ware.emoji} {name} - {cost}~~ - kupuje {rich.mention}" in panel.embeds[0].description
+    logged = [record.getMessage() for record in caplog.records]
+    assert f"Merchant spawn: {ware} for {price}." in logged
+    assert any(line.endswith(f"bought {ware} for {price} scrolls.") for line in logged)
+
+
+async def test_the_price_stays_the_same_for_the_whole_visit(game_db, visit):
+    """Drawn once when he comes: a refusal, another sale and the panel drawn anew do not change it."""
+    game, db = game_db, game_db.bot.db
+    expected = visit(5, "random_egg", "rest_kit")
+    egg = next(index for index, offer in enumerate(expected) if offer.ware.id == "random_egg")
+    kit = 1 - egg
+    price = expected[egg].price
+    assert expected[kit].price == 10 and 18 <= price <= 33 and price != 25
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=10 + price, pet_id=1)                # a pet at her side, no pouch: no room
+    await make_pet(db, 1, level=1)
+    daily.save_daily_to_file(game.bot, ala.id)
+    task = start(game)
+    panel = await game.wait_for_buttons(merchant.buy_key(egg))
+    line = f"**Losowe jajko** - {merchant.scrolls(price)}\n"
+    assert line in panel.embeds[0].description
+    refused = await game.click(panel, ala, merchant.buy_key(egg))
+    await until(lambda: refused.answers)
+    assert refused.answers == [merchant.MSG_NO_EGG_ROOM] and await scrolls_of(db, ala.id) == 10 + price
+    await game.click(panel, ala, merchant.buy_key(kit))                      # the other ware: the panel is redrawn
+    await until(lambda: "kupuje" in panel.embeds[0].description)
+    assert line in panel.embeds[0].description and await scrolls_of(db, ala.id) == price
+    assert f"Losowe jajko ({merchant.scrolls(price)})" in panel.button_labels
+    await db.execute("UPDATE PETOWNER SET PET_ID = 0 WHERE PLAYER_ID = $1", ala.id)   # now there is room
+    await game.click(panel, ala, merchant.buy_key(egg))
+    stock = await asyncio.wait_for(task, 5)
+    assert [offer.price for offer in stock] == [offer.price for offer in expected]
+    assert all(offer.buyer == ala for offer in stock) and await scrolls_of(db, ala.id) == 0
+
+
+async def test_a_refund_gives_back_exactly_what_was_paid(game_db, visit, monkeypatch):
+    game, db = game_db, game_db.bot.db
+    (expected,) = visit(3, "random_egg")
+    price = expected.price
+    assert 18 <= price <= 33 and price != 25
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=40)
+    moved: list[tuple[str, int]] = []
+    take, give_back = pets.take_scrolls, pets.return_scrolls
+
+    async def taken(bot, player_id, number):
+        moved.append(("taken", number))
+        return await take(bot, player_id, number)
+
+    async def returned(bot, player_id, number):
+        moved.append(("returned", number))
+        return await give_back(bot, player_id, number)
+
+    async def no_room_after_all(scene, player):
+        return False
+
+    monkeypatch.setattr(pets, "take_scrolls", taken)
+    monkeypatch.setattr(pets, "return_scrolls", returned)
+    monkeypatch.setattr(pets, "assign_pet", no_room_after_all)
+    task = start(game)
+    panel = await game.wait_for_buttons(merchant.buy_key(0))
+    refused = await game.click(panel, ala, merchant.buy_key(0))
+    await until(lambda: refused.answers)
+    assert refused.answers == [merchant.MSG_NO_EGG_ROOM]
+    assert moved == [("taken", price), ("returned", price)] and await scrolls_of(db, ala.id) == 40
+    assert panel.button_labels == [f"Losowe jajko ({merchant.scrolls(price)})"]   # still on sale, at the same price
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("seed", [1, 3])
+async def test_a_hand_over_that_failed_tells_the_owner_the_price_that_was_paid(game_db, visit, monkeypatch, seed):
+    """The owner gives the scrolls back by hand from this line: it must name the price of the visit."""
+    game, db = game_db, game_db.bot.db
+    (expected,) = visit(seed, "random_egg")
+    price = expected.price
+    assert 18 <= price <= 33 and price != 25
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=40)
+
+    async def broken(scene, player):
+        raise RuntimeError("test: the egg could not be stored")
+
+    monkeypatch.setattr(pets, "assign_pet", broken)
+    task = start(game)
+    panel = await game.wait_for_buttons(merchant.buy_key(0))
+    click = await game.click(panel, ala, merchant.buy_key(0))
+    stock = await asyncio.wait_for(task, 5)
+    assert stock[0].buyer == ala and await scrolls_of(db, ala.id) == 40 - price    # sold, never twice
+    assert click.answers == [merchant.MSG_FAILED]
+    assert game.bot.owner_log == [merchant.LOG_FAILED.format(
+        player_id=ala.id, price=merchant.scrolls(price), name="Losowe jajko", error="RuntimeError")]
+    assert f"zapłacił {merchant.scrolls(price)} za" in game.bot.owner_log[0]
+    assert merchant.scrolls(25) not in game.bot.owner_log[0]                 # not the list price
+
+
+@pytest.mark.parametrize("seed", [1, 3])
+async def test_a_refund_that_failed_tells_the_owner_the_price_that_was_paid(game_db, visit, monkeypatch, seed):
+    game, db = game_db, game_db.bot.db
+    (expected,) = visit(seed, "random_egg")
+    price = expected.price
+    assert 18 <= price <= 33 and price != 25
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=40)
+
+    async def no_room_after_all(scene, player):
+        return False
+
+    async def lost(bot, player_id, number):
+        raise OSError("test: the database went away")
+
+    monkeypatch.setattr(pets, "assign_pet", no_room_after_all)
+    monkeypatch.setattr(pets, "return_scrolls", lost)
+    task = start(game)
+    panel = await game.wait_for_buttons(merchant.buy_key(0))
+    refused = await game.click(panel, ala, merchant.buy_key(0))
+    await until(lambda: refused.answers)
+    assert refused.answers == [merchant.MSG_NO_EGG_ROOM] and await scrolls_of(db, ala.id) == 40 - price
+    assert game.bot.owner_log == [merchant.LOG_NOT_RETURNED.format(
+        player_id=ala.id, price=merchant.scrolls(price), name="Losowe jajko", error="OSError")]
+    assert f"zwrot {merchant.scrolls(price)} nie" in game.bot.owner_log[0]
+    assert merchant.scrolls(25) not in game.bot.owner_log[0]
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_every_visit_draws_its_own_price(game_db, visit, quick):
+    game = game_db
+    seen = set()
+    for seed in range(6):
+        (expected,) = visit(seed, "random_egg")
+        task = start(game)
+        panel = await game.wait_for_buttons(merchant.buy_key(0))
+        assert panel.button_labels == [f"Losowe jajko ({merchant.scrolls(expected.price)})"]
+        seen.add(expected.price)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert len(seen) > 2 and all(18 <= price <= 33 for price in seen)
+
+
+# -- the album note of a bought egg (features/album.py, tests/test_album_note.py) -------------------
+
+async def test_an_egg_bought_by_a_supporter_comes_with_the_album_note_once(game_db, cart, monkeypatch):
+    """The merchant's egg is the egg of a drop (``pets.assign_pet``): a supporter gets the album's note
+    with it - exactly one, before the line that says who bought what; nobody else gets anything new."""
+    game, db = game_db, game_db.bot.db
+    cart("random_egg")
+    force(monkeypatch, new_egg("Cat"))
+    patron = patrons.PATRON_ROLES[0]
+    ala, ola = game.add_member("Ala", roles=[patron]), game.add_member("Ola")
+    for player in (ala, ola):
+        await make_owner(db, player.id, scrolls=25)
+    sent = recorded(game, monkeypatch)                                        # everything posted from now on
+
+    task = start(game)                                                        # a supporter buys
+    panel = await game.wait_for_buttons(merchant.buy_key(0))
+    await game.click(panel, ala, merchant.buy_key(0))
+    stock = await asyncio.wait_for(task, 5)
+    assert stock[0].buyer == ala and await scrolls_of(db, ala.id) == 0
+    (note,) = notes(sent)
+    assert note.content == EMPTY_NOTE.format(player_id=ala.id) == album.egg_note(ala.id, new_egg("Cat"), [])
+    texts = [message.content or "" for message, _ in sent]
+    (bought,) = [text for text in texts if text.startswith(f"🛒 {ala.mention} kupuje **Losowe jajko** za 25 zwojów!")]
+    assert texts.index(note.content) < texts.index(bought)                   # the egg's note, then the sale
+
+    task = start(game)                                                        # somebody who does not support
+    panel = await game.wait_for_buttons(merchant.buy_key(0))
+    await game.click(panel, ola, merchant.buy_key(0))
+    stock = await asyncio.wait_for(task, 5)
+    assert stock[0].buyer == ola and int((await row(db, ola.id))["pet_id"]) > 0
+    assert any((message.content or "").startswith(f"🛒 {ola.mention} kupuje **Losowe jajko**") for message, _ in sent)
+    assert notes(sent) == [note]                                            # nothing new for her
+
+
+async def test_no_album_note_without_a_new_egg(game_db, cart, monkeypatch):
+    """No egg, no note: a supporter who has no room for the egg (nothing is taken) and one who buys the
+    egg pouch."""
+    game, db = game_db, game_db.bot.db
+    force(monkeypatch, new_egg("Cat"))
+    patron = patrons.PATRON_ROLES[0]
+    ala = game.add_member("Ala", roles=[patron])
+    await make_owner(db, ala.id, scrolls=300, pet_id=1)                       # a pet at her side, no pouch yet
+    await make_pet(db, 1, level=1)
+    cart("random_egg", "egg_pouch")
+    sent = recorded(game, monkeypatch)
+    task = start(game)
+    panel = await game.wait_for_buttons(merchant.buy_key(0))
+    refused = await game.click(panel, ala, merchant.buy_key(0))
+    await until(lambda: refused.answers)
+    assert refused.answers == [merchant.MSG_NO_EGG_ROOM] and await scrolls_of(db, ala.id) == 300
+    assert notes(sent) == []
+    await game.click(panel, ala, merchant.buy_key(1))                        # the pouch: a ware, not an egg
+    await until(lambda: game.channel.contains(f"🛒 {ala.mention} kupuje **Sakwa na jajko** za 250 zwojów!"))
+    assert (await row(db, ala.id))["egg_pouch"] is True and await scrolls_of(db, ala.id) == 50
+    assert notes(sent) == []
+    await game.click(panel, ala, merchant.buy_key(0))                        # now the egg has a place: the pouch
+    stock = await asyncio.wait_for(task, 5)
+    assert all(offer.buyer == ala for offer in stock) and await scrolls_of(db, ala.id) == 25
+    assert (await row(db, ala.id))["pouch_pet_id"] > 1
+    (note,) = notes(sent)                                                     # ... and with the egg its note
+    assert note.content == EMPTY_NOTE.format(player_id=ala.id)
 
 
 # -- the production table before the start-up migration --------------------------------------

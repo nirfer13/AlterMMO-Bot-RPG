@@ -951,8 +951,9 @@ def _pet_embed(player_id: int, pet: Any, items: Any, *, cosmetics: bool = True) 
         skill_desc = "📜 **STATYSTYKI:**\n"
         skill_desc += f"Poziom: {level}\n"
         skill_desc += f"Talent: {_talent(_int(pet['pet_skills']))}\n"
-        look_name = "Mityczny" if pet["quality"] == "Mythic" else pet["quality"]
-        skill_desc += f"Wygląd: {look_name}\n"
+        # (No "Wygląd: Standard / Premium / Mityczny" line since 2026-11-23 - the owner: "Usuń
+        # wzmiankę o wyglądzie standard premium".  QUALITY stays what picks the picture; a mythic
+        # pet still says so below, in its title and by its colour.)
         skill_desc += cosmetic_lines + "\n"
         for column, label in (("replace_perc", "Szansa na zastąpienie ataku"),
                               ("crit_perc", "Szansa na krytyczne uderzenie"),
@@ -1395,6 +1396,12 @@ async def assign_pet(scene: "Scene", player: Any, *, cosmetic_rerolls: int = 0) 
     ``cosmetic_rerolls``: the egg drops from a special boss - its cosmetic roll
     may be repeated that many times (``rerolls`` of :func:`_roll_egg`; only a
     supporter's egg rolls at all).  Where the egg goes does not matter for it.
+
+    A supporter is then told, in ONE more message, what his album says about
+    the egg (owner's request of 2026-11-23, ``album.note_new_egg``: which of
+    its stages the album has, as what card, and which this companion can still
+    complete) - after everything else the egg brings, also for an egg in the
+    pouch, and never at the cost of the egg (:func:`_album_note`).
     """
     bot = scene.bot
     player_id = _pid(player)
@@ -1426,7 +1433,25 @@ async def assign_pet(scene: "Scene", player: Any, *, cosmetic_rerolls: int = 0) 
     if egg["MYTHIC"]:
         await _announce_mythic(scene, player_id)
     await achievements.check_pets(scene, player)  # a mythic pet (with Holo / the rarest seal); never raises
+    await _album_note(scene, player, egg)  # supporters only; never raises
     return INTO_POUCH if to_pouch else True
+
+
+async def _album_note(scene: "Scene", player: Any, egg: dict[str, Any]) -> None:
+    """Tell a supporter what his album says about the egg he was just given.  Never raises.
+
+    The egg is stored and announced before this is called; whatever goes wrong
+    here (``album.note_new_egg`` logs its own troubles) costs only the note.
+    No random draw is made, so the draws of a drop are what they were.
+    """
+    try:
+        from . import album  # (lazily: the album builds on this module)
+
+        await album.note_new_egg(scene, player, egg)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - the egg is the player's already
+        log.exception("Player %s: the album note about the new egg failed.", getattr(player, "id", player))
 
 
 async def _say_safely(scene: "Scene", text: str) -> None:
@@ -2816,10 +2841,13 @@ def _ranking_entry(place: int, pet: Any) -> str:
     """Two lines of the pet ranking: who it is, then its talent and what makes it special.
 
     (The old single line listed every property with "Tak" / "Nie" and was hard to read.)
+    An egg is "jajko" without its species: an egg does not tell its species before it hatches
+    (owner, 2026-11-23 - the rule of the album, meant for the whole game; the stable's
+    :func:`_pet_brief` and ``$towarzysz`` never named it).  Its name, talent and badges stay.
     """
     name = discord.utils.escape_markdown(str(pet["pet_name"] or "")[:20])
     level = _int(pet["pet_lvl"])
-    about = [POLISH_TYPES.get(pet["type"], ""), "jajko" if level == 0 else f"poziom {level}"]
+    about = ["jajko"] if level == 0 else [POLISH_TYPES.get(pet["type"], ""), f"poziom {level}"]
     badges = []
     # Only the highest badge: mythic already says (ultra) shiny, ultra shiny says shiny.
     if pet["mythic"] is True or pet["quality"] == "Mythic":

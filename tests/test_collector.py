@@ -113,11 +113,26 @@ class DatabaseDown:
 
 
 class Clock:
-    """``collector._clock`` under the test's control."""
+    """``collector._clock`` under the test's control: time passes only when the test says so.
+
+    ``reads`` counts how often the clock was looked at - a loop that waits for a moment of this
+    clock looks again and again (``GRACE_POLL``), so "it looked several times more and still
+    waits" can be awaited (:meth:`looked_at`) instead of sleeping and hoping the machine is fast.
+    """
 
     def __init__(self, monkeypatch) -> None:
         self.now = 1000.0
-        monkeypatch.setattr(collector, "_clock", lambda: self.now)
+        self.reads = 0
+        monkeypatch.setattr(collector, "_clock", self._read)
+
+    def _read(self) -> float:
+        self.reads += 1
+        return self.now
+
+    async def looked_at(self, times: int = 5) -> bool:
+        """Wait until the clock was read ``times`` more times; False when that never happened."""
+        target = self.reads + times
+        return await until(lambda: self.reads >= target)
 
 
 def spy(monkeypatch, *, delay: float = 0.0) -> SimpleNamespace:
@@ -1252,6 +1267,127 @@ async def test_a_give_or_a_removal_that_failed_is_tried_again_soon_a_few_times(g
     assert len(owner_lines(bot, start)) == 2                               # and the owner is told again
 
 
+@pytest.mark.parametrize("trouble", ["no ranking", "no guild", "failed", "not given", "not removed"])
+async def test_kolekcjoner_that_could_not_finish_leaves_the_retry_to_the_loop(game_db, loop, monkeypatch, trouble):
+    """``$kolekcjoner`` answers "spróbuję ponownie sam".  The loop did not see that run: without a
+    request it would come back only with its safety net, half an hour later."""
+    game = game_db
+    bot = game.bot
+    monkeypatch.setattr(collector, "RETRY_SOON", 0.05)                     # (the safety net stays an hour away)
+    monkeypatch.setattr(collector, "QUICK_RETRIES", 10_000)                # (no race with the end of the quick tries)
+    ala = await lead(game, "Ala", 2)
+    ola = supporter(game, "Ola")
+    desk = collector._desk(bot)
+    loop()
+    assert await until(lambda: desk.runs == 2)                             # the run of the start: all is well
+    await asyncio.sleep(0.2)
+    assert desk.runs == 2 and not collector.pending(bot)                   # ... and the loop sleeps for an hour
+
+    await cards(bot.db, ola.id, 6)                                         # Ola takes the lead - and trouble comes
+    with monkeypatch.context() as patch:
+        if trouble == "no ranking":
+            patch.setattr(bot, "db", DatabaseDown())
+        elif trouble == "no guild":
+            patch.setattr(game.guild, "unavailable", True, raising=False)
+        elif trouble == "failed":
+            async def broken(*args, **kwargs):
+                raise RuntimeError("test: something unexpected")
+
+            patch.setattr(collector, "_role_for", broken)
+        else:
+            member, method = (ola, "add_roles") if trouble == "not given" else (ala, "remove_roles")
+
+            async def refused(*roles, reason=None):
+                raise forbidden()
+
+            patch.setattr(member, method, refused)
+
+        outcome = await collector.sync_now(bot)                            # the administrator types $kolekcjoner
+        assert outcome.try_soon is (trouble in ("no ranking", "no guild", "failed"))
+        assert outcome.unfinished is (trouble in ("not given", "not removed"))
+        assert desk.runs == 3 and collector.pending(bot)                   # the promise is with the loop now
+        # The loop takes it over: it tries, and tries again after RETRY_SOON - not after PERIOD.
+        assert await until(lambda: desk.runs >= 5)
+        assert desk.last.try_soon or desk.last.unfinished
+    # Whatever it was, it is over: the loop's next try puts the rank where it belongs.
+    assert await until(lambda: desk.last.status == collector.DONE and not desk.last.unfinished)
+    assert holders(game) == ["Ola"] and desk.last.leader_id == ola.id
+    runs = desk.runs
+    await asyncio.sleep(0.3)
+    assert desk.runs == runs and not collector.pending(bot)                # done: back to the slow net
+
+
+@pytest.mark.parametrize("what", ["give", "removal"])
+async def test_kolekcjoner_gets_the_loops_quick_tries_also_when_the_loop_had_used_its_own_up(game_db, loop,
+                                                                                          monkeypatch, what):
+    """The loop noticed the trouble by itself, made its quick tries and is back to the slow net.  The
+    administrator then types ``$kolekcjoner`` and reads "spróbuję ponownie sam": the loop must try again
+    after ``RETRY_SOON`` (its quick tries anew), not once two seconds later and then in half an hour -
+    and it must not poll for ever either."""
+    game = game_db
+    bot = game.bot
+    monkeypatch.setattr(collector, "RETRY_SOON", 0.05)                     # (the safety net stays an hour away)
+    ala = await lead(game, "Ala", 2)
+    ola = supporter(game, "Ola")
+    await cards(bot.db, ola.id, 5)
+    member, method = (ola, "add_roles") if what == "give" else (ala, "remove_roles")
+    real = getattr(member, method)
+    refuse = [True]
+
+    async def change(*roles, reason=None):
+        if refuse:
+            raise forbidden()
+        await real(*roles, reason=reason)
+
+    monkeypatch.setattr(member, method, change)
+    desk = collector._desk(bot)
+    runs = desk.runs
+    loop()
+    assert await until(lambda: desk.runs == runs + 1 + collector.QUICK_RETRIES)   # the run and its quick tries
+    await asyncio.sleep(0.4)
+    assert desk.runs == runs + 1 + collector.QUICK_RETRIES and desk.last.unfinished   # ... back to the slow net
+
+    runs = desk.runs
+    outcome = await collector.sync_now(bot)                                # the administrator types $kolekcjoner
+    assert outcome.unfinished and desk.runs == runs + 1 and collector.pending(bot)
+    if what == "give":
+        assert collector.describe(outcome).endswith("Spróbuję ponownie sam.")   # the promise the loop must keep
+    # The loop takes it over as if the trouble were new: its run and the quick tries after RETRY_SOON ...
+    assert await until(lambda: desk.runs == runs + 1 + 1 + collector.QUICK_RETRIES)
+    await asyncio.sleep(0.4)
+    assert desk.runs == runs + 1 + 1 + collector.QUICK_RETRIES             # ... and then the slow net again
+    assert desk.last.unfinished and not collector.pending(bot)
+
+    # Typed again and again it is still one round of tries per command, never a loop that spins.
+    runs = desk.runs
+    for _ in range(3):
+        assert (await collector.sync_now(bot)).unfinished
+    assert await until(lambda: desk.runs == runs + 3 + 1 + collector.QUICK_RETRIES)
+    await asyncio.sleep(0.4)
+    assert desk.runs == runs + 3 + 1 + collector.QUICK_RETRIES
+
+    refuse.clear()                                                         # whatever it was, it is over
+    runs = desk.runs
+    outcome = await collector.sync_now(bot)
+    assert outcome.status == collector.DONE and not outcome.unfinished and holders(game) == ["Ola"]
+    await asyncio.sleep(0.3)
+    assert desk.runs == runs + 1 and not collector.pending(bot)            # done: nothing is left for the loop
+
+
+async def test_kolekcjoner_that_finished_leaves_nothing_for_the_loop(game_db):
+    game = game_db
+    bot = game.bot
+    await lead(game, "Ala", 2)
+    ola = supporter(game, "Ola")
+    await cards(bot.db, ola.id, 6)
+    collector.request(bot, "an album entry was kept")
+    outcome = await collector.sync_now(bot)
+    assert outcome.status == collector.DONE and outcome.given and not outcome.unfinished and not outcome.try_soon
+    assert holders(game) == ["Ola"] and not collector.pending(bot)         # what was asked for is done
+    for status in (collector.NO_STATE, collector.NO_ROLE, collector.TEST_RUN):   # nothing passes by itself there
+        assert not collector.Outcome(status).try_soon and not collector.Outcome(status, leader_id=1).unfinished
+
+
 def test_an_unfinished_outcome_is_one_that_knew_the_ranking_and_left_the_role_in_wrong_hands():
     done = collector.DONE
     assert collector.Outcome(done, leader_id=7).unfinished                  # the leader does not hold it
@@ -1303,10 +1439,13 @@ async def test_only_the_end_of_the_holders_support_begins_a_grace_period(game_db
 async def test_a_supporter_role_that_blinks_keeps_the_rank_where_it_is(game_db, loop, monkeypatch):
     """A renewal / a change of tier: the supporter role is taken and, seconds later, given back.
     Without the grace period the runner-up would get the rank (announced) and the leader would
-    get it back (announced again)."""
+    get it back (announced again).
+
+    (The grace period runs on the test's clock, which stands still: however slow the machine is,
+    the wait cannot end by itself here - only by the support that is back.)"""
     game = game_db
     bot = game.bot
-    monkeypatch.setattr(collector, "HOLDER_GRACE", 1.5)
+    clock = Clock(monkeypatch)
     monkeypatch.setattr(collector, "GRACE_POLL", 0.01)
     ala, ola = supporter(game, "Ala"), supporter(game, "Ola")
     await cards(bot.db, ala.id, 5)
@@ -1321,10 +1460,12 @@ async def test_a_supporter_role_that_blinks_keeps_the_rank_where_it_is(game_db, 
     before = as_before(ala, ala.roles)
     ala.roles.remove(patron_role)                                          # the supporter role is taken ...
     assert collector.member_changed(bot, before, ala) is True
-    await asyncio.sleep(0.25)                                              # (SETTLE is long over)
+    assert desk.grace_until == clock.now + collector.HOLDER_GRACE
+    assert await clock.looked_at()                                         # (SETTLE is over: the loop waits it out)
     assert seen.calls == 1 and holders(game) == ["Ala"] and collector.pending(bot)
     collector.request(bot, "an album entry was kept")                      # other requests: not sooner for it
-    await asyncio.sleep(0.25)
+    clock.now += collector.HOLDER_GRACE / 2                                # ... and half of the wait is over
+    assert await clock.looked_at()
     assert seen.calls == 1 and holders(game) == ["Ala"] and seen.running == 0
 
     before = as_before(ala, ala.roles)
@@ -1338,9 +1479,11 @@ async def test_a_supporter_role_that_blinks_keeps_the_rank_where_it_is(game_db, 
 
 
 async def test_support_that_really_ended_moves_the_rank_after_the_grace_period(game_db, loop, monkeypatch):
+    """(On the test's clock: the grace period is over when the test says so, not when a slow
+    machine happens to get there.)"""
     game = game_db
     bot = game.bot
-    monkeypatch.setattr(collector, "HOLDER_GRACE", 0.6)
+    clock = Clock(monkeypatch)
     monkeypatch.setattr(collector, "GRACE_POLL", 0.01)
     ala, ola = supporter(game, "Ala"), supporter(game, "Ola")
     await cards(bot.db, ala.id, 5)
@@ -1352,8 +1495,12 @@ async def test_support_that_really_ended_moves_the_rank_after_the_grace_period(g
     ala.roles.remove(ala.roles[0])
     assert collector.member_changed(bot, before, ala) is True
     collector.request(bot, "an album entry was kept")                      # (not lost: the same run answers it)
-    await asyncio.sleep(0.3)
+    assert await clock.looked_at()
     assert desk.runs == 1 and holders(game) == ["Ala"]                     # the grace period runs
+    clock.now += collector.HOLDER_GRACE - 0.5                              # ... to its very end
+    assert await clock.looked_at()
+    assert desk.runs == 1 and holders(game) == ["Ala"]
+    clock.now += 0.5                                                       # and now it is over
     assert await until(lambda: desk.runs == 2)
     assert desk.last == collector.Outcome(collector.DONE, leader_id=ola.id, holds=True, given=True,
                                           removed=(ala.id,), announcement=collector.ANNOUNCED)
@@ -1736,18 +1883,21 @@ async def test_kolekcjoner_says_why_it_could_not_run(cog, monkeypatch):
     await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
     assert game.announce_channel.sent[-1].content == collector.MSG_NO_RANKING.format(
         detail=": DatabaseUnavailable")
+    assert "spróbuję ponownie sam" in collector.MSG_NO_RANKING and asked(bot)   # the promise is left for the loop
     bot.db = real
 
     with monkeypatch.context() as patch:
         patch.setattr(game.guild, "unavailable", True, raising=False)
         await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
     assert game.announce_channel.sent[-1].content == collector.MSG_NO_GUILD
+    assert "spróbuję ponownie sam" in collector.MSG_NO_GUILD and asked(bot)
 
     path = bot.store.collector.path
     good = path.read_text(encoding="utf-8")
     path.write_text("{", encoding="utf-8")
     await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
     assert game.announce_channel.sent[-1].content == collector.MSG_NO_STATE
+    assert "ponownie" not in collector.MSG_NO_STATE and not asked(bot)       # (the owner has to mend the file)
     path.write_text(good, encoding="utf-8")
     assert untouched(game, ala, state)
 

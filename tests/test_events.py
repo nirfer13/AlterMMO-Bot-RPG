@@ -861,3 +861,46 @@ async def test_cog_survives_a_discord_error_in_the_middle(game, hunt, monkeypatc
     assert not game.bot.state.busy and game.bot.state.free_for_activity
     assert no_listeners(game) and no_live_buttons(game)
     assert any("HUNTING" in line for line in game.bot.owner_log)
+
+
+# -- how often events come -----------------------------------------------------------
+
+async def test_events_come_a_fifth_more_often(game, monkeypatch):
+    """Owner, 2026-11-23: "Zwiększ częstotliwość eventów o 20%" - the pauses between the event
+    slots are the old ones (2000 .. 3000 s) divided by 1.2."""
+    from altermmo import settings
+    from altermmo.cogs import events as events_cog
+
+    production = settings.Timings()
+    assert (production.event_gap_min, production.event_gap_max) == (1667.0, 2500.0)
+    assert (production.event_gap_min, production.event_gap_max) == (round(2000 / 1.2), round(3000 / 1.2))
+    # A fifth more event slots in the same time (to within the rounding to whole seconds).
+    old_mean, new_mean = (2000 + 3000) / 2, (production.event_gap_min + production.event_gap_max) / 2
+    assert old_mean / new_mean == pytest.approx(1.2, abs=0.0005)
+    # Only the events: the boss's timing and the debug run are what they were.
+    assert (production.respawn_min, production.respawn_max, production.respawn_multiplier) == (150, 3600, 12)
+    assert (production.post_fight_pause, production.pre_spawn_min, production.pre_spawn_max,
+            production.summoned_min_stay) == (3600.0, 240.0, 420.0, 600.0)
+    debug = settings._DEBUG_TIMINGS
+    assert (debug.event_gap_min, debug.event_gap_max) == (15.0, 20.0)
+
+    # The loop waits one such pause before every event slot - nothing else spaces the slots.
+    game.bot.timings = production
+    cog = events_cog.EventsCog(game.bot)
+    drawn: list[tuple[float, float]] = []
+    slots: list[int] = []
+
+    def uniform(low: float, high: float) -> float:
+        drawn.append((low, high))
+        return 0.0
+
+    async def slot(forced=None):
+        slots.append(len(drawn))
+        if len(slots) == 3:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(events_cog, "random", SimpleNamespace(uniform=uniform))
+    monkeypatch.setattr(cog, "run_one_event", slot)
+    with pytest.raises(asyncio.CancelledError):
+        await cog.event_loop()
+    assert drawn == [(1667.0, 2500.0)] * 3 and slots == [1, 2, 3]

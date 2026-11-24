@@ -30,7 +30,7 @@ from altermmo import bot as bot_module
 from altermmo import schema
 from altermmo.cogs import pets as pets_cog
 from altermmo.core import guards, ui
-from altermmo.features import achievements, backup, boss, hub, patrons, petcards, pets
+from altermmo.features import achievements, album, backup, boss, hub, patrons, petcards, pets
 from altermmo.features.pets import PetType
 
 from fakes import FakeInteraction, FakeMember, FakeRole
@@ -384,8 +384,14 @@ async def test_owner_hears_about_rare_cosmetics_and_nobody_else(game_db, monkeyp
     assert f"<@{bot.ids.owner}>" not in game_db.log_channel.messages[-1].content
     # The notice itself is never public.  Since the evening of 2026-11-20 only a MYTHIC egg is an
     # achievement (with Holo / the rarest seal one more each), announced after the mythic egg itself;
-    # a Holo or a seal on any other egg is no achievement - and nothing else is posted.
+    # a Holo or a seal on any other egg is no achievement - and nothing else is posted but, last of
+    # all, the album note a supporter's new egg comes with (owner, 2026-11-23; tests/test_album_note.py).
+    # That note tells what the ALBUM holds (here: nothing), never what the new egg has.
     public = [message.content for message in game_db.channel.bot_messages[1:]]
+    note = public.pop()
+    assert note.startswith(album.MSG_EGG_NOTE.format(player_id=lucky.id) + "\n") and note.count(" - brak") == 4
+    for ornament in ("ieczę", "Holo", "olię", "amk", "Arcyłowc", "Oko Otchłani", "Astrolabium"):
+        assert ornament not in note, ornament
     mythic_news = [text for text in public if "zdobył mitycznego towarzysza" in text]
     assert len(mythic_news) == int(mythic)
     assert [text for text in public if text not in mythic_news] == [
@@ -657,13 +663,30 @@ def grown_row(**columns) -> dict:
 def test_embed_names_the_cosmetics_of_a_hatched_pet(columns, lines):
     embed = pets._pet_embed(1, grown_row(**columns), ITEMS)
     assert embed.description.split("\n\n**💎")[0].split("\n\n*")[0] == (
-        "Oto Twój towarzysz, <@1>.\n\n📜 **STATYSTYKI:**\nPoziom: 2\nTalent: Przeciętny\nWygląd: Standard\n"
+        "Oto Twój towarzysz, <@1>.\n\n📜 **STATYSTYKI:**\nPoziom: 2\nTalent: Przeciętny\n"
         + lines + "\nSzansa na krytyczne uderzenie: 4 %")
     if not any(key in columns for key in ("shiny", "mythic")):
         assert embed.description == (
-            "Oto Twój towarzysz, <@1>.\n\n📜 **STATYSTYKI:**\nPoziom: 2\nTalent: Przeciętny\nWygląd: Standard\n"
+            "Oto Twój towarzysz, <@1>.\n\n📜 **STATYSTYKI:**\nPoziom: 2\nTalent: Przeciętny\n"
             + lines + "\nSzansa na krytyczne uderzenie: 4 %\n"
             "\n**💎 PRZEDMIOTY:**\nZwoje odrodzenia: 0\nFragmenty zwojów: 0\nKamienie olśnienia: 0\nLustra wizualiów: 0")
+
+
+@pytest.mark.parametrize("quality, kind, mythic", [("Standard", "Cat", False), ("Premium", "Dragon", False),
+                                                   ("Mythic", "Void", True)])
+@pytest.mark.parametrize("level", [0, 1, 3])
+@pytest.mark.parametrize("cosmetics", [True, False])
+def test_the_look_standard_premium_is_not_mentioned(quality, kind, mythic, level, cosmetics):
+    """Owner, 2026-11-23: "Usuń wzmiankę o wyglądzie standard premium" - no "Wygląd:" line at all."""
+    row = grown_row(quality=quality, type=kind, mythic=mythic, pet_lvl=level, seal=2, holo=True)
+    embed = pets._pet_embed(1, row, ITEMS, cosmetics=cosmetics)
+    shown = f"{embed.title}\n{embed.description}\n{embed.footer.text}"
+    for word in ("Wygląd", "Standard", "Premium", "Mythic"):
+        assert word.lower() not in shown.lower(), word
+    # A mythic pet still says what it is (the line the removed one doubled).
+    assert embed.description.endswith("\n\n*Mityczny towarzysz.*") is mythic
+    if level:
+        assert "\nTalent: Przeciętny\n" + ("Pieczęć: Łowcy\n" if cosmetics else "") in embed.description
 
 
 @pytest.mark.parametrize("columns, hidden", [
@@ -706,7 +729,7 @@ async def test_hatched_pet_is_shown_as_its_card(game_db, cards):
     assert message.files == ["card-11-bare-2-holo.gif"]                        # the card, not the illustration
     assert message.embeds[0].image.url == "attachment://card-11-bare-2-holo.gif"
     assert message.view.image.name == "card-11-bare-2-holo.gif"                # the panel remembers what it sent
-    assert "Wygląd: Standard\nPieczęć: Łowcy\nFolia: Holo\n\n" in message.embeds[0].description
+    assert re.search(r"\nTalent: [^\n]+\nPieczęć: Łowcy\nFolia: Holo\n\n", message.embeds[0].description)
 
     [asked] = cards
     assert asked.source == pets.ASSETS_DIR / "pets" / "Cat" / "11.png"         # the plain illustration
@@ -959,7 +982,7 @@ async def test_cosmetics_are_shown_only_while_the_owner_supports(game_db, cards,
     assert hidden.embeds[0].image.url == "attachment://card-11-framed-0.png"
     description = hidden.embeds[0].description
     assert "Pieczęć" not in description.replace(SUPPORT_LOST_LINE, "") and "Folia: Holo" not in description
-    assert f"Wygląd: Standard\n{SUPPORT_LOST_LINE}\n\n" in description         # one line says why
+    assert re.search(r"\nTalent: [^\n]+\n" + re.escape(SUPPORT_LOST_LINE) + r"\n\n", description)  # one line says why
     assert await cosmetics(db, 5) == (3, True)                                 # nothing was taken away
 
     player.roles.append(FakeRole(role))                                        # supports again: it is all back
@@ -1445,7 +1468,7 @@ async def test_game_goes_on_without_cosmetics_when_the_columns_are_missing(game_
     message = game_db.channel.messages[-1]
     assert (cards[-1].look.seal, cards[-1].look.foil, cards[-1].look.plain) == (0, petcards.FOIL_NONE, True)
     assert message.files == ["0.png"] and "Pieczęć" not in message.embeds[0].description
-    assert "Wygląd: Standard\n\n" in message.embeds[0].description
+    assert re.search(r"\nTalent: [^\n]+\n\n", message.embeds[0].description)     # no line of ornaments
 
     # The rest of the pet game does not notice.
     assert (await pets.get_pet_skills(bot, player.id))["CRIT_PERC"] >= 0

@@ -533,6 +533,24 @@ def _ascii(text: str, fallback: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", text).strip("_")[:24] or fallback
 
 
+#: The folder the pictures of eggs live in (``pets._pet_image``: ``eggs/standard/<variant>``,
+#: ``eggs/premium/<TYPE>/<variant>``, ``eggs/mythic/<TYPE>/<variant>``).
+EGG_FOLDER = "eggs"
+
+
+def _label(source: Path) -> list[str]:
+    """The readable part of a card's file name: the picture's folder and its name.
+
+    For an egg only "egg" and the name: the folder of a premium / mythic egg is
+    its SPECIES, and an egg does not tell its species before it hatches (owner,
+    2026-11-23) - the name of an attachment can be read by every player, on
+    ``$towarzysz`` as in the album.  (The digest still tells the pictures apart.)
+    """
+    if EGG_FOLDER in source.parts[-4:-1]:
+        return ["egg", _ascii(source.stem, "0")]
+    return [_ascii(source.parent.name, "pet"), _ascii(source.stem, "0")]
+
+
 def _stem(source: Path, look: Look, max_bytes: int) -> str:
     """File name (without extension) of the card: readable prefix + digest of all inputs.
 
@@ -552,7 +570,7 @@ def _stem(source: Path, look: Look, max_bytes: int) -> str:
         add(overlay.relative_to(ASSETS).as_posix(), stat.st_size, stat.st_mtime_ns)
     foil = {FOIL_PARTIAL: "holopart", FOIL_FULL: "holo"}.get(look.foil, "")
     what = [_ascii(look.frame, "") if look.frame else "", f"seal{look.seal}" if look.seal else "", foil]
-    label = "-".join([_ascii(source.parent.name, "pet"), _ascii(source.stem, "0"), *filter(None, what)])
+    label = "-".join([*_label(source), *filter(None, what)])
     return f"card-{label}-{digest.hexdigest()[:12]}"
 
 

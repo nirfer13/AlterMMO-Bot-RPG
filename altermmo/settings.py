@@ -100,9 +100,13 @@ class Timings:
     #: "The wind grows stronger" -> boss appears.
     pre_spawn_min: float = 4 * 60.0
     pre_spawn_max: float = 7 * 60.0
-    #: Pause between random events.
-    event_gap_min: float = 2000.0
-    event_gap_max: float = 3000.0
+    #: Pause between random events (the events cog draws ``uniform(min, max)`` after every
+    #: event slot).  Owner, 2026-11-23: "Zwiększ częstotliwość eventów o 20%" - 20 % more
+    #: events is the old pauses (2000 .. 3000 s) divided by 1.2, rounded to whole seconds:
+    #: 1667 .. 2500 s, on average an event slot every ~35 minutes instead of every ~42.
+    #: (The debug values below are not touched.)
+    event_gap_min: float = 1667.0
+    event_gap_max: float = 2500.0
     #: A summoned (ritual / skill gem) boss leaves when the scheduled boss is due,
     #: but never sooner than this after it appeared.
     summoned_min_stay: float = 600.0

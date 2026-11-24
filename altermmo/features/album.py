@@ -48,6 +48,7 @@ API (everything takes a database / a connection, nothing caches):
   which must fail the sacrifice;
 * :func:`entries` (album order), :func:`entry`, :func:`remove`;
 * :func:`collected`, :func:`progress`, :func:`complete` - the collection maths;
+* :func:`note_new_egg` ``(scene, player, egg)`` - the note at an egg drop (never raises);
 * :func:`show_album` - ``$album`` / the hub's "Album" button: an overview and a
   :class:`AlbumPanel` to page through the entries (one card per page).  Since
   2026-11-22 the overview also shows the collection's value and the place in
@@ -57,6 +58,38 @@ API (everything takes a database / a connection, nothing caches):
 Owner's rules for what is shown: species the player has nothing of are never
 named (only how many are still undiscovered), and nothing explains which card
 ornaments exist - an entry names only what it has.
+
+**An egg never tells its species** (owner, 2026-11-23: "Przy przeglądaniu albumu
+gdy wyświetla się jajko to nie powinien być znany jeszcze gatunek").  In the game
+an egg's species is unknown until it hatches (``pets._pet_embed``: an egg's title
+is just "Jajko"), so an egg entry (stage 0, :func:`is_egg`) is never attributed
+to a species anywhere a player can see:
+
+* its page and the texts of its removal say "Jajko" (+ the pet's own name), never
+  the species (:func:`entry_embed`, :func:`describe`); its card is the one
+  ``$towarzysz`` shows for the living egg (the same ``pets._pet_card``), and the
+  name of the card's file - every player can read it - does not carry the folder
+  of the egg's species (``petcards._label``, for the living egg as well);
+* the overview names a species only when the album holds a HATCHED stage of it
+  and lists per species only the levels 1 .. :data:`pets.MAX_LEVEL`; the eggs are
+  one line of their own, counted (they are slots of the collection as before) but
+  not attributed; "Nieodkryte gatunki" counts the species without a hatched stage;
+* the egg entries are one group after every hatched pet, in the order they were
+  kept (:func:`_album_order`) - between the pages of their species the neighbours
+  would give the species away; the species menu lists the hatched species and one
+  entry "Jajka".
+
+This is display only: the stored rows, the slots, the collection's total, "Pełny
+album", the values and the ranking are what they were.
+
+**A new egg and the album** (owner, 2026-11-23: "Dla wspierających dodawaj także
+informację gdy wypadnie komuś jajko, czy ma je już w kolekcji, albo czy następne
+fazy ewolucji mogą uzupełnić jego kolekcję. Jeśli ma coś to podaj czy to holo z
+ramką etc."): :func:`note_new_egg`, called by ``pets.assign_pet`` once the egg is
+stored, posts ONE message for a supporter - per stage of the egg's species what
+the album holds (the card that counts, by what it has) or that it is missing, and
+which stages this companion can still complete.  The species is not named there
+either.
 """
 
 from __future__ import annotations
@@ -142,6 +175,8 @@ _SQL_ENTRIES = f"SELECT * FROM {TABLE} WHERE PLAYER_ID = $1 ORDER BY ENTRY_ID"
 _SQL_ENTRY = f"SELECT * FROM {TABLE} WHERE ENTRY_ID = $1 AND PLAYER_ID = $2"
 _SQL_REMOVE = f"DELETE FROM {TABLE} WHERE ENTRY_ID = $1 AND PLAYER_ID = $2 RETURNING ENTRY_ID"
 _SQL_SLOTS = f"SELECT DISTINCT TYPE, PET_LVL FROM {TABLE} WHERE PLAYER_ID = $1"
+#: The player's entries of ONE species (the note at an egg drop, :func:`note_new_egg`).
+_SQL_OF_SPECIES = f"SELECT * FROM {TABLE} WHERE PLAYER_ID = $1 AND TYPE = $2 ORDER BY ENTRY_ID"
 
 
 class NotSaved(Exception):
@@ -305,13 +340,26 @@ def _species_rank(species: str) -> int:
     return order.index(species) if species in order else len(order)
 
 
-def _album_order(row: Any) -> tuple[int, str, int, int]:
+def is_egg(row: Any) -> bool:
+    """True for an egg entry (stage 0; a NULL level is the egg, as everywhere in the game).
+
+    Such an entry is never attributed to a species where a player can see it (module docstring).
+    """
+    return slot_of(row)[1] == 0
+
+
+def _album_order(row: Any) -> tuple[int, int, str, int, int]:
+    """Hatched pets by species, stage and when kept; then the eggs, by when they were kept only -
+    an egg between the pages of its species would be given away by its neighbours."""
     species, level = slot_of(row)
-    return _species_rank(species), species, level, int(row["entry_id"])
+    if level == 0:
+        return 1, 0, "", 0, int(row["entry_id"])
+    return 0, _species_rank(species), species, level, int(row["entry_id"])
 
 
 async def entries(db: Any, player_id: int) -> list[Any]:
-    """The player's entries in album order: species (as :class:`pets.PetType`), stage, when kept."""
+    """The player's entries in album order: the hatched pets by species (as :class:`pets.PetType`),
+    stage and when kept, then every egg in the order they were kept (:func:`_album_order`)."""
     rows = await _fetch(db, "fetch", _SQL_ENTRIES, int(player_id))
     return sorted(rows, key=_album_order)
 
@@ -349,16 +397,26 @@ MSG_OVERVIEW = "<@{player_id}>, w Twoim albumie {entries}.\nKolekcja: **{count} 
 MSG_EMPTY = ("<@{player_id}>, Twój album jest jeszcze pusty. Każdy towarzysz, którego poświęcisz "
              "(**$porzucam**), zostanie w nim na zawsze - chyba że sam go usuniesz "
              "<:peepoBlush:984769061340737586>\nKolekcja: **0 z {total}**")
+#: One species of the collection: its HATCHED stages only (an egg does not tell its species).
 MSG_SPECIES_LINE = "**{species}** ({count} z {stages}): {marks}"
+#: The eggs of the collection: how many of its egg slots are filled - not whose eggs they are.
+MSG_EGGS_LINE = "🥚 **Jajka**: **{count}** z {total}"
+#: The species without a hatched stage in the album.
 MSG_UNDISCOVERED = "❔ Nieodkryte gatunki: **{count}**"
 MSG_COMPLETE = "🎉 **Kolekcja skompletowana!** <:POGGERS:936907543849078844>"
 MSG_OUTSIDE = "✨ **Poza kolekcją:**"
 MSG_OUTSIDE_LINE = "{species}: {stages}"
+#: Eggs outside the collection (a mythic one ...): counted, not attributed.
+MSG_OUTSIDE_EGGS = "🥚 {stage} ×{count}"
 MSG_OVERVIEW_FOOTER = "Przeglądaj album przyciskami pod spodem."
 MSG_ENTRY_FOOTER = "Usunięcia wpisu z albumu nie da się cofnąć."
 MSG_POSITION = "Wpis **{position} z {total}**"
-#: The list under the album: only the species the player has entries of.
-MSG_SPECIES_PLACEHOLDER = "Przejdź do gatunku…"
+#: The list under the album: only the species the player has HATCHED entries of, and the eggs
+#: (so not "... do gatunku": its entry "Jajka" is no species).
+MSG_SPECIES_PLACEHOLDER = "Przejdź do…"
+#: The list's entry for the group of eggs, and its value (no species is called so).
+MSG_EGGS_OPTION = "Jajka"
+EGGS_OPTION = "#eggs"
 MSG_ADDED = "W albumie od: {when}"
 CLASS_NAMES: dict[str, str] = {"M": "Mityczny", "U": "Ultra Shiny", "S": "Shiny", "": "Zwykły"}
 CLASS_COLOURS: dict[str, int] = {"M": 0xFF4815, "U": 0xFF8D15, "S": 0xFFDD00, "": 0xFFFFFC}
@@ -431,7 +489,12 @@ def _named(row: Any) -> bool:
 
 
 def describe(row: Any) -> str:
-    """``Kot Mruczek (Poziom 2)`` - one entry in a sentence (plain text, see :func:`shown_name`)."""
+    """``Kot Mruczek (Poziom 2)`` - one entry in a sentence (plain text, see :func:`shown_name`).
+
+    An egg is ``Jajko`` / ``Jajko Mruczek``, as ``$towarzysz`` titles it: never its species.
+    """
+    if is_egg(row):
+        return f"{STAGE_EGG} {shown_name(row)}" if _named(row) else STAGE_EGG
     title = species_name(str(row["type"]))
     if _named(row):
         title += " " + shown_name(row)
@@ -462,8 +525,11 @@ def _value_lines(value: Any) -> list[str]:
 def overview_embed(player_id: int, rows: Sequence[Any], value: Any = None) -> discord.Embed:
     """The album at a glance: how many entries, the collection, its value, what lies outside it.
 
-    A species of the collection is named only when the player has at least one
-    stage of it; the others are only counted.  ``value`` is what
+    A species of the collection is named only when the player has a HATCHED
+    stage of it (its line shows the levels 1 .. MAX only); the others are only
+    counted.  The eggs are one line: how many egg slots of the collection are
+    filled, never whose eggs they are (module docstring) - so the species lines
+    and the eggs line add up to the collection's count.  ``value`` is what
     :func:`albumrank.overview_of` says (the points and the place; None: no such lines).
     """
     total = slot_count()
@@ -473,29 +539,42 @@ def overview_embed(player_id: int, rows: Sequence[Any], value: Any = None) -> di
     state = progress(rows)
     lines = [MSG_OVERVIEW.format(player_id=player_id, entries=_plural_pets(len(rows)),
                                  count=state.count, total=state.total), *_value_lines(value), ""]
-    discovered = [species for species in collection_species() if state.stages_of(species)]
-    for species in discovered:
-        have = state.stages_of(species)
+    hatched_stages = [level for level in stages() if level != 0]
+    discovered = []
+    for species in collection_species():
+        have = [level for level in state.stages_of(species) if level != 0]
+        if not have:
+            continue
+        discovered.append(species)
         marks = " · ".join(f"{COLLECTED_MARK if level in have else MISSING_MARK} {stage_name(level)}"
-                           for level in stages())
+                           for level in hatched_stages)
         lines.append(MSG_SPECIES_LINE.format(species=species_name(species), count=len(have),
-                                             stages=len(stages()), marks=marks))
+                                             stages=len(hatched_stages), marks=marks))
+    eggs = sum(1 for species in collection_species() if 0 in state.stages_of(species))
+    lines.append(MSG_EGGS_LINE.format(count=eggs, total=len(collection_species())))
     undiscovered = len(collection_species()) - len(discovered)
     lines += ["", MSG_COMPLETE if state.complete else MSG_UNDISCOVERED.format(count=undiscovered)]
 
     outside: dict[str, dict[int, int]] = {}
+    outside_eggs = 0
     wanted = collection_slots()
     for row in rows:
         species, level = slot_of(row)
-        if (species, level) not in wanted:
-            per_stage = outside.setdefault(species, {})
-            per_stage[level] = per_stage.get(level, 0) + 1
-    if outside:
+        if (species, level) in wanted:
+            continue
+        if level == 0:  # (an egg: counted, its species is not told)
+            outside_eggs += 1
+            continue
+        per_stage = outside.setdefault(species, {})
+        per_stage[level] = per_stage.get(level, 0) + 1
+    if outside or outside_eggs:
         lines += ["", MSG_OUTSIDE]
         for species in sorted(outside, key=lambda name: (_species_rank(name), name)):
             stages_text = ", ".join(f"{stage_name(level)} ×{number}"
                                     for level, number in sorted(outside[species].items()))
             lines.append(MSG_OUTSIDE_LINE.format(species=species_name(species), stages=stages_text))
+        if outside_eggs:
+            lines.append(MSG_OUTSIDE_EGGS.format(stage=STAGE_EGG, count=outside_eggs))
     embed = discord.Embed(title=MSG_TITLE, description="\n".join(lines)[:4096], color=ALBUM_COLOUR)
     embed.set_footer(text=MSG_OVERVIEW_FOOTER)
     return embed
@@ -532,12 +611,17 @@ def entry_embed(row: Any, position: int, total: int, rows: Sequence[Any] | None 
 
     The pet's name is plain text in the title and the description (:func:`shown_name`).
     ``rows`` (the player's entries) tell whether a better card of the slot makes this one not count.
+    An egg is "Jajko" (+ its own name) and has no species line: it does not tell its species
+    (module docstring).
     """
-    species = species_name(str(row["type"]))
     name = shown_name(row)
     tier = petcards.tier_of(row)
-    title = f"📖 {species} {name}" if _named(row) else f"📖 {species}"
-    lines = [f"Gatunek: **{species}**"]
+    if is_egg(row):
+        title, lines = (f"📖 {STAGE_EGG} {name}" if _named(row) else f"📖 {STAGE_EGG}"), []
+    else:
+        species = species_name(str(row["type"]))
+        title = f"📖 {species} {name}" if _named(row) else f"📖 {species}"
+        lines = [f"Gatunek: **{species}**"]
     if name:
         lines.append(f"Imię: **{name}**")
     lines += [f"Etap: **{stage_name(pets._int(row['pet_lvl']))}**", f"Klasa: **{CLASS_NAMES[tier]}**"]
@@ -644,6 +728,141 @@ async def saved(scene: "Scene", player: Any) -> None:
     await achievements.check_album(scene, player, announce=not fighting)  # never raises
 
 
+# -- a new egg and the album ---------------------------------------------------------------
+
+#: The note a supporter gets with a new egg (:func:`egg_note`).  It never names the species (an
+#: egg does not tell it) and explains nothing about chances or about what else exists - it names
+#: only what the player's OWN cards have.
+MSG_EGG_NOTE = "📖 <@{player_id}>, Twój album a to jajko:"
+MSG_EGG_NOTE_HELD = "{mark} {stage} - masz: {card}"
+MSG_EGG_NOTE_MISSING = "{mark} {stage} - brak"
+#: A counted card in words: its class when it is not an ordinary one, a rarer frame, the seal,
+#: the foil (``pets.FOIL_WORDS``) - or, with none of them:
+MSG_EGG_NOTE_PLAIN = "zwykła karta bez ozdób"
+MSG_EGG_NOTE_FRAME = "ramka „{name}”"
+MSG_EGG_NOTE_SEAL = "pieczęć {name}"
+#: Behind a held stage where the card of the NEW egg would be worth more than the counted one
+#: (only the rarest card of a slot counts, so a rarer one improves the collection too) ...
+EGG_NOTE_BETTER_MARK = "⬆️"
+#: ... and the line that says what the mark means.
+MSG_EGG_NOTE_BETTER = (EGG_NOTE_BETTER_MARK + " = karta z tego jajka byłaby na tym etapie cenniejsza od tej w "
+                       "albumie, więc podniosłaby wartość kolekcji.")
+#: The closing line: the owner's question answered directly.
+MSG_EGG_NOTE_CAN = "Ten towarzysz może jeszcze uzupełnić Twoją kolekcję: {stages}."
+MSG_EGG_NOTE_ALL = "Album ma już każdy etap tego towarzysza."
+#: ... for a mythic egg: it is not part of the collection ("Pełny album"), but its cards score.
+MSG_EGG_NOTE_MYTHIC_CAN = ("Mityczny towarzysz nie należy do kolekcji, ale jego karty liczą się do jej wartości - "
+                           "w albumie brakuje: {stages}.")
+MSG_EGG_NOTE_MYTHIC_ALL = "Mityczny towarzysz nie należy do kolekcji, a album ma już każdy jego etap."
+#: Nobody is pinged by the note (the player is addressed, as ``pets.MSG_EGG_TO_POUCH`` does).
+EGG_NOTE_MENTIONS = discord.AllowedMentions.none()
+
+
+def card_words(row: Any) -> str:
+    """An album card by what it has: ``Shiny, ramka „Gwiazda Szronu”, pieczęć Łowcy, Holo``.
+
+    The class when it is not an ordinary one (:data:`CLASS_NAMES`), a rarer frame by its name
+    (the base frame of a class is no ornament: ``pets.ornaments_of``), the seal by its name, the
+    foil as the pet's statistics call it (``pets.FOIL_WORDS``); :data:`MSG_EGG_NOTE_PLAIN` for a
+    card with none of them.  Never raises: what cannot be read counts as not there.
+    """
+    parts = []
+    tier = petcards.tier_of(row)
+    if tier and tier in CLASS_NAMES:
+        parts.append(CLASS_NAMES[tier])
+    frame, seal, foil = pets.ornaments_of(row)
+    if frame in petcards.FRAMES:
+        parts.append(MSG_EGG_NOTE_FRAME.format(name=petcards.FRAMES[frame].label))
+    if seal in petcards.SEAL_NAMES:
+        parts.append(MSG_EGG_NOTE_SEAL.format(name=petcards.SEAL_NAMES[seal]))
+    if foil in pets.FOIL_WORDS:
+        parts.append(pets.FOIL_WORDS[foil])
+    return ", ".join(parts) or MSG_EGG_NOTE_PLAIN
+
+
+def egg_note(player_id: int, egg: Any, rows: Sequence[Any]) -> str:
+    """What the album says about a new egg; "" for an egg of a species that has no cards.
+
+    ``egg``: the rolled egg as ``pets._roll_egg`` makes it (``TYPE``, the class flags and
+    whatever cosmetics were stored).  ``rows``: the player's album entries (those of the egg's
+    species are enough).  Per stage of the species - the egg and the levels 1 ..
+    :data:`pets.MAX_LEVEL` - one line: the album has no card of that stage, or the card that
+    COUNTS for the collection there (``albumrank.collection``: the most valuable one of the
+    slot) by what it has (:func:`card_words`).  A held stage is marked when the new egg's card
+    would be worth more there than the counted one (``albumrank.card_points`` of the egg's
+    look at that stage: ornaments do not change while a pet grows).  The closing line answers
+    the owner's question: which stages this companion can still complete, or that the album has
+    them all - for a mythic egg, which is no part of the collection, what its cards are for.
+    The species is never named (module docstring).
+    """
+    from . import albumrank
+
+    look = {str(key).lower(): value for key, value in dict(egg).items()}
+    species = str(look.get("type"))
+    if (species, 0) not in albumrank.score_slots():
+        return ""
+    value = albumrank.collection(rows)
+    by_id = {pets._int(row["entry_id"]): row for row in rows}
+    lines = [MSG_EGG_NOTE.format(player_id=player_id)]
+    missing: list[str] = []
+    better = False
+    for level in stages():
+        name = stage_name(level)
+        held = value.best.get((species, level))
+        counted = by_id.get(held[1]) if held is not None else None
+        if held is None or counted is None:
+            missing.append(name)
+            lines.append(MSG_EGG_NOTE_MISSING.format(mark=MISSING_MARK, stage=name))
+            continue
+        line = MSG_EGG_NOTE_HELD.format(mark=COLLECTED_MARK, stage=name, card=card_words(counted))
+        if albumrank.card_points({**look, "pet_lvl": level}) > held[0]:
+            better = True
+            line += " " + EGG_NOTE_BETTER_MARK
+        lines.append(line)
+    if species in collection_species():
+        lines.append(MSG_EGG_NOTE_CAN.format(stages=", ".join(missing)) if missing else MSG_EGG_NOTE_ALL)
+    else:
+        lines.append(MSG_EGG_NOTE_MYTHIC_CAN.format(stages=", ".join(missing)) if missing
+                     else MSG_EGG_NOTE_MYTHIC_ALL)
+    if better:
+        lines.append(MSG_EGG_NOTE_BETTER)
+    return "\n".join(lines)
+
+
+async def note_new_egg(scene: "Scene", player: Any, egg: Any) -> bool:
+    """After a new egg was stored for ``player``: tell a supporter what his album says about it.
+
+    Called by ``pets.assign_pet`` - the one place an egg is granted (boss loot, monster loot,
+    the merchant), outside its transaction, also for an egg that went into the egg pouch.  ONE
+    public message (:func:`egg_note`), only for a player who supports right now (the album is
+    for supporters; everybody else gets nothing new), pinging nobody.  It costs one small read
+    (the player's entries of that one species) and draws nothing at random.  Never raises: the
+    egg is the player's already, so a database that does not answer, a missing table or a
+    message Discord refuses costs only this note (logged).  True when the note was posted.
+
+    The note is sent with ONE attempt (as the other once-only messages, e.g. the rank's
+    announcement in features/collector.py): a send whose answer got lost would be repeated by
+    ``io.send`` and put the same note on the channel twice - and the pauses between the tries
+    would hold back the drop's embed, which comes right after.  A note that fails is only lost.
+    """
+    try:
+        if not patrons.check_if_patron(player):
+            return False
+        player_id = pets._pid(player)
+        rows = await _fetch(scene.bot.db, "fetch", _SQL_OF_SPECIES, player_id, str(egg["TYPE"]))
+        text = egg_note(player_id, egg, rows)
+        if not text:
+            return False
+        await scene.send(text[:2000], allowed_mentions=EGG_NOTE_MENTIONS, attempts=1)
+        return True
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the egg is granted, whatever happens to the note
+        log.warning("Album: no note about the new egg of %s (%s: %s).", getattr(player, "id", player),
+                    type(exc).__name__, exc)
+        return False
+
+
 # -- the panel ---------------------------------------------------------------------------
 
 #: How long the album's buttons stay (seconds without a click), as under a shown pet.
@@ -670,11 +889,14 @@ class AlbumPanel(ui.PanelView):
     "Następny" from its page shows the entry that took its place).
 
     Page ``None`` is the overview; pages 0 .. N-1 are the entries in album
-    order.  "Usuń z albumu" asks first (button **Potwierdzam** or a typed
-    ``$potwierdzam``, one open question per player as in features/pets.py) and
-    removes exactly the entry the message showed at the click - not a page
-    still being drawn, nor one whose edit Discord refused.  Quick page clicks
-    are drawn together: only the page they lead to is drawn (:meth:`_go`).
+    order (the hatched pets by species, then the eggs).  The list jumps to the
+    first entry of a hatched species or to the first egg ("Jajka": the eggs are
+    not sorted by species, module docstring).  "Usuń z albumu" asks first
+    (button **Potwierdzam** or a typed ``$potwierdzam``, one open question per
+    player as in features/pets.py) and removes exactly the entry the message
+    showed at the click - not a page still being drawn, nor one whose edit
+    Discord refused.  Quick page clicks are drawn together: only the page they
+    lead to is drawn (:meth:`_go`).
     """
 
     def __init__(self, owner: Any, rows: Sequence[Any], *, timeout: float | None = None) -> None:
@@ -700,14 +922,24 @@ class AlbumPanel(ui.PanelView):
 
     @staticmethod
     def _options(rows: Sequence[Any]) -> list[discord.SelectOption]:
+        """The species the album holds a HATCHED pet of (with how many), then one entry for all
+        the eggs: an egg is not listed under its species."""
         counted: dict[str, int] = {}
+        eggs = 0
         for row in rows:
+            if is_egg(row):
+                eggs += 1
+                continue
             species, _ = slot_of(row)
             counted[species] = counted.get(species, 0) + 1
-        ordered = sorted(counted, key=lambda name: (_species_rank(name), name))[:MAX_OPTIONS]
-        return [discord.SelectOption(label=species_name(species)[:100], value=species[:100],
-                                     description=_entries_word(counted[species]))
-                for species in ordered] or [discord.SelectOption(label=MSG_TITLE, value="-")]
+        ordered = sorted(counted, key=lambda name: (_species_rank(name), name))[:MAX_OPTIONS - bool(eggs)]
+        options = [discord.SelectOption(label=species_name(species)[:100], value=species[:100],
+                                        description=_entries_word(counted[species]))
+                   for species in ordered]
+        if eggs:
+            options.append(discord.SelectOption(label=MSG_EGGS_OPTION, value=EGGS_OPTION, emoji="🥚",
+                                                description=_entries_word(eggs)))
+        return options or [discord.SelectOption(label=MSG_TITLE, value="-")]
 
     def _arrange(self, rows: Sequence[Any], position: int | None = None) -> None:
         """Switch the buttons on and off for page ``position`` (None: the overview)."""
@@ -869,7 +1101,10 @@ class AlbumPanel(ui.PanelView):
         chosen = str(values[0]) if values else ""
 
         def first_of(rows: Sequence[Any], current: int | None) -> int | None:
-            return next((index for index, row in enumerate(rows) if slot_of(row)[0] == chosen), None)
+            if chosen == EGGS_OPTION:
+                return next((index for index, row in enumerate(rows) if is_egg(row)), None)
+            return next((index for index, row in enumerate(rows)
+                         if not is_egg(row) and slot_of(row)[0] == chosen), None)
 
         await self._turn(interaction, first_of)
 

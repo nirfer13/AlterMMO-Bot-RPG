@@ -15,6 +15,13 @@ Owner's request of 2026-11-22 (passed on by the owner's other Claude session):
 * he has 1 ware (usually) or 2-3 different ones (rarely) - drawn from
   ``config/merchantConfig.json`` (prices, draw weights, how many wares, how
   long he stays, the stable's limit), read every time he comes;
+* a ware with ``price_spread_percent`` in the config (owner, 2026-11-23: "make
+  prices in merchant store random + - 30% for egg bag and egg") costs something
+  else at every visit: its price is drawn ONCE when he comes
+  (:func:`price_range`, :func:`draw_stock`) and is the price of that visit - on
+  the panel, on the button, at the payment, at a refund and in the logs
+  (``Offer.price``).  A visit is not kept over a restart, so there is no
+  drawn price to restore;
 * every ware sells ONCE, to the first player who can pay for it: the clicks
   of the panel are queued (:class:`ui.ClickView`) and this one coroutine
   handles them one after another, so two players clicking at the same moment
@@ -44,6 +51,7 @@ import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Sequence
 
@@ -72,6 +80,11 @@ STAY_DEBUG = 15
 WATCH_EVERY = 2.0
 #: ``runtime.json``: the day (``YYYY-MM-DD``, local time) the merchant last came (one a day).
 DAY_KEY = "merchant_last_day"
+#: Config key of a ware: by how many percent its price may differ from ``price``, up and down,
+#: from visit to visit (absent or 0: the fixed price).
+SPREAD_KEY = "price_spread_percent"
+#: A spread must stay below this: at 100 % the price could fall to nothing.
+MAX_PRICE_SPREAD = 100.0
 
 COLOUR = 0x8B5A2B
 BAG = "🧳"
@@ -134,6 +147,8 @@ class Offer:
 
     ware: Ware
     name: str
+    #: What it costs at THIS visit (a ware with a price spread: drawn once by :func:`draw_stock`);
+    #: the panel, the button, the payment, a refund and the logs all read it from here.
     price: int
     options: Mapping[str, Any] = field(default_factory=dict)
     buyer: Any = None
@@ -305,6 +320,7 @@ def load_config(path: Path | None = None) -> Config:
             price, weight = int(entry["price"]), float(entry.get("weight", 0))
             if price < 0 or weight < 0:
                 raise ConfigError(f"ware {ware_id!r}: negative price or weight")
+            price_spread(entry)  # (a spread that makes no sense is refused here, not at the draw)
             items.append((ware_id, str(entry.get("name") or ware_id), price, weight, dict(entry)))
     except ConfigError:
         raise
@@ -318,12 +334,75 @@ def load_config(path: Path | None = None) -> Config:
     return Config(stay, stock_weights, tuple(items))
 
 
+def price_spread(entry: Mapping[str, Any]) -> float:
+    """``price_spread_percent`` of a ware's config entry (0.0: none, the price is fixed).
+
+    :class:`ConfigError` when it is no number, negative, or :data:`MAX_PRICE_SPREAD` and more.
+    """
+    raw = entry.get(SPREAD_KEY, 0)
+    try:
+        if isinstance(raw, bool):
+            raise TypeError("true / false is no number")
+        spread = float(0 if raw is None else raw)
+    except (TypeError, ValueError, OverflowError) as exc:  # (OverflowError: a whole number of hundreds of digits)
+        raise ConfigError(f"ware {entry.get('id')!r}: {SPREAD_KEY} is no number ({_shown(raw)})") from exc
+    if not 0 <= spread < MAX_PRICE_SPREAD:  # (also "nan" and "inf", which compare false)
+        raise ConfigError(f"ware {entry.get('id')!r}: {SPREAD_KEY} must be 0 or more and below "
+                          f"{MAX_PRICE_SPREAD:g} (it is {_shown(raw)})")
+    return spread
+
+
+def _shown(value: Any) -> str:
+    """A config value for an error text: its ``repr``, cut short (the text goes to the owner's log)."""
+    try:
+        text = repr(value)
+    except Exception:  # noqa: BLE001 - e.g. a whole number too long to be printed at all
+        text = f"<{type(value).__name__}>"
+    return text if len(text) <= 60 else text[:57] + "..."
+
+
+def _half_up(value: Decimal) -> int:
+    """``value`` as a whole number, a half rounded UP (Python's ``round`` would make 32.5 the even 32)."""
+    return int(value.quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def price_range(price: int, spread_percent: float) -> tuple[int, int]:
+    """The lowest and the highest price of a ware listed at ``price`` with ``spread_percent``.
+
+    ``price`` less and plus that many percent, each bound rounded half up to whole scrolls
+    (decimal arithmetic on the numbers as written: 30 % of 25 is 7.5, so 17.5 -> 18 and
+    32.5 -> 33) and never below 1: 25 with 30 % is 18..33, 250 with 30 % is 175..325.  No
+    spread - or a ware that costs nothing - is ``(price, price)``.
+    """
+    price = int(price)
+    if price <= 0 or spread_percent <= 0:
+        return price, price
+    part = Decimal(price) * Decimal(str(spread_percent)) / Decimal(100)
+    low = max(1, _half_up(Decimal(price) - part))
+    return low, max(low, _half_up(Decimal(price) + part))
+
+
+def draw_price(price: int, spread_percent: float, rng: Any = random) -> int:
+    """The price of one visit: any whole number of :func:`price_range`, each as likely as the other.
+
+    One ``rng.randint`` - and none at all for a ware whose price is fixed.
+    """
+    low, high = price_range(price, spread_percent)
+    return low if low == high else rng.randint(low, high)
+
+
 def draw_stock(config: Config, *, upgrades: bool = True, rng: random.Random | None = None) -> list[Offer]:
     """The merchant's cart: how many wares (``stock_weights``), then that many DIFFERENT ones by weight.
 
     Wares with weight 0 never come; without the ``PETOWNER`` columns
     (``upgrades=False``) neither do the stable place and the egg pouch.  Fewer
     wares when fewer can come; an empty list when none can.
+
+    The price of a ware with a spread (``price_spread_percent``) is drawn here,
+    once for the visit (:func:`draw_price`).  The prices are drawn AFTER the
+    wares, in the order of the cart: which wares come for a given seed is what
+    it was before prices could vary, and a cart without such a ware draws
+    nothing more.
     """
     rng = rng or random
     pool = [(item, item[3]) for item in config.items
@@ -335,6 +414,8 @@ def draw_stock(config: Config, *, upgrades: bool = True, rng: random.Random | No
         index = rng.choices(range(len(pool)), weights=[weight for _, weight in pool])[0]
         (ware_id, name, price, _weight, entry), _ = pool.pop(index)
         chosen.append(Offer(WARES[ware_id], name, price, entry))
+    for offer in chosen:
+        offer.price = draw_price(offer.price, price_spread(offer.options), rng)
     return chosen
 
 
@@ -459,7 +540,7 @@ async def spawn_merchant(scene: Scene) -> list[Offer]:
     if not stock:
         log.warning("Merchant skipped: no ware can come (check %s).", CONFIG_FILE.name)
         return []
-    log.info("Merchant spawn: %s.", ", ".join(offer.ware.id for offer in stock))
+    log.info("Merchant spawn: %s.", ", ".join(f"{offer.ware.id} for {offer.price}" for offer in stock))
     seconds = timing.timeout(STAY_DEBUG if bot.debug else config.stay_seconds)
     ends_at = datetime.now(timezone.utc) + timedelta(seconds=seconds)
     arrival = picture(ARRIVAL)

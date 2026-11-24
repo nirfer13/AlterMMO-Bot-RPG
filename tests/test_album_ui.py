@@ -5,6 +5,10 @@ answer is an ordinary channel message; display buttons wait while an event / hun
 the channel and say nothing between the prompts of a typed fight; the overview never names a species
 the player has not found nor explains which ornaments exist; a removal is confirmed, permanent and
 happens once (two panels, a double click, a page turned during the question).
+
+Owner's rule of 2026-11-23: an egg in the album never tells its species ("Przy przeglądaniu albumu gdy
+wyświetla się jajko to nie powinien być znany jeszcze gatunek") - the overview, the pages, the species
+menu and the texts of a removal; the eggs are one group after the hatched pets.
 """
 
 from __future__ import annotations
@@ -62,7 +66,8 @@ def supporters_only(member=None) -> str:
 
 
 async def three(game, name: str = "Ala"):
-    """A supporter whose album holds a bear (level 1), a cat egg and a cat of level 2 - in that order."""
+    """A supporter whose album holds a bear (level 1), a cat of level 2 and a cat egg - in that order
+    (the hatched pets by species, then the eggs)."""
     player = game.add_member(name, roles=[PATRON])
     db = game.bot.db
     await put(db, player.id, "Cat", 0)
@@ -143,21 +148,22 @@ async def test_the_overview_names_only_what_the_player_has(cogs):
     text = page(message)
     assert isinstance(message.view, album.AlbumPanel) and message.view.owner_id == ala.id
     assert text.startswith(f"<@{ala.id}>, w Twoim albumie jest **5** towarzyszy.\nKolekcja: **3 z 68**")
-    assert "**Niedźwiedź** (1 z 4): ▫️ Jajko · ✅ Poziom 1 · ▫️ Poziom 2 · ▫️ Poziom 3" in text
-    assert "**Kot** (2 z 4): ✅ Jajko · ▫️ Poziom 1 · ✅ Poziom 2 · ▫️ Poziom 3" in text
-    assert text.index("Niedźwiedź") < text.index("**Kot**")
+    assert "**Niedźwiedź** (1 z 3): ✅ Poziom 1 · ▫️ Poziom 2 · ▫️ Poziom 3" in text
+    assert "**Kot** (1 z 3): ▫️ Poziom 1 · ✅ Poziom 2 · ▫️ Poziom 3" in text
+    assert text.index("Niedźwiedź") < text.index("**Kot**") < text.index("🥚 **Jajka**: **1** z 17")
     assert "❔ Nieodkryte gatunki: **15**" in text
-    assert "✨ **Poza kolekcją:**\nIstota pustki: Jajko ×1" in text
-    # Never a species he has not found, never a word about the ornaments.
-    found = {"Niedźwiedź", "Kot", "Istota pustki"}
+    assert "✨ **Poza kolekcją:**\n🥚 Jajko ×1" in text                       # the mythic egg: not attributed
+    # Never a species he has not found (the void creature is an egg: not found), never a word about the ornaments.
+    found = {"Niedźwiedź", "Kot"}
     for species, name in pets.POLISH_TYPES.items():
         if name not in found:
             assert name not in message.text, species
     for secret in ("Pieczęć", "pieczęć", "Holo", "Ramka", "ramk", "Shiny", "Arcyłowc", "Srebrne"):
         assert secret not in message.text, secret
-    assert message.view.species.placeholder == "Przejdź do gatunku…"
-    assert [option.label for option in message.view.species.options] == ["Niedźwiedź", "Kot", "Istota pustki"]
-    assert [option.description for option in message.view.species.options] == ["1 wpis", "3 wpisy", "1 wpis"]
+    assert message.view.species.placeholder == "Przejdź do…"                # (not "do gatunku": "Jajka" is none)
+    assert [option.label for option in message.view.species.options] == ["Niedźwiedź", "Kot", "Jajka"]
+    assert [option.description for option in message.view.species.options] == ["1 wpis", "1 wpis", "3 wpisy"]
+    assert [option.value for option in message.view.species.options] == ["Bear", "Cat", album.EGGS_OPTION]
     assert message.button_labels == ["Następny"]                              # on the overview: forward only
 
 
@@ -194,11 +200,12 @@ async def test_paging_through_the_album(cogs):
     assert panel.button_labels == ["Poprzedni", "Następny", "Przegląd", "Usuń z albumu"]
 
     await game.click(panel, ala, "Następny")
-    assert page(panel).endswith("Wpis **2 z 3**") and "Etap: **Jajko**" in page(panel)
-    assert files(panel) == ["0.png"]                                          # another picture of that name
-    await game.click(panel, ala, "Następny")
-    assert page(panel).endswith("Wpis **3 z 3**") and panel.embeds[0].title == "📖 Kot Mruczek"
+    assert page(panel).endswith("Wpis **2 z 3**") and panel.embeds[0].title == "📖 Kot Mruczek"
     assert files(panel) == ["10.png"]
+    await game.click(panel, ala, "Następny")                                  # the eggs come last
+    assert page(panel).endswith("Wpis **3 z 3**") and "Etap: **Jajko**" in page(panel)
+    assert panel.embeds[0].title == "📖 Jajko" and "Gatunek" not in page(panel)
+    assert files(panel) == ["0.png"]
     assert "Następny" not in panel.button_labels                              # the last page
     await game.click(panel, ala, "Następny")                                  # (a click seen before the edit)
     assert page(panel).endswith("Wpis **3 z 3**")
@@ -215,6 +222,19 @@ async def test_paging_through_the_album(cogs):
     assert all(message is panel for message in game.channel.sent[-1:])        # nothing new was posted
 
 
+async def test_two_pictures_of_one_name_are_both_attached(cogs):
+    """The bear's and the dog's pictures are both "0.png": the second one is attached all the same."""
+    game = cogs
+    ala = game.add_member("Ala", roles=[PATRON])
+    await put(game.bot.db, ala.id, "Bear", 1)
+    await put(game.bot.db, ala.id, "Dog", 1)
+    panel = await show(game, ala)
+    await game.click(panel, ala, "Następny")
+    assert panel.embeds[0].title == "📖 Niedźwiedź" and files(panel) == ["0.png"]
+    await game.click(panel, ala, "Następny")
+    assert panel.embeds[0].title == "📖 Pies" and files(panel) == ["0.png"]   # another picture of that name
+
+
 async def test_jumping_to_a_species(cogs):
     game = cogs
     ala = await three(game)
@@ -224,6 +244,171 @@ async def test_jumping_to_a_species(cogs):
     assert page(panel).endswith("Wpis **2 z 3**") and "Gatunek: **Kot**" in page(panel)
     await game.click(panel, ala, "album:species", values=["Dragon"])         # nothing of it (any more)
     assert page(panel).startswith(f"<@{ala.id}>, w Twoim albumie")
+    await game.click(panel, ala, "album:species", values=[album.EGGS_OPTION])   # "Jajka": the first egg
+    assert page(panel).endswith("Wpis **3 z 3**") and panel.embeds[0].title == "📖 Jajko"
+
+
+# -- an egg never tells its species ---------------------------------------------------------------------
+
+#: Every name a species has: as the players read it and as the database / the pictures' folders call it.
+SPECIES_NAMES = sorted({*pets.POLISH_TYPES.values(), *(kind.value for kind in pets.PetType)})
+
+
+def names_a_species(text: str) -> list[str]:
+    """The species named in ``text`` (in any case)."""
+    return [name for name in SPECIES_NAMES if name.lower() in str(text).lower()]
+
+
+def everything_on(message) -> str:
+    """Every text a player can read on a message: its content, its embeds (title, description, footer,
+    fields, the picture's name), its attachments and what its list offers."""
+    parts = [message.content or ""]
+    for embed in message.embeds:
+        parts += [embed.title or "", embed.description or "", embed.footer.text or "", embed.image.url or ""]
+        parts += [f"{field.name} {field.value}" for field in embed.fields]
+    for edit in message.edits:
+        parts += [item.filename for item in edit.get("attachments") or []]
+    view = message.view
+    if view is not None:
+        for item in view.children:
+            parts.append(str(getattr(item, "label", "") or ""))
+            parts.append(str(getattr(item, "placeholder", "") or ""))
+            for option in getattr(item, "options", None) or []:
+                parts += [option.label, option.description or ""]
+    return "\n".join(parts)
+
+
+async def eggs_only(game):
+    """A supporter whose album holds nothing but eggs: ordinary ones, premium ones, a mythic one, two
+    of one species (the plain one does not count), one with a name of its own."""
+    ala = game.add_member("Ala", roles=[PATRON])
+    db = game.bot.db
+    for species, columns in (("Dragon", {}), ("Cat", {}), ("Void", {"seal": 3, "holo": True}),
+                             ("Cat", {"shiny": True, "frame": "S1-A"}), ("Unicorn", {"pet_name": "Iskra"}),
+                             ("Rabbit", {"variant": "7", "ultra_shiny": True})):
+        await put(db, ala.id, species, 0, **columns)
+    return ala
+
+
+async def test_an_album_of_eggs_only_names_no_species_anywhere(cogs, monkeypatch):
+    """A scan of every text the panel can produce for an album of eggs only."""
+    game = cogs
+    db = game.bot.db
+    ala = await eggs_only(game)
+    seen = []
+    real = game.channel.send
+
+    async def send(content=None, **kwargs):
+        message = await real(content, **kwargs)
+        seen.append(message)
+        return message
+
+    monkeypatch.setattr(game.channel, "send", send)
+    await run(game, ala, "$album")
+    panel = game.channel.messages[-1]
+    text = page(panel)
+    assert text.startswith(f"<@{ala.id}>, w Twoim albumie jest **6** towarzyszy.\nKolekcja: **4 z 68**\n")
+    assert "🥚 **Jajka**: **4** z 17\n\n❔ Nieodkryte gatunki: **17**" in text       # counted, not attributed
+    assert "✨ **Poza kolekcją:**\n🥚 Jajko ×1" in text and " z 3):" not in text    # no species line at all
+    assert [option.label for option in panel.view.species.options] == ["Jajka"]
+    assert [option.description for option in panel.view.species.options] == ["6 wpisów"]
+    assert names_a_species(everything_on(panel)) == []
+
+    rows = await album.entries(db, ala.id)
+    assert [row["entry_id"] for row in rows] == sorted(row["entry_id"] for row in rows)   # as they were kept
+    for position, row in enumerate(rows, start=1):
+        await game.click(panel, ala, "Następny")
+        assert page(panel).endswith(f"Wpis **{position} z 6**") and "Etap: **Jajko**" in page(panel)
+        assert panel.embeds[0].title == ("📖 Jajko Iskra" if row["pet_name"] == "Iskra" else "📖 Jajko")
+        assert "Gatunek" not in page(panel) and "Wartość karty: **" in page(panel)
+        assert names_a_species(everything_on(panel)) == [], (position, everything_on(panel))
+        assert names_a_species(album.describe(row)) == [] and names_a_species(album._remove_question(ala.id, row)) == []
+    assert albumrank_not_counted() in "\n".join(embed["embed"].description for embed in panel.edits
+                                                if embed.get("embed") is not None)   # the plain cat egg
+    # The removal of an egg: the question, the answer, the page that follows.
+    await game.click(panel, ala, "album:species", values=[album.EGGS_OPTION])
+    game.auto_click(ala, "yes")
+    await game.click(panel, ala, "Usuń z albumu")
+    question = next(m for m in seen if "usunąć z albumu" in (m.content or ""))
+    assert question.content.startswith(f"<@{ala.id}>, czy na pewno chcesz usunąć z albumu **Jajko** (w albumie od ")
+    assert game.channel.contains(album.MSG_REMOVED.format(what="Jajko", player_id=ala.id))
+    await game.click(panel, ala, "Przegląd")
+    assert "🥚 **Jajka**: **3** z 17" in page(panel)                          # the dragon egg is gone
+    for message in seen:
+        assert names_a_species(everything_on(message)) == [], everything_on(message)
+    # ... and the species menu of a species nobody can see finds nothing.
+    await game.click(panel, ala, "album:species", values=["Cat"])
+    assert page(panel).startswith(f"<@{ala.id}>, w Twoim albumie")
+
+
+def albumrank_not_counted() -> str:
+    from altermmo.features import albumrank
+
+    assert names_a_species(albumrank.MSG_NOT_COUNTED) == [] and names_a_species(albumrank.MSG_CARD_VALUE) == []
+    return albumrank.MSG_NOT_COUNTED
+
+
+async def test_eggs_and_hatched_pets_of_one_species(cogs):
+    """The species is named by its hatched pets only; its eggs stand with the other eggs."""
+    game = cogs
+    db = game.bot.db
+    ala = game.add_member("Ala", roles=[PATRON])
+    ids = {"dog egg": await put(db, ala.id, "Dog", 0), "cat 3": await put(db, ala.id, "Cat", 3),
+           "cat egg": await put(db, ala.id, "Cat", 0, pet_name="Mruczek"), "cat 1": await put(db, ala.id, "Cat", 1),
+           "void 2": await put(db, ala.id, "Void", 2), "void egg": await put(db, ala.id, "Void", 0),
+           "cat egg 2": await put(db, ala.id, "Cat", 0)}
+    # The hatched pets by species and stage; then the eggs as they were kept - not next to their species.
+    assert [row["entry_id"] for row in await album.entries(db, ala.id)] == [
+        ids[key] for key in ("cat 1", "cat 3", "void 2", "dog egg", "cat egg", "void egg", "cat egg 2")]
+    panel = await show(game, ala)
+    text = page(panel)
+    assert text.startswith(f"<@{ala.id}>, w Twoim albumie jest **7** towarzyszy.\nKolekcja: **4 z 68**\n")
+    assert "**Kot** (2 z 3): ✅ Poziom 1 · ▫️ Poziom 2 · ✅ Poziom 3\n🥚 **Jajka**: **2** z 17" in text
+    assert "❔ Nieodkryte gatunki: **16**" in text and "Pies" not in text       # the dog is only an egg
+    assert "✨ **Poza kolekcją:**\nIstota pustki: Poziom 2 ×1\n🥚 Jajko ×1" in text   # hatched: named
+    assert [(option.label, option.description) for option in panel.view.species.options] == [
+        ("Kot", "2 wpisy"), ("Istota pustki", "1 wpis"), ("Jajka", "4 wpisy")]
+    await game.click(panel, ala, "album:species", values=["Cat"])               # the first HATCHED cat
+    assert page(panel).endswith("Wpis **1 z 7**") and "Etap: **Poziom 1**" in page(panel)
+    await game.click(panel, ala, "album:species", values=["Dog"])               # only an egg: nothing to jump to
+    assert page(panel).startswith(f"<@{ala.id}>, w Twoim albumie")
+    await game.click(panel, ala, "album:species", values=[album.EGGS_OPTION])
+    assert page(panel).endswith("Wpis **4 z 7**") and panel.embeds[0].title == "📖 Jajko"
+    await game.click(panel, ala, "Następny")
+    assert panel.embeds[0].title == "📖 Jajko Mruczek" and "Imię: **Mruczek**" in page(panel)
+    assert names_a_species(panel.embeds[0].title + page(panel)) == [] and "Gatunek" not in page(panel)
+    rows = {row["entry_id"]: row for row in await album_rows(db, ala.id)}
+    assert album.describe(rows[ids["cat egg"]]) == "Jajko Mruczek" and album.describe(rows[ids["cat egg 2"]]) == "Jajko"
+    assert album.describe(rows[ids["cat 3"]]) == "Kot (Poziom 3)" and album.describe(rows[ids["void egg"]]) == "Jajko"
+    assert album.is_egg(rows[ids["void egg"]]) and not album.is_egg(rows[ids["void 2"]])
+    assert album.is_egg({"type": "Cat", "pet_lvl": None})                       # NULL is the egg, as everywhere
+
+
+async def test_the_counts_of_a_full_album_stay_right(cogs):
+    """Eggs still are slots: 68 of 68, every species 3 of 3, 17 eggs of 17."""
+    from test_album import fill
+
+    game = cogs
+    ala = game.add_member("Ala", roles=[PATRON])
+    await fill(game.bot.db, ala.id, leave_out={("Cat", 0), ("Dog", 2)})
+    text = page(await show(game, ala))
+    assert "Kolekcja: **66 z 68**" in text and "🥚 **Jajka**: **16** z 17" in text
+    assert "**Kot** (3 z 3): ✅ Poziom 1 · ✅ Poziom 2 · ✅ Poziom 3" in text
+    assert "**Pies** (2 z 3): ✅ Poziom 1 · ▫️ Poziom 2 · ✅ Poziom 3" in text
+    assert "❔ Nieodkryte gatunki: **0**" in text and text.count("z 3):") == 17
+    lines = [line for line in text.split("\n") if "z 3):" in line]
+    assert sum(line.count("✅") for line in lines) + 16 == 66                  # the lines add up to the count
+    assert len(text) <= 4096
+
+
+def test_the_species_list_fits_discords_limit():
+    """25 entries at most: with eggs there are 24 species and "Jajka"."""
+    rows = [{"type": f"Species{n:02}", "pet_lvl": 1, "entry_id": n} for n in range(40)]
+    assert len(album.AlbumPanel._options(rows)) == album.MAX_OPTIONS == 25
+    with_eggs = album.AlbumPanel._options([*rows, {"type": "Cat", "pet_lvl": 0, "entry_id": 99}])
+    assert len(with_eggs) == 25 and with_eggs[-1].label == "Jajka" and with_eggs[-1].value == album.EGGS_OPTION
+    assert album.EGGS_OPTION not in {kind.value for kind in pets.PetType}
+    assert [option.label for option in album.AlbumPanel._options([])] == [album.MSG_TITLE]
 
 
 async def test_an_entry_shows_what_it_is_and_what_it_has(cogs, monkeypatch):
@@ -406,7 +591,7 @@ async def test_a_fight_that_starts_during_the_question_silences_the_answer(cogs,
     fighting.clear()                                                          # the fight is over
     await game.click(panel, ala, "Następny")
     assert page(panel).endswith("Wpis **1 z 2**" if answer == "yes" else "Wpis **2 z 3**")
-    assert "Etap: **Jajko**" in page(panel)
+    assert panel.embeds[0].title == "📖 Kot Mruczek"
 
 
 async def test_a_dead_hunter_cannot_make_the_bot_post(cogs):
@@ -490,7 +675,7 @@ async def test_removing_an_entry_after_the_confirmation(cogs):
     assert bear not in [row["entry_id"] for row in await album_rows(db, ala.id)]
     assert len(await album_rows(db, ala.id)) == 2
     # The panel shows what took the entry's place.
-    assert page(panel).endswith("Wpis **1 z 2**") and "Etap: **Jajko**" in page(panel)
+    assert page(panel).endswith("Wpis **1 z 2**") and panel.embeds[0].title == "📖 Kot Mruczek"
 
 
 async def test_removing_by_typing_potwierdzam_and_cancelling(cogs, monkeypatch):
@@ -564,9 +749,9 @@ async def test_after_a_removal_elsewhere_the_next_page_is_what_took_the_entrys_p
     await game.click(two, ala, "Usuń z albumu")                               # removed in panel two
     assert page(one).endswith("Wpis **1 z 3**") and "Niedźwiedź" in one.embeds[0].title   # (not redrawn)
     await game.click(one, ala, "Następny")
-    assert page(one).endswith("Wpis **1 z 2**") and "Etap: **Jajko**" in page(one)        # the cat egg
+    assert page(one).endswith("Wpis **1 z 2**") and one.embeds[0].title == "📖 Kot Mruczek"   # the cat of level 2
     await game.click(one, ala, "Następny")
-    assert page(one).endswith("Wpis **2 z 2**") and one.embeds[0].title == "📖 Kot Mruczek"
+    assert page(one).endswith("Wpis **2 z 2**") and one.embeds[0].title == "📖 Jajko"
 
     # The middle one goes: back from its place is the entry before it, forth the entry after it.
     await put(game.bot.db, ala.id, "Bear", 1)
@@ -574,17 +759,17 @@ async def test_after_a_removal_elsewhere_the_next_page_is_what_took_the_entrys_p
         await game.click(panel, ala, "Przegląd")
         await game.click(panel, ala, "Następny")
         await game.click(panel, ala, "Następny")
-        assert page(panel).endswith("Wpis **2 z 3**") and "Etap: **Jajko**" in page(panel)
+        assert page(panel).endswith("Wpis **2 z 3**") and panel.embeds[0].title == "📖 Kot Mruczek"
     game.auto_click(ala, "yes")
     await game.click(two, ala, "Usuń z albumu")
     await game.click(one, ala, "Poprzedni")
     assert page(one).endswith("Wpis **1 z 2**") and "Niedźwiedź" in one.embeds[0].title
     await game.click(two, ala, "Przegląd")
     await game.click(two, ala, "Następny")
-    await game.click(two, ala, "Następny")                                    # two: the cat of level 2
+    await game.click(two, ala, "Następny")                                    # two: the egg
     game.auto_click(ala, "yes")
     await game.click(one, ala, "Następny")
-    await game.click(one, ala, "Usuń z albumu")                                # one removes the cat ...
+    await game.click(one, ala, "Usuń z albumu")                                # one removes the egg ...
     await game.click(two, ala, "Poprzedni")                                    # ... two goes back: the bear
     assert page(two).endswith("Wpis **1 z 1**") and "Niedźwiedź" in two.embeds[0].title
 
@@ -597,9 +782,10 @@ async def test_quick_clicks_after_a_removal_elsewhere_count_from_the_entrys_plac
         await put(db, ala.id, "Cat", level)
     await put(db, ala.id, "Dog", 1)
     panel = await show(game, ala)
-    await game.click(panel, ala, "Następny")                                  # the cat egg
-    egg = panel.view.entry_id
-    assert await album.remove(db, ala.id, egg)                                # (a second $album)
+    await game.click(panel, ala, "Następny")                                  # the cat of level 1
+    first = panel.view.entry_id
+    assert "Etap: **Poziom 1**" in page(panel) and "Gatunek: **Kot**" in page(panel)
+    assert await album.remove(db, ala.id, first)                              # (a second $album)
     go = asyncio.Event()
 
     async def slow(source, look, cache_dir, *, max_bytes=None):
@@ -614,8 +800,8 @@ async def test_quick_clicks_after_a_removal_elsewhere_count_from_the_entrys_plac
     await asyncio.wait_for(asyncio.gather(*clicks), 3)
     for _ in range(50):
         await asyncio.sleep(0)
-    # Level 1 took the egg's place: three clicks are level 1, level 2, level 3.
-    assert page(panel).endswith("Wpis **3 z 4**") and "Etap: **Poziom 3**" in page(panel)
+    # Level 2 took its place: three clicks are level 2, level 3 and the dog (the egg is the last page).
+    assert page(panel).endswith("Wpis **3 z 4**") and panel.embeds[0].title == "📖 Pies"
     assert not panel.view._pending
 
 
@@ -628,13 +814,13 @@ async def test_the_entry_shown_at_the_click_is_removed_whatever_the_page_shows_l
     bear = panel.view.entry_id
     removal = game.click_later(panel, ala, "Usuń z albumu")
     question = await game.wait_for_buttons("yes")
-    await game.click(panel, ala, "Następny")                                  # the cat egg, during the question
-    egg = panel.view.entry_id
+    await game.click(panel, ala, "Następny")                                  # the cat, during the question
+    cat = panel.view.entry_id
     await game.click(question, ala, "yes")
     await asyncio.wait_for(removal, 2)
     left = [row["entry_id"] for row in await album_rows(db, ala.id)]
-    assert bear not in left and egg in left and len(left) == 2
-    assert panel.view.entry_id == egg and page(panel).endswith("Wpis **1 z 2**")
+    assert bear not in left and cat in left and len(left) == 2
+    assert panel.view.entry_id == cat and page(panel).endswith("Wpis **1 z 2**")
 
 
 async def twins(game):
@@ -874,7 +1060,7 @@ async def test_a_sacrifice_then_the_album(cogs, monkeypatch):
     game.channel.send_hooks.clear()
     await run(game, ala, "$album")
     panel = game.channel.messages[-1]
-    assert "**Jednorożec** (1 z 4): ▫️ Jajko · ▫️ Poziom 1 · ▫️ Poziom 2 · ✅ Poziom 3" in page(panel)
+    assert "**Jednorożec** (1 z 3): ▫️ Poziom 1 · ▫️ Poziom 2 · ✅ Poziom 3" in page(panel)
     await game.click(panel, ala, "Następny")
     assert panel.embeds[0].title == "📖 Jednorożec Iskra" and files(panel) == ["101.png"]
     assert "Imię: **Iskra**" in page(panel) and ASK not in page(panel)

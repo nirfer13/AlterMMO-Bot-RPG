@@ -632,7 +632,7 @@ async def test_show_grown_pet_with_stats_and_shard_conversion(game_db):
     assert embed.title == "Smok O'Burek" and embed.colour.value == 0xffdd00
     assert embed.description == (
         f"Oto Twój towarzysz, <@{player.id}>.\n\n"
-        "📜 **STATYSTYKI:**\nPoziom: 3\nTalent: Mistrz\nWygląd: Premium\n\n"
+        "📜 **STATYSTYKI:**\nPoziom: 3\nTalent: Mistrz\n\n"
         "Szansa na zastąpienie ataku: 7 %\nSzansa na krytyczne uderzenie: 10 %\n"
         "Spowolnienie przeciwnika: 12 %\nRzadszy drop o: 4 %\nWyczuwanie bossa: Tak\n"
         "\n**💎 PRZEDMIOTY:**\nZwoje odrodzenia: 4\nFragmenty zwojów: 3\nKamienie olśnienia: 1\nLustra wizualiów: 0"
@@ -660,7 +660,7 @@ async def test_show_mythic_pet_and_null_items(game_db):
     assert await pets.show_pet(game_db.scene(player), player) is True
     embed = last_embed(game_db)
     assert embed.title == "Istota pustki" and embed.colour.value == 0xff4815
-    assert "Talent: Ekspert\nWygląd: Mityczny\n\n" in embed.description          # legacy branch was unreachable
+    assert "Talent: Ekspert\n\n" in embed.description and "Wygląd" not in embed.description
     assert embed.description.endswith(
         "Zwoje odrodzenia: 1\nFragmenty zwojów: 0\nKamienie olśnienia: 0\nLustra wizualiów: 0"
         "\n\n*Mityczny towarzysz.*")
@@ -1281,6 +1281,56 @@ async def test_pet_ranking(game_db):
     await db.execute("DELETE FROM PETS")
     await pets.pet_ranking(game_db.scene())                              # an empty ranking is still an answer
     assert last_embed(game_db).description == pets.MSG_NO_PETS_YET
+
+
+def _ranked(**columns) -> dict:
+    """A row of the ranking's query (lower-case columns)."""
+    return {"pet_name": "Towarzysz", "pet_lvl": 0, "pet_skills": 5, "quality": "Standard", "shiny": False,
+            "type": "Cat", "ultra_shiny": False, "mythic": False, **columns}
+
+
+@pytest.mark.parametrize("species", [kind.value for kind in pets.PetType])
+def test_an_egg_in_the_pet_ranking_does_not_tell_its_species(species):
+    """Owner, 2026-11-23: an egg's species is not known before it hatches - in the whole game, so in the
+    ranking of the most talented pets as well.  The egg keeps its name, its talent and its badges."""
+    polish = pets.POLISH_TYPES[species]
+    for level in (0, None):                                              # (NULL is the egg, as everywhere)
+        egg = pets._ranking_entry(4, _ranked(type=species, pet_lvl=level))
+        assert egg == "**4.** **Towarzysz** · jajko\n┗ Talent: **Mistrz**"
+        assert not any(name in egg for name in pets.POLISH_TYPES.values()) and species not in egg
+    named = pets._ranking_entry(1, _ranked(type=species, pet_name="Iskra", shiny=True, quality="Premium"))
+    assert named == "🥇 **Iskra** · jajko\n┗ Talent: **Mistrz** · ✨ Shiny · 💎 Premium"
+    # Once it hatched the species is told, as before.
+    for level in range(1, pets.MAX_LEVEL + 1):
+        grown = pets._ranking_entry(2, _ranked(type=species, pet_lvl=level))
+        assert grown == f"🥈 **Towarzysz** · {polish} · poziom {level}\n┗ Talent: **Mistrz**"
+    # The other lists of pets - the stable, its menu and the egg pouch - never named an egg's species;
+    # the title of ``$towarzysz`` is "Jajko" (tests of the pet's embed).
+    egg = _ranked(type=species, pet_name="Iskra")
+    assert pets._pet_brief(egg) == "Iskra · jajko" and pets._pet_line(egg) == "**Iskra** · jajko"
+    assert pets._pet_brief({**egg, "pet_lvl": 2}) == f"Iskra · {polish} · poziom 2"
+
+
+async def test_the_pet_ranking_names_the_species_of_hatched_pets_only(game_db):
+    bot, db = game_db.bot, game_db.bot.db
+    await add_pet(db, 1, pet_name="Iskra", pet_lvl=0, pet_skills=9, quality="Premium", type="Dragon", shiny=True)
+    await add_pet(db, 2, pet_lvl=0, pet_skills=8, quality="Mythic", type="Void", shiny=True, ultra_shiny=True,
+                  mythic=True)
+    await add_pet(db, 3, pet_lvl=None, pet_skills=7, type="Dog")
+    await add_pet(db, 4, pet_name="Burek", pet_lvl=1, pet_skills=6, type="Dog")
+    await pets.pet_ranking(game_db.scene())
+    text = last_embed(game_db).description
+    assert text.splitlines() == [
+        "🥇 **Iskra** · jajko",
+        "┗ Talent: **Boski** · ✨ Shiny · 💎 Premium",
+        "🥈 **Towarzysz** · jajko",
+        "┗ Talent: **Pozaziemski** · 🔮 Mityczny",
+        "🥉 **Towarzysz** · jajko",
+        "┗ Talent: **Transcendentny**",
+        "**4.** **Burek** · Pies · poziom 1",
+        "┗ Talent: **Oświecony**",
+    ]
+    assert "Smok" not in text and "Istota pustki" not in text and text.count("Pies") == 1
 
 
 # -- boss detection -------------------------------------------------------------------

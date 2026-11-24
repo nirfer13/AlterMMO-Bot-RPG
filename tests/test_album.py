@@ -363,15 +363,23 @@ async def test_entries_are_in_album_order_and_only_the_players_own(db):
     ids = {
         "cat2": await put(db, 1, "Cat", 2), "bear0": await put(db, 1, "Bear", 0),
         "void0": await put(db, 1, "Void", 0), "cat0": await put(db, 1, "Cat", 0),
+        "void1": await put(db, 1, "Void", 1), "cat1": await put(db, 1, "Cat", 1),
         "cat0b": await put(db, 1, "Cat", 0, variant="9"), "other": await put(db, 2, "Bear", 0),
+        "bear3": await put(db, 1, "Bear", 3), "cat2b": await put(db, 1, "Cat", 2, variant="1"),
     }
     order = [row["entry_id"] for row in await album.entries(db, 1)]
-    # Species in the order of PetType (Bear, ..., Cat, ..., Void last), then the stage, then when kept.
-    assert order == [ids["bear0"], ids["cat0"], ids["cat0b"], ids["cat2"], ids["void0"]]
+    # The hatched pets: species in the order of PetType (Bear, ..., Cat, ..., Void last), then the stage,
+    # then when kept.  Then the eggs, in the order they were kept only (owner, 2026-11-23: an egg does not
+    # tell its species - between the pages of its species its neighbours would).
+    assert order == [ids[key] for key in ("bear3", "cat1", "cat2", "cat2b", "void1",
+                                          "bear0", "void0", "cat0", "cat0b")]
+    key = album._album_order
+    assert key({"type": "Cat", "pet_lvl": None, "entry_id": 4}) == key({"type": "Dog", "pet_lvl": 0, "entry_id": 4})
     assert [row["entry_id"] for row in await album.entries(db, 2)] == [ids["other"]]
     assert await album.entries(db, 3) == []
     assert await album.entry(db, 1, ids["other"]) is None                  # somebody else's
-    assert await album.collected(db, 1) == {("Bear", 0), ("Cat", 0), ("Cat", 2), ("Void", 0)}
+    assert await album.collected(db, 1) == {("Bear", 0), ("Bear", 3), ("Cat", 0), ("Cat", 1), ("Cat", 2),
+                                            ("Void", 0), ("Void", 1)}
 
 
 async def test_remove_happens_once_and_only_for_the_owner(db):
