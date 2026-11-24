@@ -558,7 +558,7 @@ def cog(game_db):
 
 
 def ctx_of(game, member):
-    return SimpleNamespace(bot=game.bot, channel=game.channel, author=member, message=game.say(member, "$kopia"))
+    return SimpleNamespace(bot=game.bot, channel=game.channel, author=member, message=game.say(member, "!kopia"))
 
 
 async def test_kopia_command_makes_a_copy_and_says_so(game_db, cog):
@@ -613,7 +613,7 @@ async def test_bot_keeps_the_last_fourteen_copies(game_db, cog, monkeypatch):
     assert made.removed == (stamp(1), stamp(2), stamp(3)) and len(backup.copies(cog.folder)) == 14
     assert "Usunięto najstarsze kopie: 3" in game.bot.owner_log[-1]
     alter = game.add_member("Alter")
-    await cog.copy_now.callback(cog, ctx_of(game, alter))                     # $kopia right after a copy:
+    await cog.copy_now.callback(cog, ctx_of(game, alter))                     # !kopia right after a copy:
     assert "Ostatnia kopia zapasowa jest sprzed 0 min" in game.channel.messages[-1].content
     assert (cog.folder / stamp(4)).exists()                                   # ...would only push one out
     monkeypatch.setattr(backup_cog, "MANUAL_GAP", 0.0)
@@ -651,7 +651,7 @@ async def test_kopia_that_finds_a_loss_tells_the_owner_too(game_db, cog, monkeyp
     await game.bot.db.execute("INSERT INTO TOWER (PLAYER_ID, TOWER_LEVEL, TIME) SELECT g, 1, '0:00:01' "
                               "FROM generate_series(1, 40) g")
     await cog.copy_now.callback(cog, ctx_of(game, admin))
-    assert game.bot.owner_log == []                                           # an ordinary $kopia: the channel only
+    assert game.bot.owner_log == []                                           # an ordinary !kopia: the channel only
     await game.bot.db.execute("DELETE FROM TOWER")
     await cog.copy_now.callback(cog, ctx_of(game, admin))
     assert "UWAGA" in game.channel.messages[-1].content

@@ -2,7 +2,7 @@
 
 "Pet gdy w prywatnej wiadomości ostrzega przed bossem powinien też dawać możliwość anulowania
 takich powiadomień."  No command works in private messages, so the warning carries a button
-(its own custom_id) and a line naming ``$wyczuwanie`` on the boss channel.
+(its own custom_id) and a line naming ``!wyczuwanie`` on the boss channel.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ async def sensing(game_db):
 
 def expected_warning(bot, word: str) -> str:
     return (f"Nadciąga boss! Będzie {word}.\nNie chcesz tych powiadomień? Kliknij przycisk poniżej albo "
-            f"wpisz **$wyczuwanie** na kanale <#{bot.ids.boss_channel}>.")
+            f"wpisz **!wyczuwanie** na kanale <#{bot.ids.boss_channel}>.")
 
 
 # -- the warning ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ async def test_click_in_the_dm_switches_the_warnings_off_and_takes_the_button_aw
     (answer,) = click.replies
     assert answer.content == bossdetect.MSG_DM_SWITCHED_OFF.format(channel_id=bot.ids.boss_channel)
     assert not answer.content.startswith("<@") and f"<@{ola.id}>" not in answer.content   # one reader: no mention
-    assert "**$wyczuwanie**" in answer.content and f"<#{bot.ids.boss_channel}>" in answer.content
+    assert "**!wyczuwanie**" in answer.content and f"<#{bot.ids.boss_channel}>" in answer.content
     assert not answer.ephemeral and answer.allowed_mentions.users is False
     assert sensing.dms[1].messages == [warning, answer.message]   # an ordinary message in that conversation
     assert bossdetect.is_off(bot, ola.id) and bot.store.detect_off.all() == [str(ola.id)]

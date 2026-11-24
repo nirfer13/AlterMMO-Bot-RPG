@@ -22,7 +22,7 @@ from altermmo.settings import ASSETS_DIR
 from fakes import FakeMember, FakeMessage, FakeRole
 
 PATRON = patrons.PATRON_ROLES[0]
-ASK = "albo wpisz **$potwierdzam**."
+ASK = "albo wpisz **!potwierdzam**."
 ALONE = "Niestety jesteś sam jak palec na tym świecie"
 PEPOG = "<:PepoG:790963160528977980>"
 ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN = pets.SKILL_EMOTES
@@ -103,7 +103,7 @@ def rig(monkeypatch, *, choices=(), randint=None):
     return pools, ranges
 
 
-def confirms(game, player, text: str = "$potwierdzam") -> None:
+def confirms(game, player, text: str = "!potwierdzam") -> None:
     """``player`` types ``text`` whenever the bot asks for a confirmation."""
     game.auto_answer(player, responder=lambda message: text if ASK in message.content else None)
 
@@ -138,7 +138,7 @@ class DatabaseDown:
 def _no_open_questions():
     pets._awaiting_confirmation.clear()
     yield
-    assert not pets._awaiting_confirmation, "a $potwierdzam slot was never released"
+    assert not pets._awaiting_confirmation, "a !potwierdzam slot was never released"
 
 
 @pytest.fixture(autouse=True)
@@ -583,7 +583,7 @@ async def test_database_outage_is_an_error_not_an_answer(game):
     assert game.channel.bot_messages == [game.channel.messages[0]]    # nobody was told a fairy tale
 
 
-# -- $towarzysz -----------------------------------------------------------------------
+# -- !towarzysz -----------------------------------------------------------------------
 
 async def test_show_pet_without_a_pet(game_db):
     player = game_db.add_member("Ala")
@@ -687,7 +687,7 @@ async def test_show_pet_survives_missing_picture_and_missing_row(game_db):
     assert game_db.channel.messages[-1].content == "Nie znaleziono danych towarzysza."
 
 
-# -- $odrodzenie ----------------------------------------------------------------------
+# -- !odrodzenie ----------------------------------------------------------------------
 
 async def reroll_setup(game, *, scrolls: int = 2, **pet):
     player = game.add_member("Ala")
@@ -706,7 +706,7 @@ async def test_reroll_spends_a_scroll_and_redistributes_the_talent(game_db, monk
 
     assert game_db.channel.contains(
         f"Czy jesteś pewien, że chcesz przelosować statystyki swojego towarzysza <@{player.id}>? "
-        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
+        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **!potwierdzam**.")
     row = await pet_row(db, 5)
     assert {name: row[name.lower()] for name in pets.SKILL_POOL} == {
         "CRIT_PERC": 5, "REPLACE_PERC": 0, "DEF_PERC": 0, "DROP_PERC": 0, "LOWHP_PERC": 0, "SLOW_PERC": 16,
@@ -732,7 +732,7 @@ async def test_reroll_needs_a_pet_and_a_scroll(game_db):
     assert await pets.reroll_pet(game_db.scene(player), player) is False
     assert game_db.channel.messages[-1].content == (
         f"Nie masz wystarczająco zwojów odrodzenia <@{player.id}> <:Sadge:936907659142111273> Wpisz "
-        "**$towarzysz**, żeby sprawdzić ich ilość. Zwoje możesz zdobyć na polowaniu lub po zabiciu bossów.")
+        "**!towarzysz**, żeby sprawdzić ich ilość. Zwoje możesz zdobyć na polowaniu lub po zabiciu bossów.")
     await db.execute("UPDATE PETOWNER SET REROLL_SCROLL = 9")
     assert await pets.reroll_pet(game_db.scene(player), player, [0, 5]) is False      # 20 scrolls needed
     assert not game_db.channel.contains(ASK)
@@ -749,7 +749,7 @@ async def test_reroll_times_out_without_changing_anything(game_db, short_timeout
     assert game_db.channel.messages[-1].content == "*Twój towarzysz spogląda na Ciebie niepewnie.*"
     assert await pet_row(db, 5) == before and (await owner_row(db, player.id))["reroll_scroll"] == 2
     # A late answer is not picked up by the next question.
-    game_db.say(player, "$potwierdzam")
+    game_db.say(player, "!potwierdzam")
     assert await pets.reroll_pet(game_db.scene(player), player) is False
     assert (await owner_row(db, player.id))["reroll_scroll"] == 2
 
@@ -760,10 +760,10 @@ async def test_only_the_player_on_this_channel_can_confirm(game_db, monkeypatch)
     other = game_db.add_member("Ola")
     task = asyncio.ensure_future(pets.reroll_pet(game_db.scene(player), player))
     await until(lambda: game_db.channel.contains(ASK))
-    game_db.say(other, "$potwierdzam")
-    game_db.say(player, "$potwierdzam", channel=game_db.log_channel)
+    game_db.say(other, "!potwierdzam")
+    game_db.say(player, "!potwierdzam", channel=game_db.log_channel)
     game_db.say(player, "potwierdzam")
-    game_db.say(game_db.bot.fake_user, "$potwierdzam")
+    game_db.say(game_db.bot.fake_user, "!potwierdzam")
     assert await task is False
     assert game_db.channel.messages[-1].content == "*Twój towarzysz spogląda na Ciebie niepewnie.*"
     assert (await owner_row(game_db.bot.db, player.id))["reroll_scroll"] == 2
@@ -774,7 +774,7 @@ async def test_answer_typed_before_the_question_arrives_counts(game_db, monkeypa
     player = await reroll_setup(game_db)
     rig(monkeypatch)
     game_db.channel.send_hooks.append(
-        lambda message: game_db.say(player, "$potwierdzam") if ASK in message.content else None)
+        lambda message: game_db.say(player, "!potwierdzam") if ASK in message.content else None)
     assert await asyncio.wait_for(pets.reroll_pet(game_db.scene(player), player), 5) is True
     assert (await owner_row(game_db.bot.db, player.id))["reroll_scroll"] == 1
 
@@ -786,7 +786,7 @@ async def test_scrolls_spent_while_the_question_was_open_are_not_spent_twice(gam
     task = asyncio.ensure_future(pets.reroll_pet(game_db.scene(player), player))
     await until(lambda: game_db.channel.contains(ASK))
     await db.execute("UPDATE PETOWNER SET REROLL_SCROLL = 0")
-    game_db.say(player, "$potwierdzam")
+    game_db.say(player, "!potwierdzam")
     assert await asyncio.wait_for(task, 5) is False
     assert game_db.channel.messages[-1].content.startswith("Nie masz wystarczająco zwojów odrodzenia")
     assert await pet_row(db, 5) == before and (await owner_row(db, player.id))["reroll_scroll"] == 0
@@ -798,7 +798,7 @@ async def test_one_open_question_per_player(game_db, monkeypatch, sacrifices):
     rig(monkeypatch)
     task = asyncio.ensure_future(pets.reroll_pet(game_db.scene(player), player))
     await until(lambda: game_db.channel.contains(ASK))
-    waiting = ("Już czekam na Twoje potwierdzenie. Kliknij **Potwierdzam** (albo wpisz **$potwierdzam**) "
+    waiting = ("Już czekam na Twoje potwierdzenie. Kliknij **Potwierdzam** (albo wpisz **!potwierdzam**) "
                "albo poczekaj, aż prośba wygaśnie.")
     assert await pets.discard_pet(game_db.scene(player)) is False
     assert await pets.reroll_pet(game_db.scene(player), player) is False
@@ -806,7 +806,7 @@ async def test_one_open_question_per_player(game_db, monkeypatch, sacrifices):
     await db.execute("UPDATE PETOWNER SET PET_ID_ALT2 = 6")
     assert await pets.unstore_pet(game_db.scene(player), 2) is False
     assert game_db.channel.count(waiting) == 4 and game_db.channel.count("Czy jesteś pewien") == 1
-    game_db.say(player, "$potwierdzam")
+    game_db.say(player, "!potwierdzam")
     assert await asyncio.wait_for(task, 5) is True
     # One answer confirmed one thing: the pet was rerolled, not discarded, not moved.
     row = await owner_row(db, player.id)
@@ -828,7 +828,7 @@ async def test_reroll_leaving_stats_out_costs_ten_scrolls_each(game_db, monkeypa
     assert (await owner_row(db, player.id))["reroll_scroll"] == 5
 
 
-# -- $mocneodrodzenie -----------------------------------------------------------------
+# -- !mocneodrodzenie -----------------------------------------------------------------
 
 async def open_menu(game, player):
     task = asyncio.ensure_future(pets.adv_reroll_pet(game.scene(player)))
@@ -920,7 +920,7 @@ async def test_advanced_reroll_menu_expires(game_db, short_timeouts):
     assert menu.deleted and menu.view is None
 
 
-# -- $transformacja -------------------------------------------------------------------
+# -- !transformacja -------------------------------------------------------------------
 
 async def test_transform_changes_the_looks_for_a_mirror(game_db, monkeypatch):
     db = game_db.bot.db
@@ -932,7 +932,7 @@ async def test_transform_changes_the_looks_for_a_mirror(game_db, monkeypatch):
     assert await pets.transform_pet(game_db.scene(player), player) is True
     assert game_db.channel.contains(
         f"Czy jesteś pewien, że chcesz zmienić wygląd swojego towarzysza <@{player.id}>? "
-        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
+        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **!potwierdzam**.")
     assert pools == [list(pets.TRANSFORM_TYPES)] and ranges == [(0, 1)]
     row = await pet_row(db, 5)
     assert (row["type"], row["quality"], row["variant"], row["crit_perc"], row["pet_skills"]) == (
@@ -966,7 +966,7 @@ async def test_transform_refusals(game_db):
     await add_pet(db, 6, pet_lvl=1)
     assert await pets.transform_pet(game_db.scene(rich), rich) is False
     assert game_db.channel.messages[-1].content == (
-        f"Nie masz żadnych lustr wizualiów <@{rich.id}> <:Sadge:936907659142111273> Wpisz **$towarzysz**, "
+        f"Nie masz żadnych lustr wizualiów <@{rich.id}> <:Sadge:936907659142111273> Wpisz **!towarzysz**, "
         "żeby sprawdzić ich ilość. Lustra możesz zdobyć na polowaniu lub po zabiciu bossów, jednak są one "
         "bardzo rzadkie.")
     await db.execute("UPDATE PETOWNER SET MIRRORS = 1")
@@ -977,7 +977,7 @@ async def test_transform_refusals(game_db):
     assert (await owner_row(db, rich.id))["mirrors"] == 1
 
 
-# -- $oswiecenie ----------------------------------------------------------------------
+# -- !oswiecenie ----------------------------------------------------------------------
 
 async def test_enlightenment_adds_talent_for_a_stone(game_db, monkeypatch):
     db = game_db.bot.db
@@ -989,7 +989,7 @@ async def test_enlightenment_adds_talent_for_a_stone(game_db, monkeypatch):
     assert await pets.enlight_pet(game_db.scene(player), player) is True
     assert game_db.channel.contains(
         f"Czy jesteś pewien, że chcesz zwiększyć talent swojego towarzysza <@{player.id}>? "
-        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
+        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **!potwierdzam**.")
     row = await pet_row(db, 5)
     assert (row["pet_skills"], row["pet_lvl"], row["variant"]) == (9, 3, "1")
     assert (row["crit_perc"], row["drop_perc"], row["detection"]) == (15, 5, True)
@@ -999,19 +999,19 @@ async def test_enlightenment_adds_talent_for_a_stone(game_db, monkeypatch):
 
     assert await pets.enlight_pet(game_db.scene(player), player) is False
     assert game_db.channel.messages[-1].content == (
-        f"Nie masz żadnych kamieni olśnienia <@{player.id}> <:Sadge:936907659142111273> Wpisz **$towarzysz**, "
+        f"Nie masz żadnych kamieni olśnienia <@{player.id}> <:Sadge:936907659142111273> Wpisz **!towarzysz**, "
         "żeby sprawdzić ich ilość. Kamienie olśnienia możesz zdobyć na polowaniu lub po zabiciu bossów, "
         "jednak są one bardzo rzadkie.")
     await db.execute("UPDATE PETOWNER SET REBIRTH_STONES = 2")
     assert await pets.enlight_pet(game_db.scene(player), player) is False
     assert game_db.channel.messages[-1].content == (
         f"Twój towarzysz już dostąpił oświecenia <@{player.id}> <:prayge:1063891597760139304> Wpisz "
-        "**$towarzysz**, żeby sprawdzić jego talent.")
+        "**!towarzysz**, żeby sprawdzić jego talent.")
     await db.execute("UPDATE PETS SET PET_LVL = 2, PET_SKILLS = 3")
     assert await pets.enlight_pet(game_db.scene(player), player) is False
     assert game_db.channel.messages[-1].content == (
         f"Niestety Twój towarzysz nie jest godny dostąpić oświecenia <@{player.id}> "
-        "<:Sadge:936907659142111273> Wpisz **$towarzysz**, żeby sprawdzić jego poziom.")
+        "<:Sadge:936907659142111273> Wpisz **!towarzysz**, żeby sprawdzić jego poziom.")
     assert (await owner_row(db, player.id))["rebirth_stones"] == 2 and game_db.channel.count(ASK) == 1
 
 
@@ -1032,7 +1032,7 @@ async def test_enlightenment_refusals_and_timeout(game_db, short_timeouts):
     assert (await pet_row(db, 5))["pet_skills"] == 4 and (await owner_row(db, player.id))["rebirth_stones"] == 1
 
 
-# -- $porzucam ------------------------------------------------------------------------
+# -- !porzucam ------------------------------------------------------------------------
 
 async def test_discard_sacrifices_the_pet(game_db, sacrifices):
     db = game_db.bot.db
@@ -1044,12 +1044,12 @@ async def test_discard_sacrifices_the_pet(game_db, sacrifices):
     assert await pets.discard_pet(game_db.scene(player)) is True
     assert game_db.channel.contains(
         f"Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@{player.id}>? "
-        "<:MonkaS:882181709100097587> Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
+        "<:MonkaS:882181709100097587> Kliknij **Potwierdzam** albo wpisz **!potwierdzam**.")
     row = await owner_row(db, player.id)
     assert (row["pet_id"], row["pet_id_alt1"], row["reroll_scroll"]) == (0, 6, 2)
     assert await pet_row(db, 5) is None and await pet_row(db, 6) is not None
     assert sacrifices == [(player, True, True)]
-    answer = next(m for m in game_db.channel.messages if m.content == "$potwierdzam")
+    answer = next(m for m in game_db.channel.messages if m.content == "!potwierdzam")
     assert answer.reactions == ["<:MonkaS:882181709100097587>"]
 
 
@@ -1096,7 +1096,7 @@ async def test_database_failing_after_the_confirmation_leaves_nothing_stuck(game
         if ASK not in message.content:
             return None
         monkeypatch.setattr(db, "transaction", DatabaseDown().transaction)
-        return "$potwierdzam"
+        return "!potwierdzam"
 
     game_db.auto_answer(player, responder=answer)
     with pytest.raises(DatabaseUnavailable):
@@ -1120,18 +1120,18 @@ async def test_discord_failing_on_the_question_leaves_nothing_stuck(game_db):
     await game_db.settle()
     # Nobody is left listening (discord.py drops finished listeners on the next message).
     assert all(future.done() for future, _ in game_db.bot._listeners.get("message", []))
-    game_db.say(player, "$potwierdzam")
+    game_db.say(player, "!potwierdzam")
     await game_db.settle()
     assert not game_db.bot._listeners.get("message")
     assert (await owner_row(game_db.bot.db, player.id))["reroll_scroll"] == 2
 
 
-# -- $nazwij --------------------------------------------------------------------------
+# -- !nazwij --------------------------------------------------------------------------
 
 async def test_naming(game_db, monkeypatch):
     db = game_db.bot.db
     player = game_db.add_member("Ala")
-    scene = game_db.scene(player, "$nazwij x")
+    scene = game_db.scene(player, "!nazwij x")
     assert await pets.name_pet(scene, "Burek") is False
     await add_owner(db, player.id, 0)
     assert await pets.name_pet(scene, "Burek") is False
@@ -1176,7 +1176,7 @@ async def test_store_and_take_out(game_db):
     assert await pets.store_pet(scene, 2) is False
     assert game_db.channel.messages[-1].content == (
         f"Niestety nie posiadasz aktualnie żadnego peta, <@{player.id}>. Możesz sprawdzić swoją stajnie "
-        "wpisując **$stajnia**.")
+        "wpisując **!stajnia**.")
 
     await db.execute("UPDATE PETOWNER SET PET_ID = 6")
     assert await pets.store_pet(scene, 1) is True                           # swap with the stabled pet
@@ -1196,7 +1196,7 @@ async def test_store_and_take_out(game_db):
     for empty in (2, 3):
         assert await pets.unstore_pet(scene, empty) is False
         assert game_db.channel.messages[-1].content == (
-            "W stajni nie ma towarzysza na podanym miejscu. Sprawdź stajnie wpisując **$stajnia**.")
+            "W stajni nie ma towarzysza na podanym miejscu. Sprawdź stajnie wpisując **!stajnia**.")
     assert await slots() == [6, 5, None, 0, 0]
 
 
@@ -1209,11 +1209,11 @@ async def test_stable_slot_must_be_one_to_four(game_db):
         assert await pets.store_pet(game_db.scene(player), slot) is False                # legacy: NameError
         assert game_db.channel.messages[-1].content == (
             "Każdy gracz ma tylko cztery miejsca na przechowanie slotów - 1, 2, 3 oraz 4 "
-            f"<@{player.id}>! Wpisz np. **$schowajtowarzysza 1**.")
+            f"<@{player.id}>! Wpisz np. **!schowajtowarzysza 1**.")
         assert await pets.unstore_pet(game_db.scene(player), slot) is False
         assert game_db.channel.messages[-1].content == (
             "Każdy gracz ma tylko cztery miejsca na przechowanie slotów - 1, 2, 3 oraz 4 "
-            f"<@{player.id}>! Wpisz np. **$wyciagnijtowarzysza 1**.")
+            f"<@{player.id}>! Wpisz np. **!wyciagnijtowarzysza 1**.")
     assert await owner_row(db, player.id) == before
     for action in (pets.store_pet, pets.unstore_pet, lambda scene, slot: pets.check_stable(scene)):
         assert await action(game_db.scene(nobody), 1) is False
@@ -1238,8 +1238,8 @@ async def test_stable_view(game_db):
         "**2.** *brak danych w tabeli PETS*\n"
         "**3.** *wolne miejsce*\n"
         "**4.** *wolne miejsce*")
-    assert embed.footer.text == ("Możesz schować lub wyciągnąć peta za pomocą komend $schowajtowarzysza "
-                                 "oraz $wyciagnijtowarzysza.")
+    assert embed.footer.text == ("Możesz schować lub wyciągnąć peta za pomocą komend !schowajtowarzysza "
+                                 "oraz !wyciagnijtowarzysza.")
     assert embed.thumbnail.url == "https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png"
 
 
@@ -1305,7 +1305,7 @@ def test_an_egg_in_the_pet_ranking_does_not_tell_its_species(species):
         grown = pets._ranking_entry(2, _ranked(type=species, pet_lvl=level))
         assert grown == f"🥈 **Towarzysz** · {polish} · poziom {level}\n┗ Talent: **Mistrz**"
     # The other lists of pets - the stable, its menu and the egg pouch - never named an egg's species;
-    # the title of ``$towarzysz`` is "Jajko" (tests of the pet's embed).
+    # the title of ``!towarzysz`` is "Jajko" (tests of the pet's embed).
     egg = _ranked(type=species, pet_name="Iskra")
     assert pets._pet_brief(egg) == "Iskra · jajko" and pets._pet_line(egg) == "**Iskra** · jajko"
     assert pets._pet_brief({**egg, "pet_lvl": 2}) == f"Iskra · {polish} · poziom 2"
@@ -1448,20 +1448,20 @@ async def test_display_commands_work_anywhere_gameplay_only_on_the_boss_channel(
     await add_owner(db, player.id, 5, reroll_scroll=3)
     await add_pet(db, 5, pet_lvl=1, pet_skills=1, crit_perc=4)
     elsewhere = game_db.announce_channel
-    for command in ("$towarzysz", "$t", "$stajnia", "$s", "$rankingtowarzyszy", "$rt", "$towarzysze"):
+    for command in ("!towarzysz", "!t", "!stajnia", "!s", "!rankingtowarzyszy", "!rt", "!towarzysze"):
         await run(game_db, player, command, channel=elsewhere)
     assert [m.embeds[0].title for m in elsewhere.messages if m.embeds] == [
         "Kot", "Kot", "Stajnia", "Stajnia", *["Najbardziej utalentowani towarzysze!"] * 3]
 
-    for command in ("$porzucam", "$odrodzenie", "$o", "$mocneodrodzenie", "$oswiecenie", "$transformacja",
-                    "$schowajtowarzysza 1", "$wyciagnijtowarzysza 1", "$nazwij Burek"):
+    for command in ("!porzucam", "!odrodzenie", "!o", "!mocneodrodzenie", "!oswiecenie", "!transformacja",
+                    "!schowajtowarzysza 1", "!wyciagnijtowarzysza 1", "!nazwij Burek"):
         await run(game_db, player, command, channel=elsewhere)
     assert len(elsewhere.bot_messages) == 7 and game_db.channel.bot_messages == [game_db.channel.messages[0]]
     row = await owner_row(db, player.id)
     assert (row["pet_id"], row["pet_id_alt1"]) == (5, 0) and (await pet_row(db, 5))["pet_name"] == "Towarzysz"
 
-    await run(game_db, player, "$schowaj 2")                             # ... and on the boss channel they work
-    await run(game_db, player, "$wt 2")
+    await run(game_db, player, "!schowaj 2")                             # ... and on the boss channel they work
+    await run(game_db, player, "!wt 2")
     assert game_db.channel.contains("ulokowany w stajni") and game_db.channel.contains("wyciągnięty ze stajni")
 
 
@@ -1470,8 +1470,8 @@ async def test_commands_are_blocked_with_a_notice_while_the_bot_is_busy(game_db,
     await add_owner(game_db.bot.db, player.id, 5)
     await add_pet(game_db.bot.db, 5)
     with game_db.bot.state.hold_busy("event:TEST"):
-        for command in ("$towarzysz", "$stajnia", "$rt", "$porzucam", "$odr", "$mo", "$oświecenie", "$transform",
-                        "$st 1", "$wyciągnij 1", "$n Burek"):
+        for command in ("!towarzysz", "!stajnia", "!rt", "!porzucam", "!odr", "!mo", "!oświecenie", "!transform",
+                        "!st 1", "!wyciągnij 1", "!n Burek"):
             await run(game_db, player, command)
     assert [m.content for m in game_db.channel.bot_messages[1:]] == [guards.BUSY_NOTICE]
     assert (await pet_row(game_db.bot.db, 5))["pet_name"] == "Towarzysz"
@@ -1484,13 +1484,13 @@ async def test_commands_run_the_confirmed_flows(game_db, cog, monkeypatch, sacri
     await add_pet(db, 5, pet_lvl=3, pet_skills=3, crit_perc=4)
     rig(monkeypatch, choices=[PetType.DOG], randint=1)
     confirms(game_db, player)
-    await run(game_db, player, "$odr")
-    await run(game_db, player, "$oswiecenie")
-    await run(game_db, player, "$transformacja")
+    await run(game_db, player, "!odr")
+    await run(game_db, player, "!oswiecenie")
+    await run(game_db, player, "!transformacja")
     row = await owner_row(db, player.id)
     assert (row["reroll_scroll"], row["rebirth_stones"], row["mirrors"]) == (0, 0, 0)
     assert (await pet_row(db, 5))["pet_skills"] == 4
-    await run(game_db, player, "$porzucam")
+    await run(game_db, player, "!porzucam")
     assert await pet_row(db, 5) is None and len(sacrifices) == 1
 
 
@@ -1500,10 +1500,10 @@ async def test_advanced_reroll_command_holds_and_releases_the_channel(game_db, c
     other = game_db.add_member("Ola")
     rig(monkeypatch)
     confirms(game_db, player)
-    task = asyncio.ensure_future(run(game_db, player, "$mo"))
+    task = asyncio.ensure_future(run(game_db, player, "!mo"))
     menu = await game_db.wait_for_buttons("pet:skip")
     assert game_db.bot.state.busy and game_db.bot.state.busy_owner == "adv-reroll"
-    await run(game_db, other, "$towarzysz")                              # blocked meanwhile
+    await run(game_db, other, "!towarzysz")                              # blocked meanwhile
     assert game_db.channel.contains(guards.BUSY_NOTICE)
     await choose(game_db, menu, player, 6)
     await game_db.click(menu, player, "pet:skip-accept")
@@ -1513,22 +1513,22 @@ async def test_advanced_reroll_command_holds_and_releases_the_channel(game_db, c
 
     # Discord failing in the middle: the channel is free again and the owner hears about it.
     game_db.channel.fail_with, game_db.channel.fail_sends = RuntimeError("boom"), 1
-    await run(game_db, player, "$mocneodrodzenie")
+    await run(game_db, player, "!mocneodrodzenie")
     assert not game_db.bot.state.busy
     assert any("mocneodrodzenie" in line and "RuntimeError" in line for line in game_db.bot.owner_log)
 
 
 async def test_stable_commands_explain_a_missing_slot(game_db, cog):
     player = game_db.add_member("Ala")
-    await run(game_db, player, "$schowajtowarzysza")
+    await run(game_db, player, "!schowajtowarzysza")
     assert game_db.channel.messages[-1].content == (
         "Po spacji podaj numer miejsca w stajni, do którego chcesz schować towarzysza (1-4) np. "
-        "**$schowajtowarzysza 1**.")
-    await run(game_db, player, "$wyciagnijtowarzysza")
+        "**!schowajtowarzysza 1**.")
+    await run(game_db, player, "!wyciagnijtowarzysza")
     assert game_db.channel.messages[-1].content == (
         "Po spacji podaj numer miejsca w stajni, z którego chcesz wyjąć towarzysza (1-4) np. "
-        "**$wyciagnijtowarzysza 1**.")
-    await run(game_db, player, "$st abc")
+        "**!wyciagnijtowarzysza 1**.")
+    await run(game_db, player, "!st abc")
     assert game_db.channel.messages[-1].content.startswith(ALONE)
 
 
@@ -1536,29 +1536,29 @@ async def test_naming_cooldown_counts_only_successful_namings(game_db, cog, monk
     db = game_db.bot.db
     player, other = game_db.add_member("Ala"), game_db.add_member("Ola")
     rig(monkeypatch, randint=0)
-    await run(game_db, player, "$nazwij")                                # no name: usage hint, no cooldown
+    await run(game_db, player, "!nazwij")                                # no name: usage hint, no cooldown
     assert game_db.channel.messages[-1].content.startswith("Niepoprawne użycie komendy.")
-    await run(game_db, player, "$nazwij Burek")                          # no pet: no cooldown either
+    await run(game_db, player, "!nazwij Burek")                          # no pet: no cooldown either
     assert game_db.channel.messages[-1].content == "Przecież jesteś sam... <:madge:882184635474386974>"
 
     await add_owner(db, player.id, 5)
     await add_pet(db, 5)
-    await run(game_db, player, '$n "Sir O\'Burek"')
+    await run(game_db, player, '!n "Sir O\'Burek"')
     assert (await pet_row(db, 5))["pet_name"] == "Sir O'Burek"
-    await run(game_db, player, "$nazwij Reksio")
+    await run(game_db, player, "!nazwij Reksio")
     assert game_db.channel.messages[-1].content.startswith(
         "Poczekaj na odnowienie komendy! Imię zmienisz ponownie <t:")
     stamp = int(game_db.channel.messages[-1].content.split("<t:")[1].split(":")[0])
     assert abs(stamp - (time.time() + 23 * 3600)) < 60                   # Discord's live "in 23 hours"
     assert (await pet_row(db, 5))["pet_name"] == "Sir O'Burek"
     # A refused command (wrong channel, busy) neither uses nor clears the running cooldown.
-    await run(game_db, player, "$nazwij Reksio", channel=game_db.announce_channel)
-    await run(game_db, player, "$nazwij Reksio")
+    await run(game_db, player, "!nazwij Reksio", channel=game_db.announce_channel)
+    await run(game_db, player, "!nazwij Reksio")
     assert game_db.channel.messages[-1].content.startswith("Poczekaj na odnowienie komendy!")
 
     await add_owner(db, other.id, 6)                                     # the cooldown is per player
     await add_pet(db, 6)
-    await run(game_db, other, "$nazwij Reksio")
+    await run(game_db, other, "!nazwij Reksio")
     assert (await pet_row(db, 6))["pet_name"] == "Reksio"
 
 
@@ -1566,32 +1566,32 @@ async def test_admin_commands(game_db, cog, monkeypatch):
     db = game_db.bot.db
     boss, player = admin(game_db), game_db.add_member("Ala")
     rig(monkeypatch, randint=0)
-    for command in (f"$AddScroll 3 {player.id}", f"$AddShard 2 {player.id}", "$GenerateEgg",
-                    f"$ReassignPet 1 {player.id}", f"$PetLvlUp {player.id}", "$createPetsDatabase",
-                    "$createPetOwnersDatabase", f"$DajPieczec {player.id} 3 tak", f"$DajRamke {player.id} S1-A"):
+    for command in (f"!AddScroll 3 {player.id}", f"!AddShard 2 {player.id}", "!GenerateEgg",
+                    f"!ReassignPet 1 {player.id}", f"!PetLvlUp {player.id}", "!createPetsDatabase",
+                    "!createPetOwnersDatabase", f"!DajPieczec {player.id} 3 tak", f"!DajRamke {player.id} S1-A"):
         await run(game_db, player, command)                              # not an administrator: ignored
     assert await count(db, "PETOWNER") == 0 and await count(db, "PETS") == 0
     assert game_db.channel.bot_messages == [game_db.channel.messages[0]]
 
-    await run(game_db, boss, "$createPetOwnersDatabase")
+    await run(game_db, boss, "!createPetOwnersDatabase")
     assert game_db.channel.messages[-1].content == "Baza danych PETOWNERS utworzona."
-    await run(game_db, boss, "$createPetsDatabase")
+    await run(game_db, boss, "!createPetsDatabase")
     assert game_db.channel.messages[-1].content == "Baza danych PETS utworzona."
     assert await count(db, "PETOWNER") == 1 and await count(db, "PETS") == 1
 
-    message = await run(game_db, boss, f"$AddScroll 3 {player.id}")
-    await run(game_db, boss, f"$AddShard 2 {player.id}")
+    message = await run(game_db, boss, f"!AddScroll 3 {player.id}")
+    await run(game_db, boss, f"!AddShard 2 {player.id}")
     row = await owner_row(db, player.id)
     assert (row["reroll_scroll"], row["reroll_scroll_shard"]) == (3, 2) and message.reactions == ["✅"]
-    await run(game_db, boss, "$GenerateEgg")
+    await run(game_db, boss, "!GenerateEgg")
     assert game_db.channel.messages[-1].content == "Wygenerowano jajko (PET_ID 1)."
-    assert (await run(game_db, boss, f"$PetLvlUp {player.id}")).reactions == ["❌"]         # no pet yet
-    await run(game_db, boss, f"$ReassignPet 1 {player.id}")
+    assert (await run(game_db, boss, f"!PetLvlUp {player.id}")).reactions == ["❌"]         # no pet yet
+    await run(game_db, boss, f"!ReassignPet 1 {player.id}")
     assert game_db.channel.messages[-1].content == f"Pet 1 przypisany do gracza <@{player.id}>."
-    await run(game_db, boss, f"$ReassignPet 1 {player.id}")
+    await run(game_db, boss, f"!ReassignPet 1 {player.id}")
     assert game_db.channel.messages[-1].content.startswith("Pet 1 nie został przypisany")
-    assert (await run(game_db, boss, f"$PetLvlUp {player.id}")).reactions == ["✅"]
+    assert (await run(game_db, boss, f"!PetLvlUp {player.id}")).reactions == ["✅"]
     assert (await pet_row(db, 1))["pet_lvl"] == 1
-    await run(game_db, boss, "$AddScroll dużo")                          # bad arguments: a usage hint
+    await run(game_db, boss, "!AddScroll dużo")                          # bad arguments: a usage hint
     assert game_db.channel.messages[-1].content.startswith("Niepoprawne użycie komendy.")
     assert "AddColumn" not in game_db.bot.all_commands                   # the raw ALTER TABLE command is gone

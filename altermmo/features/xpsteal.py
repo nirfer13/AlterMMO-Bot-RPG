@@ -1,9 +1,9 @@
-"""Stealing Discord experience (``$kradnijxp``).
+"""Stealing Discord experience (``!kradnijxp``).
 
 Rare bosses can drop "Ukradnij wybranemu użytkownikowi 10000 doświadczenia na
 Discordzie" (loot id 2).  The winner receives a *theft right*, kept in
 ``data/xpThefts.json`` as ``{"<discord id>": [10000, ...]}``, and spends it with
-``$kradnijxp <nick>``.
+``!kradnijxp <nick>``.
 
 The victim must stay secret: the command message is deleted at once, the
 public confirmation names only the thief, and the victim's name or id never
@@ -72,7 +72,7 @@ log = logging.getLogger(__name__)
 #: Loot id of the "steal experience" drop in config/lootConfig.json.
 LOOT_ID = 2
 DEFAULT_AMOUNT = 10000
-COMMAND_HINT = ("Wpisz **$kradnijxp nick**, żeby wskazać ofiarę "
+COMMAND_HINT = ("Wpisz **!kradnijxp nick**, żeby wskazać ofiarę "
                 "(wiadomość od razu zniknie - nikt nie zobaczy, kogo okradasz). "
                 "Zabierzesz tyle, ile ofiara ma - najwyżej tę kwotę.")
 
@@ -81,18 +81,18 @@ COMMAND_HINT = ("Wpisz **$kradnijxp nick**, żeby wskazać ofiarę "
 #: victim (author and text included) the moment the message exists, before the bot can delete it.
 #: A mention is still understood (find_members) - the texts just never suggest it.
 MSG_HOW_TO = ("🥷 <@{thief}>, masz do wykorzystania **kradzież do {amount} doświadczenia** - tyle, ile "
-              "ofiara ma! Wpisz na tym kanale **$kradnijxp nick** (albo ID ofiary). Nie oznaczaj ofiary - "
+              "ofiara ma! Wpisz na tym kanale **!kradnijxp nick** (albo ID ofiary). Nie oznaczaj ofiary - "
               "dostałaby powiadomienie. Twoja wiadomość od razu zniknie - nikt nie zobaczy, kogo okradasz. "
               "Okazja nie przepada: możesz jej użyć, kiedy chcesz.")
 #: The same as a private message: the boss channel is cleared regularly.
 DM_HOW_TO = ("Masz do wykorzystania **kradzież do {amount} doświadczenia** na Discordzie (łup z bossa; "
-             "zabierzesz tyle, ile ofiara ma). Wejdź na kanał <#{channel}> i wpisz **$kradnijxp nick** albo "
+             "zabierzesz tyle, ile ofiara ma). Wejdź na kanał <#{channel}> i wpisz **!kradnijxp nick** albo "
              "ID ofiary (nie oznaczaj jej - dostałaby powiadomienie). Wiadomość od razu zniknie i nikt nie "
              "zobaczy, kogo okradasz. Okazja nie przepada, użyj jej, kiedy chcesz.")
 
 MSG_NOTHING_TO_USE = ("<@{thief}>, nie masz żadnej kradzieży doświadczenia do wykorzystania "
                       "<:Sadge:936907659142111273> Taką okazję można zdobyć na rzadkim bossie.")
-MSG_NO_TARGET = ("<@{thief}>, podaj kogo chcesz okraść: **$kradnijxp nick** albo ID tej osoby "
+MSG_NO_TARGET = ("<@{thief}>, podaj kogo chcesz okraść: **!kradnijxp nick** albo ID tej osoby "
                  "(nie oznaczaj jej - dostałaby powiadomienie). Twoja okazja nie przepadła.")
 MSG_NOT_FOUND = ("<@{thief}>, nie znalazłem takiej osoby na serwerze. Wpisz dokładny nick albo ID "
                  "ofiary - Twoja okazja nie przepadła.")
@@ -124,20 +124,20 @@ MSG_RESULT_NOTHING = ("🥷 <@{thief}>, Twoja kradzież nic nie przyniosła - of
 MSG_RESULT_ERROR = ("🥷 <@{thief}>, coś poszło nie tak przy rozliczaniu Twojej kradzieży i doświadczenie "
                     "nie zostało przeniesione. Właściciel gry już o tym wie i to sprawdzi.")
 
-#: ``$DajKradziez`` (the owner gives a right by hand).
-MSG_GRANTED = "<@{player}> może teraz ukraść do {amount} doświadczenia (**$kradnijxp nick**)."
+#: ``!DajKradziez`` (the owner gives a right by hand).
+MSG_GRANTED = "<@{player}> może teraz ukraść do {amount} doświadczenia (**!kradnijxp nick**)."
 MSG_GRANT_BAD_AMOUNT = "Kwota kradzieży musi być większa od zera - nic nie zostało zapisane."
 MSG_GRANT_NOT_SAVED = ("Nie udało się zapisać okazji kradzieży dla <@{player}>: pliku `xpThefts.json` nie da się "
                        "teraz odczytać albo zapisać (szczegóły w logu bota). Nic nie zostało zapisane, a plik nie "
                        "został nadpisany - sprawdź go i spróbuj ponownie.")
 
 # Owner's log (may name the victim: only the owner reads it).  Amounts are shown with number();
-# inside a ``$DajKradziez`` command they stay plain digits (the command reads them as a number).
+# inside a ``!DajKradziez`` command they stay plain digits (the command reads them as a number).
 #: A boss dropped a theft right, but it could not be stored: never saved over a file that could not be read.
 MSG_OWNER_GRANT_FAILED = ("Nie udało się zapisać kradzieży doświadczenia z łupu bossa dla {who} ({amount} expa, "
                           "`{error}`). Plik `xpThefts.json` nie został nadpisany - okazje innych graczy są w nim "
                           "nietknięte. Sprawdź ten plik (zablokowany przez inny program albo uszkodzony), a potem "
-                          "przyznaj okazję ręcznie: `$DajKradziez {player_id} {raw}`.")
+                          "przyznaj okazję ręcznie: `!DajKradziez {player_id} {raw}`.")
 MSG_OWNER_REQUESTED = ("{thief} kradnie użytkownikowi {victim} do {shown} expa (zlecenie `{id}`). "
                        "Horus przeniesie tyle, ile ofiara ma; wynik pojawi się tutaj i na kanale gry.")
 MSG_OWNER_NOT_WRITTEN = ("Nie udało się zapisać kradzieży: {thief} -> {victim}, {shown} expa (`{error}`). "
@@ -145,20 +145,20 @@ MSG_OWNER_NOT_WRITTEN = ("Nie udało się zapisać kradzieży: {thief} -> {victi
                          "spróbował ponownie).")
 MSG_OWNER_RIGHT_LOST = ("Kradzież NIE została zapisana, a okazja złodzieja przepadła (nie dało się jej "
                         "oddać): złodziej {thief}, ofiara {victim}, kwota {shown} (`{error}`). Nic nie "
-                        "zostało przeniesione. Oddaj okazję komendą `$DajKradziez {thief_id} {amount}`.")
+                        "zostało przeniesione. Oddaj okazję komendą `!DajKradziez {thief_id} {amount}`.")
 MSG_OWNER_DELETE_TEMP = " Usuń też plik `{path}` (niedokończona kradzież - nie zmieniaj jego nazwy)."
 MSG_OWNER_RESULT = "Kradzież `{id}` rozliczona: {thief} ukradł {moved} z {requested} expa użytkownikowi {victim}."
 MSG_OWNER_RESULT_PARTIAL = " Ofiara miała tylko tyle."
 MSG_OWNER_RESULT_NOTHING = " Ofiara nie miała doświadczenia - kradzież przepadła."
 MSG_OWNER_RESULT_ERROR = ("Horus odrzucił kradzież `{id}` ({error}) - nic nie zostało przeniesione: złodziej "
                           "{thief}, ofiara {victim}, kwota {shown}. Złodziej dostał wiadomość, że to "
-                          "sprawdzisz; okazję oddasz komendą `$DajKradziez {thief_id} {requested}`.")
+                          "sprawdzisz; okazję oddasz komendą `!DajKradziez {thief_id} {requested}`.")
 #: An error result without a usable thief id or amount: no command (it could not be a valid one).
 MSG_OWNER_RESULT_ERROR_UNKNOWN = ("Horus odrzucił kradzież `{id}` ({error}) - nic nie zostało przeniesione: "
                                   "złodziej {thief}, ofiara {victim}, kwota {shown}. {told} Z wyniku nie da się "
                                   "odczytać {missing}, więc nie podaję komendy. Znajdź w tym logu wpis o zleceniu "
                                   "`{id}` („… kradnie użytkownikowi … do … expa”) - są w nim złodziej i kwota - i "
-                                  "jeśli okazja mu się należy, oddaj ją komendą $DajKradziez z jego id i tą kwotą.")
+                                  "jeśli okazja mu się należy, oddaj ją komendą !DajKradziez z jego id i tą kwotą.")
 MSG_OWNER_RESULT_TOLD = "Złodziej dostał wiadomość, że to sprawdzisz."
 MSG_OWNER_RESULT_NOT_TOLD = "Nikt nie dostał wiadomości (nie wiadomo, kto jest złodziejem)."
 #: A result for an id this bot never wrote, or whose result it has announced already.
@@ -186,7 +186,7 @@ MSG_OWNER_RIGHT_UNKNOWN = ("Nie udało się zapisać kradzieży: {thief} -> {vic
                            "dostał prośbę, żeby spróbował ponownie. Przed tą próbą miał okazji: {count} "
                            "({amounts}). Jeśli w `xpThefts.json` ma ich teraz mniej, a w tym logu nie ma po tej "
                            "wiadomości wpisu o jego udanej kradzieży („kradnie”), oddaj okazję komendą "
-                           "`$DajKradziez {thief_id} {amount}`.")
+                           "`!DajKradziez {thief_id} {amount}`.")
 #: Never "rename it": whether the right is still there says nothing once the thief may have used it again.
 MSG_OWNER_TEMP_LEFT = ("Bot przerwał zapisywanie kradzieży (pliki `.tmp` w folderze `{folder}`) - Horus ich nie "
                        "rozlicza i nic nie zostało przeniesione. Usuń te pliki i nigdy nie zmieniaj ich nazwy "
@@ -334,7 +334,7 @@ def grant(bot: "AlterBot", player_id: int | str, amount: int = DEFAULT_AMOUNT) -
 
 async def grant_drop(bot: "AlterBot", winner: Any, amount: int = DEFAULT_AMOUNT) -> bool:
     """A boss drop: :func:`grant`, and when the right cannot be stored, tell the owner at once with a
-    ping and the exact ``$DajKradziez`` line that gives it by hand.  Never raises (the fight goes on).
+    ping and the exact ``!DajKradziez`` line that gives it by hand.  Never raises (the fight goes on).
 
     Before, a file that could not be read at that moment was taken for "no rights" and
     ``{winner: [amount]}`` saved over it - every other player's unused rights were lost.
@@ -508,14 +508,14 @@ def _reported_temps(bot: "AlterBot") -> set[str]:
 
 
 async def steal(scene: "Scene", target_text: str | None) -> bool:
-    """``$kradnijxp <nick>``: spend a theft right on the chosen member.
+    """``!kradnijxp <nick>``: spend a theft right on the chosen member.
 
     Returns True when the request for Horus is in place.  The invoking message
     is deleted first, whatever happens next, so the victim's name never stays
     on screen.
 
     Exactly once, in this order (no ``await`` between the steps, so a second
-    ``$kradnijxp`` of the same player cannot slip in between):
+    ``!kradnijxp`` of the same player cannot slip in between):
 
     0. the id is noted as this bot's own (:func:`_note_written`; only results
        of noted ids are announced).  Fails: nothing happened, as in 1.  (A
@@ -1090,7 +1090,7 @@ class TransferWatch:
                 thief_id = _discord_id(data.get("to"))
                 line += f", zapisany {str(data.get('created'))[:40]}; "
                 if thief_id is not None and _integer(amount) is not None:
-                    line += f"okazję oddasz komendą `$DajKradziez {thief_id} {amount}`"
+                    line += f"okazję oddasz komendą `!DajKradziez {thief_id} {amount}`"
                 else:
                     line += "złodzieja albo kwoty nie da się odczytać z pliku"
             return line

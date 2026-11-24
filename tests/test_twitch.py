@@ -209,7 +209,7 @@ async def test_get_user_twitch_name(tw):
     admin, ala = game.add_member("Admin"), game.add_member("Ala")
     await add_chatter(game, "o'neil_ttv", ala.id, time=50)
     await add_chatter(game, "ala_main", ala.id, time=500)
-    scene = game.scene(admin, "$checkTwitch")
+    scene = game.scene(admin, "!checkTwitch")
     assert await twitch.get_user_twitch_name(scene, ala.id) == "ala_main"
     assert game.channel.contains(f"Użytkownik <@{ala.id}> ma połączone konto Twitch: **ala_main, o'neil_ttv**.")
     assert await twitch.get_user_twitch_name(scene, "987654321") is None
@@ -381,7 +381,7 @@ async def test_check_treasure_takes_the_row_before_the_payout_starts(tw, monkeyp
 
 @pytest.mark.parametrize("with_lock", [True, False], ids=["with-lock", "row-claim-alone"])
 async def test_two_concurrent_runs_pay_each_treasure_once(tw, monkeypatch, with_lock):
-    """The nightly job and ``$checkTreasure`` at the same moment.  Even without the lock the
+    """The nightly job and ``!checkTreasure`` at the same moment.  Even without the lock the
     ``DELETE ... RETURNING`` claim alone lets only one of them pay a row."""
     game = tw
     if not with_lock:

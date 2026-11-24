@@ -10,7 +10,7 @@ always released) and a failing event is logged and skipped.
 The passive events (chest, shrine) wait for a player with no coroutine
 running: their panel carries a *permanent* button ("Otwórz skrzynię" /
 "Pomódl się", fixed ``custom_id``, registered in ``cog_load``) that does
-exactly what ``$skrzynia`` / ``$modlitwa`` do - same guards, same atomic
+exactly what ``!skrzynia`` / ``!modlitwa`` do - same guards, same atomic
 claim, the refusals answered with ``ui.reply``.  The cog remembers the panel and takes
 its button off once the event is claimed (by a click or by the command) or
 closed by the next event / the tournament; a click on a panel the cog no longer
@@ -72,7 +72,7 @@ PEAK_HOURS = range(18, 22)
 #: ritual lasts plus this margin (seconds): its boss could not be summoned.
 RITUAL_MARGIN, RITUAL_MARGIN_DEBUG = 180.0, 10.0
 
-#: Passive events: posted, then they wait for ``$modlitwa`` / ``$skrzynia``.
+#: Passive events: posted, then they wait for ``!modlitwa`` / ``!skrzynia``.
 PASSIVE = (EventType.SHRINE, EventType.CHEST)
 #: Events that stay open with the channel free and are closed by the next event / the
 #: tournament: the chest, the shrine, the wandering merchant (passive since 2026-11-23,
@@ -95,7 +95,7 @@ MSG_REWARD_FAILED = ("Coś poszło nie tak przy wydawaniu nagrody <:Sadge:936907
 LOG_REWARD_FAILED = ("{what}: błąd przy wydawaniu nagrody graczowi <@{player_id}> (`{error}`). Wydarzenie "
                      "zostało zamknięte (nie da się go użyć drugi raz) - sprawdź w logu, co gracz dostał.")
 MSG_SHRINE_USED = "🕯️ W kapliczce modli się {mention}."
-#: ``$SpawnEvent training`` before the owner has supplied the picture of the event
+#: ``!SpawnEvent training`` before the owner has supplied the picture of the event
 #: (the folder is ``features/training.PICTURES_DIR``, named here as the owner knows it).
 MSG_TRAINING_NO_PICTURE = ("Trening towarzyszy nie ma jeszcze obrazka, więc nie da się go uruchomić (i nie jest "
                            "losowany). Wrzuć obrazek do folderu bota jako `assets/events/training/0.png` "
@@ -171,7 +171,7 @@ class EventsCog(commands.Cog, name="Events"):
         self.register_views()
         self.bot.supervisor.start(LOOP_NAME, self.event_loop)
         # The mine's own look at itself: a mine left open by the previous run is closed once,
-        # a closing nobody announced ($ResetBoss ...) is noticed, the closing summary is posted.
+        # a closing nobody announced (!ResetBoss ...) is noticed, the closing summary is posted.
         self.bot.supervisor.start(dungeon.WATCH_NAME, lambda: dungeon.watch(self.bot))
         job = scheduler.weekly(TOURNAMENT_JOB, *TOURNAMENT_AT, self.run_tournament,
                                catch_up_within=timedelta(hours=2))
@@ -326,7 +326,7 @@ class EventsCog(commands.Cog, name="Events"):
         """Events left out of the draw for the rest of the day: the merchant once he has come.
 
         Owner, 2026-11-23: "Jeden kupiec na dzień jest wystarczający".  Only the
-        draw: ``$SpawnEvent merchant`` still calls him.
+        draw: ``!SpawnEvent merchant`` still calls him.
         """
         from ..features import merchant
 
@@ -338,7 +338,7 @@ class EventsCog(commands.Cog, name="Events"):
         The boss never waits for the mine (owner's rule): while the boss cycle
         is taking the channel (``BossCycle.wants_the_channel`` - e.g. it waits
         for a hunt to end before its "silence") a mine would be closed at its
-        next look.  Only the draw: ``$SpawnEvent dungeon`` still calls it.
+        next look.  Only the draw: ``!SpawnEvent dungeon`` still calls it.
         Never raises.
         """
         try:
@@ -358,7 +358,7 @@ class EventsCog(commands.Cog, name="Events"):
 
         cycle = self.bot.boss_cycle
         if not cycle.enabled or not cycle.can_summon():
-            return False  # ($stopSpawnBoss means no bosses at all, ritual ones included)
+            return False  # (!stopSpawnBoss means no bosses at all, ritual ones included)
         remaining = cycle.seconds_to_arrival()
         margin = RITUAL_MARGIN_DEBUG if self.bot.debug else RITUAL_MARGIN
         return remaining is None or remaining > events.ritual_duration(self.bot) + margin

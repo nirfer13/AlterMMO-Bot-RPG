@@ -121,7 +121,7 @@ async def test_chest_whose_code_fails_after_the_loot_is_opened_exactly_once(game
     # ... and keep clicking and typing after the error.
     later = [await late_click(game, cog, player, chest, EventType.CHEST) for player in players]
     for player in players:
-        await cog.open_chest.callback(cog, ctx_of(game, player, "$skrzynia"))
+        await cog.open_chest.callback(cog, ctx_of(game, player, "!skrzynia"))
 
     assert loot == [players[0]]                                          # the loot was handed out once
     assert clicks[0].response.deferred and clicks[0].replies == []
@@ -179,7 +179,7 @@ async def test_chest_click_racing_a_typed_command_opens_it_once(game, cog, loot,
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     await cog.run_one_event(forced=EventType.CHEST)
     chest = game.channel.messages[-1]
-    ctx = ctx_of(game, ola, "$skrzynia")
+    ctx = ctx_of(game, ola, "!skrzynia")
     click = game.click(chest, ala, events_cog.CHEST_BUTTON_ID)
     typed = cog.open_chest.callback(cog, ctx)
     results = await asyncio.gather(*((typed, click) if typed_first else (click, typed)))
@@ -209,7 +209,7 @@ async def test_prayer_click_racing_a_typed_prayer_blesses_once(game, cog, blessi
     clicker, typist = supporters(game, 2)
     await cog.run_one_event(forced=EventType.SHRINE)
     shrine = game.channel.messages[-1]
-    ctx = ctx_of(game, typist, "$modlitwa")
+    ctx = ctx_of(game, typist, "!modlitwa")
     click = game.click(shrine, clicker, events_cog.SHRINE_BUTTON_ID)
     typed = cog.pray.callback(cog, ctx)
     results = await asyncio.gather(*((typed, click) if typed_first else (click, typed)))

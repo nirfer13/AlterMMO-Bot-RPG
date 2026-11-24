@@ -51,8 +51,8 @@ async def test_theft_winner_is_told_how_to_steal_on_the_channel_and_privately(ga
     await xpsteal.remind(game.scene(), thief)
     hint = game.channel.messages[-1].content
     shown = "10" + chr(0xA0) + "000"                         # one way everywhere: xpsteal.number
-    assert f"<@{thief.id}>" in hint and "**$kradnijxp nick**" in hint and f"do {shown} doświadczenia" in hint
-    assert len(thief.dms) == 1 and "$kradnijxp nick" in thief.dms[0]
+    assert f"<@{thief.id}>" in hint and "**!kradnijxp nick**" in hint and f"do {shown} doświadczenia" in hint
+    assert len(thief.dms) == 1 and "!kradnijxp nick" in thief.dms[0]
     assert f"<#{game.bot.ids.boss_channel}>" in thief.dms[0]
     # Owner's decision of 2026-11-22: the theft takes what the victim has, up to the amount.
     assert "tyle, ile ofiara ma" in hint and "tyle, ile ofiara ma" in thief.dms[0]
@@ -395,7 +395,7 @@ async def test_pouch_lists_every_gem_with_a_stable_number(game_db, collector):
     assert embed.title == skills.POUCH_TITLE
     assert ("**1. Klejnot Regeneracji** ✅ aktywny\n2. Klejnot Przywołania\n3. Klejnot Spowolnienia"
             in embed.description)
-    assert "$wybierzklejnot" in embed.description and embed.footer.text == skills.POUCH_FOOTER
+    assert "!wybierzklejnot" in embed.description and embed.footer.text == skills.POUCH_FOOTER
 
     skills.daily_skill_used(game_db.bot, ala.id)                   # one gem a day: all of them wait now
     await skills.show_skills(game_db.scene(ala))
@@ -542,22 +542,22 @@ async def test_pouch_commands(game_db, collector, skills_cog):
     ala = collector
     db = game_db.bot.db
     elsewhere = game_db.announce_channel
-    for command in ("$klejnoty", "$skille", "$sakwa"):
+    for command in ("!klejnoty", "!skille", "!sakwa"):
         await run(game_db, ala, command, channel=elsewhere)        # display only: any channel
     assert [m.embeds[0].title for m in elsewhere.bot_messages] == [skills.POUCH_TITLE] * 3
 
-    await run(game_db, ala, "$wybierzklejnot 2", channel=elsewhere)  # gameplay: boss channel only
+    await run(game_db, ala, "!wybierzklejnot 2", channel=elsewhere)  # gameplay: boss channel only
     assert await active_gem(db, ala.id) == 5 and len(elsewhere.bot_messages) == 3
-    await run(game_db, ala, "$wybierzskill 2")                     # the alias
+    await run(game_db, ala, "!wybierzskill 2")                     # the alias
     assert await active_gem(db, ala.id) == 8
-    await run(game_db, ala, "$ws 1")
+    await run(game_db, ala, "!ws 1")
     assert await active_gem(db, ala.id) == 5
 
-    await run(game_db, ala, "$wybierzklejnot")                       # a missing number gets a hint
-    assert "$wybierzklejnot 2" in game_db.channel.messages[-1].content
+    await run(game_db, ala, "!wybierzklejnot")                       # a missing number gets a hint
+    assert "!wybierzklejnot 2" in game_db.channel.messages[-1].content
 
     with game_db.bot.state.hold_busy("hunt"):                      # not in the middle of a hunt
-        await run(game_db, ala, "$wybierzklejnot 3")
+        await run(game_db, ala, "!wybierzklejnot 3")
     assert await active_gem(db, ala.id) == 5
     assert game_db.channel.messages[-1].content == guards.BUSY_NOTICE
 
@@ -567,11 +567,11 @@ async def test_admin_can_hand_out_gems(game_db, skills_cog):
     admin = game_db.add_member("Alter")
     admin.guild_permissions = discord.Permissions(administrator=True)
     ala = game_db.add_member("Ala")
-    await run(game_db, admin, f"$DajKlejnot {ala.id} 5")
-    await run(game_db, admin, f"$DajKlejnot {ala.id} 5")           # the same kind twice: refused
-    await run(game_db, admin, f"$DajKlejnot {ala.id}")
-    await run(game_db, admin, f"$DajKlejnot {ala.id} 9")           # no such kind
-    await run(game_db, ala, f"$DajKlejnot {ala.id}")               # not an admin: nothing
+    await run(game_db, admin, f"!DajKlejnot {ala.id} 5")
+    await run(game_db, admin, f"!DajKlejnot {ala.id} 5")           # the same kind twice: refused
+    await run(game_db, admin, f"!DajKlejnot {ala.id}")
+    await run(game_db, admin, f"!DajKlejnot {ala.id} 9")           # no such kind
+    await run(game_db, ala, f"!DajKlejnot {ala.id}")               # not an admin: nothing
     rows = await db.fetch("SELECT SKILL_VARIANT FROM SKILLS ORDER BY SKILL_ID")
     assert len(rows) == 2 and int(rows[0]["skill_variant"]) == skills.SLOW
     assert int(rows[1]["skill_variant"]) in (skills.REST, skills.SHINY, skills.SUMMON)

@@ -18,7 +18,7 @@ What this module does - and what it does not:
   there, the saved state cannot be read or there is no role to hand out, NOTHING is touched and
   the next synchronisation tries again: a wrong removal is worse than a late one.
 * It is **not an achievement**.  Achievement roles are never taken away, this one is; so it is
-  not in ``achievements.TROPHIES`` (not in ``$osiagniecia``, not in "X z Y"), and its id is saved
+  not in ``achievements.TROPHIES`` (not in ``!osiagniecia``, not in "X z Y"), and its id is saved
   in a file of its own (``data/petCollector.json``, ``bot.store.collector``) - never in
   ``data/achievementRoles.json`` / ``achievementRolesLater.json``, whose unknown keys
   ``achievements.retire_roles`` (of this or of an older version) deletes from the server.
@@ -29,7 +29,7 @@ over (the saved id was lost, or the owner made the role by hand - the server is 
 Discord's limit of 250 roles, so making one can fail); else it is made: no permissions, not shown
 separately, not mentionable.  Made only when there is somebody to give it to.  A failure is told to
 the owner once per run and tried again after :data:`ROLE_RETRY_AFTER` (the start and
-``$kolekcjoner`` try at once - also a ``$kolekcjoner`` typed while the boss channel was busy: it
+``!kolekcjoner`` try at once - also a ``!kolekcjoner`` typed while the boss channel was busy: it
 leaves that wish for the run that follows), not at every synchronisation.  That a role was made or
 taken over is told to the owner when it happens (with the note about Horus).  One case is
 decided here on purpose: when a role of that name exists but cannot be taken over (it carries
@@ -52,12 +52,12 @@ rank was given or taken by hand, when a supporter or the holder leaves the serve
 (:func:`member_changed`, :func:`member_left` - the Collector cog's listeners), and every
 :data:`PERIOD` as a safety net.  The supervised loop :func:`run` answers the flag: a burst of
 requests is one run, a request during a run is one more run after it, and :func:`sync` holds a
-lock, so two synchronisations never overlap (``$kolekcjoner`` goes through the same lock).
+lock, so two synchronisations never overlap (``!kolekcjoner`` goes through the same lock).
 Without the loop (a test, a cog that did not load) a request does nothing at all.  After a run
 that could not look (no server, no ranking) the loop tries again after :data:`RETRY_SOON`; after
 a run that knew the ranking but could not give the role to the leader or take it from somebody
 else (a network failure, or the role lies above the bot's own) it does so too, but at most
-:data:`QUICK_RETRIES` times in a row - then it is back to :data:`PERIOD`.  A ``$kolekcjoner``
+:data:`QUICK_RETRIES` times in a row - then it is back to :data:`PERIOD`.  A ``!kolekcjoner``
 whose own run ended like that (:func:`sync_now`) leaves a request, so that the loop - which did
 not see that run - takes the tries over instead of coming back only with its safety net; its
 quick tries are counted anew then, also when the loop had used them up on the same trouble.
@@ -68,7 +68,7 @@ reach the server as "role taken" and, seconds later, "role given", and the rank 
 the runner-up and back (with two public announcements) for that.  The loop waits outside the
 lock; whatever else is requested meanwhile neither shortens the wait nor is lost - it is answered
 by the one run after it.  Only three things end the wait early: the holder's support is back, the
-holder left the server (no grace then), ``$kolekcjoner``.  A real overtake (an album change while
+holder left the server (no grace then), ``!kolekcjoner``.  A real overtake (an album change while
 no such wait runs) is answered at once, as before.
 
 Owner's rule "nothing may make a fight stutter": the loop waits while something plays on the boss
@@ -108,7 +108,7 @@ above.
 TEST database (``settings.load_settings``), so its ranking says nothing about who leads there.  It
 would take the role from the real holder at every start and - with the production bot running
 beside it - the two would hand the role back and forth for ever.  In debug mode nothing is looked
-at and nothing is touched (:data:`TEST_RUN`); ``$kolekcjoner`` says so.
+at and nothing is touched (:data:`TEST_RUN`); ``!kolekcjoner`` says so.
 
 Not covered (accepted): while the server's member list is incomplete (the first moments after a
 start or a reconnect) a former holder missing from it keeps the role until the next
@@ -142,7 +142,7 @@ ROLE_NAME = "Kolekcjoner Pupili"
 ROLE_COLOUR = 0xE67E22
 ROLE_REASON = "AlterMMO RPG: ranga pierwszego miejsca w rankingu kolekcji"
 
-#: Name of the supervised loop (``bot.supervisor``, shown by ``$status``).
+#: Name of the supervised loop (``bot.supervisor``, shown by ``!status``).
 LOOP_NAME = "collector"
 #: The safety net: a synchronisation at least this often (seconds), whatever was requested.
 PERIOD = 1800.0
@@ -200,11 +200,11 @@ LOG_ROLE_ADOPTED = ("Przejąłem istniejącą na serwerze rolę **" + ROLE_NAME 
 LOG_ROLE_FAILED = ("Nie udało się utworzyć roli **" + ROLE_NAME + "** (`{error}`) - serwer może mieć już 250 "
                    "ról albo bot nie ma uprawnienia \"Zarządzanie rolami\". Możesz utworzyć ją ręcznie: rola o "
                    "dokładnie tej nazwie, bez żadnych uprawnień, poniżej roli bota - bot przejmie ją sam w "
-                   "ciągu godziny albo od razu po **$kolekcjoner**. Do tego czasu rangi nikt nie dostaje.")
+                   "ciągu godziny albo od razu po **!kolekcjoner**. Do tego czasu rangi nikt nie dostaje.")
 LOG_ROLE_TWIN = ("Na serwerze jest już rola o nazwie **" + ROLE_NAME + "**, ale ma uprawnienia albo jest "
                  "zarządzana przez integrację, więc jej nie przejmuję - i nie tworzę drugiej o tej samej nazwie "
                  "(Horus rozpoznaje rangę po nazwie, liczyłyby się obie). Zdejmij z niej wszystkie uprawnienia "
-                 "i wpisz **$kolekcjoner**. Do tego czasu rangi nikt nie dostaje.")
+                 "i wpisz **!kolekcjoner**. Do tego czasu rangi nikt nie dostaje.")
 #: Another role of the rank's name beside the bot's own (never removed automatically).
 LOG_SECOND_ROLE = ("Na serwerze jest więcej niż jedna rola o nazwie **" + ROLE_NAME + "**. Bot nadaje i zdejmuje "
                    "tylko rolę `{role_id}`; oprócz niej jest: {twins}. Horus rozpoznaje rangę **po nazwie**, więc "
@@ -213,7 +213,7 @@ LOG_SECOND_ROLE = ("Na serwerze jest więcej niż jedna rola o nazwie **" + ROLE
                    "Niczego sam nie usuwam ani nikomu nie zdejmuję: usuń zbędną rolę albo zmień jej nazwę.")
 LOG_SECOND_ROLE_ITEM = "rola `{role_id}` (posiadaczy: {holders})"
 LOG_FILE_UNREADABLE = ("Nie mogę odczytać pliku rangi **" + ROLE_NAME + "** (`{path}`). Nikomu jej nie nadaję "
-                       "ani nie zdejmuję, żeby nie narobić szkód - sprawdź plik i wpisz **$kolekcjoner**.")
+                       "ani nie zdejmuję, żeby nie narobić szkód - sprawdź plik i wpisz **!kolekcjoner**.")
 LOG_FILE_UNWRITABLE = ("Nie mogę zapisać pliku rangi **" + ROLE_NAME + "** (`{path}`). Rangę nadaję i zdejmuję "
                        "dalej, ale nowego posiadacza nie ogłaszam na kanale bossa, dopóki pliku nie da się "
                        "zapisać (inaczej ogłoszenie mogłoby się powtarzać). Sprawdź dysk i uprawnienia do pliku.")
@@ -229,7 +229,7 @@ LOG_NOT_ANNOUNCED = ("Nie udało się ogłosić na kanale bossa, że rangę **" 
 LOG_ANNOUNCE_AGAIN = "spróbuję ogłosić to przy następnej synchronizacji."
 LOG_ANNOUNCE_LOST = "nie ogłaszam ponownie, żeby wiadomość nie pojawiła się dwa razy."
 
-# -- what ``$kolekcjoner`` answers ----------------------------------------------------------------
+# -- what ``!kolekcjoner`` answers ----------------------------------------------------------------
 
 MSG_BUSY = ("Na kanale bossa coś się teraz dzieje albo zaraz pojawi się boss - rangę **" + ROLE_NAME
             + "** sprawdzę sam, gdy tylko będzie tam spokój.")
@@ -265,7 +265,7 @@ MSG_ANNOUNCE_FAILED = "Ogłoszenie na kanale bossa się nie udało (szczegóły 
 #: The ranking was known and the role is where it belongs (or could not be put there: ``given`` /
 #: ``not_removed`` tell).
 DONE = "done"
-#: Nothing was looked at: something plays on the boss channel (``$kolekcjoner`` only).
+#: Nothing was looked at: something plays on the boss channel (``!kolekcjoner`` only).
 BUSY = "busy"
 #: Nothing was looked at: a debug run, whose database is the test one (see the module docstring).
 TEST_RUN = "test-run"
@@ -282,7 +282,7 @@ ANNOUNCED, LATER, NOT_ANNOUNCED = "announced", "later", "failed"
 
 @dataclass(frozen=True)
 class Outcome:
-    """What one synchronisation did (``$kolekcjoner`` answers with it, :func:`describe`)."""
+    """What one synchronisation did (``!kolekcjoner`` answers with it, :func:`describe`)."""
 
     status: str
     #: Place 1 of the ranking (None: nobody is ranked, or nothing was looked at).
@@ -324,7 +324,7 @@ def _mentions(player_ids: Any) -> str:
 
 
 def describe(outcome: Outcome) -> str:
-    """What ``$kolekcjoner`` answers (sent without pinging anybody)."""
+    """What ``!kolekcjoner`` answers (sent without pinging anybody)."""
     status = outcome.status
     if status == BUSY:
         return MSG_BUSY
@@ -375,7 +375,7 @@ class _Desk:
     #: were still there at the last synchronisation).
     twins: frozenset = frozenset()
     #: True when the loop's next run is to try making the role at once: the start, and a
-    #: ``$kolekcjoner`` that found the boss channel busy.  Used and cleared by the loop.
+    #: ``!kolekcjoner`` that found the boss channel busy.  Used and cleared by the loop.
     force_next: bool = False
     #: Not before this moment (``_clock``) does the loop run: the current holder's support ended
     #: (:data:`HOLDER_GRACE`).  0.0: no such wait.
@@ -389,7 +389,7 @@ class _Desk:
     role_id: int | None = None
     holder_id: int | None = None
     #: The loop's quick tries in a row after runs that left the role in the wrong hands
-    #: (:data:`QUICK_RETRIES`).  Counted by the loop; a ``$kolekcjoner`` that could not finish
+    #: (:data:`QUICK_RETRIES`).  Counted by the loop; a ``!kolekcjoner`` that could not finish
     #: sets it back (:func:`sync_now`), so that its promise is kept with a full round of tries.
     quick: int = 0
     #: How many synchronisations ran, and what the last one found.
@@ -733,7 +733,7 @@ async def _sync(bot: "AlterBot", *, force: bool) -> Outcome:
 async def sync(bot: "AlterBot", *, force: bool = False) -> Outcome:
     """One synchronisation, one at a time (a second caller waits for the first).  Never raises.
 
-    ``force``: a role that could not be made is tried again at once (the start, ``$kolekcjoner``).
+    ``force``: a role that could not be made is tried again at once (the start, ``!kolekcjoner``).
     Does NOT wait for a quiet boss channel - the loop (:func:`run`) and :func:`sync_now` look
     first; an announcement that finds the channel busy after all is left for the next run.
     """
@@ -752,7 +752,7 @@ async def sync(bot: "AlterBot", *, force: bool = False) -> Outcome:
 
 
 async def sync_now(bot: "AlterBot") -> Outcome:
-    """``$kolekcjoner``: synchronise now and say what happened.  Never raises.
+    """``!kolekcjoner``: synchronise now and say what happened.  Never raises.
 
     While something plays on the boss channel nothing is done now (:data:`BUSY`): the request is
     left for the loop, which runs it once the channel is quiet - and tries to make the role at
@@ -771,7 +771,7 @@ async def sync_now(bot: "AlterBot") -> Outcome:
     desk = _desk(bot)
     if not quiet(bot):
         desk.force_next = True
-        request(bot, "$kolekcjoner while the boss channel is busy")
+        request(bot, "!kolekcjoner while the boss channel is busy")
         return Outcome(BUSY)
     desk.wanted.clear()  # (what was asked for so far is done by this run)
     desk.force_next = False
@@ -779,7 +779,7 @@ async def sync_now(bot: "AlterBot") -> Outcome:
     outcome = await sync(bot, force=True)
     if outcome.try_soon or outcome.unfinished:
         desk.quick = 0  # (the owner asked: the loop's quick tries begin anew)
-        request(bot, f"$kolekcjoner ended with {outcome.status}: to be tried again")
+        request(bot, f"!kolekcjoner ended with {outcome.status}: to be tried again")
     return outcome
 
 
@@ -817,7 +817,7 @@ async def run(bot: "AlterBot") -> None:
     answered by one more run.  After a run that could not look (no server, no ranking) the next
     one comes after :data:`RETRY_SOON` instead of :data:`PERIOD`; so it does after a run that
     could not give the role or take it away, at most :data:`QUICK_RETRIES` times in a row
-    (``desk.quick``; a ``$kolekcjoner`` that could not finish starts that count anew).
+    (``desk.quick``; a ``!kolekcjoner`` that could not finish starts that count anew).
     """
     await bot.wait_until_ready()
     desk = _desk(bot)

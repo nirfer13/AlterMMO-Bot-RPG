@@ -4,7 +4,7 @@ Owner's decisions of 2026-11-21 tested here: the album is for supporters; every 
 supporter's pet (eggs too) is saved, in the same transaction that removes the pet; the collection is
 every non-mythic species at every stage (68 slots, variant / class / ornaments do not matter); the
 mythic pet may be kept but is not needed; "Pełny album" is given for a full collection and never taken
-away.  The album's panel and ``$album``: test_album_ui.py.
+away.  The album's panel and ``!album``: test_album_ui.py.
 """
 
 from __future__ import annotations
@@ -28,14 +28,14 @@ from test_pets import plain_cards  # noqa: F401 - autouse: no card is composed h
 PATRON = patrons.PATRON_ROLES[0]
 MONKAS = "<:MonkaS:882181709100097587>"
 LEGACY_QUESTION = ("Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@{player_id}>? "
-                   "<:MonkaS:882181709100097587> Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
+                   "<:MonkaS:882181709100097587> Kliknij **Potwierdzam** albo wpisz **!potwierdzam**.")
 
 
 @pytest.fixture(autouse=True)
 def _no_open_questions():
     pets._awaiting_confirmation.clear()
     yield
-    assert not pets._awaiting_confirmation, "a $potwierdzam slot was never released"
+    assert not pets._awaiting_confirmation, "a !potwierdzam slot was never released"
 
 
 @pytest.fixture
@@ -413,8 +413,8 @@ async def test_a_supporters_sacrifice_is_saved_in_the_album(game_db, sacrifices)
 
     question = next(m for m in game_db.channel.sent if ASK in m.content)
     assert question.content == (f"Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@{player.id}>? "
-                                f"{MONKAS} Jako wspierający zachowasz go w swoim albumie (**$album**). "
-                                "Kliknij **Potwierdzam** albo wpisz **$potwierdzam**.")
+                                f"{MONKAS} Jako wspierający zachowasz go w swoim albumie (**!album**). "
+                                "Kliknij **Potwierdzam** albo wpisz **!potwierdzam**.")
     assert question.content.endswith(pets.CONFIRM_HINT)
     assert await pet_row(db, 5) is None and await pet_row(db, 6) is not None
     assert (await owner_row(db, player.id))["pet_id"] == 0
@@ -423,9 +423,9 @@ async def test_a_supporters_sacrifice_is_saved_in_the_album(game_db, sacrifices)
     assert sacrifices == [player]
     texts = [m.content for m in game_db.channel.sent]
     saved = album.MSG_DISCARD_SAVED.format(player_id=player.id)
-    assert texts.count(saved) == 1 and "**$album**" in saved
+    assert texts.count(saved) == 1 and "**!album**" in saved
     assert texts.index("Poświęcono towarzysza!") < texts.index(saved)    # after the sacrifice itself
-    answer = next(m for m in game_db.channel.messages if m.content == "$potwierdzam")
+    answer = next(m for m in game_db.channel.messages if m.content == "!potwierdzam")
     assert answer.reactions == [MONKAS]                                   # the legacy "seen", as before
 
 
@@ -461,7 +461,7 @@ async def test_the_status_at_the_sacrifice_counts(game_db, sacrifices):
         if ASK not in message.content:
             return None
         ala.roles.clear()                                                 # the support ended meanwhile
-        return "$potwierdzam"
+        return "!potwierdzam"
 
     game_db.auto_answer(ala, responder=answer)
     assert await pets.discard_pet(game_db.scene(ala)) is True
@@ -477,7 +477,7 @@ async def test_the_status_at_the_sacrifice_counts(game_db, sacrifices):
         if ASK not in message.content or f"<@{ola.id}>" not in message.content:
             return None
         ola.roles.append(game_db.guild.add_role(PATRON))
-        return "$potwierdzam"
+        return "!potwierdzam"
 
     game_db.auto_answer(ola, responder=becomes_supporter)
     assert await pets.discard_pet(game_db.scene(ola)) is True
@@ -555,7 +555,7 @@ async def test_a_stale_panel_saves_nothing(game_db, sacrifices):
         if ASK not in message.content:
             return None
         asyncio.ensure_future(db.execute("UPDATE PETOWNER SET PET_ID = 6 WHERE PLAYER_ID = $1", player.id))
-        return "$potwierdzam"
+        return "!potwierdzam"
 
     game_db.auto_answer(player, responder=swap, delay=0.05)
     assert await pets.discard_pet(game_db.scene(player), expected_pet=5) is False
@@ -666,7 +666,7 @@ async def test_a_fight_that_starts_during_the_question_silences_the_album_notice
         if ASK not in message.content:
             return None
         fighting.append(True)                                             # a boss fight starts meanwhile
-        return "$potwierdzam"
+        return "!potwierdzam"
 
     game_db.auto_answer(player, responder=answer)
     assert await pets.discard_pet(game_db.scene(player)) is True
@@ -699,7 +699,7 @@ async def test_pelny_album_is_never_taken_away(game_db):
     assert await album.complete(db, player.id) is False
     await achievements.sync_veterans(bot)
     assert await achievements.check_album(game_db.scene(), player) == []
-    assert await achievements.show_achievements(game_db.scene(player, "$osiagniecia")) is True
+    assert await achievements.show_achievements(game_db.scene(player, "!osiagniecia")) is True
     assert holds_album_role(bot, player)
     assert f"<@{player.id}>, masz **1 z 5** osiągnięć." in game_db.channel.bot_messages[-1].text
 
@@ -712,7 +712,7 @@ async def test_an_album_full_before_the_role_existed_is_handed_out_at_start_up(g
         await add_owner(db, member.id, 0)                                 # (a sacrifice leaves the row)
         await fill(db, member.id)
     assert await achievements.deserved(bot, veteran.id) == {"album_full"}
-    assert await achievements.sync_veterans(bot) == (1, 1)                # start-up / $nadajosiagniecia
+    assert await achievements.sync_veterans(bot) == (1, 1)                # start-up / !nadajosiagniecia
     assert holds_album_role(bot, veteran) and not holds_album_role(bot, plain)
     notes = [line for line in bot.owner_log if line.startswith("Zaległe osiągnięcia")]
     assert notes == [achievements.LOG_VETERANS.format(roles=1, players=1) + f"\n<@{veteran.id}>: Pełny album"]

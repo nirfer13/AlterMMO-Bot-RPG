@@ -187,7 +187,7 @@ async def test_shrine_posts_picture_and_embed(game, monkeypatch):
     assert embed.description == (
         "Oto kapliczka zmian, która wpłynie na następnego bossa! "
         "Jeśli chcesz wpłynąć na następnego bossa, to pomódl się przyciskiem pod tym postem "
-        "albo wpisując **$modlitwa**.\n\n"
+        "albo wpisując **!modlitwa**.\n\n"
         "*Tylko wspierający (Patroni, Crafterzy, subskrybenci Twitch i wspierający na YouTube) znają odpowiednią "
         "modlitwę, ale każdy może skorzystać"
         " z błogosławieństw rzuconych na potwora.*")
@@ -275,7 +275,7 @@ OUTCOMES = [
 async def test_prayer_outcomes(game, monkeypatch, name, value, text):
     patron = game.add_member("O'Neil")
     draw(monkeypatch, name)
-    assert await modifiers.random_modifiers(game.scene(patron, "$modlitwa"), True) == name
+    assert await modifiers.random_modifiers(game.scene(patron, "!modlitwa"), True) == name
     assert await modifiers.load_modifiers(game.bot) == {**ZEROS, name: value}
     embed = game.channel.messages[-1].embeds[0]
     assert embed.title == "Błogosławieństwo kapliczki!"

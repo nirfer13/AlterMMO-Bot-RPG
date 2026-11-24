@@ -1,4 +1,4 @@
-"""What the bot says about a recorded fight: the answer to "lag" and ``$walka``.
+"""What the bot says about a recorded fight: the answer to "lag" and ``!walka``.
 
 Owner's request (2026-11-22): "Jeśli ktoś napisze po takiej walce lag, lagi albo
 inne odmiany wyślij mu loga z walki i wytłumacz dlaczego przegrał."
@@ -9,7 +9,7 @@ The fights are recorded by :mod:`altermmo.core.fightlog`.  Here:
   last :data:`COMPLAINT_WINDOW` s writes a lag complaint
   (:func:`altermmo.core.fightlog.is_lag_complaint`): the bot answers once per
   fight with the fight's log and why it was lost (:func:`explain`);
-* :func:`show` - ``$walka <gracz>`` (administrators): the last recorded fight
+* :func:`show` - ``!walka <gracz>`` (administrators): the last recorded fight
   of a member, in the same format.
 
 Rules:
@@ -48,7 +48,7 @@ import discord
 
 from ..core import challenge, fightlog, io
 from ..core.fightlog import End, Fight, LateState, Outcome, Round
-from ..settings import COMMAND_PREFIX
+from ..settings import is_command_text
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -173,14 +173,14 @@ TROUBLE_WATCH = ("moje połączenie z Discordem zostało zerwane, kiedy po decyd
 MSG_INTERRUPTED = ("<@{player}> Ta walka (**{label}**) została przerwana przez problemy z połączeniem: kilka "
                    "tur z rzędu było zakłóconych i nie dało się ich uczciwie ocenić. Nikt jej nie przegrał.")
 
-MSG_USAGE = ("Użycie: **$walka gracz** (wzmianka, id albo nick) - ostatnia zapisana walka gracza. Zapis "
+MSG_USAGE = ("Użycie: **!walka gracz** (wzmianka, id albo nick) - ostatnia zapisana walka gracza. Zapis "
              "jest trzymany przez 30 minut po walce i znika przy restarcie bota.")
 MSG_NO_FIGHT = ("Nie mam zapisanej walki tego gracza (zapis jest trzymany przez 30 minut po walce i znika "
                 "przy restarcie bota).")
 
 LOG_COMPLAINT = ("Zgłoszenie laga może być zasadne: <@{player}> napisał o lagu po przegranej walce "
                  "({label}), a zapis walki pokazuje problemy po stronie bota: {troubles}. Szczegóły: "
-                 "`$walka {player}` (zapis jest trzymany 30 minut).")
+                 "`!walka {player}` (zapis jest trzymany 30 minut).")
 
 
 # -- small helpers ----------------------------------------------------------------------------
@@ -466,7 +466,7 @@ def _on_message(bot: "AlterBot", message: Any) -> bool:
     if getattr(author, "bot", False) or getattr(message, "guild", None) is None:
         return False
     text = str(message.content or "")
-    if text.startswith(COMMAND_PREFIX) or not fightlog.is_lag_complaint(text):
+    if is_command_text(text) or not fightlog.is_lag_complaint(text):
         return False
     fight = fightlog.last_fight(author.id)
     if fight is None or fight.answered or fight.channel_id != message.channel.id:
@@ -526,10 +526,10 @@ async def _answer(bot: "AlterBot", channel: Any, player: Any, fight: Fight) -> N
         log.exception("Could not answer the lag complaint of %s.", getattr(player, "id", player))
 
 
-# -- $walka -----------------------------------------------------------------------------------
+# -- !walka -----------------------------------------------------------------------------------
 
 async def show(scene: "Scene", who: str | None) -> None:
-    """``$walka <gracz>``: the last recorded fight of a member (pings nobody).
+    """``!walka <gracz>``: the last recorded fight of a member (pings nobody).
 
     Like every other answer it is not posted between the prompts of a typed
     fight: on a channel where one is on, it waits for the fight to end (at
@@ -542,6 +542,6 @@ async def show(scene: "Scene", who: str | None) -> None:
         found = fightlog.find_fight(who)
         text = MSG_NO_FIGHT if found is None else explain(found[0], None, subject_id=found[1])
     if not await _channel_free(scene.channel):
-        log.info("$walka: the channel stayed busy with a fight for %.0f s, no answer.", REPLY_PATIENCE)
+        log.info("!walka: the channel stayed busy with a fight for %.0f s, no answer.", REPLY_PATIENCE)
         return
     await io.send(scene.channel, text, allowed_mentions=NO_MENTIONS)

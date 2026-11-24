@@ -544,7 +544,7 @@ def _label(source: Path) -> list[str]:
     For an egg only "egg" and the name: the folder of a premium / mythic egg is
     its SPECIES, and an egg does not tell its species before it hatches (owner,
     2026-11-23) - the name of an attachment can be read by every player, on
-    ``$towarzysz`` as in the album.  (The digest still tells the pictures apart.)
+    ``!towarzysz`` as in the album.  (The digest still tells the pictures apart.)
     """
     if EGG_FOLDER in source.parts[-4:-1]:
         return ["egg", _ascii(source.stem, "0")]

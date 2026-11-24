@@ -1,7 +1,7 @@
 """XP theft settled by Horus (protocol version 1, SPEC_xp_transfer.md): the RPG bot's side.
 
 * the request: exact fields, written atomically, one per right, every failure point of
-  ``xpsteal.steal`` (write -> spend -> put in place), two ``$kradnijxp`` at once;
+  ``xpsteal.steal`` (write -> spend -> put in place), two ``!kradnijxp`` at once;
 * the results (``TransferWatch``): full / partial / nothing / error, broken and foreign files,
   a fight in progress, a failing send, the bounded duplicate rule;
 * the owner's note about requests Horus has not settled after ten minutes;
@@ -88,7 +88,7 @@ def assert_secret(game, victim) -> None:
 
 async def test_request_file_has_exactly_the_protocol_fields(game, thief, victim):
     before = datetime.now(timezone.utc).replace(microsecond=0)
-    assert await xpsteal.steal(game.scene(thief, "$kradnijxp Biedak"), "Biedak") is True
+    assert await xpsteal.steal(game.scene(thief, "!kradnijxp Biedak"), "Biedak") is True
 
     folder = game.bot.store.xp_transfers_dir
     assert folder == game.bot.settings.data_dir / "xp_transfers"
@@ -245,7 +245,7 @@ async def test_right_lost_and_not_given_back_is_reported_with_the_exact_numbers(
     assert xpsteal.pending(game.bot, thief.id) == []                 # spent, and could not be given back
     assert game.channel.messages[-1].content == xpsteal.MSG_RIGHT_HELD.format(thief=thief.id)
     (ping,) = owner_pings(game)
-    assert f"$DajKradziez {thief.id} 10000" in ping and "Zlodziej" in ping and "Biedak" in ping
+    assert f"!DajKradziez {thief.id} 10000" in ping and "Zlodziej" in ping and "Biedak" in ping
     (temp,) = files(game.bot.store.xp_transfers_dir)
     assert temp.endswith(".json.tmp") and temp in ping and "nie zmieniaj jego nazwy" in ping
     assert xp_transfer_requests(game.bot) == []                      # Horus sees no request
@@ -282,7 +282,7 @@ async def test_right_not_spent_and_file_unreadable_gives_no_request(game, thief,
     assert game.channel.messages[-1].content == xpsteal.MSG_NOT_SAVED.format(thief=thief.id)
     (ping,) = owner_pings(game)
     assert "nie da się teraz odczytać" in ping and "Zlodziej" in ping and "Biedak" in ping
-    assert f"okazji: 1 (10{NBSP}000)" in ping and f"$DajKradziez {thief.id} 10000" in ping
+    assert f"okazji: 1 (10{NBSP}000)" in ping and f"!DajKradziez {thief.id} 10000" in ping
     assert_secret(game, victim)
 
 
@@ -311,7 +311,7 @@ async def test_give_back_never_saves_over_a_file_it_cannot_read(game, thief, vic
     assert xpsteal.pending(game.bot, thief.id) == []                  # spent, not given back...
     assert game.channel.messages[-1].content == xpsteal.MSG_RIGHT_HELD.format(thief=thief.id)
     (ping,) = owner_pings(game)
-    assert f"$DajKradziez {thief.id} 10000" in ping                   # ...and reported with the numbers
+    assert f"!DajKradziez {thief.id} 10000" in ping                   # ...and reported with the numbers
     assert files(game.bot.store.xp_transfers_dir) == []
     assert_secret(game, victim)
 
@@ -416,7 +416,7 @@ async def test_error_result_tells_the_owner_and_the_thief(game, thief, victim, w
     assert game.channel.messages[-1].content == xpsteal.MSG_RESULT_ERROR.format(thief=thief.id)
     (ping,) = owner_pings(game)
     assert "bad amount" in ping and "Zlodziej" in ping and "Biedak" in ping
-    assert f"$DajKradziez {thief.id} 10000" in ping
+    assert f"!DajKradziez {thief.id} 10000" in ping
     assert files(game.bot.store.xp_transfer_results_dir) == []
     assert_secret(game, victim)
 
@@ -428,12 +428,12 @@ async def test_error_result_without_a_usable_thief_goes_to_the_owner_only(game, 
     (ping,) = owner_pings(game)
     assert "bad to id" in ping and "nieznany" in ping
     assert "Nikt nie dostał wiadomości" in ping and "złodzieja ani kwoty" in ping
-    assert "`$DajKradziez" not in ping and "<id złodzieja>" not in ping   # no command that cannot work
+    assert "`!DajKradziez" not in ping and "<id złodzieja>" not in ping   # no command that cannot work
     assert files(game.bot.store.xp_transfer_results_dir) == []
 
 
 async def test_error_result_without_a_usable_amount_gives_no_invalid_command(game, thief, victim, watch):
-    """Horus could not read the amount (requested null): no "$DajKradziez <id> ?" - the amount is
+    """Horus could not read the amount (requested null): no "!DajKradziez <id> ?" - the amount is
     unknown, and the owner is told where to find it."""
     await xpsteal.steal(game.scene(thief), "Biedak")
     (request,) = xp_transfer_requests(game.bot)
@@ -443,7 +443,7 @@ async def test_error_result_without_a_usable_amount_gives_no_invalid_command(gam
     assert game.channel.messages[-1].content == xpsteal.MSG_RESULT_ERROR.format(thief=thief.id)
     (ping,) = owner_pings(game)
     assert "kwota nieznana" in ping and "odczytać kwoty" in ping and "Złodziej dostał wiadomość" in ping
-    assert "$DajKradziez" in ping and "`$DajKradziez" not in ping and "?" not in ping.split("$DajKradziez")[1]
+    assert "!DajKradziez" in ping and "`!DajKradziez" not in ping and "?" not in ping.split("!DajKradziez")[1]
     assert f"Znajdź w tym logu wpis o zleceniu `{request['id']}`" in ping
     # ...and that entry is there, with the amount:
     assert any(request["id"] in line and f"do 10{NBSP}000 expa" in line for line in game.bot.owner_log)
@@ -613,7 +613,7 @@ async def test_no_folders_nothing_to_do(game, watch):
 
 
 async def test_the_whole_way_with_horus(game, thief, victim, watch):
-    await xpsteal.steal(game.scene(thief, "$kradnijxp Biedak"), "Biedak")
+    await xpsteal.steal(game.scene(thief, "!kradnijxp Biedak"), "Biedak")
     await watch.check()                                             # Horus has not settled it yet
     assert len(game.channel.sent) == 1                              # only the confirmation
     settle_xp_transfers(game.bot, {victim.id: 7500})
@@ -670,7 +670,7 @@ async def test_left_temporary_request_is_reported_once(game, watch):
     (ping,) = owner_pings(game)
     assert temp.name in ping and "xpThefts.json" in ping and "<@1111>" in ping and "<@2222>" in ping
     assert "nigdy nie zmieniaj ich nazwy" in ping and "zmień nazwę" not in ping      # delete, never rename
-    assert "$DajKradziez 1111 10000" in ping and request["created"] in ping
+    assert "!DajKradziez 1111 10000" in ping and request["created"] in ping
     assert temp.exists()
 
 
@@ -810,7 +810,7 @@ async def test_a_result_for_an_id_this_bot_never_wrote_is_ignored(game, thief, v
     assert game.channel.sent == [] and owner_pings(game) == []
     (line,) = game.bot.owner_log
     assert path.name in line and "ten bot nie zlecił" in line and "nikomu nie trzeba oddawać okazji" in line
-    assert "$DajKradziez" not in line and "unsupported version" in line
+    assert "!DajKradziez" not in line and "unsupported version" in line
     results = game.bot.store.xp_transfer_results_dir
     assert files(results) == ["rejected"] and files(results / "rejected") == [path.name]
 
@@ -828,7 +828,7 @@ async def test_a_finished_theft_coming_back_from_a_backup_is_ignored(game, thief
                              transfer_id=result["id"], written=False)
     await xpsteal.TransferWatch(game.bot).check()                     # (a later start)
     assert len(game.channel.sent) == 2 and owner_pings(game) == []
-    assert "Pomijam wynik kradzieży" in game.bot.owner_log[-1] and "$DajKradziez" not in game.bot.owner_log[-1]
+    assert "Pomijam wynik kradzieży" in game.bot.owner_log[-1] and "!DajKradziez" not in game.bot.owner_log[-1]
 
 
 async def test_an_unreadable_note_of_written_ids_makes_results_wait(game, thief, victim, watch, monkeypatch):
@@ -878,7 +878,7 @@ async def test_a_boss_drop_never_saves_over_a_rights_file_it_cannot_read(game, m
         store.save({"999": [10000]})
     assert xpsteal.pending(game.bot, 999) == [10000] and xpsteal.pending(game.bot, winner.id) == []
     (ping,) = owner_pings(game)                                       # one loud note, with the line
-    assert f"`$DajKradziez {winner.id} 10000`" in ping and "Zwyciezca" in ping
+    assert f"`!DajKradziez {winner.id} 10000`" in ping and "Zwyciezca" in ping
     assert "nie został nadpisany" in ping and f"10{NBSP}000 expa" in ping
 
 
@@ -914,11 +914,11 @@ async def test_the_owner_gives_a_right_by_hand(game):
         await game.settle()
         return game.channel.messages[-1].content
 
-    answer = await run(f"$DajKradziez {player.id}")
+    answer = await run(f"!DajKradziez {player.id}")
     assert answer == xpsteal.MSG_GRANTED.format(player=player.id, amount=f"10{NBSP}000")   # "10 000", not "10000"
-    assert await run(f"$DajKradziez {player.id} 0") == xpsteal.MSG_GRANT_BAD_AMOUNT
+    assert await run(f"!DajKradziez {player.id} 0") == xpsteal.MSG_GRANT_BAD_AMOUNT
     game.bot.store.xp_thefts.path.write_text("[broken", encoding="utf-8")
-    assert await run(f"$DajKradziez {player.id} 2500") == xpsteal.MSG_GRANT_NOT_SAVED.format(player=player.id)
+    assert await run(f"!DajKradziez {player.id} 2500") == xpsteal.MSG_GRANT_NOT_SAVED.format(player=player.id)
     assert game.bot.store.xp_thefts.path.read_text(encoding="utf-8") == "[broken"
 
 

@@ -1,4 +1,4 @@
-"""Commands that do not fit anywhere else: ``$ping``, ``$clear``, ``$saveToTxt``."""
+"""Commands that do not fit anywhere else: ``!ping``, ``!clear``, ``!saveToTxt``."""
 
 from __future__ import annotations
 

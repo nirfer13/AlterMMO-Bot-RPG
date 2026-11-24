@@ -1,4 +1,4 @@
-"""The weekly Death Tower (``$wieża``): up to ten floors, each a harder typing fight.
+"""The weekly Death Tower (``!wieża``): up to ten floors, each a harder typing fight.
 
 Port of the legacy ``functions/functions_tower.py``.
 
@@ -21,7 +21,7 @@ Differences from the legacy code (the game itself is unchanged):
 The run has no sign-up and no confirmation (one player, typed fights), so the
 v2 panels change only the "come back later" text: it shows the real moment of
 the weekly reset (:func:`altermmo.features.daily.next_season_end`) as
-Discord's live "za 3 dni".  :func:`start_tower` is the whole ``$wieża``
+Discord's live "za 3 dni".  :func:`start_tower` is the whole ``!wieża``
 command, so a button elsewhere (the hub panel) can run exactly the same thing.
 """
 
@@ -99,16 +99,16 @@ LOG_RUN_CUT_SHORT = ("Wyprawa <@{user_id}> do Wieży Śmierci została przerwana
                      "{floors}. piętrze. Próba NIE została zwrócona (łupy za zaliczone piętra są wydane - "
                      "druga wyprawa wydałaby je ponownie). Jeśli chcesz, wynagrodź gracza ręcznie.")
 
-# Answers of ``$wieża`` (moved here from cogs/tower.py: the hub panel runs the same command).
+# Answers of ``!wieża`` (moved here from cogs/tower.py: the hub panel runs the same command).
 MSG_BOSS_COMING = ("Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, "
-                   "kliknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**, żeby stawić mu czoła.")
+                   "kliknij **Zaatakuj** pod bossem albo wpisz **!zaatakuj**, żeby stawić mu czoła.")
 MSG_BOSS_HERE = ("Nie możesz ruszyć na eksplorację Wieży Śmierci, na Twojej drodze stoi boss "
-                 "<:MonkaS:882181709100097587> Kliknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**, "
+                 "<:MonkaS:882181709100097587> Kliknij **Zaatakuj** pod bossem albo wpisz **!zaatakuj**, "
                  "żeby stawić mu czoła.")
 #: ``{when}``: Discord's live countdown to the weekly reset.
 MSG_ON_COOLDOWN = ("Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie {when} "
                    "<:Bedge:970576892874854400>")
-# Only for a click (a typed $wieża stays silent during a boss fight, as before).
+# Only for a click (a typed !wieża stays silent during a boss fight, as before).
 MSG_BOSS_FIGHT = "Trwa walka z bossem - Wieża Śmierci musi poczekać <:MonkaS:882181709100097587>"
 
 
@@ -315,7 +315,7 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
     return True
 
 
-# -- $wieża ----------------------------------------------------------------------------
+# -- !wieża ----------------------------------------------------------------------------
 
 async def _give_back_attempt(scene: "Scene", player: Any) -> None:
     """Take the player off the weekly cooldown list and tell him (never raises)."""
@@ -343,7 +343,7 @@ async def _end_broken_run(scene: "Scene", player: Any, cleared: int, rewarded: b
 
 
 async def explore_tower(scene: "Scene") -> int:
-    """The whole ``$wieża`` run of ``scene.author``; returns the number of floors cleared.
+    """The whole ``!wieża`` run of ``scene.author``; returns the number of floors cleared.
 
     The caller has already checked the cooldown and holds the busy flag.  The
     weekly cooldown is stored before the first floor (as in the legacy bot).
@@ -386,7 +386,7 @@ async def explore_tower(scene: "Scene") -> int:
 
 
 async def start_tower(scene: "Scene", *, refuse: Any = None) -> bool:
-    """The whole ``$wieża`` command of ``scene.author`` (boss phase, cooldown, busy flag, the run).
+    """The whole ``!wieża`` command of ``scene.author`` (boss phase, cooldown, busy flag, the run).
 
     The command guards (boss channel, busy notice) run before; this checks the
     busy flag again because a click (the hub panel) has no command guards.

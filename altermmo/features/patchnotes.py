@@ -28,11 +28,11 @@ re-posting years of notes), the data folder may be lost (the channel then tells)
 of them (the very first run): every entry is posted.  The history cannot be read and nothing
 is remembered either: nothing is posted, the owner is told, the next start tries again.  A
 number HIGHER than the last entry of the file (the file was rolled back or renumbered) is
-told to the owner at every start until ``$patchnotes od <nr>`` puts it right - otherwise the
+told to the owner at every start until ``!patchnotes od <nr>`` puts it right - otherwise the
 entries that later get those ids would never be posted.
 
 **Exactly once.**  One :class:`asyncio.Lock` per bot covers the whole "work out + post"
-section (start-up and ``$patchnotes`` alike), the start-up runs once per process (not from
+section (start-up and ``!patchnotes`` alike), the start-up runs once per process (not from
 ``on_ready``, which fires again after every reconnect) and every run works the state out
 afresh.  Unsent entries go together, oldest first, as few messages as Discord's limits allow
 (:func:`plan_posts`); the local number is advanced after EACH delivered message (and never
@@ -53,7 +53,7 @@ What is left: a copy that becomes visible on Discord only after that look (secon
 slow request) stays - very unlikely; when the history cannot be read at all, a failed send is
 given up (not repeated) and the next start may post that one message again, and no copies are
 looked for; a message identical to one posted less than :data:`VERIFY_CLOCK_SLACK` before the
-run (``$patchnotes od`` twice in a row) counts as the same message (one copy stays); a rolled
+run (``!patchnotes od`` twice in a row) counts as the same message (one copy stays); a rolled
 back file that gets its new entries BEFORE the next start (the number is then not higher than
 the file) cannot be told from an ordinary one, and those entries are not posted.
 
@@ -61,7 +61,7 @@ the file) cannot be told from an ordinary one, and those entries are not posted.
 message of a run that announces at least one entry for the first time carries the mention of
 the hunters' role (``bot.ids.hunters_role``) as its whole text content and is sent with allowed
 mentions for exactly that role (:func:`only_role`) - one ping per update, nobody else, whatever
-a note says.  The later messages of the run, a ``$patchnotes od`` over entries announced before
+a note says.  The later messages of the run, a ``!patchnotes od`` over entries announced before
 and debug mode ping nobody (:data:`NO_MENTIONS`).  Old marker messages without text stay valid.
 Owner, 2026-11-22: "Nie pinguj łowcy potworów więcej niż raz dziennie po zmianach." - the role is
 mentioned at most once per calendar day (Europe/Warsaw): the day of the last ping is remembered
@@ -184,38 +184,38 @@ def only_role(role_id: int) -> discord.AllowedMentions:
 # -- what the owner / the administrator is told (Polish) --------------------------------------
 
 MSG_OWNER_FILE_BROKEN = ("Patch notes: plik `config/patchNotes.json` jest błędny - {problem}. Nic nie "
-                         "wysłałem. Popraw plik; spróbuję przy następnym starcie (albo wpisz `$patchnotes`).")
+                         "wysłałem. Popraw plik; spróbuję przy następnym starcie (albo wpisz `!patchnotes`).")
 MSG_OWNER_NO_CHANNEL = ("Patch notes: nie mogę pisać na kanale {channel} ({error}). Nic nie wysłałem; "
-                        "spróbuję przy następnym starcie (albo wpisz `$patchnotes`).")
+                        "spróbuję przy następnym starcie (albo wpisz `!patchnotes`).")
 MSG_OWNER_NO_HISTORY = ("Patch notes: nie mogę przeczytać historii kanału {channel} ({error}), a nie "
                         "pamiętam, co już ogłosiłem - nic nie wysłałem, żeby niczego nie powtórzyć. Daj "
                         "botowi uprawnienie \"Czytanie historii wiadomości\"; spróbuję przy następnym "
-                        "starcie (albo wpisz `$patchnotes`).")
+                        "starcie (albo wpisz `!patchnotes`).")
 MSG_OWNER_HISTORY_FALLBACK = ("Patch notes: nie mogę przeczytać historii kanału {channel} ({error}) - "
                               "korzystam z zapamiętanego numeru ostatniego wpisu (nr {local}).")
 MSG_OWNER_SPOILER = ("Patch notes: wpis nr {id} zawiera spoiler (\"{word}\") - nie wysłałem go{after}. "
                      "Popraw wpis w `config/patchNotes.json`.")
 MSG_OWNER_SPOILER_AFTER = " ani wpisów po nim"
 MSG_OWNER_SEND_FAILED = ("Patch notes: nie udało się wysłać wiadomości na kanał {channel} ({error}). "
-                         "Nie wysłane: {left} - pójdą przy następnym starcie (albo po `$patchnotes`).")
+                         "Nie wysłane: {left} - pójdą przy następnym starcie (albo po `!patchnotes`).")
 MSG_OWNER_REMEMBER_FAILED = ("Patch notes: nie udało się zapisać numeru ostatniego ogłoszonego wpisu "
                              "({error}); przy następnym starcie liczy się ostatnia wiadomość na kanale.")
 MSG_OWNER_SENT = "Patch notes: ogłosiłem {what} na kanale {channel}."
 MSG_OWNER_CORRECTED = ("Patch notes: poprawiłem treść już ogłoszonych wpisów (nr {what}) na kanale {channel} - "
                        "wiadomość została zedytowana, bez ponownego oznaczania roli.")
 MSG_OWNER_CORRECT_FAILED = ("Patch notes: nie udało się poprawić treści ogłoszonych wpisów nr {what} na kanale "
-                            "{channel} ({error}). Spróbuję przy następnym starcie albo po `$patchnotes`.")
+                            "{channel} ({error}). Spróbuję przy następnym starcie albo po `!patchnotes`.")
 MSG_PING_HELD = ("Rola łowców była już dziś oznaczona - te wpisy poszły bez oznaczenia (najwyżej jedno "
                  "oznaczenie dziennie).")
 MSG_OWNER_BEYOND = ("Patch notes: ostatnio ogłoszony wpis to nr {highest}, a plik `config/patchNotes.json` "
                     "kończy się na nr {last} - plik cofnięty albo przenumerowany? Nowe wpisy o numerach do "
-                    "{highest} nie zostałyby ogłoszone. Sprawdź plik i wpisz `$patchnotes od {last}` (wyśle "
+                    "{highest} nie zostałyby ogłoszone. Sprawdź plik i wpisz `!patchnotes od {last}` (wyśle "
                     "ponownie wpis nr {last} i od tej pory liczy się nr {last}).")
 MSG_OWNER_BEYOND_EMPTY = ("Patch notes: ostatnio ogłoszony wpis to nr {highest}, a plik "
                           "`config/patchNotes.json` nie ma żadnego wpisu - plik cofnięty albo wyczyszczony? "
                           "Nowe wpisy o numerach do {highest} nie zostałyby ogłoszone.")
 MSG_OWNER_UNEXPECTED = ("Patch notes: nieoczekiwany błąd ({error}) - szczegóły są w logu bota. Spróbuję "
-                        "przy następnym starcie (albo wpisz `$patchnotes`).")
+                        "przy następnym starcie (albo wpisz `!patchnotes`).")
 
 MSG_STATUS_NONE = "Ostatnio ogłoszony wpis: **żaden** (ani na kanale, ani w pamięci bota)."
 MSG_STATUS_UNKNOWN = ("Ostatnio ogłoszony wpis: **nie wiem** - nie mogę przeczytać historii kanału, "
@@ -232,8 +232,8 @@ MSG_NOTHING_WAITS = "Nic nie czeka na ogłoszenie."
 MSG_FROM = "Wysyłam od wpisu nr {start}: {what}."
 MSG_FROM_AGAIN = "ponownie {what}"
 MSG_FROM_NEW = "po raz pierwszy {what}"
-MSG_FROM_GAP = ("Nie przeskoczę wpisów nr {gap}: nie zostały jeszcze ogłoszone. Wpisz `$patchnotes` (wyśle "
-                "wszystko, co czeka) albo `$patchnotes od {next}`.")
+MSG_FROM_GAP = ("Nie przeskoczę wpisów nr {gap}: nie zostały jeszcze ogłoszone. Wpisz `!patchnotes` (wyśle "
+                "wszystko, co czeka) albo `!patchnotes od {next}`.")
 MSG_BAD_FROM = "Nie ma wpisu nr {start} - plik ma wpisy nr 1-{total}."
 MSG_BAD_FROM_EMPTY = "Plik nie ma jeszcze żadnego wpisu."
 MSG_SENT = "Wysłałem {what} {messages} na kanale {channel}."
@@ -688,7 +688,7 @@ def plan_posts(notes: Iterable[Note]) -> list[Post]:
 
 @dataclass
 class Outcome:
-    """What one run found and did (for the owner's note and the ``$patchnotes`` answer)."""
+    """What one run found and did (for the owner's note and the ``!patchnotes`` answer)."""
 
     channel: str = ""
     from_id: int | None = None
@@ -702,7 +702,7 @@ class Outcome:
     highest: int | None = None
     #: The run stopped before posting: history unreadable and nothing remembered.
     blind: bool = False
-    #: ``$patchnotes od`` refused: these entries were never announced and would be jumped over.
+    #: ``!patchnotes od`` refused: these entries were never announced and would be jumped over.
     gap: list[int] = field(default_factory=list)
     waiting: list[int] = field(default_factory=list)
     blocked: tuple[int, str] | None = None
@@ -724,7 +724,7 @@ class Outcome:
     def beyond(self) -> bool:
         """The announced number is past the file's last entry (the file was rolled back / renumbered).
 
-        Only on an ordinary run: ``$patchnotes od`` is the way to put it right.
+        Only on an ordinary run: ``!patchnotes od`` is the way to put it right.
         """
         return (self.from_id is None and self.notes_error is None and self.highest is not None
                 and self.highest > self.total)
@@ -792,7 +792,7 @@ def entries_text(ids: list[int]) -> str:
 
 
 def _lock(bot: Any) -> asyncio.Lock:
-    """The one lock of the "work out + post" section (start-up and ``$patchnotes``)."""
+    """The one lock of the "work out + post" section (start-up and ``!patchnotes``)."""
     lock = getattr(bot, "_patch_notes_lock", None)
     if lock is None:
         lock = asyncio.Lock()
@@ -981,7 +981,7 @@ async def read_channel_marker(bot: Any, channel: Any) -> int | None:
     """The id announced by the bot's NEWEST patch-notes message among the newest :data:`HISTORY_LIMIT`.
 
     The newest one, not the highest one ("sprawdzaj, które zmiany w ostatniej wiadomości zostały
-    wysłane"): after ``$patchnotes od`` that message is the state, also when the file was rolled
+    wysłane"): after ``!patchnotes od`` that message is the state, also when the file was rolled
     back and an older message names a higher number.  A read that fails for a network reason is
     tried again for up to :data:`HISTORY_PATIENCE` seconds (falling back to the local number at
     once could repeat entries whose local write was lost); a permanent error (no permission)
@@ -1133,7 +1133,7 @@ async def _deliver(bot: Any, channel: Any, post: Post, kept: set[int] | None = N
 async def announce(bot: "AlterBot", *, from_id: int | None = None) -> Outcome:
     """Work out what waits and post it (``from_id``: post again from that entry on).  Never raises.
 
-    The whole run holds :func:`_lock`: a second run (the start-up and ``$patchnotes`` at
+    The whole run holds :func:`_lock`: a second run (the start-up and ``!patchnotes`` at
     the same moment, two commands) waits and then finds nothing left.
     """
     async with _lock(bot):
@@ -1283,7 +1283,7 @@ def _status_line(outcome: Outcome) -> str:
 
 
 def command_answer(outcome: Outcome) -> str:
-    """The answer to ``$patchnotes`` / ``$patchnotes od <id>`` (Polish)."""
+    """The answer to ``!patchnotes`` / ``!patchnotes od <id>`` (Polish)."""
     if outcome.unexpected or outcome.notes_error:
         return "\n".join(MSG_PROBLEM.format(problem=problem) for problem in outcome.problems)
     if outcome.bad_from:

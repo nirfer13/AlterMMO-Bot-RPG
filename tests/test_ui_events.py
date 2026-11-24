@@ -1,4 +1,4 @@
-"""Buttons of the random events: forest, chest / shrine, sign-ups, memory, hazard, $zabojca."""
+"""Buttons of the random events: forest, chest / shrine, sign-ups, memory, hazard, !zabojca."""
 
 from __future__ import annotations
 
@@ -153,10 +153,10 @@ async def test_chest_command_still_works_and_takes_the_button_away(game, cog, lo
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     await cog.run_one_event(forced=EventType.CHEST)
     chest = game.channel.messages[-1]
-    await cog.open_chest.callback(cog, ctx_of(game, ala, "$skrzynia"))
+    await cog.open_chest.callback(cog, ctx_of(game, ala, "!skrzynia"))
     assert [call[1] for call in loot] == [ala]
     assert chest.view is None and ala.mention in chest.text
-    await cog.open_chest.callback(cog, ctx_of(game, ola, "$skrzynia"))
+    await cog.open_chest.callback(cog, ctx_of(game, ola, "!skrzynia"))
     assert game.channel.messages[-1].content == events_cog.MSG_NO_CHEST and len(loot) == 1
 
 
@@ -175,11 +175,11 @@ async def test_chest_waits_while_a_hunt_runs(game, cog, loot, monkeypatch):
         assert refused.public == [f"<@{ala.id}> {ui.MSG_BUSY}"]           # said on the channel, to Ala
         assert game.channel.messages[-1] is refused.replies[0].message
         posted = len(game.channel.messages)
-        ctx = ctx_of(game, ola, "$skrzynia")
+        ctx = ctx_of(game, ola, "!skrzynia")
         await cog.open_chest.callback(cog, ctx)                           # the notice is on the screen:
         again = await game.click(chest, ala, events_cog.CHEST_BUTTON_ID)  # neither repeats it
         assert again.response.deferred and again.replies == []
-        assert len(game.channel.messages) == posted + 1                   # (+1: Ola's own "$skrzynia")
+        assert len(game.channel.messages) == posted + 1                   # (+1: Ola's own "!skrzynia")
         assert game.channel.messages[-1] is ctx.message
         assert game.channel.count(ui.MSG_BUSY) == 1
     assert loot == [] and game.bot.state.event_alive                      # the chest is still there...
@@ -210,9 +210,9 @@ async def test_no_chest_is_the_answer_also_during_a_hunt(game, cog, loot, monkey
         late = FakeInteraction(game.bot, ola, chest, channel=game.channel)
         await cog.passive_clicked(late, EventType.CHEST)
         assert late.answers == [events_cog.MSG_NO_CHEST]
-        await cog.open_chest.callback(cog, ctx_of(game, ola, "$skrzynia"))
+        await cog.open_chest.callback(cog, ctx_of(game, ola, "!skrzynia"))
         assert game.channel.messages[-1].content == events_cog.MSG_NO_CHEST
-        await cog.pray.callback(cog, ctx_of(game, ola, "$modlitwa"))
+        await cog.pray.callback(cog, ctx_of(game, ola, "!modlitwa"))
         assert game.channel.messages[-1].content == events_cog.MSG_NO_SHRINE
     assert not game.channel.contains(guards.BUSY_NOTICE) and len(loot) == 1
 
@@ -240,7 +240,7 @@ async def test_shrine_waits_while_a_tower_run_is_on(game, cog, monkeypatch):
     await cog.run_one_event(forced=EventType.SHRINE)
     shrine = game.channel.messages[-1]
     with game.bot.state.hold_busy("tower"):
-        ctx = ctx_of(game, patron, "$modlitwa")
+        ctx = ctx_of(game, patron, "!modlitwa")
         await cog.pray.callback(cog, ctx)
         assert game.channel.messages[-1].content == guards.BUSY_NOTICE and ctx.message.reactions == []
         # The command's notice covers the button too (one busy notice per 20 s on the channel).
@@ -304,7 +304,7 @@ async def test_chest_whose_reward_fails_is_used_up(game, cog, monkeypatch):
     late = FakeInteraction(game.bot, ola, chest, channel=game.channel)   # a client that did not refresh yet
     await cog.passive_clicked(late, EventType.CHEST)
     assert late.answers == [events_cog.MSG_NO_CHEST]
-    await cog.open_chest.callback(cog, ctx_of(game, ola, "$skrzynia"))
+    await cog.open_chest.callback(cog, ctx_of(game, ola, "!skrzynia"))
     assert game.channel.messages[-1].content == events_cog.MSG_NO_CHEST
     assert handed == [ala] and game.channel.count(events_cog.MSG_REWARD_FAILED) == 1
     assert len(game.bot.owner_log) == 1
@@ -342,7 +342,7 @@ async def test_shrine_whose_blessing_fails_is_used_up(game, cog, monkeypatch, ty
 
     monkeypatch.setattr(events.modifiers, "random_modifiers", broken)
     if typed:
-        ctx = ctx_of(game, first, "$modlitwa")
+        ctx = ctx_of(game, first, "!modlitwa")
         await cog.pray.callback(cog, ctx)                                # does not raise
         assert ctx.message.reactions == [events_cog.PRAYGE]
     else:
@@ -356,7 +356,7 @@ async def test_shrine_whose_blessing_fails_is_used_up(game, cog, monkeypatch, ty
     late = FakeInteraction(game.bot, second, shrine, channel=game.channel)
     await cog.passive_clicked(late, EventType.SHRINE)
     assert late.answers == [events_cog.MSG_NO_SHRINE]
-    await cog.pray.callback(cog, ctx_of(game, second, "$modlitwa"))
+    await cog.pray.callback(cog, ctx_of(game, second, "!modlitwa"))
     assert game.channel.messages[-1].content == events_cog.MSG_NO_SHRINE
     assert drawn == [first] and len(game.bot.owner_log) == 1
 
@@ -369,7 +369,7 @@ async def test_shrine_whose_prayer_cannot_be_acknowledged_stays(game, cog, monke
     shrine = game.channel.messages[-1]
     reactions = fails_once(monkeypatch, events_cog.io, "safe_react")
     with pytest.raises(RuntimeError):                                    # (the command's error handler answers)
-        await cog.pray.callback(cog, ctx_of(game, first, "$modlitwa"))
+        await cog.pray.callback(cog, ctx_of(game, first, "!modlitwa"))
     assert len(reactions) == 1 and game.bot.state.event_alive
     assert shrine.button_labels == [events_cog.SHRINE_BUTTON]
     assert (await events.modifiers.load_modifiers(game.bot))["points_boost"] == 0
@@ -435,7 +435,7 @@ async def test_only_believers_pray_with_the_button(game, cog, monkeypatch):
 @pytest.mark.parametrize("role_id", [patrons.TWITCH_SUB_ROLE, *patrons.YOUTUBE_ROLES])
 @pytest.mark.parametrize("typed", [False, True])
 async def test_twitch_subscribers_and_youtube_supporters_pray(game, cog, monkeypatch, role_id, typed):
-    """Since 2026-11-20 every supporter knows the prayer - the button and ``$modlitwa`` alike."""
+    """Since 2026-11-20 every supporter knows the prayer - the button and ``!modlitwa`` alike."""
     monkeypatch.setattr(random, "choice", lambda pool: "points_boost")
     supporter = game.add_member("Widz", roles=[role_id])
     vip = game.add_member("VIP", roles=[964845150213906442])            # a Twitch VIP is no supporter
@@ -448,7 +448,7 @@ async def test_twitch_subscribers_and_youtube_supporters_pray(game, cog, monkeyp
     assert refused.public == [f"<@{vip.id}> {events_cog.MSG_NOT_A_BELIEVER}"] and game.bot.state.event_alive
 
     if typed:
-        ctx = ctx_of(game, supporter, "$modlitwa")
+        ctx = ctx_of(game, supporter, "!modlitwa")
         await cog.pray.callback(cog, ctx)
         assert ctx.message.reactions == [events_cog.PRAYGE]
     else:
@@ -463,13 +463,13 @@ async def test_pray_command_still_works_and_takes_the_button_away(game, cog, mon
     ala = game.add_member("Ala")
     await cog.run_one_event(forced=EventType.SHRINE)
     shrine = game.channel.messages[-1]
-    await cog.pray.callback(cog, ctx_of(game, ala, "$modlitwa"))
+    await cog.pray.callback(cog, ctx_of(game, ala, "!modlitwa"))
     assert game.channel.messages[-1].content == events_cog.MSG_NOT_A_BELIEVER and shrine.button_labels
-    ctx = ctx_of(game, patron, "$modlitwa")
+    ctx = ctx_of(game, patron, "!modlitwa")
     await cog.pray.callback(cog, ctx)
     assert ctx.message.reactions == [events_cog.PRAYGE]
     assert shrine.view is None and not game.bot.state.event_alive
-    await cog.pray.callback(cog, ctx_of(game, patron, "$modlitwa"))
+    await cog.pray.callback(cog, ctx_of(game, patron, "!modlitwa"))
     assert game.channel.messages[-1].content == events_cog.MSG_NO_SHRINE
 
 
@@ -714,7 +714,7 @@ async def test_hazard_cups_are_two_buttons(game_db, loot, monkeypatch):
     assert cups.view is None and [call[1] for call in loot] == [ala]
 
 
-# -- $zabojca ------------------------------------------------------------------------
+# -- !zabojca ------------------------------------------------------------------------
 
 async def _assassin_ready(game):
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
@@ -728,7 +728,7 @@ async def test_assassin_is_confirmed_with_a_button(game_db, monkeypatch):
     game = game_db
     monkeypatch.setattr(random, "random", lambda: 0.5)
     ala, ola = await _assassin_ready(game)
-    task = asyncio.ensure_future(events.assasinate(game.scene(ala, "$zabojca")))
+    task = asyncio.ensure_future(events.assasinate(game.scene(ala, "!zabojca")))
     question = await game.wait_for_buttons("yes")
     assert "Kliknij **Potwierdzam**" in question.content and question.button_labels == ["Potwierdzam", "Anuluj"]
     assert (await game.click(question, ola, "yes")).answers == [ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)]
@@ -741,7 +741,7 @@ async def test_assassin_is_confirmed_with_a_button(game_db, monkeypatch):
 async def test_assassin_cancelled_with_a_button(game_db):
     game = game_db
     ala, _ola = await _assassin_ready(game)
-    task = asyncio.ensure_future(events.assasinate(game.scene(ala, "$zabojca")))
+    task = asyncio.ensure_future(events.assasinate(game.scene(ala, "!zabojca")))
     question = await game.wait_for_buttons("no")
     await game.click(question, ala, "no")
     assert await task is False

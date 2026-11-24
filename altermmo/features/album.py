@@ -3,7 +3,7 @@
 Owner's request of 2026-11-21 ("coś w stylu osiągnięć") and his answers:
 
 * The album is for **supporters** (:func:`patrons.check_if_patron`).  Every
-  sacrifice of a supporter's pet (``$porzucam`` / the pet panel's "Porzuć",
+  sacrifice of a supporter's pet (``!porzucam`` / the pet panel's "Porzuć",
   :func:`pets.discard_pet`) saves the pet here - always, automatically, eggs
   too.  The status counts at the moment of the sacrifice.  A non-supporter's
   sacrificed pet is lost, as it always was.  A former supporter keeps his
@@ -49,7 +49,7 @@ API (everything takes a database / a connection, nothing caches):
 * :func:`entries` (album order), :func:`entry`, :func:`remove`;
 * :func:`collected`, :func:`progress`, :func:`complete` - the collection maths;
 * :func:`note_new_egg` ``(scene, player, egg)`` - the note at an egg drop (never raises);
-* :func:`show_album` - ``$album`` / the hub's "Album" button: an overview and a
+* :func:`show_album` - ``!album`` / the hub's "Album" button: an overview and a
   :class:`AlbumPanel` to page through the entries (one card per page).  Since
   2026-11-22 the overview also shows the collection's value and the place in
   the ranking of the supporters' collections, and an entry's page the card's
@@ -67,7 +67,7 @@ to a species anywhere a player can see:
 
 * its page and the texts of its removal say "Jajko" (+ the pet's own name), never
   the species (:func:`entry_embed`, :func:`describe`); its card is the one
-  ``$towarzysz`` shows for the living egg (the same ``pets._pet_card``), and the
+  ``!towarzysz`` shows for the living egg (the same ``pets._pet_card``), and the
   name of the card's file - every player can read it - does not carry the folder
   of the egg's species (``petcards._label``, for the living egg as well);
 * the overview names a species only when the album holds a HATCHED stage of it
@@ -250,7 +250,7 @@ async def _fetch(db: Any, method: str, sql: str, *args: Any) -> Any:
     """A read of the album; a table that is not there (yet) holds nothing (:func:`keep` makes it).
 
     Its ``fetch`` gives ``[]``, its ``fetchrow`` None - not an error for every
-    ``$album`` while the start-up could not make the table.
+    ``!album`` while the start-up could not make the table.
     """
     try:
         return await getattr(db, method)(sql, *args)
@@ -395,7 +395,7 @@ MSG_SUPPORTERS_ONLY = ("Album towarzyszy jest dla wspierających ({groups}) <:Pe
 MSG_TITLE = "📖 Album towarzyszy"
 MSG_OVERVIEW = "<@{player_id}>, w Twoim albumie {entries}.\nKolekcja: **{count} z {total}**"
 MSG_EMPTY = ("<@{player_id}>, Twój album jest jeszcze pusty. Każdy towarzysz, którego poświęcisz "
-             "(**$porzucam**), zostanie w nim na zawsze - chyba że sam go usuniesz "
+             "(**!porzucam**), zostanie w nim na zawsze - chyba że sam go usuniesz "
              "<:peepoBlush:984769061340737586>\nKolekcja: **0 z {total}**")
 #: One species of the collection: its HATCHED stages only (an egg does not tell its species).
 MSG_SPECIES_LINE = "**{species}** ({count} z {stages}): {marks}"
@@ -430,10 +430,10 @@ MSG_REMOVE_CANCELLED = "*Wpis zostaje w albumie.*"
 MSG_ALREADY_GONE = "Tego wpisu nie ma już w albumie, <@{player_id}> - został usunięty wcześniej."
 
 #: The sacrifice (``pets.discard_pet``) of a supporter: in the question, before ``pets.CONFIRM_HINT`` ...
-MSG_DISCARD_KEPT = "Jako wspierający zachowasz go w swoim albumie (**$album**). "
+MSG_DISCARD_KEPT = "Jako wspierający zachowasz go w swoim albumie (**!album**). "
 #: ... and after it.
 MSG_DISCARD_SAVED = ("Twój towarzysz trafił do albumu, <@{player_id}> <:peepoBlush:984769061340737586> "
-                     "Zajrzyj do niego: **$album**.")
+                     "Zajrzyj do niego: **!album**.")
 #: The album could not be written: nothing was sacrificed.
 MSG_NOT_SAVED = ("Nie udało się zapisać towarzysza w albumie, więc nic nie zostało porzucone, <@{player_id}> "
                  "<:Sadge:936907659142111273> Spróbuj ponownie za chwilę.")
@@ -491,7 +491,7 @@ def _named(row: Any) -> bool:
 def describe(row: Any) -> str:
     """``Kot Mruczek (Poziom 2)`` - one entry in a sentence (plain text, see :func:`shown_name`).
 
-    An egg is ``Jajko`` / ``Jajko Mruczek``, as ``$towarzysz`` titles it: never its species.
+    An egg is ``Jajko`` / ``Jajko Mruczek``, as ``!towarzysz`` titles it: never its species.
     """
     if is_egg(row):
         return f"{STAGE_EGG} {shown_name(row)}" if _named(row) else STAGE_EGG
@@ -678,10 +678,10 @@ async def entry_view(bot: "AlterBot", guild: Any, row: Any, position: int, total
     return embed, image
 
 
-# -- $album ------------------------------------------------------------------------------
+# -- !album ------------------------------------------------------------------------------
 
 async def show_album(scene: "Scene") -> bool:
-    """``$album`` / the hub's "Album" button; False for somebody who does not support (he is told)."""
+    """``!album`` / the hub's "Album" button; False for somebody who does not support (he is told)."""
     member = scene.author
     if member is None or not patrons.check_if_patron(member):
         await scene.send(supporters_only_text(member))
@@ -878,7 +878,7 @@ class _Gap(int):
 
 
 class AlbumPanel(ui.PanelView):
-    """The buttons under ``$album``: page through the entries, jump to a species, remove one.
+    """The buttons under ``!album``: page through the entries, jump to a species, remove one.
 
     Only the album's owner can use them (:class:`ui.PanelView`), only while
     he supports, and - like every display button - not while an event / hunt
@@ -892,7 +892,7 @@ class AlbumPanel(ui.PanelView):
     order (the hatched pets by species, then the eggs).  The list jumps to the
     first entry of a hatched species or to the first egg ("Jajka": the eggs are
     not sorted by species, module docstring).  "Usuń z albumu" asks first
-    (button **Potwierdzam** or a typed ``$potwierdzam``, one open question per
+    (button **Potwierdzam** or a typed ``!potwierdzam``, one open question per
     player as in features/pets.py) and removes exactly the entry the message
     showed at the click - not a page still being drawn, nor one whose edit
     Discord refused.  Quick page clicks are drawn together: only the page they
@@ -1001,7 +1001,7 @@ class AlbumPanel(ui.PanelView):
     def _current(self, rows: Sequence[Any]) -> int | None:
         """Where the shown entry is now; None for the overview.
 
-        When it is gone (removed through another panel / a second ``$album``) its
+        When it is gone (removed through another panel / a second ``!album``) its
         place, as a :class:`_Gap`: the entry that slid into it has not been shown yet.
         """
         if self.position is None:
@@ -1133,7 +1133,7 @@ def _remove_question(player_id: int, row: Any) -> str:
 async def remove_from_panel(panel: AlbumPanel, interaction: Any) -> bool:
     """"Usuń z albumu": after a confirmation, remove the entry the panel showed at the click.
 
-    One open ``$potwierdzam`` question per player (shared with features/pets.py:
+    One open ``!potwierdzam`` question per player (shared with features/pets.py:
     one typed answer must never confirm two things).  The entry is the one the
     message showed at the click (:attr:`AlbumPanel.entry_id`: not a page still
     being drawn) and is fixed then - turning the page during the question

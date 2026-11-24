@@ -123,16 +123,16 @@ TRAINING_TITLE = "<:peepoBlush:984769061340737586> Trening towarzyszy! <a:PeepoR
 TRAINING_DESCR = ('Na placu treningowym robi się tłoczno! Wyślijcie swoich towarzyszy na sparing - zmierzą się '
                   'ze sobą jak w turnieju, a Wy możecie spokojnie kibicować: niczego nie trzeba wpisywać.'
                   '\n\n**Kliknij „Dołącz” pod postem, żeby zgłosić towarzysza, który jest teraz przy Tobie.** '
-                  'Do końca zapisów możesz jeszcze zajrzeć do stajni (**$stajnia**) i zmienić zawodnika - '
+                  'Do końca zapisów możesz jeszcze zajrzeć do stajni (**!stajnia**) i zmienić zawodnika - '
                   'walczy ten, który będzie u Twojego boku, gdy zapisy się skończą. Jajka zostają w domu.'
                   '\n\n*Zwycięzca zgarnia łup, finalista zwój odrodzenia, a każdy walczący towarzysz '
                   'przynosi właścicielowi fragment zwoju.*')
 TRAINING_COLOUR = 0x2E8B57
 
 MSG_TRAINING_NO_PET = ("Nie masz przy sobie towarzysza, którego można wysłać na trening "
-                       "<:Sadge:936907659142111273> Zajrzyj do stajni (**$stajnia**).")
+                       "<:Sadge:936907659142111273> Zajrzyj do stajni (**!stajnia**).")
 MSG_TRAINING_EGG = ("Twój towarzysz to jeszcze jajko - na trening jest za wcześnie <:Bedge:970576892874854400> "
-                    "Wyciągnij ze stajni wyklutego towarzysza (**$stajnia**) i kliknij jeszcze raz.")
+                    "Wyciągnij ze stajni wyklutego towarzysza (**!stajnia**) i kliknij jeszcze raz.")
 MSG_TRAINING_NOBODY = "*Plac treningowy świeci pustkami...*"
 MSG_TRAINING_DROPPED = "🥚 Bez wyklutego towarzysza u boku nie ma treningu - tym razem odpadają: {players}."
 MSG_TRAINING_ALONE = ("Towarzysz **{pet}** ({mention}) nie ma dziś z kim trenować <:Sadge:936907659142111273> "

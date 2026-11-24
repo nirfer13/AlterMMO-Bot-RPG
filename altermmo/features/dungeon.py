@@ -4,7 +4,7 @@ The owner's package of 2026-11-23 (``Opis wydarzenia.md``, ``Ogłoszenie na
 Discord.txt`` and the pictures) and his messages of the same day:
 
 * the mine comes like the other random events (the events cog draws it with
-  the merchant's weight, ``$SpawnEvent dungeon`` calls it) and is PASSIVE like
+  the merchant's weight, ``!SpawnEvent dungeon`` calls it) and is PASSIVE like
   the merchant: the channel is held only while the announcement is posted,
   then the event stays open (``state.open_event``) and hunts, the tower and
   the stable work.  Its buttons wait while a hunt / tower run / event plays on
@@ -273,8 +273,8 @@ MSG_SWAP_FIRST = ("<@{player_id}>, jajo zajmie miejsce {place} w stajni, a stoj�
 MSG_SWAP_SECOND = ("<@{player_id}>, pytam drugi raz: {pet} z miejsca {place} zostanie **poświęcony na zawsze**"
                    "{kept} i nie da się tego cofnąć. Potwierdzasz? (pytanie 2 z 2) ")
 MSG_SACRIFICE_EGG = ("<@{player_id}>, czy na pewno chcesz **poświęcić to jajo**{kept}? Tego nie da się cofnąć. ")
-KEPT_PET = " (jako wspierający zachowasz go w albumie - **$album**)"
-KEPT_EGG = " (jako wspierający zachowasz je w albumie - **$album**)"
+KEPT_PET = " (jako wspierający zachowasz go w albumie - **!album**)"
+KEPT_EGG = " (jako wspierający zachowasz je w albumie - **!album**)"
 PET_WITHOUT_DATA = "towarzysz bez danych (nr {pet_id})"
 
 SUMMARY_TITLE = "⛏️ Kopalnia Ostatniej Lampy została zamknięta"
@@ -288,7 +288,7 @@ SUMMARY_MORE = "…i jeszcze {count}."
 LOG_REWARD_FAILED = ("Kopalnia Ostatniej Lampy: gracz <@{player_id}> wyszedł z łupem z komory {chamber}, ale nie "
                      "udało się przyznać: {what} (`{error}`). Przyznaj to ręcznie.")
 LOG_EGG_UNKNOWN = ("Kopalnia Ostatniej Lampy: zapis jaja gracza <@{player_id}> przerwał błąd albo restart "
-                   "(`{error}`) - nie wiadomo, czy jajo zostało zapisane. Sprawdź **$stajnia** gracza i w razie "
+                   "(`{error}`) - nie wiadomo, czy jajo zostało zapisane. Sprawdź **!stajnia** gracza i w razie "
                    "potrzeby przyznaj mu jajo ręcznie.")
 LOG_PAYMENT_INTERRUPTED = ("Kopalnia Ostatniej Lampy: restart bota przerwał wypłatę łupu gracza <@{player_id}> "
                            "(komora {chamber}: {loot}). Nie wiadomo, co z tego zdążył dostać - nic nie zostało "
@@ -1289,7 +1289,7 @@ async def clicked(mine: Mine, expedition: Expedition, key: str, interaction: Any
                 elif expedition.table:
                     pass  # (the table page has only "back")
                 elif key == "stable" and expedition.player_id in pets._awaiting_confirmation:
-                    await ui.reply(interaction, pets.MSG_ALREADY_WAITING)  # as $schowajtowarzysza
+                    await ui.reply(interaction, pets.MSG_ALREADY_WAITING)  # as !schowajtowarzysza
                 elif key == "stable":
                     await _stable(mine, expedition)
                 elif key == "deeper" and expedition.chamber < mine.config.last:
@@ -1444,7 +1444,7 @@ async def _egg_clicked(mine: Mine, expedition: Expedition, key: str, interaction
     if not ask:
         return
     try:
-        # One open question per player, shared with the pet commands: a typed "$potwierdzam"
+        # One open question per player, shared with the pet commands: a typed "!potwierdzam"
         # must never answer two questions at once.
         with pets._confirmation_slot(player_id) as free:
             if not free:
@@ -1522,7 +1522,7 @@ async def _confirm(mine: Mine, member: Any, question: str) -> bool:
     """One "are you sure?" of an egg decision; True only for a clear "yes" to THIS question.
 
     ``ui.confirm`` listens for the typed word before it posts the question (a
-    quick answer is never lost) - so a ``$potwierdzam`` typed once more while
+    quick answer is never lost) - so a ``!potwierdzam`` typed once more while
     the question was still on its way to Discord would answer a question
     nobody has seen yet.  For a sacrifice that cannot be undone that is no
     "yes": a typed word counts only when its message is newer than the
@@ -1815,7 +1815,7 @@ async def recheck_closing_time(bot: "AlterBot") -> None:
     """Ask the events cog again for the latest closing of the open mine.  Never raises.
 
     The moment it was told can stop being true without the event loop
-    noticing: ``$stopSpawnBoss`` drops the boss's quiet hour, so the mine is
+    noticing: ``!stopSpawnBoss`` drops the boss's quiet hour, so the mine is
     no longer closed at its end - only at the next slot.  The boss cycle calls
     this when it drops its schedule, and :func:`tick` at every look, so the
     "najpóźniej" line is an upper bound again within seconds at the latest.
@@ -2184,7 +2184,7 @@ async def tick(bot: "AlterBot") -> None:
     """One look at the mine (every :data:`WATCH_EVERY` seconds, see :func:`watch`).  Never raises.
 
     * the mine's event was closed by somebody who did not call :func:`close`
-      (``$ResetBoss``, a summoned boss): it closes now;
+      (``!ResetBoss``, a summoned boss): it closes now;
     * its one expedition is over and the mine is still open (the click that
       ended it could not close it): it closes now;
     * a closing that is not finished - it was interrupted (a cancelled task),
@@ -2207,7 +2207,7 @@ async def tick(bot: "AlterBot") -> None:
             elif expedition is not None and expedition.state not in UNFINISHED and not expedition.lock.locked():
                 await close(bot, at_once=True)
             else:
-                await recheck_closing_time(bot)  # (the moment may have changed: $stopSpawnBoss ...)
+                await recheck_closing_time(bot)  # (the moment may have changed: !stopSpawnBoss ...)
                 await _refresh_announcement(mine)
         if (mine is not None and mine.unsaved and not mine.settling.locked()
                 and time.monotonic() >= mine.save_retry_at):

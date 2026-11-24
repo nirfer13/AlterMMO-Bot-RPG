@@ -113,7 +113,7 @@ async def wait_until(condition, timeout: float = 2.0) -> None:
         await asyncio.sleep(0.001)
 
 
-def make_ctx(game, author, content="$wieża", *, channel=None, admin=False):
+def make_ctx(game, author, content="!wieża", *, channel=None, admin=False):
     channel = channel or game.channel
     message = FakeMessage(channel, author, content)
     channel.messages.append(message)
@@ -575,7 +575,7 @@ async def test_changed_commands_do_not_apply_to_the_tower(game, skills, drops, m
     assert (await modifiers.load_modifiers(bot))[modifiers.COMMANDS_CHANGED] == 1   # still there for the boss
 
 
-# -- $wieża: the whole run -----------------------------------------------------------------
+# -- !wieża: the whole run -----------------------------------------------------------------
 
 async def test_whole_tower_cleared(game_db, drops):
     bot = game_db.bot
@@ -660,7 +660,7 @@ async def test_run_keeps_the_cooldown_after_a_technical_failure_past_a_rewarded_
     assert bot.owner_log == [tower.LOG_RUN_CUT_SHORT.format(user_id=hunter.id, floors=1)]
     assert game.log_channel.messages[-1].content.startswith(f"<@{bot.ids.owner}>!")    # with a ping
 
-    # A second $wieża the same week is refused: the loot of floor 1 is not handed out again.
+    # A second !wieża the same week is refused: the loot of floor 1 is not handed out again.
     game.channel.send = original
     refused: list[str] = []
 
@@ -713,8 +713,8 @@ async def test_tower_cog_registers_the_legacy_commands(game):
         admin = bot.get_command(name)
         assert admin is not None and len(admin.checks) == 1
         with pytest.raises(commands.MissingPermissions):
-            await run_checks(admin, make_ctx(game, game.add_member("Gracz"), "$" + name))
-        await run_checks(admin, make_ctx(game, game.add_member("Admin"), "$" + name, admin=True))
+            await run_checks(admin, make_ctx(game, game.add_member("Gracz"), "!" + name))
+        await run_checks(admin, make_ctx(game, game.add_member("Admin"), "!" + name, admin=True))
 
 
 async def test_wieza_command_rules(game, monkeypatch):
@@ -747,12 +747,12 @@ async def test_wieza_command_rules(game, monkeypatch):
     await command.callback(cog, ctx)
     assert game.channel.messages[-1].content == (
         "Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, kliknij "
-        "**Zaatakuj** pod bossem albo wpisz **$zaatakuj**, żeby stawić mu czoła.")
+        "**Zaatakuj** pod bossem albo wpisz **!zaatakuj**, żeby stawić mu czoła.")
     await bot.state.set_boss_phase(BossPhase.VISIBLE)
     await command.callback(cog, ctx)
     assert game.channel.messages[-1].content == (
         "Nie możesz ruszyć na eksplorację Wieży Śmierci, na Twojej drodze stoi boss "
-        "<:MonkaS:882181709100097587> Kliknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**, "
+        "<:MonkaS:882181709100097587> Kliknij **Zaatakuj** pod bossem albo wpisz **!zaatakuj**, "
         "żeby stawić mu czoła.")
     assert len(game.channel.bot_messages) == before + 2
     for phase in (BossPhase.ENGAGED, BossPhase.FIGHTING):
@@ -810,7 +810,7 @@ async def test_wieza_command_end_to_end(game_db, drops):
     elsewhere = FakeChannel(555, game_db.guild, bot.fake_user, name="inny")
     for command, title in ((cog.tower_ranking, "Eksploratorzy Wieży Śmierci!"),
                            (cog.check_personal_tower, "Personalny rekord Wieży Śmierci!")):
-        shown = make_ctx(game_db, hunter, "$rw", channel=elsewhere)
+        shown = make_ctx(game_db, hunter, "!rw", channel=elsewhere)
         await run_checks(command, shown)
         await command.callback(cog, shown)
         assert elsewhere.messages[-1].embeds[0].title == title
@@ -826,11 +826,11 @@ async def test_admin_commands(game_db):
     tower.save_weekly_tower_to_file(bot, admin.id)
     await tower.new_record_tower(bot, admin.id, 4, "0:00:04.000000")
 
-    await cog.clear_cd.callback(cog, make_ctx(game_db, admin, "$ClearTowerCD", admin=True))
+    await cog.clear_cd.callback(cog, make_ctx(game_db, admin, "!ClearTowerCD", admin=True))
     assert game_db.channel.messages[-1].content == "Zresetowano tower cd."
     assert bot.store.weekly_tower_cd.all() == [] and bot.owner_log == ["Zresetowano cooldown na weekly tower."]
 
-    await cog.create_tower_database.callback(cog, make_ctx(game_db, admin, "$createTowerDatabase", admin=True))
+    await cog.create_tower_database.callback(cog, make_ctx(game_db, admin, "!createTowerDatabase", admin=True))
     assert game_db.channel.messages[-1].content == "Baza danych TOWER utworzona."
     assert await record(bot, admin.id) == (4, "0:00:04.000000")       # nothing was dropped
 
@@ -849,6 +849,6 @@ async def test_display_commands_are_never_blocked(game):
     elsewhere = FakeChannel(555, game.guild, bot.fake_user, name="inny")
     with bot.state.hold_busy("tower"):
         for command in (cog.tower_ranking, cog.check_personal_tower):
-            await run_checks(command, make_ctx(game, ala, "$rw", channel=elsewhere))
+            await run_checks(command, make_ctx(game, ala, "!rw", channel=elsewhere))
     assert elsewhere.bot_messages == []                                            # no busy notice
 

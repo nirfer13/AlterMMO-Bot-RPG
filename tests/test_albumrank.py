@@ -4,7 +4,7 @@ Owner's request of 2026-11-22: the album shows the collection's value and the pl
 a ranking of the collections; per species and stage only the rarest card counts; and "those who do
 not support are not counted in the ranking, and they cannot look at it either".  Tested here: the
 score table and its examples, odd rows, best-of-slot, who is ranked (supporters right now) and in
-which order, the incomplete member cache, the overview / entry page of the album, ``$rankingalbumow``
+which order, the incomplete member cache, the overview / entry page of the album, ``!rankingalbumow``
 and the hub's "Rankingi", and what a ranking of 300 players x 100 entries costs.
 
 Owner's request of 2026-11-23: "Dodaj też mnożnik do punktacji albumu jeśli pet awansował. Tzn. holo
@@ -42,7 +42,7 @@ NBSP = chr(0xA0)
 def _no_open_questions():
     pets._awaiting_confirmation.clear()
     yield
-    assert not pets._awaiting_confirmation, "a $potwierdzam slot was never released"
+    assert not pets._awaiting_confirmation, "a !potwierdzam slot was never released"
 
 
 def row(species: str = "Cat", level=0, **columns) -> dict:
@@ -517,7 +517,7 @@ async def test_an_incomplete_cache_that_cannot_be_completed_gives_no_ranking(cog
 
     hide(game, monkeypatch, [ola], answer=broken)
     assert await albumrank.ranking(game.bot) is None
-    await run(game, ala, "$rankingalbumow")
+    await run(game, ala, "!rankingalbumow")
     assert game.channel.messages[-1].content == albumrank.MSG_UNAVAILABLE
     text = page(await show(game, ala))                                  # the album: its value, no place
     assert f"Wartość kolekcji: **20 pkt**\n{albumrank.MSG_PLACE_UNKNOWN}" in text and "(z " not in text
@@ -714,7 +714,7 @@ async def test_the_overview_after_a_removal_shows_the_new_value_and_place(cogs):
     assert "Wartość kolekcji: **15 pkt**\nMiejsce w rankingu: **2.** (z 2)" in page(panel)
 
 
-# -- $rankingalbumow and the hub -----------------------------------------------------------------
+# -- !rankingalbumow and the hub -----------------------------------------------------------------
 
 def recorded(game, monkeypatch, channel=None):
     channel = channel or game.channel
@@ -738,7 +738,7 @@ async def test_the_ranking_top_ten_and_the_viewers_own_line(cogs, monkeypatch):
         await cards(db, member.id, 12 - n)                                  # 120, 110 ... 10
     viewer = players[-1]
     sent = recorded(game, monkeypatch)
-    await run(game, viewer, "$rankingalbumow")
+    await run(game, viewer, "!rankingalbumow")
     ((message, mentions),) = sent
     (embed,) = message.embeds
     assert embed.title == albumrank.MSG_TITLE and embed.footer.text == albumrank.MSG_HOW
@@ -751,7 +751,7 @@ async def test_the_ranking_top_ten_and_the_viewers_own_line(cogs, monkeypatch):
     assert mentions is not None and not mentions.everyone and not mentions.users and not mentions.roles
     assert "<@" not in message.text
     sent.clear()
-    await run(game, players[3], "$ra")                                      # in the top ten: no own line
+    await run(game, players[3], "!ra")                                      # in the top ten: no own line
     ((message, _),) = sent
     assert len(message.embeds[0].description.split("\n")) == 10
 
@@ -765,13 +765,13 @@ async def test_the_own_line_starts_exactly_below_the_top_ten(cogs, monkeypatch):
         await cards(db, member.id, 11 - n)                                  # places 1 .. 11
     assert albumrank.TOP == 10
     sent = recorded(game, monkeypatch)
-    await run(game, players[9], "$rankingalbumow")                          # place 10
+    await run(game, players[9], "!rankingalbumow")                          # place 10
     ((message, _),) = sent
     lines = message.embeds[0].description.split("\n")
     assert len(lines) == 10 and lines[9] == "**10.** **Gracz 10** · **20 pkt** · 2 karty"
     assert all("Twoje miejsce" not in line for line in lines)
     sent.clear()
-    await run(game, players[10], "$rankingalbumow")                         # place 11
+    await run(game, players[10], "!rankingalbumow")                         # place 11
     ((message, _),) = sent
     lines = message.embeds[0].description.split("\n")
     assert len(lines) == 12 and lines[9] == "**10.** **Gracz 10** · **20 pkt** · 2 karty"
@@ -782,11 +782,11 @@ async def test_the_own_line_starts_exactly_below_the_top_ten(cogs, monkeypatch):
 async def test_the_ranking_when_nobody_or_not_yet_the_viewer_is_in_it(cogs):
     game = cogs
     ala = game.add_member("Ala", roles=[PATRON])
-    await run(game, ala, "$rankingkolekcji")
+    await run(game, ala, "!rankingkolekcji")
     assert game.channel.messages[-1].embeds[0].description == albumrank.MSG_NOBODY
     ola = game.add_member("Ola", roles=[PATRON])
     await cards(game.bot.db, ola.id, 1)
-    await run(game, ala, "$albumy")
+    await run(game, ala, "!albumy")
     assert game.channel.messages[-1].embeds[0].description == (
         f"🥇 **Ola** · **10 pkt** · 1 karta\n\n{albumrank.MSG_OWN_NONE}")
 
@@ -797,7 +797,7 @@ async def test_the_ranking_is_for_supporters_only(cogs):
     ala = game.add_member("Ala", roles=[PATRON])
     await cards(game.bot.db, ala.id, 3)
     await cards(game.bot.db, ola.id, 9)                                     # kept while she supported
-    for command in ("$rankingalbumow", "$rankingalbumów", "$rankingkolekcji", "$albumy", "$ra"):
+    for command in ("!rankingalbumow", "!rankingalbumów", "!rankingkolekcji", "!albumy", "!ra"):
         await run(game, ola, command)
         answer = game.channel.messages[-1]
         assert answer.content == albumrank.supporters_only_text(ola) and answer.embeds == [], command
@@ -812,9 +812,9 @@ async def test_the_command_its_aliases_and_the_busy_policy(cogs):
     assert sorted(command.aliases) == ["albumy", "ra", "rankingalbumów", "rankingkolekcji"]
     ala = game.add_member("Ala", roles=[PATRON])
     with game.bot.state.hold_busy("hunt"):
-        await run(game, ala, "$rankingalbumow", channel=game.announce_channel)
+        await run(game, ala, "!rankingalbumow", channel=game.announce_channel)
         assert all(albumrank.MSG_TITLE not in m.text for m in game.announce_channel.messages)
-    await run(game, ala, "$rankingalbumow", channel=game.announce_channel)   # any channel of the server
+    await run(game, ala, "!rankingalbumow", channel=game.announce_channel)   # any channel of the server
     assert game.announce_channel.messages[-1].embeds[0].title == albumrank.MSG_TITLE
 
 
@@ -842,7 +842,7 @@ async def test_the_hubs_rankings_button(cogs, monkeypatch):
         assert [m.embeds[0].title for m, _ in sent] == open_titles
         assert all(f"<@{ola.id}>" not in m.text and "Ranking kolekcji" not in m.text for m, _ in sent)
     # The typed command still tells her that it is for supporters.
-    await run(game, ola, "$rankingalbumow")
+    await run(game, ola, "!rankingalbumow")
     assert game.channel.messages[-1].content == albumrank.supporters_only_text(ola)
 
 

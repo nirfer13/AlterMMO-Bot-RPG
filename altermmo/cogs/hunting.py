@@ -1,9 +1,9 @@
-"""The daily hunt: ``$polowanie`` and the admin commands of its cooldown.
+"""The daily hunt: ``!polowanie`` and the admin commands of its cooldown.
 
 The game itself lives in :mod:`altermmo.features.daily`; the body of
-``$polowanie`` is :func:`altermmo.features.daily.start_hunt`, so a button can
+``!polowanie`` is :func:`altermmo.features.daily.start_hunt`, so a button can
 run exactly the same thing.  Other players join a hunt by typing
-``$polowanie`` in its first seconds or with the "Dołącz do polowania" button
+``!polowanie`` in its first seconds or with the "Dołącz do polowania" button
 under the monster.
 """
 
@@ -26,7 +26,7 @@ MSG_ON_COOLDOWN = daily.MSG_ON_COOLDOWN
 
 
 def not_joining_a_hunt():
-    """Stay silent for a ``$polowanie`` typed while a hunt is gathering hunters.
+    """Stay silent for a ``!polowanie`` typed while a hunt is gathering hunters.
 
     In that moment the word joins the running hunt (``daily.hunt_mobs`` listens
     for it).  The same message also reaches this command; without the check

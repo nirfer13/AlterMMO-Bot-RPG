@@ -44,7 +44,7 @@ PET_DEFAULTS = dict(pet_name="Towarzysz", pet_lvl=1, pet_skills=0, quality="Stan
 
 def one_gem(player_id: int) -> str:
     """The refusal of a gem while a player with SEVERAL gems is on the daily list ("one gem a day";
-    a player with one gem gets ``skills.daily_cd_text()`` from ``$skill`` - that gem regenerates):
+    a player with one gem gets ``skills.daily_cd_text()`` from ``!skill`` - that gem regenerates):
     the countdown to the next daily reset (02:30 / Monday 15:00)."""
     stamp = int(real_daily.next_daily_reset().timestamp())
     return (f"Dziś użyłeś już klejnotu umiejętności, <@{player_id}>! Jednego dnia działa tylko jeden "
@@ -407,7 +407,7 @@ async def test_get_skill_data(game_db):
     assert texts(game_db) == ["Taki klejnot umiejętności nie istnieje!"]
 
 
-# -- $pokazskill ----------------------------------------------------------------------
+# -- !pokazskill ----------------------------------------------------------------------
 
 DESCRIPTIONS = {
     1: "Klejnot regeneracji pozwala na odpoczynek wszystkich podróżników, którzy są chętni. Zaraz po nabraniu sił "
@@ -429,7 +429,7 @@ async def test_show_skill(game_db, variant):
     assert embed.title == skills.gem_name(variant)
     assert embed.description == (
         f"Oto Twój klejnot umiejętności, <@{player.id}>.\n\n{DESCRIPTIONS[variant]}"
-        "\n\nDodatkowe spowolnienie: 7 %.\n\nMożesz użyć umiejętności przez komendę **$skill**.")
+        "\n\nDodatkowe spowolnienie: 7 %.\n\nMożesz użyć umiejętności przez komendę **!skill**.")
     assert embed.footer.text == "Wielcy ludzie nie rodzą się wielkimi, tylko się nimi stają."
     assert embed.colour.value == 0xfc7703
     assert embed.image.url == f"attachment://{variant}.png" and message.files == [f"{variant}.png"]
@@ -475,7 +475,7 @@ async def test_show_skill_survives_broken_gem_data(game_db):
     assert embed.title == "Nieznany klejnot" and "Dodatkowe spowolnienie: 0 %." in embed.description
 
 
-# -- $skill: nothing to use -----------------------------------------------------------
+# -- !skill: nothing to use -----------------------------------------------------------
 
 async def test_use_skill_without_a_gem(game_db):
     player, other = game_db.add_member("Ala"), game_db.add_member("Ola")
@@ -510,7 +510,7 @@ async def test_rest_lets_the_guests_hunt_again(game_db, daily, monkeypatch):
         shown.append(invitation.embeds[0])
 
     answers = rest_clicks(game_db, monkeypatch, bot.fake_user, ola, ela, ola, dead, gone, during=look)
-    assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 1
+    assert await skills.use_skill(game_db.scene(host, "!skill"), host) == 1
 
     picture, invitation, already, cannot, done = game_db.channel.bot_messages[1:]
     assert picture.files == ["3.png"] and (0, 4) in asked
@@ -544,7 +544,7 @@ async def test_rest_lets_the_guests_hunt_again(game_db, daily, monkeypatch):
     assert reaction_listeners(game_db) == []
 
     # The gem regenerates until the daily reset (one gem a day).
-    assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 0
+    assert await skills.use_skill(game_db.scene(host, "!skill"), host) == 0
     assert game_db.channel.bot_messages[-1].content == skills.daily_cd_text() and game_db.channel.count(INVITATION) == 1
     await skills.clear_daily_skill(bot)
     assert await skills.skill_rest(game_db.scene(host)) is True
@@ -582,7 +582,7 @@ async def test_rest_with_the_real_daily_module(game_db, monkeypatch):
     for tired in (host, ola, ela):
         bot.store.daily_cd.add(tired.id)
     rest_clicks(game_db, monkeypatch, ola)
-    assert await skills.use_skill(game_db.scene(host, "$skill"), host) == 1
+    assert await skills.use_skill(game_db.scene(host, "!skill"), host) == 1
     assert bot.store.daily_cd.all() == [str(host.id), str(ela.id)]
     assert bot.store.skill_daily_cd.all() == [str(host.id)] and texts(game_db)[-1] == REST_DONE
 
@@ -661,7 +661,7 @@ async def test_shiny_gem_changes_the_tagged_travellers_pet(game_db, mention):
     stranger = game_db.add_member("Jan")
     tags(game_db, stranger, f"<@{stranger.id}>")                         # only the owner of the gem is heard
     tags(game_db, owner, mention.format(target.id), delay=0.02)
-    assert await skills.use_skill(game_db.scene(owner, "$skill"), owner) == 2
+    assert await skills.use_skill(game_db.scene(owner, "!skill"), owner) == 2
     assert texts(game_db) == [ASK, f"Twój Towarzysz <@{target.id}> wygląda na bardzo wdzięcznego i dostrzegasz, "
                                    "że wygląda jakoś inaczej <:Susge:973591024322633858> "
                                    f"To sprawka <@{owner.id}>."]
@@ -669,7 +669,7 @@ async def test_shiny_gem_changes_the_tagged_travellers_pet(game_db, mention):
     assert game_db.bot.store.skill_weekly_cd.all() == [str(owner.id)]
     assert game_db.bot.store.skill_daily_cd.all() == [str(owner.id)]     # a weekly gem is that day's one use
 
-    assert await skills.use_skill(game_db.scene(owner, "$skill"), owner) == 0
+    assert await skills.use_skill(game_db.scene(owner, "!skill"), owner) == 0
     assert texts(game_db)[-1] == weekly_cd() and game_db.channel.count(ASK) == 1
 
 
@@ -813,7 +813,7 @@ async def test_summoning_gem_is_given_back_when_the_boss_does_not_come(game, sum
 
 async def test_festival_gem_prays_five_times(game_db, prayers):
     player = await with_gem(game_db, skills.FESTIVAL)
-    scene = game_db.scene(player, "$skill")
+    scene = game_db.scene(player, "!skill")
     assert await skills.use_skill(scene, player) == 4
     assert prayers == [(player, False, False)] * 5
     assert scene.message.reactions == ["<:prayge:1063891597760139304>"]
@@ -978,29 +978,29 @@ async def test_cog_registers_the_legacy_commands(cog):
 async def test_showing_works_anywhere_using_only_on_the_boss_channel(game_db, cog):
     player = await with_gem(game_db, skills.SLOW)
     elsewhere = game_db.announce_channel
-    for command in ("$pokazskill", "$pokazumiejetnosc", "$pokażumiejętność", "$pu", "$pokazskilla", "$ps"):
+    for command in ("!pokazskill", "!pokazumiejetnosc", "!pokażumiejętność", "!pu", "!pokazskilla", "!ps"):
         await run(game_db, player, command, channel=elsewhere)
     assert [m.embeds[0].title for m in elsewhere.bot_messages] == ["Klejnot Spowolnienia"] * 6
 
-    for command in ("$uzyjskilla", "$skill", "$us", "$uu"):
+    for command in ("!uzyjskilla", "!skill", "!us", "!uu"):
         await run(game_db, player, command, channel=elsewhere)
     assert len(elsewhere.bot_messages) == 6 and modifier_file(game_db) == {}
     assert game_db.bot.store.skill_daily_cd.all() == []
 
-    await run(game_db, player, "$skill")                                 # ... and on the boss channel it works
+    await run(game_db, player, "!skill")                                 # ... and on the boss channel it works
     assert modifier_file(game_db) == {"time_increased_perc": 40} and not game_db.bot.state.busy
-    for command in ("$uzyjskilla", "$użyjumiejetnosc", "$użyjumiejętność", "$us", "$uzyj", "$uzyjskill", "$uu"):
+    for command in ("!uzyjskilla", "!użyjumiejetnosc", "!użyjumiejętność", "!us", "!uzyj", "!uzyjskill", "!uu"):
         await run(game_db, player, command)
     assert texts(game_db)[1:] == [skills.daily_cd_text()] * 7
 
 
 async def test_commands_are_blocked_with_a_notice_while_the_bot_is_busy(game_db, cog):
-    """Legacy ``$uzyjskilla`` died with UnboundLocalError here."""
+    """Legacy ``!uzyjskilla`` died with UnboundLocalError here."""
     player, boss = await with_gem(game_db, skills.SLOW), admin(game_db)
     with game_db.bot.state.hold_busy("event:TEST"):
-        for command in ("$pokazskill", "$skill", "$uzyjskilla"):
+        for command in ("!pokazskill", "!skill", "!uzyjskilla"):
             await run(game_db, player, command)
-        await run(game_db, boss, "$skill_rest")
+        await run(game_db, boss, "!skill_rest")
         assert game_db.bot.state.busy_owner == "event:TEST"              # nobody took the flag over
     assert texts(game_db) == [guards.BUSY_NOTICE]
     assert modifier_file(game_db) == {} and game_db.bot.store.skill_daily_cd.all() == []
@@ -1014,10 +1014,10 @@ async def test_using_a_gem_holds_the_channel_and_always_lets_go(game_db, cog, da
         await gate.wait()
 
     monkeypatch.setattr(timing, "pause", pause)
-    task = asyncio.ensure_future(run(game_db, host, "$skill"))
+    task = asyncio.ensure_future(run(game_db, host, "!skill"))
     await until(lambda: game_db.channel.contains(INVITATION))
     assert game_db.bot.state.busy and game_db.bot.state.busy_owner == "skill"
-    await run(game_db, other, "$pokazskill")                             # blocked meanwhile
+    await run(game_db, other, "!pokazskill")                             # blocked meanwhile
     assert game_db.channel.contains(guards.BUSY_NOTICE)
     gate.set()
     await task
@@ -1026,7 +1026,7 @@ async def test_using_a_gem_holds_the_channel_and_always_lets_go(game_db, cog, da
     # A crash in the middle (legacy: BUSY stayed 1 until the restart).
     game_db.bot.store.skill_daily_cd.clear()
     game_db.channel.fail_with, game_db.channel.fail_sends = RuntimeError("discord broke"), 2
-    await run(game_db, host, "$skill")
+    await run(game_db, host, "!skill")
     assert not game_db.bot.state.busy and reaction_listeners(game_db) == []
     assert game_db.bot.store.skill_daily_cd.all() == []
     assert any("RuntimeError" in line for line in game_db.bot.owner_log)
@@ -1035,8 +1035,8 @@ async def test_using_a_gem_holds_the_channel_and_always_lets_go(game_db, cog, da
 async def test_database_outage_during_a_command(game_db, cog):
     player = game_db.add_member("Ala")
     game_db.bot.db = DatabaseDown()
-    await run(game_db, player, "$skill")
-    await run(game_db, player, "$pokazskill")
+    await run(game_db, player, "!skill")
+    await run(game_db, player, "!pokazskill")
     assert not game_db.bot.state.busy
     assert texts(game_db) == ["Baza danych jest chwilowo niedostępna. Spróbuj ponownie za moment "
                               "<:Sadge:936907659142111273>"] * 2
@@ -1046,23 +1046,23 @@ async def test_summoning_gem_puts_a_boss_on_the_channel(game_db, cog, monkeypatc
     rig(monkeypatch, {(2, 4): 3})                                        # 3 is never summoned: it becomes 4
     player, second = await with_gem(game_db, skills.SUMMON), game_db.add_member("Ola")
     await add_owner(game_db.bot.db, second.id, skill_gem=5)
-    await run(game_db, player, "$skill")
+    await run(game_db, player, "!skill")
     state = game_db.bot.state
     assert state.boss_phase is BossPhase.VISIBLE and state.boss_rarity == 4 and not state.busy
     assert game_db.channel.contains("Pojawił się")                       # the boss embed
     assert game_db.bot.store.skill_weekly_cd.all() == [str(player.id)]
 
-    await run(game_db, second, "$skill")                                 # legacy: wiped the channel, new boss
+    await run(game_db, second, "!skill")                                 # legacy: wiped the channel, new boss
     assert texts(game_db)[-1] == skills.MSG_BOSS_IN_THE_WAY.format(player_id=second.id)
     assert state.boss_phase is BossPhase.VISIBLE and game_db.bot.store.skill_weekly_cd.all() == [str(player.id)]
-    await run(game_db, player, "$skill")
+    await run(game_db, player, "!skill")
     assert texts(game_db)[-1] == weekly_cd()
 
 
 async def test_summoning_gem_is_given_back_when_summoning_fails(game_db, cog, summons):
     player = await with_gem(game_db, skills.SUMMON)
     summons.error = ConnectionError("discord down")
-    await run(game_db, player, "$skill")
+    await run(game_db, player, "!skill")
     assert len(summons.calls) == 1 and not game_db.bot.state.busy
     assert game_db.bot.store.skill_weekly_cd.all() == []
 
@@ -1071,20 +1071,20 @@ async def test_admin_commands(game_db, cog, daily):
     db = game_db.bot.db
     player, boss = game_db.add_member("Ala"), admin(game_db)
     await db.execute("DROP TABLE SKILLS")
-    for command in ("$ModifiersLoad", "$GenerateSkill", "$createSkillsDatabase", "$skill_rest"):
+    for command in ("!ModifiersLoad", "!GenerateSkill", "!createSkillsDatabase", "!skill_rest"):
         await run(game_db, player, command)                              # not for players
     assert texts(game_db) == []
     assert await db.fetchval("SELECT to_regclass('public.skills')") is None
 
-    await run(game_db, boss, "$createSkillsDatabase")
-    await run(game_db, boss, "$createSkillsDatabase")
-    await run(game_db, boss, "$GenerateSkill")
-    await run(game_db, boss, "$ModifiersLoad")
+    await run(game_db, boss, "!createSkillsDatabase")
+    await run(game_db, boss, "!createSkillsDatabase")
+    await run(game_db, boss, "!GenerateSkill")
+    await run(game_db, boss, "!ModifiersLoad")
     assert texts(game_db) == ["Baza danych SKILLS utworzona.", "Baza danych SKILLS utworzona.",
                               "Wygenerowano klejnot umiejętności (SKILL_ID 1).", "Modifiers file loaded."]
     assert [gem[0] for gem in await gems(db)] == [0, 1]
 
-    await run(game_db, boss, "$skill_rest", channel=game_db.announce_channel)   # admin commands work anywhere
+    await run(game_db, boss, "!skill_rest", channel=game_db.announce_channel)   # admin commands work anywhere
     assert [m.text for m in game_db.announce_channel.bot_messages][-1] == REST_DONE
     assert game_db.announce_channel.count(INVITATION) == 1 and not game_db.bot.state.busy
     assert game_db.bot.store.skill_daily_cd.all() == []                  # legacy: the debug command marks nothing

@@ -1,5 +1,5 @@
 """The fight journal (core/fightlog.py), the answer after the time is up, the answer to "lag"
-(features/fightreport.py) and ``$walka`` (cogs/fightlog.py)."""
+(features/fightreport.py) and ``!walka`` (cogs/fightlog.py)."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def no_rewards(monkeypatch):
 
 @pytest.fixture
 async def cog(game):
-    """The extension with the "lag" listener and ``$walka``."""
+    """The extension with the "lag" listener and ``!walka``."""
     await game.bot.load_extension("altermmo.cogs.fightlog")
     for channel in game.bot.fake_channels.values():
         channel.type = discord.ChannelType.text
@@ -372,7 +372,7 @@ async def test_a_party_hunt_lost_by_the_answer_of_the_wrong_hunter(game, skills,
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     take_turns(monkeypatch)
     team_answers(game, [ala, ola], intruder_rounds={2})
-    game.say_later(ola, "$polowanie", 0.01)
+    game.say_later(ola, "!polowanie", 0.01)
     assert await daily.hunt_mobs(game.scene(ala), 1, False, None) is False
     fight = fightlog.last_fight(ola.id)
     assert fight is fightlog.last_fight(ala.id) and fight.party
@@ -631,7 +631,7 @@ async def test_only_the_asked_player_on_this_channel_can_give_the_late_answer(ga
     game.say(robot, "unik")
     game.say(player, "unik", channel=game.announce_channel)
     game.say(player, "LAG!!!")                          # a complaint is not an answer
-    game.say(player, "$wieża")                          # nor is a command
+    game.say(player, "!wieża")                          # nor is a command
     await game.settle()
     assert entry.late_state is LateState.WATCHING and entry.late is None
     game.say(player, "no nie")
@@ -696,7 +696,8 @@ async def test_in_a_party_only_the_asked_hunter_is_waited_for(game, monkeypatch)
     assert entry.late_state is LateState.FOUND and entry.late.text == "unik"
 
 
-async def test_a_command_typed_later_is_still_a_command(game, monkeypatch):
+@pytest.mark.parametrize("prefix", ["!", "$"])                          # the prefix and the old one alike
+async def test_a_command_typed_later_is_still_a_command(game, monkeypatch, prefix):
     monkeypatch.setattr(fightlog, "LATE_WATCH", 5.0)
     player = game.add_member("Ala")
     ran: list[int] = []
@@ -708,7 +709,7 @@ async def test_a_command_typed_later_is_still_a_command(game, monkeypatch):
     fight = fightlog.begin(game.channel, fightlog.KIND_TOWER, [player], detail=5)
     await ask_round(game, player)
     entry = fight.rounds[0]
-    message = game.say(player, "$sonda")
+    message = game.say(player, prefix + "sonda")
     message.edited_at, message._state = None, None
     await wait_until(lambda: ran == [player.id])                    # processed by the commands as always
     assert entry.late_state is LateState.WATCHING                   # ... and not taken for an answer
@@ -833,6 +834,8 @@ async def test_a_won_fight_writes_no_lost_line(game, skills, no_rewards, caplog)
     "ale mnie zlagowało", "przylagowało mi", "zalagowało", "lagnęło", "no i lag", "lag?", "miałem laga :(",
     "ten lag mnie zabił", "lagow", "lagowalo", "lagging", "laggy", "lags", "to przez lagi, serio",
     "  Lag  ", "lag.", "(lag)", "lag,lag,lag",
+    # "!" is punctuation in chat: not a command unless a word follows it at once (as at HEAD before "!")
+    "!!! lag", "! lagi", "!!!lag mnie wywaliło", "! lag", "$ lag", "?! lag",
 ])
 def test_a_lag_complaint_is_recognised(text):
     assert fightlog.is_lag_complaint(text)
@@ -840,7 +843,7 @@ def test_a_lag_complaint_is_recognised(text):
 
 @pytest.mark.parametrize("text", [
     "flaga", "plaga", "lagier", "blaga", "błaga", "szlag", "szlag by to trafił", "biała flaga", "laguna",
-    "łagodnie", "kolaga", "Lagos", "lagry", "zlag", "slag", "unik", "", "   ", None, "$lag", "$lagi teraz",
+    "łagodnie", "kolaga", "Lagos", "lagry", "zlag", "slag", "unik", "", "   ", None, "!lag", "!lagi teraz", "$lag", "$lagi teraz",
     "ping", "ping mi skoczył", "zacięło", "zacięło mi się", "zwiecha", "przycięło", "ale ścina",
     "wczoraj wieczorem graliśmy w pięciu i każdy z nas miał w tej samej chwili takiego laga, że aż strach pomyśleć "
     "co by było gdyby",
@@ -950,7 +953,7 @@ async def test_trouble_on_the_bots_side_is_admitted_and_the_owner_is_told_once(g
     assert game.bot.owner_log == [
         f"Zgłoszenie laga może być zasadne: <@{player.id}> napisał o lagu po przegranej walce (Wieża Śmierci, "
         f"piętro 5), a zapis walki pokazuje problemy po stronie bota: {found}. Szczegóły: "
-        f"`$walka {player.id}` (zapis jest trzymany 30 minut)."]
+        f"`!walka {player.id}` (zapis jest trzymany 30 minut)."]
     assert await complain(game, player, "lagi!") is None and len(game.bot.owner_log) == 1
 
 
@@ -1001,6 +1004,15 @@ async def test_only_one_answer_per_fight(game, cog):
     assert "piętro 6" in (await complain(game, player, "znowu lag")).content
 
 
+@pytest.mark.parametrize("text", ["!!! lag", "! lagi", "!!!lag mnie wywaliło", "$ lag"])
+async def test_a_complaint_that_starts_with_punctuation_is_answered(game, cog, text):
+    """"!" is punctuation in Polish chat: "!!! lag" is a complaint (discord.py finds no command in it)."""
+    player = game.add_member("Ala")
+    await lost_tower_floor(game, player)
+    reply = await complain(game, player, text)
+    assert reply is not None and reply.content.startswith(f"<@{player.id}> Sprawdziłem zapis tej walki")
+
+
 async def test_only_the_loser_and_only_about_a_fight_just_lost_here(game, cog, skills, no_rewards):
     player, stranger = game.add_member("Ala"), game.add_member("Obcy")
     robot = FakeMember("Robot", bot=True, guild=game.guild)
@@ -1009,7 +1021,8 @@ async def test_only_the_loser_and_only_about_a_fight_just_lost_here(game, cog, s
     assert await complain(game, stranger, "lag") is None               # somebody who did not fight
     assert await complain(game, robot, "lag") is None                  # a bot
     assert await complain(game, player, "flaga") is None               # not a complaint
-    assert await complain(game, player, "$lag") is None                # a command
+    assert await complain(game, player, "!lag") is None                # a command
+    assert await complain(game, player, "$lag") is None                # a command with the old prefix
     assert await complain(game, player, "lag", channel=game.announce_channel) is None   # another channel
     private = fakes.open_dm(player, game.bot)                          # a private message
     assert await complain(game, player, "lag", channel=private) is None and private.sent == []
@@ -1238,7 +1251,7 @@ async def test_a_failure_in_the_answer_never_breaks_message_handling(game, cog, 
                                 timeout=1.0)).is_correct("blok")
 
 
-# -- $walka ---------------------------------------------------------------------------------------
+# -- !walka ---------------------------------------------------------------------------------------
 
 async def run(game, member, content: str, *, channel=None) -> FakeMessage:
     """``member`` types a command; it goes through discord.py's real command machinery."""
@@ -1272,7 +1285,7 @@ async def test_walka_shows_the_last_fight_of_a_member_to_administrators(game, co
         return await real_send(content, **kwargs)
 
     game.announce_channel.send = send
-    await run(game, admin, f"$walka <@{player.id}>", channel=game.announce_channel)      # any channel
+    await run(game, admin, f"!walka <@{player.id}>", channel=game.announce_channel)      # any channel
     text, mentions = sent[-1]
     assert text == (
         "Ostatnia zapisana walka gracza **Ala**: **Wieża Śmierci, piętro 5**, przegrana w turze 7 "
@@ -1291,16 +1304,16 @@ async def test_walka_shows_the_last_fight_of_a_member_to_administrators(game, co
     assert mentions.to_dict() == discord.AllowedMentions.none().to_dict()
     assert not fightlog.last_fight(player.id).answered                 # (it does not use up the player's answer)
 
-    await run(game, admin, f"$walka {player.id}", channel=game.announce_channel)
-    await run(game, admin, "$walka ala", channel=game.announce_channel)
+    await run(game, admin, f"!walka {player.id}", channel=game.announce_channel)
+    await run(game, admin, "!walka ala", channel=game.announce_channel)
     assert sent[-1][0] == sent[-2][0] == text
-    await run(game, admin, "$walka", channel=game.announce_channel)
+    await run(game, admin, "!walka", channel=game.announce_channel)
     assert sent[-1][0] == fightreport.MSG_USAGE
-    await run(game, admin, "$walka Nikt", channel=game.announce_channel)
+    await run(game, admin, "!walka Nikt", channel=game.announce_channel)
     assert sent[-1][0] == fightreport.MSG_NO_FIGHT
 
     count = len(sent)
-    await run(game, player, f"$walka {player.id}", channel=game.announce_channel)   # not an administrator
+    await run(game, player, f"!walka {player.id}", channel=game.announce_channel)   # not an administrator
     assert len(sent) == count
 
 
@@ -1309,7 +1322,7 @@ async def test_walka_shows_won_drawn_and_interrupted_fights_too(game, cog, skill
     game.auto_answer(ala)
     assert await tower.tower_fight(game.scene(ala), 1) is True
     game.channel.send_hooks.clear()
-    await run(game, admin, f"$walka {ala.id}")
+    await run(game, admin, f"!walka {ala.id}")
     text = game.channel.sent[-1].content
     assert text.startswith("Ostatnia zapisana walka gracza **Ala**: **Wieża Śmierci, piętro 1**, wygrana "
                            "(przed chwilą).\n**Ostatnie tury:**\n```\ntura 1: limit 15.00 s - 0.")
@@ -1319,7 +1332,7 @@ async def test_walka_shows_won_drawn_and_interrupted_fights_too(game, cog, skill
     recorded.answer(1, ala, "atak", 5.0, 1.0)
     fightlog.draw(game.channel)
     recorded.fight.ended = time.monotonic() - 185
-    await run(game, admin, "$walka Ola")
+    await run(game, admin, "!walka Ola")
     assert game.channel.sent[-1].content.startswith(
         "Ostatnia zapisana walka gracza **Ola**: **pojedynek**, remis (3 min temu).\n")
 
@@ -1327,7 +1340,7 @@ async def test_walka_shows_won_drawn_and_interrupted_fights_too(game, cog, skill
     recorded.answer(1, ala, "atak", 5.0, 1.0)
     recorded.timeout(2, ola, "blok", 5.0, in_grace=(5.5, "blok"))
     fightlog.won(game.channel, winner=ala, loser=ola)
-    await run(game, admin, f"$walka {ala.id}")
+    await run(game, admin, f"!walka {ala.id}")
     lines = game.channel.sent[-1].content.splitlines()
     assert lines[0] == ("Ostatnia zapisana walka gracza **Ala**: **pojedynek**, **Ala** wygrywa z **Ola** "
                         "(tur: 2) (przed chwilą).")
@@ -1338,11 +1351,11 @@ async def test_walka_shows_won_drawn_and_interrupted_fights_too(game, cog, skill
 
     Recorded(game, fightlog.KIND_HUNT, [ala], detail=0)
     fightlog.interrupted(game.channel)
-    await run(game, admin, f"$walka {ala.id}")
+    await run(game, admin, f"!walka {ala.id}")
     assert game.channel.sent[-1].content == ("Ostatnia zapisana walka gracza **Ala**: **polowanie**, przerwana "
                                              "przez problemy z połączeniem (przed chwilą).")
     Recorded(game, fightlog.KIND_BOSS, [ala], detail=0)                # still running (or it crashed)
-    await run(game, admin, f"$walka {ala.id}")
+    await run(game, admin, f"!walka {ala.id}")
     assert game.channel.sent[-1].content == ("Ostatnia zapisana walka gracza **Ala**: **walka z bossem**, bez "
                                              "zapisanego wyniku (trwa albo przerwał ją błąd) (przed chwilą).")
 
@@ -1353,7 +1366,7 @@ async def test_walka_is_not_posted_between_the_prompts_of_a_fight(game, cog):
     running = asyncio.ensure_future(challenge.ask(game.bot, game.channel, "1. Wpisz **A T A K**",
                                                   players=[other], timeout=5))
     await wait_until(lambda: challenge.fight_on(game.channel))
-    asked = asyncio.ensure_future(run(game, admin, f"$walka {player.id}"))
+    asked = asyncio.ensure_future(run(game, admin, f"!walka {player.id}"))
     await asyncio.sleep(0.05)
     assert not game.channel.contains("Ostatnia zapisana walka")
     game.say(other, "atak")

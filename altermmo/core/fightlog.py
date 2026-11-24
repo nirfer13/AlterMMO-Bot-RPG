@@ -52,7 +52,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Iterable, TypeVar
 
-from ..settings import COMMAND_PREFIX
+from ..settings import is_command_text
 
 log = logging.getLogger(__name__)
 
@@ -667,7 +667,7 @@ def heard(message: Any) -> None:
         if watch is None or message.id <= watch.entry.prompt_id or watch.entry.prompt_at is None:
             return
         text = str(message.content or "")
-        if text.startswith(COMMAND_PREFIX) or is_lag_complaint(text):
+        if is_command_text(text) or is_lag_complaint(text):
             return
         after = (message.created_at - watch.entry.prompt_at).total_seconds()
         _end_watch(watch, LateState.FOUND, Late(after=after, text=clip(text)))
@@ -827,7 +827,7 @@ def is_lag_complaint(text: Any) -> bool:
     on purpose: they are said about many other things.
     """
     text = str(text or "").strip()
-    if not text or len(text) > COMPLAINT_MAX_LENGTH or text.startswith(COMMAND_PREFIX):
+    if not text or len(text) > COMPLAINT_MAX_LENGTH or is_command_text(text):
         return False
     folded = _fold(text)
     if "lag" not in folded:  # (every message of the server passes here: the common case ends early)

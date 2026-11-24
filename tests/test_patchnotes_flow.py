@@ -1,4 +1,4 @@
-"""Posting the patch notes: the start-up run, ``$patchnotes`` and everything that can go wrong.
+"""Posting the patch notes: the start-up run, ``!patchnotes`` and everything that can go wrong.
 
 Owner's request of 2026-11-21: after an update the bot posts what changed to channel
 1093905013480378519, once, in Polish, without spoilers - and as the bot may be started only after
@@ -664,9 +664,9 @@ async def test_a_number_past_the_end_of_the_file_is_told_and_od_puts_it_right(ga
     monkeypatch.setattr(game.bot, "log_to_owner", record)
     await patchnotes.start_up(game.bot)
     beyond = patchnotes.MSG_OWNER_BEYOND.format(highest=6, last=5)
-    assert "nr 6" in beyond and "`$patchnotes od 5`" in beyond
+    assert "nr 6" in beyond and "`!patchnotes od 5`" in beyond
     assert game.bot.owner_log == [beyond] and pings == [True]
-    # $patchnotes shows it as well.
+    # !patchnotes shows it as well.
     outcome = await patchnotes.announce(game.bot)
     assert outcome.beyond and "⚠️ " + beyond in patchnotes.command_answer(outcome)
     # The owner puts it right: entry 5 again, from now on 5 is the announced number.
@@ -954,7 +954,7 @@ async def test_the_command_says_when_the_ping_was_held_back(live, channel, notes
     await patchnotes.announce(live.bot)
     notes_file(entries(1, 2))
     await load_cog(live)
-    await run(live, administrator(live), "$patchnotes")
+    await run(live, administrator(live), "!patchnotes")
     assert patchnotes.MSG_PING_HELD in live.channel.messages[-1].content
     assert contents(channel) == [MENTION, ""]
 
@@ -1068,7 +1068,7 @@ async def test_od_over_entries_announced_before_pings_nobody(live, channel, note
     notes_file(entries(1, 2, 3))
     await patchnotes.announce(live.bot)
     await load_cog(live)
-    await run(live, administrator(live), "$patchnotes od 2")
+    await run(live, administrator(live), "!patchnotes od 2")
     assert footers(channel) == ["Patch notes nr 1-3", "Patch notes nr 2-3"]
     assert contents(channel) == [MENTION, ""] and mentions(channel) == [ONLY_HUNTERS, NOBODY]
 
@@ -1153,7 +1153,7 @@ async def test_in_debug_mode_the_notes_go_to_the_log_channel(game, channel, note
         "Patch notes nr 1"]
 
 
-# -- $patchnotes ------------------------------------------------------------------------------------
+# -- !patchnotes ------------------------------------------------------------------------------------
 
 def answers(target, since: int = 0) -> list[str]:
     return [message.content for message in target.sent[since:] if message.content]
@@ -1166,7 +1166,7 @@ async def test_the_command_is_for_administrators_only(game, channel, notes_file)
     assert command.cog_name == "PatchNotes" and command.aliases == []
     assert any("has_permissions" in getattr(check, "__qualname__", "") for check in command.checks)
     ala = game.add_member("Ala")
-    for text in ("$patchnotes", "$patchnotes od 1"):
+    for text in ("!patchnotes", "!patchnotes od 1"):
         await run(game, ala, text)
     assert answers(game.channel) == [] and channel.attempts == [] and remembered(game) is None
 
@@ -1177,14 +1177,14 @@ async def test_status_and_posting_what_waits(game, channel, notes_file):
     notes_file(entries(1, 2, 3, 4))
     await load_cog(game)
     alter = administrator(game)
-    await run(game, alter, "$patchnotes", channel=game.announce_channel)  # (any channel)
+    await run(game, alter, "!patchnotes", channel=game.announce_channel)  # (any channel)
     assert answers(game.announce_channel) == [
         "Ostatnio ogłoszony wpis: **nr 2** - na kanale i w pamięci bota.\n"
         "Wpisów w pliku: 4.\n"
         "Czeka: 2 wpisy (nr 3-4).\n"
         f"Wysłałem 2 wpisy (nr 3-4) w 1 wiadomości na kanale <#{PATCH_CHANNEL}>."]
     assert footers(channel) == ["Patch notes nr 1-2", "Patch notes nr 3-4"] and remembered(game) == 4
-    await run(game, alter, "$patchnotes", channel=game.announce_channel)
+    await run(game, alter, "!patchnotes", channel=game.announce_channel)
     assert answers(game.announce_channel)[-1] == ("Ostatnio ogłoszony wpis: **nr 4** - na kanale i w pamięci "
                                                   "bota.\nWpisów w pliku: 4.\nNic nie czeka na ogłoszenie.")
     assert len(patch_messages(channel)) == 2
@@ -1196,22 +1196,22 @@ async def test_status_says_where_the_number_comes_from(game, channel, notes_file
     await load_cog(game)
     alter = administrator(game)
     channel.messages.clear()
-    await run(game, alter, "$patchnotes")
+    await run(game, alter, "!patchnotes")
     assert answers(game.channel)[-1].startswith("Ostatnio ogłoszony wpis: **nr 2** - z pamięci bota (na kanale: "
                                                 "brak).")
     channel.messages.append(patch_messages(channel)[0])
     lose_local(game)
-    await run(game, alter, "$patchnotes")
+    await run(game, alter, "!patchnotes")
     assert answers(game.channel)[-1].startswith("Ostatnio ogłoszony wpis: **nr 2** - z ostatniej wiadomości na "
                                                 "kanale (pamięć bota: brak).")
     channel.history_always = forbidden()
-    await run(game, alter, "$patchnotes")
+    await run(game, alter, "!patchnotes")
     answer = answers(game.channel)[-1]
     assert answer.startswith("Ostatnio ogłoszony wpis: **nr 2** - z pamięci bota (na kanale: nie mogę go "
                              "przeczytać).")
     assert "⚠️ Patch notes: nie mogę przeczytać historii kanału" in answer
     lose_local(game)
-    await run(game, alter, "$patchnotes")
+    await run(game, alter, "!patchnotes")
     answer = answers(game.channel)[-1]
     assert answer.startswith(patchnotes.MSG_STATUS_UNKNOWN) and "nic nie wysłałem" in answer
     assert len(patch_messages(channel)) == 1
@@ -1225,14 +1225,14 @@ async def test_od_posts_again_from_the_given_entry(game, channel, notes_file):
     channel.messages.clear()                                              # the owner removed the message
     await load_cog(game)
     alter = administrator(game)
-    await run(game, alter, "$patchnotes od 2")
+    await run(game, alter, "!patchnotes od 2")
     assert answers(game.channel)[-1] == (
         "Ostatnio ogłoszony wpis: **nr 4** - z pamięci bota (na kanale: brak).\n"
         "Wpisów w pliku: 4.\n"
         "Wysyłam od wpisu nr 2: ponownie 3 wpisy (nr 2-4).\n"
         f"Wysłałem 3 wpisy (nr 2-4) w 1 wiadomości na kanale <#{PATCH_CHANNEL}>.")
     assert footers(channel) == ["Patch notes nr 1-4", "Patch notes nr 2-4"] and remembered(game) == 4
-    await run(game, alter, "$patchnotes OD 4")
+    await run(game, alter, "!patchnotes OD 4")
     assert footers(channel)[-1] == "Patch notes nr 4" and remembered(game) == 4
 
 
@@ -1240,7 +1240,7 @@ async def test_od_sets_the_remembered_number_to_the_highest_sent(game, channel, 
     notes_file(entries(1, 2, 3))
     game.bot.store.runtime_set(patchnotes.RUNTIME_KEY, 7)                 # (a number from a longer file)
     await load_cog(game)
-    await run(game, administrator(game), "$patchnotes od 1")
+    await run(game, administrator(game), "!patchnotes od 1")
     assert footers(channel) == ["Patch notes nr 1-3"] and remembered(game) == 3
 
 
@@ -1250,17 +1250,17 @@ async def test_od_never_jumps_over_entries_that_were_not_announced(game, channel
     notes_file(entries(1, 2, 3, 4, 5))                                    # an update adds 3, 4, 5
     await load_cog(game)
     alter = administrator(game)
-    await run(game, alter, "$patchnotes od 4")
+    await run(game, alter, "!patchnotes od 4")
     assert answers(game.channel)[-1] == (
         "Ostatnio ogłoszony wpis: **nr 2** - na kanale i w pamięci bota.\n"
         "Wpisów w pliku: 5.\n"
-        "Nie przeskoczę wpisów nr 3: nie zostały jeszcze ogłoszone. Wpisz `$patchnotes` (wyśle wszystko, co "
-        "czeka) albo `$patchnotes od 3`.")
+        "Nie przeskoczę wpisów nr 3: nie zostały jeszcze ogłoszone. Wpisz `!patchnotes` (wyśle wszystko, co "
+        "czeka) albo `!patchnotes od 3`.")
     assert footers(channel) == ["Patch notes nr 1-2"] and remembered(game) == 2
-    await run(game, alter, "$patchnotes od 5")
+    await run(game, alter, "!patchnotes od 5")
     assert "Nie przeskoczę wpisów nr 3-4" in answers(game.channel)[-1] and len(patch_messages(channel)) == 1
     # From the next unsent entry: nothing is "again".
-    await run(game, alter, "$patchnotes od 3")
+    await run(game, alter, "!patchnotes od 3")
     assert "Wysyłam od wpisu nr 3: po raz pierwszy 3 wpisy (nr 3-5)." in answers(game.channel)[-1]
     assert footers(channel) == ["Patch notes nr 1-2", "Patch notes nr 3-5"] and remembered(game) == 5
 
@@ -1270,7 +1270,7 @@ async def test_od_says_which_entries_go_again_and_which_for_the_first_time(game,
     await patchnotes.announce(game.bot)
     notes_file(entries(1, 2, 3))
     await load_cog(game)
-    await run(game, administrator(game), "$patchnotes od 2")
+    await run(game, administrator(game), "!patchnotes od 2")
     assert ("Wysyłam od wpisu nr 2: ponownie 1 wpis (nr 2), po raz pierwszy 1 wpis (nr 3)."
             in answers(game.channel)[-1])
     assert footers(channel) == ["Patch notes nr 1-2", "Patch notes nr 2-3"] and remembered(game) == 3
@@ -1281,21 +1281,21 @@ async def test_od_when_nothing_is_known_starts_only_at_the_first_entry(game, cha
     channel.history_always = forbidden()
     await load_cog(game)
     alter = administrator(game)
-    await run(game, alter, "$patchnotes od 2")
+    await run(game, alter, "!patchnotes od 2")
     assert "Nie przeskoczę wpisów nr 1" in answers(game.channel)[-1] and channel.attempts == []
-    await run(game, alter, "$patchnotes od 1")
+    await run(game, alter, "!patchnotes od 1")
     assert footers(channel) == ["Patch notes nr 1-2"] and remembered(game) == 2
 
 
 @pytest.mark.parametrize("text, answer", [
-    ("$patchnotes od 9", "Nie ma wpisu nr 9 - plik ma wpisy nr 1-2."),
-    ("$patchnotes od 0", "Nie ma wpisu nr 0 - plik ma wpisy nr 1-2."),
-    ("$patchnotes od", patchnotes_cog.MSG_USAGE),
-    ("$patchnotes od dwa", patchnotes_cog.MSG_USAGE),
-    ("$patchnotes od -1", patchnotes_cog.MSG_USAGE),
-    ("$patchnotes od ２", patchnotes_cog.MSG_USAGE),
-    ("$patchnotes 3", patchnotes_cog.MSG_USAGE),
-    ("$patchnotes od 2 3", patchnotes_cog.MSG_USAGE),
+    ("!patchnotes od 9", "Nie ma wpisu nr 9 - plik ma wpisy nr 1-2."),
+    ("!patchnotes od 0", "Nie ma wpisu nr 0 - plik ma wpisy nr 1-2."),
+    ("!patchnotes od", patchnotes_cog.MSG_USAGE),
+    ("!patchnotes od dwa", patchnotes_cog.MSG_USAGE),
+    ("!patchnotes od -1", patchnotes_cog.MSG_USAGE),
+    ("!patchnotes od ２", patchnotes_cog.MSG_USAGE),
+    ("!patchnotes 3", patchnotes_cog.MSG_USAGE),
+    ("!patchnotes od 2 3", patchnotes_cog.MSG_USAGE),
 ])
 async def test_wrong_use_of_the_command_posts_nothing(game, channel, notes_file, text, answer):
     notes_file(entries(1, 2))
@@ -1307,7 +1307,7 @@ async def test_wrong_use_of_the_command_posts_nothing(game, channel, notes_file,
 async def test_the_command_reports_a_broken_file(game, channel, notes_file):
     notes_file([entry(1, text="")])
     await load_cog(game)
-    await run(game, administrator(game), "$patchnotes")
+    await run(game, administrator(game), "!patchnotes")
     assert answers(game.channel)[-1] == "⚠️ " + patchnotes.MSG_OWNER_FILE_BROKEN.format(
         problem="wpis nr 1: zmiana 1. jest puste")
 
@@ -1319,7 +1319,7 @@ async def test_the_command_during_the_start_up_waits_and_posts_nothing_twice(gam
     (task,) = start_tasks()
     await asyncio.sleep(0.02)                                             # the start-up is posting now
     assert patchnotes.busy(game.bot)
-    await run(game, administrator(game), "$patchnotes")
+    await run(game, administrator(game), "!patchnotes")
     await asyncio.wait_for(task, 2)
     assert answers(game.channel) == [
         patchnotes_cog.MSG_WAIT,

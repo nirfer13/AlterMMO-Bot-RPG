@@ -11,7 +11,7 @@ The game lives in :mod:`altermmo.features.collector`.  This cog decides *when*:
   can blink at a renewal), the rank given or taken by hand, a supporter or the holder who left
   the server.  (``intents.members`` is on: the bot gets these events.)  The album asks by itself
   after an entry was kept or removed (``features/album.py``);
-* ``$kolekcjoner`` (administrators): synchronise now and say what happened.
+* ``!kolekcjoner`` (administrators): synchronise now and say what happened.
 """
 
 from __future__ import annotations

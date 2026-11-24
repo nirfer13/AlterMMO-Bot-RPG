@@ -1,11 +1,11 @@
-"""The fight journal on Discord: the answer to a "lag" complaint and ``$walka``.
+"""The fight journal on Discord: the answer to a "lag" complaint and ``!walka``.
 
 * every message goes to :func:`altermmo.features.fightreport.on_message`: a
   player who has just lost a typed fight on this channel and writes "lag"
   (in any of its forms) gets the fight's log and an honest explanation, once
   per fight.  The listener is separate from the commands and from the fights'
   own listeners, decides without waiting and never raises;
-* ``$walka <gracz>`` (administrators; any channel): the last recorded fight of
+* ``!walka <gracz>`` (administrators; any channel): the last recorded fight of
   a member, in the same format - to check a fight without the log file.
 
 The journal itself (:mod:`altermmo.core.fightlog`) is fed by the fights and
@@ -32,7 +32,7 @@ class FightLogCog(commands.Cog, name="FightLog"):
     @commands.command(name="walka", brief="The last recorded fight of a member: its log and why it was lost.")
     @guards.owner_or_admin()
     async def last_fight(self, ctx: commands.Context, *, who: str | None = None) -> None:
-        """Usage: ``$walka gracz`` (a mention, an id or a name)."""
+        """Usage: ``!walka gracz`` (a mention, an id or a name)."""
         await fightreport.show(Scene.from_ctx(ctx), who)
 
 

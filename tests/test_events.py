@@ -115,7 +115,7 @@ async def test_spawn_chest_posts_picture_and_embed(game, monkeypatch):
     chest = await events.spawn_chest(game.scene())
     assert files(game) == ["4.png"]
     assert game.channel.contains("Skrzynia ze skarbami!")
-    assert game.channel.contains("**$skrzynia**")
+    assert game.channel.contains("**!skrzynia**")
     assert chest is game.channel.messages[-1] and chest.view is None   # the button comes from the cog
 
 
@@ -124,14 +124,14 @@ async def test_open_chest_gives_loot_to_the_author(game, loot, monkeypatch, roll
     rolls = iter([roll, 17])
     monkeypatch.setattr(random, "randint", lambda low, high: next(rolls))
     player = game.add_member("Ala")
-    await events.open_chest(game.scene(player, "$skrzynia"))
+    await events.open_chest(game.scene(player, "!skrzynia"))
     assert loot == [(rarity, player, 17)]
 
 
 async def test_open_chest_with_real_loot(game_db, monkeypatch):
     monkeypatch.setattr(random, "random", lambda: 1.0)
     player = game_db.add_member("O'Brien")
-    await events.open_chest(game_db.scene(player, "$skrzynia"))
+    await events.open_chest(game_db.scene(player, "!skrzynia"))
     assert game_db.channel.contains("Drop - O'Brien")
 
 
@@ -617,7 +617,7 @@ async def add_ranked(game, member_or_id, points) -> None:
                               str(user_id), "O'Nick", points)
 
 
-def confirms(game, member, text="$potwierdzam") -> None:
+def confirms(game, member, text="!potwierdzam") -> None:
     def hook(message) -> None:
         if "Czy jesteś pewien" in message.content:
             game.say_later(member, text, 0)
@@ -631,7 +631,7 @@ def is_dead(game, member) -> bool:
 async def test_assassin_needs_an_account(game_db):
     game = game_db
     ala = game.add_member("Ala")
-    assert await events.assasinate(game.scene(ala, "$zabojca")) is False
+    assert await events.assasinate(game.scene(ala, "!zabojca")) is False
     assert game.channel.contains("Nie masz jeszcze peta/konta w systemie.")
 
 
@@ -639,7 +639,7 @@ async def test_assassin_needs_thirty_scrolls(game_db):
     game = game_db
     ala = game.add_member("Ala")
     await give_scrolls(game, ala, 29)
-    assert await events.assasinate(game.scene(ala, "$zabojca")) is False
+    assert await events.assasinate(game.scene(ala, "!zabojca")) is False
     assert game.channel.contains("Potrzebujesz minimum 30 zwojów odrodzenia.")
     assert await scrolls_of(game, ala) == 29
 
@@ -650,7 +650,7 @@ async def test_assassin_not_confirmed(game_db, short_timeouts):
     await give_scrolls(game, ala, 40)
     await add_ranked(game, ola, 10)
     confirms(game, ola)  # somebody else cannot confirm
-    assert await events.assasinate(game.scene(ala, "$zabojca")) is False
+    assert await events.assasinate(game.scene(ala, "!zabojca")) is False
     assert game.channel.contains("Nie potwierdzono zlecenia zabójstwa.")
     assert await scrolls_of(game, ala) == 40
     assert not is_dead(game, ola)
@@ -666,7 +666,7 @@ async def test_assassin_kills_a_ranked_member(game_db, monkeypatch):
     await add_ranked(game, ala, 50)
     await add_ranked(game, ola, 10)
     confirms(game, ala, "$POTWIERDZAM")
-    assert await events.assasinate(game.scene(ala, "$zabojca")) is True
+    assert await events.assasinate(game.scene(ala, "!zabojca")) is True
     assert await scrolls_of(game, ala) == 10
     assert is_dead(game, ola) and not is_dead(game, ala)
     assert game.channel.contains(f"Zabójca wykonał zlecenie. Ofiarą został <@{ola.id}>")
@@ -681,7 +681,7 @@ async def test_assassin_betrays_the_client(game_db, monkeypatch):
     await give_scrolls(game, ala, 30)
     await add_ranked(game, ola, 10)
     confirms(game, ala)
-    assert await events.assasinate(game.scene(ala, "$zabojca")) is True
+    assert await events.assasinate(game.scene(ala, "!zabojca")) is True
     assert await scrolls_of(game, ala) == 0
     assert is_dead(game, ala) and not is_dead(game, ola)
     assert game.channel.contains("Zabójca Cię zdradził!")
@@ -695,7 +695,7 @@ async def test_assassin_without_a_target_costs_nothing(game_db, monkeypatch):
     await add_ranked(game, ala, 50)
     await add_ranked(game, 123456789, 99)  # left the server
     confirms(game, ala)
-    assert await events.assasinate(game.scene(ala, "$zabojca")) is False  # legacy: scrolls were gone
+    assert await events.assasinate(game.scene(ala, "!zabojca")) is False  # legacy: scrolls were gone
     assert game.channel.contains("Zabójca nie znalazł żadnego celu.")
     assert await scrolls_of(game, ala) == 30
     assert not is_dead(game, ala)
@@ -714,7 +714,7 @@ async def test_assassin_scrolls_spent_while_confirming(game_db, monkeypatch):
         return await pick(bot, author_id)
 
     monkeypatch.setattr(events, "_pick_victim", spend_then_pick)
-    assert await events.assasinate(game.scene(ala, "$zabojca")) is False
+    assert await events.assasinate(game.scene(ala, "!zabojca")) is False
     assert await scrolls_of(game, ala) == 3
     assert not is_dead(game, ola)
 
@@ -727,7 +727,7 @@ async def test_assassin_database_down_propagates(game, monkeypatch):
 
     monkeypatch.setattr(game.bot.db, "fetchrow", fetchrow)
     with pytest.raises(DatabaseUnavailable):
-        await events.assasinate(game.scene(ala, "$zabojca"))
+        await events.assasinate(game.scene(ala, "!zabojca"))
 
 
 # -- tournament ----------------------------------------------------------------------

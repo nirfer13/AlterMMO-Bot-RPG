@@ -66,7 +66,7 @@ OLD_BOT_INSERT = """INSERT INTO PETS
 def _no_open_questions():
     pets._awaiting_confirmation.clear()
     yield
-    assert not pets._awaiting_confirmation, "a $potwierdzam slot was never released"
+    assert not pets._awaiting_confirmation, "a !potwierdzam slot was never released"
 
 
 @pytest.fixture
@@ -509,9 +509,9 @@ async def test_cosmetics_survive_everything_that_happens_to_a_pet(game_db, monke
         assert (await pet_row(db, 5))["pet_lvl"] == level and await everything(db, 5) == kept
     await db.execute("UPDATE PETS SET PET_SKILLS = 4 WHERE PET_ID = 5")        # leaves room for an enlightenment
 
-    assert await pets.reroll_pet(scene, player) is True                        # $odrodzenie
+    assert await pets.reroll_pet(scene, player) is True                        # !odrodzenie
     assert await everything(db, 5) == kept
-    assert await pets.enlight_pet(scene, player) is True                       # $oswiecenie
+    assert await pets.enlight_pet(scene, player) is True                       # !oswiecenie
     assert await everything(db, 5) == kept
     before = await pet_row(db, 5)
     rig(monkeypatch, choices=[PetType.DRAGON], randint=lambda low, high: high)
@@ -1480,12 +1480,12 @@ async def test_game_goes_on_without_cosmetics_when_the_columns_are_missing(game_
     assert await pets.name_pet(game_db.scene(player), "Burek") is True
 
     # The owner's command says why it cannot work ...
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 3 tak")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 3 tak")
     assert game_db.channel.messages[-1].content == pets_cog.MSG_SEAL_NO_COLUMNS
     assert await pets.set_cosmetics(bot, player.id, 3, True) == ("no_columns", None)
     # ... and works as soon as the columns are there - without a restart.
     assert await schema.add_new_columns(db) == []
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 3 tak")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 3 tak")
     assert game_db.channel.messages[-1].content == pets_cog.MSG_SEAL_SET.format(
         player_id=player.id, pet_id=1, seal="Arcyłowcy", holo="tak")
     assert await pets.cosmetics_available(bot) is True and await cosmetics(db, 1) == (3, True)
@@ -1558,19 +1558,19 @@ async def test_game_goes_on_with_the_old_cosmetics_when_only_the_frame_columns_a
     def said() -> str:
         return game_db.channel.messages[-1].content
 
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 3 tak")           # the old command works ...
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 3 tak")           # the old command works ...
     assert await cosmetics(db, 1) == (3, True) and "folia Holo - **tak**" in said()
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 3 częściowa")     # ... a partial Holo cannot be kept
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 3 częściowa")     # ... a partial Holo cannot be kept
     assert said() == pets_cog.MSG_FRAME_NO_COLUMNS and await cosmetics(db, 1) == (3, True)
-    await run(game_db, boss_admin, f"$DajRamke {player.id} U1")
+    await run(game_db, boss_admin, f"!DajRamke {player.id} U1")
     assert said() == pets_cog.MSG_FRAME_NO_COLUMNS
     assert await pets.set_frame(bot, player.id, "U1") == ("no_frame_columns", None)
 
     # The columns are added (by hand, or at the next start): the commands work without a restart.
     assert await schema.add_new_columns(db) == []
-    await run(game_db, boss_admin, f"$DajRamke {player.id} U1")
+    await run(game_db, boss_admin, f"!DajRamke {player.id} U1")
     assert (await pet_row(db, 1))["frame"] == "U1" and await pets.frames_available(bot) is True
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 3 częściowa")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 3 częściowa")
     assert await everything(db, 1) == (3, False, "U1", True)
 
 
@@ -1586,7 +1586,7 @@ async def test_only_a_missing_column_is_forgiven(game_db, monkeypatch):
     assert await count(db, "PETS") == 0 and await owner_row(db, player.id) is None
 
 
-# -- $DajPieczec ------------------------------------------------------------------------
+# -- !DajPieczec ------------------------------------------------------------------------
 
 async def test_admin_sets_the_cosmetics_of_the_active_pet(game_db, cog, cards):
     db = game_db.bot.db
@@ -1599,47 +1599,47 @@ async def test_admin_sets_the_cosmetics_of_the_active_pet(game_db, cog, cards):
     def said() -> str:
         return game_db.channel.messages[-1].content
 
-    await run(game_db, player, f"$DajPieczec {player.id} 3 tak")               # not an administrator: nothing
+    await run(game_db, player, f"!DajPieczec {player.id} 3 tak")               # not an administrator: nothing
     assert await cosmetics(db, 5) == (0, False)
 
     set_text = (f"Towarzysz gracza <@{player.id}> (PET_ID 5) ma teraz: pieczęć - **Łowcy**, folia Holo - "
-                "**nie**. Widać to na karcie towarzysza (**$towarzysz**).")
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 2")
+                "**nie**. Widać to na karcie towarzysza (**!towarzysz**).")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 2")
     assert await cosmetics(db, 5) == (2, False)
     # The player does not support: it is stored, and the administrator is told why nobody sees it.
     assert said() == set_text + pets_cog.MSG_SEAL_NOT_SHOWN and "nie ma teraz rangi wspierającego" in said()
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 0")               # nothing to hide: no warning
-    assert said().endswith("(**$towarzysz**).") and await cosmetics(db, 5) == (0, False)
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 0")               # nothing to hide: no warning
+    assert said().endswith("(**!towarzysz**).") and await cosmetics(db, 5) == (0, False)
     player.roles.append(FakeRole(patrons.YOUTUBE_ROLES[1]))                    # a supporter from now on
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 2")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 2")
     assert said() == set_text and await cosmetics(db, 5) == (2, False)
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 3 TAK")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 3 TAK")
     assert await cosmetics(db, 5) == (3, True) and "pieczęć - **Arcyłowcy**, folia Holo - **tak**" in said()
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 1")               # Holo left out: unchanged
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 1")               # Holo left out: unchanged
     assert await cosmetics(db, 5) == (1, True) and "pieczęć - **Tropiciela**, folia Holo - **tak**" in said()
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 0 nie")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 0 nie")
     assert await cosmetics(db, 5) == (0, False) and "pieczęć - **brak**, folia Holo - **nie**" in said()
     assert await cosmetics(db, 6) == (0, False)
 
     # What it set is what the player sees.
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 3 tak")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 3 tak")
     await pets.show_pet(game_db.scene(player), player)
     assert game_db.channel.messages[-1].files == ["card-1-bare-3-holo.gif"]
     assert "Pieczęć: Arcyłowcy\nFolia: Holo\n" in last_embed(game_db).description
 
     # Polite refusals; nothing changes.
     for tier in ("4", "-1"):
-        await run(game_db, boss_admin, f"$DajPieczec {player.id} {tier}")
+        await run(game_db, boss_admin, f"!DajPieczec {player.id} {tier}")
         assert said() == "Pieczęć: 0-3 (0 = brak, 1 = Tropiciela, 2 = Łowcy, 3 = Arcyłowcy)."
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 2 może")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 2 może")
     assert said() == (f"Folia Holo: **tak** (pełna), **częściowa** albo **nie** (pominięta - bez zmian), np. "
-                      f"**$DajPieczec {player.id} 3 tak**.")
+                      f"**!DajPieczec {player.id} 3 tak**.")
     for nobody in (lonely.id, 12345):                                          # no active pet / no row at all
-        await run(game_db, boss_admin, f"$DajPieczec {nobody} 2")
+        await run(game_db, boss_admin, f"!DajPieczec {nobody} 2")
         assert said() == f"<@{nobody}> nie ma przy sobie towarzysza - nie ma komu dać pieczęci."
-    await run(game_db, boss_admin, "$DajPieczec")                              # bad arguments: a usage hint
+    await run(game_db, boss_admin, "!DajPieczec")                              # bad arguments: a usage hint
     assert said().startswith("Niepoprawne użycie komendy.")
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} dużo")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} dużo")
     assert said().startswith("Niepoprawne użycie komendy.")
     assert await cosmetics(db, 5) == (3, True)
 
@@ -1671,7 +1671,7 @@ async def test_set_cosmetics_statuses(game_db):
     assert await pets.set_cosmetics(bot, 1, 1) == ("alone", None)
 
 
-# -- $DajRamke --------------------------------------------------------------------------
+# -- !DajRamke --------------------------------------------------------------------------
 
 async def test_admin_sets_the_frame_of_the_active_pet(game_db, cog, cards):
     db = game_db.bot.db
@@ -1687,53 +1687,53 @@ async def test_admin_sets_the_frame_of_the_active_pet(game_db, cog, cards):
     async def frame() -> str:
         return (await pet_row(db, 5))["frame"]
 
-    await run(game_db, player, f"$DajRamke {player.id} S1-A")                  # not an administrator: nothing
+    await run(game_db, player, f"!DajRamke {player.id} S1-A")                  # not an administrator: nothing
     assert await frame() == ""
 
-    await run(game_db, boss_admin, f"$DajRamke {player.id} s1-a")              # any case
+    await run(game_db, boss_admin, f"!DajRamke {player.id} s1-a")              # any case
     assert await frame() == "S1-A"
     # He does not support: stored, and the administrator is told why nobody sees it.
     assert said() == (f"Towarzysz gracza <@{player.id}> (PET_ID 5) ma teraz ramkę **Gwiazda Szronu (animowana)**. "
-                      "Widać to na karcie towarzysza (**$towarzysz**)." + pets_cog.MSG_FRAME_NOT_SHOWN)
+                      "Widać to na karcie towarzysza (**!towarzysz**)." + pets_cog.MSG_FRAME_NOT_SHOWN)
     player.roles.append(FakeRole(patrons.PATRON_ROLES[1]))
-    await run(game_db, boss_admin, f"$DajRamke {player.id} R7")
+    await run(game_db, boss_admin, f"!DajRamke {player.id} R7")
     assert await frame() == "R7" and said().endswith("ramkę **Przeszywana skóra**. Widać to na karcie towarzysza "
-                                                     "(**$towarzysz**).")
+                                                     "(**!towarzysz**).")
     await pets.show_pet(game_db.scene(player), player)                         # what it set is what he sees
     assert cards[-1].look == petcards.Look(frame="R7") and "Ramka: Przeszywana skóra\n" in last_embed(
         game_db).description
 
     # Back to the base of the class - by a word or by its id; stored as ''.
     for word in ("baza", "S0", "podstawowa"):
-        await run(game_db, boss_admin, f"$DajRamke {player.id} R2")
-        await run(game_db, boss_admin, f"$DajRamke {player.id} {word}")
+        await run(game_db, boss_admin, f"!DajRamke {player.id} R2")
+        await run(game_db, boss_admin, f"!DajRamke {player.id} {word}")
         assert await frame() == "" and "ramkę **Srebrne okucia (podstawowa)**" in said()
     player.roles.clear()
-    await run(game_db, boss_admin, f"$DajRamke {player.id} baza")              # the base is seen by everybody
+    await run(game_db, boss_admin, f"!DajRamke {player.id} baza")              # the base is seen by everybody
     assert not said().endswith(pets_cog.MSG_FRAME_NOT_SHOWN)
 
     # A frame of another class, or nonsense: refused, with the pool of this pet's class.
     for wrong in ("U1", "R9-A", "X1", "S1-AA"):
-        await run(game_db, boss_admin, f"$DajRamke {player.id} {wrong}")
+        await run(game_db, boss_admin, f"!DajRamke {player.id} {wrong}")
         assert said() == (f"Ramki **{wrong}** nie ma w puli tego towarzysza (klasa: Shiny). Możliwe: "
                           "**S0** (Srebrne okucia (podstawowa)), **S1** (Gwiazda Szronu), "
                           "**S1-A** (Gwiazda Szronu (animowana)), **R1** (Księżycowa stal), "
                           "**R1-A** (Księżycowa stal (animowana)), **R2** (Miedziane ciernie), "
                           "**R2-A** (Miedziane ciernie (animowana)), **R7** (Przeszywana skóra), "
                           "**R7-A** (Przeszywana skóra (animowana)) - albo **baza** (podstawowa ramka klasy), "
-                          f"np. **$DajRamke {player.id} R7-A**.")
+                          f"np. **!DajRamke {player.id} R7-A**.")
         assert await frame() == ""
     assert (await pet_row(db, 6))["frame"] == ""
 
     # An ordinary pet has no frame; nobody to give it to.
     await db.execute("UPDATE PETS SET SHINY = FALSE WHERE PET_ID = 5")
-    await run(game_db, boss_admin, f"$DajRamke {player.id} S1")
+    await run(game_db, boss_admin, f"!DajRamke {player.id} S1")
     assert said() == (f"Towarzysz gracza <@{player.id}> (PET_ID 5) jest zwykły - ramki mają tylko "
                       "towarzysze Shiny, Ultra Shiny i mityczni.")
     for nobody in (lonely.id, 12345):
-        await run(game_db, boss_admin, f"$DajRamke {nobody} S1")
+        await run(game_db, boss_admin, f"!DajRamke {nobody} S1")
         assert said() == f"<@{nobody}> nie ma przy sobie towarzysza - nie ma komu dać ramki."
-    await run(game_db, boss_admin, "$DajRamke")                                # bad arguments: a usage hint
+    await run(game_db, boss_admin, "!DajRamke")                                # bad arguments: a usage hint
     assert said().startswith("Niepoprawne użycie komendy.")
     assert await frame() == ""
 
@@ -1749,7 +1749,7 @@ async def test_a_wrong_frame_names_the_class_as_a_label(game_db, cog, looks, lab
     boss_admin, player = admin(game_db), game_db.add_member("Ala")
     await add_owner(db, player.id, 5)
     await add_pet(db, 5, pet_lvl=1, **looks)
-    await run(game_db, boss_admin, f"$DajRamke {player.id} X1")
+    await run(game_db, boss_admin, f"!DajRamke {player.id} X1")
     said = game_db.channel.messages[-1].content
     assert said.startswith(f"Ramki **X1** nie ma w puli tego towarzysza (klasa: {label}). Możliwe: "), said
     assert "klasa mityczn" not in said.lower()
@@ -1785,10 +1785,10 @@ async def test_admin_sets_a_partial_holo(game_db, cog, cards):
     for word, stored, answer in (("częściowa", (1, False, "", True), "częściowa"), ("tak", (1, True, "", False), "tak"),
                                  ("czesciowe", (1, False, "", True), "częściowa"), ("pełna", (1, True, "", False), "tak"),
                                  ("brak", (1, False, "", False), "nie")):
-        await run(game_db, boss_admin, f"$DajPieczec {player.id} 1 {word}")
+        await run(game_db, boss_admin, f"!DajPieczec {player.id} 1 {word}")
         assert await everything(db, 5) == stored
         assert f"pieczęć - **Tropiciela**, folia Holo - **{answer}**" in said()
-    await run(game_db, boss_admin, f"$DajPieczec {player.id} 0 częściowa")
+    await run(game_db, boss_admin, f"!DajPieczec {player.id} 0 częściowa")
     await pets.show_pet(game_db.scene(player), player)
     assert cards[-1].look == petcards.Look(foil=PARTIAL) and "Folia: Holo częściowe\n" in last_embed(
         game_db).description

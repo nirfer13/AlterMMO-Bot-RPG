@@ -4,12 +4,12 @@ A pet that can sense bosses warns its owner in a private message
 (:func:`altermmo.features.pets.detect_boss`).  A player with closed private
 messages gets a public hint instead - every time a boss comes.  The hint now
 carries a button that switches the warnings off for that player, and
-``$wyczuwanie`` switches them on again.
+``!wyczuwanie`` switches them on again.
 
 The private warning itself carries the same button (owner's request of
 2026-11-21: "Pet gdy w prywatnej wiadomości ostrzega przed bossem powinien też
 dawać możliwość anulowania takich powiadomień") and one line saying in words
-what it does and that ``$wyczuwanie`` on the game's channel does the same
+what it does and that ``!wyczuwanie`` on the game's channel does the same
 (the information is there also where buttons are not shown, e.g. in a push
 notification).  No command works in private messages (the global check of
 ``bot.py``), so in a private message the button is THE way.  It has its own
@@ -52,28 +52,28 @@ BUTTON_EMOJI = "🔕"
 MSG_UNLOCK_HINT = ("<@{player_id}> - Twój towarzysz: *Nadciąga boss! Odblokuj prywatne wiadomości, jeśli "
                    "chcesz otrzymywać powiadomienia!* Nie chcesz ich wcale? Kliknij przycisk poniżej.")
 MSG_NOT_YOURS = ("Ten przycisk jest dla <@{player_id}>. Swoje powiadomienia o bossie wyłączysz i włączysz "
-                 "komendą **$wyczuwanie**.")
+                 "komendą **!wyczuwanie**.")
 MSG_SWITCHED_OFF = ("Gotowe - Twój towarzysz nie będzie już ostrzegał Cię o nadciągającym bossie. "
-                    "Włączysz powiadomienia ponownie komendą **$wyczuwanie**.")
+                    "Włączysz powiadomienia ponownie komendą **!wyczuwanie**.")
 MSG_NOT_SAVED = ("Nie udało się tego zapisać <:Sadge:936907659142111273> Spróbuj za chwilę albo użyj "
-                 "komendy **$wyczuwanie**.")
+                 "komendy **!wyczuwanie**.")
 MSG_NOW_OFF = ("<@{player_id}>, powiadomienia o nadciągającym bossie są teraz **wyłączone**. "
-               "Wpisz **$wyczuwanie** ponownie, żeby je włączyć.")
+               "Wpisz **!wyczuwanie** ponownie, żeby je włączyć.")
 MSG_NOW_ON = ("<@{player_id}>, powiadomienia o nadciągającym bossie są teraz **włączone**. Dostaniesz je "
               "w prywatnej wiadomości, jeśli Twój aktywny towarzysz potrafi wyczuwać bossa.")
 
 #: The second line of the private warning (under "Nadciąga boss! Będzie ...").  ``{channel_id}``:
 #: the boss channel (``bot.ids.boss_channel`` - the test channel in debug mode).
-MSG_DM_HOW_TO_STOP = ("Nie chcesz tych powiadomień? Kliknij przycisk poniżej albo wpisz **$wyczuwanie** "
+MSG_DM_HOW_TO_STOP = ("Nie chcesz tych powiadomień? Kliknij przycisk poniżej albo wpisz **!wyczuwanie** "
                       "na kanale <#{channel_id}>.")
 #: Answers to the button under the private warning (a private conversation: no mention in front).
 MSG_DM_SWITCHED_OFF = ("Gotowe - Twój towarzysz nie będzie już ostrzegał Cię o nadciągającym bossie. "
-                       "Żeby włączyć powiadomienia ponownie, wpisz **$wyczuwanie** na kanale <#{channel_id}>.")
+                       "Żeby włączyć powiadomienia ponownie, wpisz **!wyczuwanie** na kanale <#{channel_id}>.")
 MSG_DM_NOT_SAVED = ("Nie udało się tego zapisać <:Sadge:936907659142111273> Spróbuj za chwilę albo wpisz "
-                    "**$wyczuwanie** na kanale <#{channel_id}>.")
+                    "**!wyczuwanie** na kanale <#{channel_id}>.")
 #: The private warning's button clicked anywhere but in a private message (it is never posted there).
 MSG_DM_ONLY = ("Ten przycisk działa tylko w prywatnej wiadomości od Twojego towarzysza. Swoje powiadomienia "
-               "o bossie wyłączysz i włączysz komendą **$wyczuwanie**.")
+               "o bossie wyłączysz i włączysz komendą **!wyczuwanie**.")
 
 _FIRST_MENTION = re.compile(r"<@!?(\d{15,20})>")
 
@@ -101,7 +101,7 @@ def switch_on(bot: "AlterBot", player_id: int | str) -> None:
 
 
 async def toggle(scene: "Scene") -> bool:
-    """``$wyczuwanie``: flip the author's switch; returns True when warnings are on now."""
+    """``!wyczuwanie``: flip the author's switch; returns True when warnings are on now."""
     bot = scene.bot
     player_id = scene.author.id
     if is_off(bot, player_id):

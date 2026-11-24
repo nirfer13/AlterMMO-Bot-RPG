@@ -1,4 +1,4 @@
-"""$kradnijxp: the victim stays secret, the right is spent exactly once, Horus settles the theft.
+"""!kradnijxp: the victim stays secret, the right is spent exactly once, Horus settles the theft.
 
 The request files, every failure point and the results are tested in test_xp_transfer.py.
 """
@@ -18,7 +18,7 @@ async def test_theft_hides_the_victim_and_hands_the_transfer_to_horus(game):
     thief = game.add_member("Zlodziej")
     victim = game.add_member("Ofiara")
     xpsteal.grant(game.bot, thief.id, 2500)
-    scene = game.scene(thief, "$kradnijxp Ofiara")
+    scene = game.scene(thief, "!kradnijxp Ofiara")
     command_message = scene.message
 
     assert await xpsteal.steal(scene, "Ofiara") is True
@@ -58,7 +58,7 @@ async def test_bad_targets_do_not_consume_the_right_or_leak_names(game):
     game.add_member("jan")
     xpsteal.grant(game.bot, thief.id, 2500)
     for text in (None, "  ", "NieMaTakiego", "Jan", "Zlodziej", str(game.bot.fake_user.id)):
-        scene = game.scene(thief, f"$kradnijxp {text}")
+        scene = game.scene(thief, f"!kradnijxp {text}")
         assert await xpsteal.steal(scene, text) is False
         assert scene.message.deleted
     assert xpsteal.pending(game.bot, thief.id) == [2500]

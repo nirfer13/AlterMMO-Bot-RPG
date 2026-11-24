@@ -9,9 +9,9 @@ Port of the legacy ``functions/functions_skills.py``.
                       table belongs to features/pets.py;
 ``SKILLPOUCH``        new in v2: the other gems of a player, one row per gem
                       (player id, gem id).  A player can collect one gem of
-                      every kind; only the active one works (``$skill``).
-                      ``$klejnoty`` lists them (with a menu under the list),
-                      ``$wybierzklejnot <nr>`` or the menu makes another one
+                      every kind; only the active one works (``!skill``).
+                      ``!klejnoty`` lists them (with a menu under the list),
+                      ``!wybierzklejnot <nr>`` or the menu makes another one
                       active.  The old bot never looks at this table and
                       still sees the active gem in ``PETOWNER``.
 
@@ -36,7 +36,7 @@ game rules themselves are unchanged):
 * gem ids are allocated under a lock, an empty ``SKILLS`` table no longer
   crashes the generator and ``create_skills_table`` never drops anything;
 * a missing ``SKILLS`` row, a NULL ``SKILL_GEM`` or an unknown variant no
-  longer crash ``$pokazskill`` / ``$skill``;
+  longer crash ``!pokazskill`` / ``!skill``;
 * the cooldown is used up exactly when the gem did something: a Discord
   failure while *announcing* an effect no longer leaves the effect in force
   with the gem still ready (it could be repeated for ever);
@@ -182,7 +182,7 @@ MSG_REST_OVER = "⌛ Odpoczynek dobiegł końca."
 MSG_ALREADY_RESTING = "Już odpoczywasz <:Bedge:970576892874854400>"
 #: Seconds between two edits of the rest's roster.
 ROSTER_EDIT_GAP = 1.0
-# The pouch's menu (``$klejnoty``).
+# The pouch's menu (``!klejnoty``).
 POUCH_PLACEHOLDER = "Wybierz aktywny klejnot..."
 #: Seconds the menu stays under the list without being used.
 POUCH_MENU_SECONDS = 180.0
@@ -198,14 +198,14 @@ MSG_FESTIVAL_DONE = ("Wygląda na to, że bossowie i potwory odczuwają efekty T
                      "<:MonkaChrist:783992337075929098>")
 MSG_SLOW_DONE = "Klejnot sprawia, że przeciwnicy lepią się od błota i poruszają się znacznie wolniej."
 MSG_LOOT_DONE = "Klejnot sprawia, że przeciwnicy oferują teraz lepsze nagrody."
-MSG_NO_SUCH_NUMBER = ("Nie masz klejnotu o takim numerze, <@{player_id}>. Wpisz **$klejnoty**, żeby zobaczyć "
-                      "swoje klejnoty, a potem np. **$wybierzklejnot 2**.")
+MSG_NO_SUCH_NUMBER = ("Nie masz klejnotu o takim numerze, <@{player_id}>. Wpisz **!klejnoty**, żeby zobaczyć "
+                      "swoje klejnoty, a potem np. **!wybierzklejnot 2**.")
 MSG_ALREADY_ACTIVE = "**{name}** jest już Twoim aktywnym klejnotem, <@{player_id}>."
-MSG_GEM_CHOSEN = ("Aktywny klejnot <@{player_id}>: **{name}**. Użyjesz go komendą **$skill**. "
-                  "Pozostałe klejnoty czekają w sakwie (**$klejnoty**).")
+MSG_GEM_CHOSEN = ("Aktywny klejnot <@{player_id}>: **{name}**. Użyjesz go komendą **!skill**. "
+                  "Pozostałe klejnoty czekają w sakwie (**!klejnoty**).")
 POUCH_TITLE = "Sakwa z klejnotami umiejętności"
-POUCH_FOOTER = ("Działa tylko aktywny klejnot, jeden dziennie. Zmiana: menu pod listą albo $wybierzklejnot "
-                "numer. Użycie: $skill.")
+POUCH_FOOTER = ("Działa tylko aktywny klejnot, jeden dziennie. Zmiana: menu pod listą albo !wybierzklejnot "
+                "numer. Użycie: !skill.")
 # New in v2 (the legacy bot had no such situations, see the module docstring).
 MSG_EVENT_IN_THE_WAY = ("Trwa teraz inne wydarzenie, <@{player_id}>! Klejnot przywołania nie został użyty - "
                         "spróbuj ponownie, gdy się zakończy <:Bedge:970576892874854400>")
@@ -438,7 +438,7 @@ async def assign_skill(scene: "Scene", player: Any, variant: int | None = None) 
     A player collects one gem of every kind.  The new gem is of a kind the
     player does not have yet (drawn as before; ``variant`` forces a kind).  The
     first gem becomes the active one, the next ones go to the pouch
-    (``$klejnoty`` / ``$wybierzklejnot``).  True when the player got a new gem,
+    (``!klejnoty`` / ``!wybierzklejnot``).  True when the player got a new gem,
     False when they already have every kind that can drop (or the forced one).
     """
     bot = scene.bot
@@ -540,7 +540,7 @@ async def _load_pouch(bot: "AlterBot", player_id: int) -> tuple[int, list[tuple[
 
 def _pouch_embed(bot: "AlterBot", player_id: int, active: int, gems: Sequence[tuple[int, Any]],
                  *, menu: bool) -> discord.Embed:
-    """The ``$klejnoty`` list: every gem with its number, the active one marked, regeneration times."""
+    """The ``!klejnoty`` list: every gem with its number, the active one marked, regeneration times."""
     lines = []
     for number, (skill_id, row) in enumerate(gems, start=1):
         cooldown = _cooldown_note(bot, player_id, _int(row["skill_variant"]))
@@ -548,11 +548,11 @@ def _pouch_embed(bot: "AlterBot", player_id: int, active: int, gems: Sequence[tu
             lines.append(f"**{number}. {_gem_label(row)}** ✅ aktywny{cooldown}")
         else:
             lines.append(f"{number}. {_gem_label(row)}{cooldown}")
-    how = ("w menu pod listą albo komendą **$wybierzklejnot numer**" if menu
-           else "komendą **$wybierzklejnot numer**")
+    how = ("w menu pod listą albo komendą **!wybierzklejnot numer**" if menu
+           else "komendą **!wybierzklejnot numer**")
     description = (f"Oto Twoje klejnoty umiejętności, <@{player_id}>.\n\n" + "\n".join(lines)
                    + f"\n\nZmień aktywny klejnot {how}, "
-                     "a szczegóły aktywnego zobaczysz przez **$pokazskill**.")
+                     "a szczegóły aktywnego zobaczysz przez **!pokazskill**.")
     embed = discord.Embed(title=POUCH_TITLE, description=description, color=SKILL_EMBED_COLOR)
     embed.set_footer(text=POUCH_FOOTER)
     return embed
@@ -560,7 +560,7 @@ def _pouch_embed(bot: "AlterBot", player_id: int, active: int, gems: Sequence[tu
 
 def _pouch_options(bot: "AlterBot", player_id: int, active: int,
                    gems: Sequence[tuple[int, Any]]) -> list[discord.SelectOption]:
-    """One menu entry per gem; the value is the gem's number (as in ``$wybierzklejnot``)."""
+    """One menu entry per gem; the value is the gem's number (as in ``!wybierzklejnot``)."""
     options = []
     for number, (skill_id, row) in enumerate(gems, start=1):
         if skill_id == active:
@@ -575,7 +575,7 @@ def _pouch_options(bot: "AlterBot", player_id: int, active: int,
 
 
 class _PouchMenu(ui.PanelView):
-    """The menu under ``$klejnoty``: choosing a gem makes it the active one (= ``$wybierzklejnot``).
+    """The menu under ``!klejnoty``: choosing a gem makes it the active one (= ``!wybierzklejnot``).
 
     Only the owner of the list may use it.  Choosing is gameplay: boss channel
     only, not while the channel is busy, not for dead hunters (:func:`ui.gate`),
@@ -616,7 +616,7 @@ class _PouchMenu(ui.PanelView):
 
 
 async def show_skills(scene: "Scene") -> bool:
-    """``$klejnoty``: every gem of the author with its number; False when they have none.
+    """``!klejnoty``: every gem of the author with its number; False when they have none.
 
     With two gems or more a menu under the list makes another gem the active
     one (see :class:`_PouchMenu`).
@@ -651,7 +651,7 @@ def _cooldown_note(bot: "AlterBot", player_id: int, skill_variant: int) -> str:
 
 
 def _choice_text(status: str, player_id: int, name: str) -> str:
-    """The answer to ``$wybierzklejnot`` / a choice in the menu."""
+    """The answer to ``!wybierzklejnot`` / a choice in the menu."""
     if status == "none":
         return MSG_NO_SKILL.format(player_id=player_id)
     if status == "bad_number":
@@ -662,7 +662,7 @@ def _choice_text(status: str, player_id: int, name: str) -> str:
 
 
 async def choose_skill(scene: "Scene", number: Any) -> bool:
-    """``$wybierzklejnot <nr>``: make gem ``number`` of ``$klejnoty`` the active one.
+    """``!wybierzklejnot <nr>``: make gem ``number`` of ``!klejnoty`` the active one.
 
     The gem that was active goes to the pouch.  True when the active gem changed.
     """
@@ -726,7 +726,7 @@ async def show_skill(scene: "Scene") -> bool:
     if skill_variant in SKILL_DESCRIPTIONS:
         skill_desc = (SKILL_DESCRIPTIONS[skill_variant]
                       + f"\n\nDodatkowe spowolnienie: {skill_slow_perc} %."
-                      + "\n\nMożesz użyć umiejętności przez komendę **$skill**.")
+                      + "\n\nMożesz użyć umiejętności przez komendę **!skill**.")
     else:
         skill_desc = UNKNOWN_SKILL_DESCRIPTION
 
@@ -1004,7 +1004,7 @@ async def skill_spawn_boss(scene: "Scene") -> bool:
 
 
 async def skill_summon_boss(scene: "Scene") -> bool:
-    """Put the boss of the summoning gem on the channel (legacy part of ``$uzyjskilla``).
+    """Put the boss of the summoning gem on the channel (legacy part of ``!uzyjskilla``).
 
     Call it after :func:`use_skill` returned :data:`SUMMON` and the busy flag
     was released.  Should the boss not appear after all (the scheduled one

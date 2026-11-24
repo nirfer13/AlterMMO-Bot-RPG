@@ -134,7 +134,7 @@ async def test_attack_button_refusals_are_public_and_addressed(registered, fight
 async def test_typed_zaatakuj_still_works_and_takes_the_button_off(game, fights, monkeypatch):
     ala = game.add_member("Ala")
     picture = await show_boss(game, monkeypatch)
-    await game.bot.boss_cycle.attack(game.scene(ala, "$zaatakuj"))
+    await game.bot.boss_cycle.attack(game.scene(ala, "!zaatakuj"))
     assert fights.calls[:2] == [("init", "Ala", 0), ("fight", "Ala", 0)]
     assert picture.view is None
 
@@ -206,12 +206,12 @@ async def test_boss_is_not_attacked_while_the_channel_is_busy(registered, fights
         assert click.answers == [ui.MSG_BUSY] and ui.MSG_BUSY == guards.BUSY_NOTICE
         assert game.channel.messages[-1].content == f"<@{ala.id}> {guards.BUSY_NOTICE}"   # on the channel
         # One busy notice per 20 s on the channel, shared by the clicks and the typed commands:
-        await game.bot.boss_cycle.attack(game.scene(ala, "$zaatakuj"))
+        await game.bot.boss_cycle.attack(game.scene(ala, "!zaatakuj"))
         again = await game.click(picture, ola, "Zaatakuj")
         assert again.response.deferred and again.replies == []      # acknowledged, nothing posted
         assert game.channel.count(guards.BUSY_NOTICE) == 1
         guards._last_notice.clear()                                  # ...20 s later
-        await game.bot.boss_cycle.attack(game.scene(ala, "$zaatakuj"))
+        await game.bot.boss_cycle.attack(game.scene(ala, "!zaatakuj"))
         assert game.channel.messages[-1].content == guards.BUSY_NOTICE
     assert fights.calls == [] and game.bot.state.boss_phase is BossPhase.VISIBLE
     assert picture.button_labels == ["Zaatakuj"]                     # the boss waits...
@@ -239,7 +239,7 @@ async def test_no_boss_is_the_answer_also_during_a_hunt(registered, fights, monk
     not_attackable = boss_cycle.MSG_NOT_ATTACKABLE.format(user_id=ala.id)
     with game.bot.state.hold_busy("hunt"):
         assert (await game.click(old, ala, "Zaatakuj")).public == [not_attackable]
-        await game.bot.boss_cycle.attack(game.scene(ala, "$zaatakuj"))
+        await game.bot.boss_cycle.attack(game.scene(ala, "!zaatakuj"))
     assert game.channel.messages[-1].content == not_attackable
     assert game.channel.count(not_attackable) == 2                   # the click's answer and the command's
     assert not game.channel.contains(guards.BUSY_NOTICE)
@@ -326,7 +326,7 @@ async def test_late_interrupted_notice_brings_no_button_after_the_boss_was_engag
     await game.click(picture, ala, "Zaatakuj")
     assert game.bot.state.boss_phase is BossPhase.VISIBLE
     await asyncio.sleep(0.05)                                        # the notice is on its way
-    await game.bot.boss_cycle.attack(game.scene(ola, "$zaatakuj"))  # the second try, before the notice
+    await game.bot.boss_cycle.attack(game.scene(ola, "!zaatakuj"))  # the second try, before the notice
     assert ("fight", "Ola", 0) in fights.calls and game.bot.state.boss_phase is BossPhase.IDLE
     gate.set()
     await asyncio.sleep(0.1)
@@ -540,7 +540,7 @@ async def test_legendary_lobby_by_buttons(registered, monkeypatch):
     assert field(panel)[1] == f"⚔️ <@{ala.id}>\n⚔️ <@{ola.id}>"
     assert "Nieźle, jest już Was 2." in panel.embeds[0].description
     await game.click(panel, ela, "join")
-    game.say(ula, "$zaatakuj")                                       # typing still works
+    game.say(ula, "!zaatakuj")                                       # typing still works
 
     ready = await game.wait_for_buttons("ready")
     assert ready is not panel and panel.deleted and panel.view is None
@@ -556,7 +556,7 @@ async def test_legendary_lobby_by_buttons(registered, monkeypatch):
     assert field(ready)[1] == f"⏳ <@{ala.id}>\n✅ <@{ola.id}>\n⏳ <@{ela.id}>\n⏳ <@{ula.id}>"
     await game.click(ready, ala, "ready")
     await game.click(ready, ela, "ready")
-    game.say(ula, "$tak")
+    game.say(ula, "!tak")
     assert await asyncio.wait_for(lobby, 3) == [ala, ola, ela, ula]
 
     assert ready.view is None and ready.content == "Do walki z legendarnym bossem stają:" + mentions
@@ -572,7 +572,7 @@ async def test_legendary_lobby_refusals(registered, monkeypatch):
     game.channel.silenced_roles.add(bot.ids.dead_hunter_role)
     picture = await show_boss(game, monkeypatch, rarity=3)
     assert bot.state.try_engage_boss()
-    lobby = asyncio.ensure_future(boss.group_init(game.scene(ala, "$zaatakuj"), 3))
+    lobby = asyncio.ensure_future(boss.group_init(game.scene(ala, "!zaatakuj"), 3))
     panel = await game.wait_for_buttons("join")
 
     assert (await game.click(panel, dead, "join")).public == [f"<@{dead.id}> {ui.MSG_CANNOT_PLAY}"]
@@ -619,7 +619,7 @@ async def test_legendary_lobby_panel_deleted_midway_is_posted_again(registered, 
         raise not_found()
 
     panel.edit = gone
-    game.say(ola, "$zaatakuj")
+    game.say(ola, "!zaatakuj")
     again = await game.wait_for_buttons("join")
     assert again is not panel and field(again) == ("Drużyna (2/4)", f"⚔️ <@{ala.id}>\n⚔️ <@{ola.id}>")
     await game.click(again, ela, "join")
@@ -655,7 +655,7 @@ async def test_legendary_lobby_panel_put_back_after_a_deletion_pings_nobody_agai
         raise not_found()
 
     ready.edit = gone
-    game.say(ola, "$tak")
+    game.say(ola, "!tak")
     again = await game.wait_for_buttons("ready")
     assert again is not ready and again.content == ready.content     # the same text...
     mentions = next(mentions for message, mentions in sent_with if message is again)

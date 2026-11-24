@@ -7,17 +7,17 @@
 	},
 	{
 		"id": 10,
-		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **!towarzysz**.",
 		"weight": 15
 	},
 	{
 		"id": 11,
-		"descr": "Dostałeś zwój. Możesz zresetować statystyki towarzysza wpisując **$odrodzenie**.",
+		"descr": "Dostałeś zwój. Możesz zresetować statystyki towarzysza wpisując **!odrodzenie**.",
 		"weight": 1
 	},
 	{
 		"id": 12,
-		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **!towarzysz**.",
 		"weight": 2
 	}
 	],"loot_details_Rare": [
@@ -28,17 +28,17 @@
 	},
 	{
 		"id": 10,
-		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **!towarzysz**.",
 		"weight": 50
 	},
 	{
 		"id": 11,
-		"descr": "Dostałeś zwój. Możesz zresetować statystyki towarzysza wpisując **$odrodzenie**.",
+		"descr": "Dostałeś zwój. Możesz zresetować statystyki towarzysza wpisując **!odrodzenie**.",
 		"weight": 25
 	},
 	{
 		"id": 12,
-		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **!towarzysz**.",
 		"weight": 5
 	}
 	],"loot_details_Epic": [
@@ -49,27 +49,27 @@
 	},
 	{
 		"id": 10,
-		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **!towarzysz**.",
 		"weight": 100
 	},
 	{
 		"id": 11,
-		"descr": "Dostałeś zwój. Możesz zresetować statystyki towarzysza wpisując **$odrodzenie**.",
+		"descr": "Dostałeś zwój. Możesz zresetować statystyki towarzysza wpisując **!odrodzenie**.",
 		"weight": 100
 	},
 	{
 		"id": 12,
-		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **!towarzysz**.",
 		"weight": 25
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
+		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
 		"weight": 15
 	},
 	{
 		"id": 14,
-		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
+		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **!transformacja**.",
 		"weight": 15
 	}
 	]

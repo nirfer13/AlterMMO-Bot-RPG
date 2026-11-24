@@ -261,7 +261,7 @@ async def test_open_chest_gives_the_loot_and_no_role(ready, no_loot):
     game = ready
     ala = supporter(game, "Ala")
     for _ in range(10):                                          # the 10th chest was to give a role
-        await events.open_chest(game.scene(ala, "$skrzynia"))
+        await events.open_chest(game.scene(ala, "!skrzynia"))
     assert [hunter for _rarity, hunter, _boost in no_loot] == [ala] * 10
     nothing_given(game, {ala: {SUPPORTER}})
 

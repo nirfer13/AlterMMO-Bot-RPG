@@ -109,7 +109,7 @@ def owner_pings(game) -> list[str]:
 
 
 async def refused_tower_run(game, player) -> list[str]:
-    """``$wieża`` again (as the hub button runs it); returns the refusals, asserts nothing started."""
+    """``!wieża`` again (as the hub button runs it); returns the refusals, asserts nothing started."""
     refused: list[str] = []
 
     async def refuse(text):
@@ -367,7 +367,7 @@ async def test_hunt_error_after_the_kill_keeps_the_daily_cooldown(game, skills, 
     assert bot.owner_log == [report]
     assert owner_pings(game) == [f"<@{bot.ids.owner}>!   " + report]
 
-    # The cooldown holds: a second $polowanie today is refused (no second monster).
+    # The cooldown holds: a second !polowanie today is refused (no second monster).
     refused: list[str] = []
 
     async def refuse(text):

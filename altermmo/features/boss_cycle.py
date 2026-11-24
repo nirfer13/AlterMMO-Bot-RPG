@@ -1,6 +1,6 @@
 """The big boss life-cycle: schedule -> silence -> wind -> boss -> fight -> repeat.
 
-Replaces the legacy ``task`` loop of ``cogs/spawnboss.py`` and the ``$zaatakuj``
+Replaces the legacy ``task`` loop of ``cogs/spawnboss.py`` and the ``!zaatakuj``
 plumbing around the fights.  The legacy loop
 
 * was started only when the database said a respawn was in progress, so after
@@ -23,7 +23,7 @@ Timeline of one cycle (production timings)::
     WAITING    sleep until the arrival time
     PRE_SPAWN  apply shrine modifiers to the rarity, warn pet owners, post
                "Wiatr wzmaga się...", wait 4-7 minutes, show the boss
-    VISIBLE    wait for $zaatakuj (or a click on "Zaatakuj")
+    VISIBLE    wait for !zaatakuj (or a click on "Zaatakuj")
     ENGAGED    choosing the fighter / gathering a party
     FIGHTING   the fight
 
@@ -31,12 +31,12 @@ The "Zaatakuj" button
 ---------------------
 The boss picture (:func:`altermmo.features.boss.send_boss_image`) carries a
 permanent button (:class:`AttackView`, fixed ``custom_id``, registered by the
-boss cog): a click is the same as typing ``$zaatakuj`` - the same guards, but
+boss cog): a click is the same as typing ``!zaatakuj`` - the same guards, but
 the refusals go through ``ui.reply``.  The cycle remembers the messages that carry the
 button and takes it off as soon as the boss is engaged or leaves; when a fight
 is interrupted and the boss stays, the notice about it carries the button
 again.  While a lobby runs, a click on an old button is handed to the lobby
-(:attr:`BossCycle.lobby_door`), like a typed ``$zaatakuj`` is.
+(:attr:`BossCycle.lobby_door`), like a typed ``!zaatakuj`` is.
 
 Owner's rule: the boss cannot be attacked while a hunt, a tower run or an event
 plays on the channel (``state.activity_running``) - neither with the command
@@ -75,7 +75,7 @@ MSG_WIND = ("Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, "
 MSG_NOT_ATTACKABLE = "Nie możesz zaatakować bossa, poczekaj na pojawienie się kolejnego <@{user_id}>!"
 MSG_FIGHT_INTERRUPTED_STAYS = ("Wystąpił problem techniczny i walka została przerwana "
                                "<:Sadge:936907659142111273> Boss wciąż tu jest - kliknij **Zaatakuj** "
-                               "albo wpisz **$zaatakuj**, żeby spróbować ponownie!")
+                               "albo wpisz **!zaatakuj**, żeby spróbować ponownie!")
 MSG_BOSS_TAKEN = "Ktoś już walczy z tym bossem - poczekaj na kolejnego! <:Bedge:970576892874854400>"
 #: A click in the split second between somebody's attack and the message where the
 #: others sign up (the party panel of a legendary boss / the minute for a rival).
@@ -206,7 +206,7 @@ async def with_attack_button(send: Callable[[AttackView], Awaitable[Any]]) -> An
 
 
 async def handle_attack_click(interaction: Any) -> None:
-    """A click on "Zaatakuj": exactly ``$zaatakuj``; the refusals go through ``ui.reply``.
+    """A click on "Zaatakuj": exactly ``!zaatakuj``; the refusals go through ``ui.reply``.
 
     The click is acknowledged as soon as the boss is claimed; the encounter
     (lobby and fight) then runs inside this handler.
@@ -220,7 +220,7 @@ async def handle_attack_click(interaction: Any) -> None:
     cycle: BossCycle = bot.boss_cycle
     door = cycle.lobby_door
     if bot.state.boss_phase is BossPhase.ENGAGED and door is not None:
-        await door(interaction)  # an old button clicked while a lobby runs: like a typed $zaatakuj
+        await door(interaction)  # an old button clicked while a lobby runs: like a typed !zaatakuj
         return
     await cycle.attack(ui.scene_of(interaction), interaction=interaction)
 
@@ -268,7 +268,7 @@ class BossCycle:
     @property
     def lobby_door(self) -> Callable[[Any], Awaitable[None]] | None:
         """Set by a running lobby: ``async (interaction) -> None`` takes a click on an old
-        "Zaatakuj" button as a typed ``$zaatakuj`` (and answers it)."""
+        "Zaatakuj" button as a typed ``!zaatakuj`` (and answers it)."""
         return self._lobby_door
 
     @lobby_door.setter
@@ -328,13 +328,13 @@ class BossCycle:
         self.bot.supervisor.start(LOOP_NAME, self.run)
 
     async def enable(self) -> None:
-        """``$startSpawnBoss``: switch spawning on and restart the loop."""
+        """``!startSpawnBoss``: switch spawning on and restart the loop."""
         self.bot.store.runtime_set(_KEY_ENABLED, True)
         self._restored = False
         self.start()
 
     async def disable(self) -> None:
-        """``$stopSpawnBoss``: no more bosses until enabled again (survives restarts).
+        """``!stopSpawnBoss``: no more bosses until enabled again (survives restarts).
 
         An open mine stays open, but no longer closes at the end of the quiet
         hour (:meth:`silence_at`): it is told its new latest closing at once.
@@ -351,7 +351,7 @@ class BossCycle:
         await self._database.update_boss_table(self.bot, 0, 0, False)
 
     async def reset(self) -> None:
-        """``$ResetBoss``: drop whatever is going on and start a fresh cycle."""
+        """``!ResetBoss``: drop whatever is going on and start a fresh cycle."""
         bot = self.bot
         bot.supervisor.stop(LOOP_NAME)
         self._forget_schedule()
@@ -403,7 +403,7 @@ class BossCycle:
                 # A reset owed by a fight decided before the restart (also with spawning switched off).
                 await self._finish_after_restart()
         if not self.enabled:
-            log.info("Boss spawning is switched off ($startSpawnBoss enables it).")
+            log.info("Boss spawning is switched off (!startSpawnBoss enables it).")
             await asyncio.Event().wait()
         if not self._restored:
             await self._restore()
@@ -544,7 +544,7 @@ class BossCycle:
         if bot.state.boss_phase >= BossPhase.VISIBLE:
             # Spawning was switched on while a summoned boss is on the channel (or
             # being fought): that boss stays; only the schedule is picked up.  The
-            # scheduled boss itself ($startSpawnBoss while it waits) is not a
+            # scheduled boss itself (!startSpawnBoss while it waits) is not a
             # summoned one: it keeps waiting for ever, nothing is picked up.
             summoned = bot.store.runtime_get(_KEY_SUMMONED) is not None
             if summoned and row is not None and row.respawn_started and row.respawn_at is not None:
@@ -804,9 +804,9 @@ class BossCycle:
         the schedule belong to the boss that arrives now - without the quiet
         hour that follows a fight.
 
-        When the loop is cancelled meanwhile by $ResetBoss / $stopSpawnBoss, the
+        When the loop is cancelled meanwhile by !ResetBoss / !stopSpawnBoss, the
         phase is left alone: they have set their own (IDLE) already.  A plain
-        restart of the loop ($startSpawnBoss while spawning is on) sets nothing,
+        restart of the loop (!startSpawnBoss while spawning is on) sets nothing,
         so the boss - claimed, with no fight - is still sent away: ENGAGED
         without a fight would block the channel for two hours.
         """
@@ -939,7 +939,7 @@ class BossCycle:
     # -- fights -----------------------------------------------------------------
 
     async def attack(self, scene: Scene, *, interaction: Any = None) -> None:
-        """``$zaatakuj``: claim the visible boss and run the whole encounter.
+        """``!zaatakuj``: claim the visible boss and run the whole encounter.
 
         ``interaction``: set when the attack is a click on "Zaatakuj" - the
         refusals are then private answers to the click, and the click is
@@ -957,7 +957,7 @@ class BossCycle:
         bot = self.bot
         state = bot.state
         if state.boss_phase is BossPhase.ENGAGED:
-            # Other players' $zaatakuj during the lobby is handled by the lobby itself.
+            # Other players' !zaatakuj during the lobby is handled by the lobby itself.
             if interaction is not None:
                 if self._lobby_opening is None:
                     await ui.reply(interaction, MSG_BOSS_TAKEN)
@@ -1066,7 +1066,7 @@ class BossCycle:
         if self.bot.state.boss_phase not in (BossPhase.ENGAGED, BossPhase.FIGHTING):
             return  # (not an encounter of the cycle)
         if self._active_encounter != self._encounters:
-            return  # (a fight left over from before $ResetBoss: the boss standing now is another one)
+            return  # (a fight left over from before !ResetBoss: the boss standing now is another one)
         if self._fight_task is not None and asyncio.current_task() is not self._fight_task:
             return  # (the same, when somebody has attacked the new boss meanwhile)
         self._decided = (self._encounters, result)

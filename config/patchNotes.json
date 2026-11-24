@@ -107,7 +107,7 @@
         "date": "2026-11-23",
         "title": "Ranga Kolekcjoner Pupili",
         "changes": [
-            "Pierwsze miejsce w rankingu kolekcji ($rankingalbumow) nosi teraz rangę Kolekcjoner Pupili. Ranga daje dodatkową szansę na wygraną w giveawayach.",
+            "Pierwsze miejsce w rankingu kolekcji (!rankingalbumow) nosi teraz rangę Kolekcjoner Pupili. Ranga daje dodatkową szansę na wygraną w giveawayach.",
             "Rangę ma zawsze ten, kto prowadzi w rankingu: gdy ktoś wyprzedzi lidera, ranga przechodzi na niego, a bot ogłasza to na kanale bossa.",
             "Ranking kolekcji to ranking wspierających - liczą się w nim albumy osób, które wspierają AlterMMO w danej chwili."
         ]
@@ -118,7 +118,7 @@
         "title": "Album, trening i wydarzenia",
         "changes": [
             "Wspierający dostają teraz przy każdym nowym jajku krótką notkę o albumie: które etapy tego towarzysza są już w albumie i z jaką kartą, a które mogą jeszcze uzupełnić kolekcję.",
-            "W rankingu kolekcji ($rankingalbumow) liczy się teraz także etap towarzysza: im wyższy etap, tym więcej warta jest jego karta. Jajka są warte tyle, co dotąd.",
+            "W rankingu kolekcji (!rankingalbumow) liczy się teraz także etap towarzysza: im wyższy etap, tym więcej warta jest jego karta. Jajka są warte tyle, co dotąd.",
             "Jajko w albumie nie zdradza już swojego gatunku - tak jak w grze. To samo dotyczy rankingu towarzyszy. Jajka są teraz w albumie razem, osobno od wyklutych towarzyszy, i nadal liczą się do kolekcji.",
             "Trening towarzyszy: w wiadomości z walką jest teraz pasek przewagi, który przesuwa się w trakcie sparingu - od razu widać, kto prowadzi.",
             "Wydarzenia na kanale bossa pojawiają się teraz trochę częściej."
@@ -133,6 +133,16 @@
             "Po każdej komorze decydujesz: wracasz z łupem czy schodzisz niżej po lepszy. Nieudane zejście to powrót z pustymi rękami - ale wszystko, co miałeś przed wyprawą, jest bezpieczne. Szanse i nagrody każdej komory są jawne: znajdziesz je w ogłoszeniu i pod przyciskiem Tabela nagród.",
             "Uwaga: łup jest Twój dopiero wtedy, gdy go zabierzesz. Kopalnia zamyka się, gdy nadejdzie następne wydarzenie albo boss - kto do tej chwili nie wyjdzie z łupem, traci wszystko z tej wyprawy.",
             "W głębszych komorach czekają jaja. Po wyjściu o każdym decydujesz osobno: bierzesz je, wkładasz do stajni, zamieniasz z towarzyszem ze stajni albo poświęcasz."
+        ]
+    },
+    {
+        "id": 13,
+        "date": "2026-11-24",
+        "title": "Komendy zaczynają się od !",
+        "changes": [
+            "Komendy gry zaczynają się teraz od wykrzyknika: !polowanie, !towarzysz, !pomoc i wszystkie pozostałe.",
+            "Tak samo wpisujesz słowa, którymi odpowiadasz botowi: !potwierdzam przy potwierdzeniach, !tak przed walką z legendarnym bossem, !zaatakuj i !polowanie, żeby dołączyć.",
+            "Dotychczasowy znak $ na razie nadal działa, więc nic nie przepadnie - ale przyzwyczajajcie się do wykrzyknika."
         ]
     }
 ]

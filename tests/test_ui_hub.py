@@ -133,7 +133,7 @@ class DatabaseDown:
 
 @pytest.fixture
 def fake_hunt(monkeypatch, game):
-    """``$polowanie``'s hunt without monsters: records who hunted and who held the channel."""
+    """``!polowanie``'s hunt without monsters: records who hunted and who held the channel."""
     hunts: list = []
 
     async def daily_hunt(scene):
@@ -190,7 +190,8 @@ async def test_every_player_command_is_in_the_help_and_every_mentioned_one_exist
         return command.cog_name == "Admin" or any(
             "has_permissions" in getattr(check, "__qualname__", "") for check in command.checks)
 
-    mentioned = {word.lower() for word in re.findall(r"\$(\w+)", help_cog.HELP_TEXT)}
+    mentioned = {word.lower() for word in re.findall(r"!(\w+)", help_cog.HELP_TEXT)}
+    assert not re.search(r"\$[^\W\d_]", help_cog.HELP_TEXT)          # the help names commands with "!" only
     names = {}
     for command in bot.walk_commands():
         for name in (command.name, *command.aliases):
@@ -202,7 +203,7 @@ async def test_every_player_command_is_in_the_help_and_every_mentioned_one_exist
     unknown = sorted(word for word in mentioned if word not in names and word not in TYPED_WORDS)
     assert unknown == []
     assert not any(admin_only(names[word]) for word in mentioned if word in names)
-    for word in ("$skrzynia", "$ikona", "$kradnijxp", "$zabojca", "$wyczuwanie", "$rekordwieży"):
+    for word in ("!skrzynia", "!ikona", "!kradnijxp", "!zabojca", "!wyczuwanie", "!rekordwieży"):
         assert word in help_cog.HELP_TEXT
 
 
@@ -247,7 +248,7 @@ def test_panel_fits_discord_limits_and_stays_compact():
     # are cosmetic only.  1500 since 2026-11-23: the album's line names the rank of the collection
     # ranking's first place.)
     assert len(hub.PANEL_SUPPORT_TEXT) <= 1500
-    # (The achievements line also names the "Osiągnięcia" button and $osiagniecia.)
+    # (The achievements line also names the "Osiągnięcia" button and !osiagniecia.)
     assert all(len(line) <= 240 for line in hub.PANEL_BENEFITS)
 
     # One line of the game's part per button, in the order of the buttons.
@@ -301,10 +302,10 @@ def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
     # One line per benefit - what the code really gives supporters.
     assert lines[:len(hub.PANEL_BENEFITS)] == list(hub.PANEL_BENEFITS) and len(hub.PANEL_BENEFITS) == 7
     benefits = "\n".join(hub.PANEL_BENEFITS)
-    for words in ("Jaja premium", "**$transformacja**", "lustrem wizualiów", "**$modlitwa**", "kapliczce",
+    for words in ("Jaja premium", "**!transformacja**", "lustrem wizualiów", "**!modlitwa**", "kapliczce",
                   "zostaniesz bossem", "imprezy u Barda", "Kolekcjonerskie osiągnięcia", "mityczne zdobycze",
-                  "przyciskiem **Osiągnięcia** (**$osiagniecia**)", "Kolekcjonerskie ozdoby karty",
-                  "dopóki wspierasz", "📖 **Album**", "poświęceni towarzysze", "(**$album**)",
+                  "przyciskiem **Osiągnięcia** (**!osiagniecia**)", "Kolekcjonerskie ozdoby karty",
+                  "dopóki wspierasz", "📖 **Album**", "poświęceni towarzysze", "(**!album**)",
                   # Owner, 2026-11-22: the panel stresses that the ornaments are cosmetic only.
                   "**wyłącznie elementy kosmetyczne**, bez wpływu na grę",
                   "**To tylko element kosmetyczny**: inny wygląd, te same statystyki."):
@@ -312,7 +313,7 @@ def test_panel_names_the_supporter_roles_the_benefits_and_the_links():
     # The album's line (2026-11-21): one line, no species, no ornaments (checked below as well);
     # since 2026-11-22 it names the ranking of the collections, since 2026-11-23 the rank its first
     # place carries (features/collector.py) - without a number and without naming Horus.
-    assert hub.PANEL_BENEFITS[-1] == ("📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**) "
+    assert hub.PANEL_BENEFITS[-1] == ("📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**!album**) "
                                       "i liczą się w rankingu kolekcji; jego pierwsze miejsce nosi rangę "
                                       "**Kolekcjoner Pupili** (dodatkowa szansa w giveawayach).")
     assert "Horus" not in hub.PANEL_TEXT and "%" not in hub.PANEL_BENEFITS[-1]
@@ -344,7 +345,8 @@ async def test_every_command_the_panel_names_exists_and_is_for_players(game, mon
     monkeypatch.setattr(bot.supervisor, "start", lambda *args, **kwargs: None)
     for extension in bot_module.EXTENSIONS:
         await bot.load_extension(extension)
-    named = set(re.findall(r"\$(\w+)", hub.PANEL_TEXT))
+    named = set(re.findall(r"!(\w+)", hub.PANEL_TEXT))
+    assert not re.search(r"\$[^\W\d_]", hub.PANEL_TEXT)                 # commands are named with "!" only
     assert {"zaatakuj", "transformacja", "modlitwa"} <= named
     for word in named:
         command = bot.get_command(word)
@@ -358,10 +360,10 @@ async def test_typed_pomoc_shows_the_help_and_its_cooldown_answers_with_a_live_t
     for channel in bot.fake_channels.values():
         channel.type = discord.ChannelType.text
     ala = game.add_member("Ala")
-    await run(game, ala, "$pomoc", channel=game.announce_channel)
+    await run(game, ala, "!pomoc", channel=game.announce_channel)
     shown = game.announce_channel.messages[-1].embeds[0]
     assert shown.title == help_cog.HELP_TITLE and shown.to_dict() == help_cog.help_embed().to_dict()
-    await run(game, ala, "$komendy", channel=game.announce_channel)
+    await run(game, ala, "!komendy", channel=game.announce_channel)
     answer = game.announce_channel.messages[-1].content
     assert answer.startswith("Poczekaj na odnowienie komendy! Spróbuj ponownie <t:")
     assert abs(stamp_of(answer) - (time.time() + 600)) < 30
@@ -436,17 +438,17 @@ async def test_panel_command_for_administrators(game, cog, pins):
 
     # Not for players: nothing is posted, nothing is said.
     ala = game.add_member("Ala")
-    await run(game, ala, "$panel")
+    await run(game, ala, "!panel")
     assert game.channel.count(hub.PANEL_TITLE) == 0 and bot.store.runtime_get(hub.PANEL_KEY) is None
 
     # Typed elsewhere: the panel goes to the boss channel and the administrator is told.
-    await run(game, alter, "$panel", channel=game.announce_channel)
+    await run(game, alter, "!panel", channel=game.announce_channel)
     panel = game.channel.messages[-1]
     assert panel.embeds[0].title == hub.PANEL_TITLE and panel.pinned
     assert game.announce_channel.messages[-1].content == hub.MSG_POSTED.format(channel_id=game.channel.id)
 
     # Typed on the boss channel: a tick under the command, the old panel is gone.
-    typed = await run(game, alter, "$centrum")
+    typed = await run(game, alter, "!centrum")
     assert typed.reactions == ["✅"] and panel.deleted
     assert game.channel.count(hub.PANEL_TITLE) == 1
 
@@ -486,14 +488,14 @@ async def test_panel_command_when_pinning_or_posting_fails(game, cog, monkeypatc
         raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Missing Permissions")
 
     monkeypatch.setattr(FakeMessage, "pin", refused, raising=False)
-    await run(game, alter, "$panel")
+    await run(game, alter, "!panel")
     assert game.channel.messages[-1].content == hub.MSG_POSTED_NOT_PINNED.format(channel_id=game.channel.id)
     assert game.channel.count(hub.PANEL_TITLE) == 1                     # posted, only not pinned
 
     game.channel.fail_with = discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "no")
     game.channel.fail_sends = 1                                          # only the panel fails (not retried)
     remembered = game.bot.store.runtime_get(hub.PANEL_KEY)
-    await run(game, alter, "$panel")
+    await run(game, alter, "!panel")
     assert game.channel.messages[-1].content.startswith(hub.MSG_NOT_POSTED)
     assert game.bot.store.runtime_get(hub.PANEL_KEY) == remembered      # the old panel stays
 
@@ -560,7 +562,7 @@ async def test_hunt_button_joins_a_hunt_that_is_gathering(game, cog, fake_hunt, 
 async def test_typed_polowanie_still_works_next_to_the_button(game, cog, fake_hunt):
     await game.bot.load_extension("altermmo.cogs.hunting")
     ala = game.add_member("Ala")
-    await run(game, ala, "$polowanie")
+    await run(game, ala, "!polowanie")
     assert fake_hunt == [(ala, "hunt")]
 
 
@@ -613,9 +615,9 @@ async def test_buttons_of_a_panel_from_before_a_restart_still_work(game, pins, f
 
 # -- display buttons (the typed commands' posts, on the channel) ------------------------------
 
-DISPLAY_COMMANDS = {"Towarzysz": ["$towarzysz"], "Stajnia": ["$stajnia"], "Klejnoty": ["$klejnoty"],
-                    "Rankingi": ["$ranking", "$rankingwiezy", "$rankingtowarzyszy", "$rankingalbumow"],
-                    "Osiągnięcia": ["$osiagniecia"], "Album": ["$album"], "Pomoc": ["$pomoc"]}
+DISPLAY_COMMANDS = {"Towarzysz": ["!towarzysz"], "Stajnia": ["!stajnia"], "Klejnoty": ["!klejnoty"],
+                    "Rankingi": ["!ranking", "!rankingwiezy", "!rankingtowarzyszy", "!rankingalbumow"],
+                    "Osiągnięcia": ["!osiagniecia"], "Album": ["!album"], "Pomoc": ["!pomoc"]}
 
 
 def shape(message) -> tuple:
@@ -659,7 +661,7 @@ async def test_display_buttons_post_what_the_typed_commands_post(game_db, pins, 
             await run(game, ala, command)
         typed = game.channel.sent[before:]
         if label == "Pomoc":
-            # The button used up the player's $pomoc cooldown (one help per 10 minutes, typed
+            # The button used up the player's !pomoc cooldown (one help per 10 minutes, typed
             # or clicked): the typed command is answered with the cooldown notice.
             assert [m.embeds for m in typed] == [[]] and typed[0].content.startswith("Poczekaj na odnowienie")
             continue
@@ -739,7 +741,7 @@ async def test_achievements_button_answers_a_non_supporter_like_the_typed_comman
     click = await game.click(panel, ala, "Osiągnięcia")
     assert click.response.deferred and click.replies == []              # acknowledged, then posted
     clicked = game.channel.messages[-1]
-    await run(game, ala, "$osiagniecia")
+    await run(game, ala, "!osiagniecia")
     typed = game.channel.messages[-1]
     assert typed is not clicked and shape(clicked) == shape(typed)
     # Public, on the channel: the support links and not a word about achievements anybody has.
@@ -772,7 +774,7 @@ async def test_achievements_button_gives_a_supporter_his_mythic_pet_role_like_th
     assert not game.channel.contains("zdobywa osiągnięcie")                      # no announcement
 
     # The typed command afterwards: the same summary, nothing new any more.
-    await run(game, ala, "$osiagniecia")
+    await run(game, ala, "!osiagniecia")
     typed = game.channel.messages[-1]
     assert typed is not summary and "Nowe" not in typed.embeds[0].description
     assert typed.embeds[0].description == embed.description.split("\n\n🎉")[0]
@@ -798,14 +800,14 @@ async def test_achievements_button_follows_the_busy_policy_and_the_silenced_rule
         assert busy.public == [f"<@{ala.id}> {ui.MSG_BUSY}"] and not busy.replies[0].ephemeral
         assert busy.replies[0].allowed_mentions.users == [ala]
         # The busy notice is shared with the typed commands: one per 20 s on the channel.
-        await run(game, ala, "$osiagniecia")
+        await run(game, ala, "!osiagniecia")
         swallowed = await game.click(panel, ala, "Osiągnięcia")
         assert swallowed.response.deferred and swallowed.replies == []
         assert game.channel.count(text) == 0 and game.channel.count(ui.MSG_BUSY) == 1
         # Under "read_only_free" display commands work while busy: the button as the typed one.
         monkeypatch.setattr(bot, "settings", dataclasses.replace(bot.settings, busy_policy="read_only_free"))
         assert (await game.click(panel, ala, "Osiągnięcia")).replies == []
-        await run(game, ala, "$osiagniecia")
+        await run(game, ala, "!osiagniecia")
         assert game.channel.count(text) == 2
 
     # On a panel elsewhere it posts there (a dead hunter is silenced on the boss channel only).
@@ -831,7 +833,7 @@ async def test_achievements_button_when_the_database_is_down(game, achievements_
     assert not game.channel.contains(hub.MSG_DB_DOWN) and bot.owner_log == []
 
     # The typed command answers the same.
-    await run(game, ala, "$osiagniecia")
+    await run(game, ala, "!osiagniecia")
     typed = game.channel.messages[-1]
     assert typed is not summary and typed.embeds[0].description == embed.description
 
@@ -902,7 +904,7 @@ async def test_display_button_when_the_database_is_down_or_something_breaks(game
 
 def test_boss_hints_of_hunting_and_tower_mention_the_attack_button():
     for text in (daily.MSG_BOSS_COMING, tower.MSG_BOSS_COMING, tower.MSG_BOSS_HERE):
-        assert "liknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**" in text
+        assert "liknij **Zaatakuj** pod bossem albo wpisz **!zaatakuj**" in text
 
 
 # -- the pinned panel is brought up to date after a start ---------------------------------------
@@ -917,7 +919,7 @@ async def test_pinned_panel_gets_the_current_text_after_a_start(game, cog):
     assert await hub.refresh_panel(bot) is True
     assert panel.embeds[0].title == hub.PANEL_TITLE == "🎮 Panel gry"
     assert "tylko Ty" not in panel.embeds[0].description and panel.pinned
-    # ... so the supporters' part (2026-11-20) reaches a panel pinned earlier without a new $panel.
+    # ... so the supporters' part (2026-11-20) reaches a panel pinned earlier without a new !panel.
     assert panel.embeds[0].description == hub.PANEL_TEXT and "Dodatkowe benefity dla" in hub.PANEL_TEXT
     assert (await game.click(panel, game.add_member("Ala"), "Pomoc")).response.deferred   # the buttons work
 

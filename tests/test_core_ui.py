@@ -450,7 +450,7 @@ async def test_confirm_refused_typed_and_timed_out(game):
 
     task = asyncio.ensure_future(ui.confirm(game.bot, game.channel, ala, "Na pewno?", timeout=2))
     question = await game.wait_for_buttons("yes")
-    game.say(ola, "$potwierdzam")                                        # somebody else typing it is ignored
+    game.say(ola, "!potwierdzam")                                        # somebody else typing it is ignored
     game.say(ala, " $Potwierdzam ")
     answer = await task
     assert answer and answer.typed.author is ala and answer.interaction is None and question.view is None
@@ -460,7 +460,7 @@ async def test_confirm_refused_typed_and_timed_out(game):
 
     task = asyncio.ensure_future(ui.confirm(game.bot, game.channel, ala, "Na pewno?", timeout=0.1, typed=None))
     await game.wait_for_buttons("yes")
-    game.say(ala, "$potwierdzam")                                        # typing is switched off here
+    game.say(ala, "!potwierdzam")                                        # typing is switched off here
     assert (await task).timed_out
 
 

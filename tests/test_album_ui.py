@@ -1,4 +1,4 @@
-"""The album on the channel: ``$album``, the hub's "Album" button and the album's own panel.
+"""The album on the channel: ``!album``, the hub's "Album" button and the album's own panel.
 
 Owner's rules tested here: supporters only (the others are told how to become one, publicly); every
 answer is an ordinary channel message; display buttons wait while an event / hunt / tower run holds
@@ -40,7 +40,7 @@ PATRON = patrons.PATRON_ROLES[0]
 def _no_open_questions():
     pets._awaiting_confirmation.clear()
     yield
-    assert not pets._awaiting_confirmation, "a $potwierdzam slot was never released"
+    assert not pets._awaiting_confirmation, "a !potwierdzam slot was never released"
 
 
 @pytest_asyncio.fixture
@@ -77,7 +77,7 @@ async def three(game, name: str = "Ala"):
 
 
 async def show(game, player, channel=None):
-    """``$album`` of ``player`` (the function behind it); returns the message it posted."""
+    """``!album`` of ``player`` (the function behind it); returns the message it posted."""
     channel = channel or game.channel
     before = len(channel.sent)
     assert await album.show_album(Scene(bot=game.bot, channel=channel, author=player)) is True
@@ -110,32 +110,32 @@ async def until(condition, timeout: float = 5.0) -> bool:
     return True
 
 
-# -- $album -----------------------------------------------------------------------------------
+# -- !album -----------------------------------------------------------------------------------
 
 async def test_album_is_for_supporters_only(cogs):
     game = cogs
     ola = game.add_member("Ola")
     await put(game.bot.db, ola.id, "Cat", 0)                                  # kept while she supported
-    await run(game, ola, "$album")
+    await run(game, ola, "!album")
     answer = game.channel.messages[-1]
     assert answer.content == supporters_only(ola) and answer.embeds == [] and answer.view is None
     assert answer.content.startswith(f"<@{ola.id}> Album towarzyszy jest dla wspierających (")
     assert all(url in answer.content for _, url in patrons.SUPPORT_LINKS)
     assert " z 68" not in answer.content and "Kot" not in answer.content
     assert len(await album_rows(game.bot.db, ola.id)) == 1                    # nothing is deleted
-    await run(game, ola, "$kolekcja")                                         # the alias
+    await run(game, ola, "!kolekcja")                                         # the alias
     assert game.channel.messages[-1].content == supporters_only(ola)
 
 
 async def test_an_empty_album(cogs):
     game = cogs
     ala = game.add_member("Ala", roles=[patrons.CRAFTER_ROLE])
-    await run(game, ala, "$album")
+    await run(game, ala, "!album")
     answer = game.channel.messages[-1]
     (embed,) = answer.embeds
     assert embed.title == album.MSG_TITLE and answer.view is None
     assert embed.description == album.MSG_EMPTY.format(player_id=ala.id, total=68)
-    assert "**$porzucam**" in embed.description and "Kolekcja: **0 z 68**" in embed.description
+    assert "**!porzucam**" in embed.description and "Kolekcja: **0 z 68**" in embed.description
 
 
 async def test_the_overview_names_only_what_the_player_has(cogs):
@@ -143,7 +143,7 @@ async def test_the_overview_names_only_what_the_player_has(cogs):
     ala = await three(game)
     await put(game.bot.db, ala.id, "Void", 0, seal=3, holo=True)
     await put(game.bot.db, ala.id, "Cat", 0, shiny=True, seal=3)            # a second cat egg
-    await run(game, ala, "$album")
+    await run(game, ala, "!album")
     message = game.channel.messages[-1]
     text = page(message)
     assert isinstance(message.view, album.AlbumPanel) and message.view.owner_id == ala.id
@@ -304,7 +304,7 @@ async def test_an_album_of_eggs_only_names_no_species_anywhere(cogs, monkeypatch
         return message
 
     monkeypatch.setattr(game.channel, "send", send)
-    await run(game, ala, "$album")
+    await run(game, ala, "!album")
     panel = game.channel.messages[-1]
     text = page(panel)
     assert text.startswith(f"<@{ala.id}>, w Twoim albumie jest **6** towarzyszy.\nKolekcja: **4 z 68**\n")
@@ -444,7 +444,7 @@ async def test_a_pets_name_is_shown_as_plain_text_everywhere(cogs):
     db = game.bot.db
     ala = game.add_member("Ala", roles=[PATRON])
     await put(db, ala.id, "Cat", 2, pet_name="Pan\n**Kot**   _x_ ||y|| `z`")
-    await put(db, ala.id, "Cat", 3, pet_name="*" * 255)                     # the longest name $nazwij takes
+    await put(db, ala.id, "Cat", 3, pet_name="*" * 255)                     # the longest name !nazwij takes
     await put(db, ala.id, "Dog", 1, pet_name=" \n ")                         # nothing but blanks: no name
     shown = "Pan \\*\\*Kot\\*\\* \\_x\\_ \\|\\|y\\|\\| \\`z\\`"
     panel = await show(game, ala)
@@ -637,7 +637,7 @@ async def test_the_album_before_its_table_exists(cogs):
     game = cogs
     ala = game.add_member("Ala", roles=[PATRON])
     await game.bot.db.execute("DROP TABLE PET_ALBUM", idempotent=True)
-    await run(game, ala, "$album")
+    await run(game, ala, "!album")
     (embed,) = game.channel.messages[-1].embeds
     assert embed.description == album.MSG_EMPTY.format(player_id=ala.id, total=68)
     assert game.bot.owner_log == []
@@ -699,7 +699,7 @@ async def test_removing_by_typing_potwierdzam_and_cancelling(cogs, monkeypatch):
     confirms(game, ala)
     await game.click(panel, ala, "Usuń z albumu")
     assert len(await album_rows(db, ala.id)) == 2
-    typed = next(m for m in game.channel.messages if m.content == "$potwierdzam")
+    typed = next(m for m in game.channel.messages if m.content == "!potwierdzam")
     assert typed.reactions == ["<:MonkaS:882181709100097587>"]
 
 
@@ -785,7 +785,7 @@ async def test_quick_clicks_after_a_removal_elsewhere_count_from_the_entrys_plac
     await game.click(panel, ala, "Następny")                                  # the cat of level 1
     first = panel.view.entry_id
     assert "Etap: **Poziom 1**" in page(panel) and "Gatunek: **Kot**" in page(panel)
-    assert await album.remove(db, ala.id, first)                              # (a second $album)
+    assert await album.remove(db, ala.id, first)                              # (a second !album)
     go = asyncio.Event()
 
     async def slow(source, look, cache_dir, *, max_bytes=None):
@@ -994,7 +994,7 @@ async def test_the_hub_button_shows_what_the_command_shows(cogs, monkeypatch):
         click = await game.click(hub_panel, member, "Album")
         assert click.response.deferred and click.replies == []
         clicked = game.channel.messages[-1]
-        await run(game, member, "$album")
+        await run(game, member, "!album")
         typed = game.channel.messages[-1]
         assert typed is not clicked and clicked.text == typed.text and type(clicked.view) is type(typed.view)
     assert isinstance(clicked.view, type(None)) and clicked.content == supporters_only(ola)
@@ -1004,7 +1004,7 @@ async def test_the_hub_button_shows_what_the_command_shows(cogs, monkeypatch):
         busy = await game.click(hub_panel, ala, "Album")
         assert busy.public == [f"<@{ala.id}> {ui.MSG_BUSY}"]
         before = len(game.channel.sent)
-        await run(game, ala, "$album")
+        await run(game, ala, "!album")
         assert all(album.MSG_TITLE not in m.text for m in game.channel.sent[before:])
 
 
@@ -1012,18 +1012,18 @@ async def test_typed_album_follows_the_busy_policy(cogs, monkeypatch):
     game = cogs
     ala = await three(game)
     with game.bot.state.hold_busy("hunt"):
-        await run(game, ala, "$album")
+        await run(game, ala, "!album")
         assert game.channel.messages[-1].content == guards.BUSY_NOTICE
         monkeypatch.setattr(game.bot, "settings",
                             dataclasses.replace(game.bot.settings, busy_policy="read_only_free"))
-        await run(game, ala, "$album")
+        await run(game, ala, "!album")
         assert game.channel.messages[-1].embeds[0].title == album.MSG_TITLE
 
 
 async def test_album_works_on_any_channel_of_the_server(cogs):
     game = cogs
     ala = await three(game)
-    await run(game, ala, "$album", channel=game.announce_channel)
+    await run(game, ala, "!album", channel=game.announce_channel)
     message = game.announce_channel.messages[-1]
     assert message.embeds[0].title == album.MSG_TITLE
     await game.click(message, ala, "Następny")
@@ -1031,10 +1031,10 @@ async def test_album_works_on_any_channel_of_the_server(cogs):
 
 
 def test_the_help_and_the_panel_mention_the_album():
-    assert "$album" in help_cog.HELP_TEXT and "$kolekcja" in help_cog.HELP_TEXT
+    assert "!album" in help_cog.HELP_TEXT and "!kolekcja" in help_cog.HELP_TEXT
     supporters = dict(help_cog.HELP_FIELDS)["🙏 Wspierający"]
-    assert "- $album - " in supporters and len(supporters) <= 1024
-    assert "📖 **Album**" in hub.PANEL_GAME_TEXT and "(**$album**)" in hub.PANEL_SUPPORT_TEXT
+    assert "- !album - " in supporters and len(supporters) <= 1024
+    assert "📖 **Album**" in hub.PANEL_GAME_TEXT and "(**!album**)" in hub.PANEL_SUPPORT_TEXT
     for secret in ("holo", "pieczę", "ramk", "smok", "zjaw", "68"):
         assert secret not in hub.PANEL_BENEFITS[-1].lower()
 
@@ -1046,7 +1046,7 @@ async def test_the_command_and_its_alias(cogs):
 
 
 async def test_a_sacrifice_then_the_album(cogs, monkeypatch):
-    """The whole way: $porzucam of a supporter, then $album shows the pet with its card."""
+    """The whole way: !porzucam of a supporter, then !album shows the pet with its card."""
     game = cogs
     db = game.bot.db
     await game.bot.load_extension("altermmo.cogs.pets")
@@ -1054,11 +1054,11 @@ async def test_a_sacrifice_then_the_album(cogs, monkeypatch):
     ala = game.add_member("Ala", roles=[PATRON])
     await own_pet(db, ala.id, 5, type="Unicorn", quality="Premium", pet_lvl=3, pet_name="Iskra", variant="1")
     confirms(game, ala)
-    await run(game, ala, "$porzucam")
+    await run(game, ala, "!porzucam")
     assert len(await album_rows(db, ala.id)) == 1 and await pets._pet(db, 5) is None
     assert game.channel.contains(album.MSG_DISCARD_SAVED.format(player_id=ala.id))
     game.channel.send_hooks.clear()
-    await run(game, ala, "$album")
+    await run(game, ala, "!album")
     panel = game.channel.messages[-1]
     assert "**Jednorożec** (1 z 3): ▫️ Poziom 1 · ▫️ Poziom 2 · ✅ Poziom 3" in page(panel)
     await game.click(panel, ala, "Następny")
@@ -1090,14 +1090,14 @@ async def test_a_supporters_sacrifice_through_the_pet_panel(cogs, monkeypatch):
     assert click.response.deferred and click.replies == [] and (await clicks[0]).response.deferred
 
     question = next(m for m in game.channel.sent if ASK in m.content)
-    assert album.MSG_DISCARD_KEPT in question.content and "**$album**" in question.content
+    assert album.MSG_DISCARD_KEPT in question.content and "**!album**" in question.content
     assert await pets._pet(db, 5) is None and sacrificed == [ala]
     rows = await album_rows(db, ala.id)
     assert len(rows) == 68 and {(row["type"], row["pet_lvl"], row["pet_name"]) for row in rows
                                 if row["pet_name"] == "Kacper"} == {("Ghost", 2, "Kacper")}
     saved = album.MSG_DISCARD_SAVED.format(player_id=ala.id)
     texts = [m.content for m in game.channel.sent]
-    assert texts.count(saved) == 1 and "**$album**" in saved
+    assert texts.count(saved) == 1 and "**!album**" in saved
     announced = f"<@{ala.id}> zdobywa osiągnięcie: Pełny album!"
     assert holds_album_role(game.bot, ala) and texts.count(announced) == 1
     assert texts.index(saved) < texts.index(announced)

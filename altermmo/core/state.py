@@ -32,7 +32,7 @@ class BossPhase(enum.IntEnum):
     SCHEDULED = 1   # respawn time drawn and stored in the database
     WAITING = 2     # channel cleared, "silence" message sent, waiting for the respawn time
     PRE_SPAWN = 3   # "the wind grows stronger" - boss appears in a few minutes
-    VISIBLE = 4     # boss is on the channel, waiting for $zaatakuj
+    VISIBLE = 4     # boss is on the channel, waiting for !zaatakuj
     ENGAGED = 5     # somebody attacked; gathering players / choosing the fighter
     FIGHTING = 6    # the fight itself
 
@@ -115,7 +115,7 @@ class GameState:
 
         Returns False when there is no boss to attack or somebody was faster.
         Synchronous on purpose: there is no ``await`` between the check and the
-        change, so two ``$zaatakuj`` commands can never both win.
+        change, so two ``!zaatakuj`` commands can never both win.
         """
         if self._boss_phase is not BossPhase.VISIBLE:
             return False
@@ -211,7 +211,7 @@ class GameState:
             self._busy_since = None
 
     def force_release_busy(self) -> str | None:
-        """Admin escape hatch (``$ResetBoss``); returns the previous owner."""
+        """Admin escape hatch (``!ResetBoss``); returns the previous owner."""
         owner, self._busy_owner, self._busy_since = self._busy_owner, None, None
         return owner
 
@@ -225,7 +225,7 @@ class GameState:
         (``guards.unless_busy(stable=True)``, ``ui.gate(stable=True)``);
         everything else stays blocked as during any event.  The exception is
         tied to the busy holder it was made for: should that one lose the
-        channel (``$ResetBoss``) and a hunt take it, the stable is blocked
+        channel (``!ResetBoss``) and a hunt take it, the stable is blocked
         again at once.
         """
         return self._stable_open_for is not None and self._stable_open_for == self._busy_owner
@@ -286,7 +286,7 @@ class GameState:
         self._event_alive = False
 
     def try_claim_event(self, event_type: EventType) -> bool:
-        """Atomically take an open passive event (first ``$skrzynia`` wins)."""
+        """Atomically take an open passive event (first ``!skrzynia`` wins)."""
         if not self._event_alive or self._event_type is not event_type:
             return False
         self._event_alive = False
@@ -319,8 +319,8 @@ class GameState:
     def free_for_activity(self) -> bool:
         """Legacy rule: ``EVENT_ALIVE == 0 and BUSY == 0 and BOSSALIVE in [0, 1, 2]``.
 
-        A shrine or chest that a player has just claimed (``$modlitwa`` /
-        ``$skrzynia`` still handing out the reward) is not "free" yet: its type
+        A shrine or chest that a player has just claimed (``!modlitwa`` /
+        ``!skrzynia`` still handing out the reward) is not "free" yet: its type
         stays set until the command closes the event.
         """
         return (not self._event_alive and self._event_type is EventType.NONE

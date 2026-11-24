@@ -1,4 +1,4 @@
-"""Boss record, last fight and the weekly ranking (``$rekord``, ``$kiedy``, ``$ranking``)."""
+"""Boss record, last fight and the weekly ranking (``!rekord``, ``!kiedy``, ``!ranking``)."""
 
 from __future__ import annotations
 

@@ -1,10 +1,10 @@
 """features/achievements.py: the catalogue of the four mythic achievements and the album's one, the roles
-the bot makes, what the pets stand for, the hand-out to veterans, the start-up and ``$osiagniecia``.
+the bot makes, what the pets stand for, the hand-out to veterans, the start-up and ``!osiagniecia``.
 
 Owner's decisions of 2026-11-20 tested here: only the mythic achievements stay (a mythic boss, a mythic
 pet, a mythic pet with Holo, a mythic pet with the rarest seal); only supporters get the roles; the
 veteran hand-out is silent with one summary for the owner and waits while something plays on the boss
-channel; ``$osiagniecia`` shows what the player has and "X z 5" - never which achievements are missing.
+channel; ``!osiagniecia`` shows what the player has and "X z 5" - never which achievements are missing.
 2026-11-21: "Pełny album" joined them (one more bot-made role; the album itself: test_album*.py).
 The deletion of the withdrawn achievements' roles is tested in test_achievements.py.
 """
@@ -307,7 +307,7 @@ async def test_role_made_in_this_run_and_deleted_later_is_made_again(game, clock
     assert achievements.role_exists(bot, trophy("pet_mythic"))           # Discord's cache knows it by now
     clock.now += achievements.ROLE_RETRY_AFTER
     game.guild.roles.remove(game.guild.get_role(first))                    # the owner deletes it by mistake
-    assert achievements.role_exists(bot, trophy("pet_mythic")) is False  # $roleosiagniec: "missing"
+    assert achievements.role_exists(bot, trophy("pet_mythic")) is False  # !roleosiagniec: "missing"
     assert await achievements.ensure_roles(bot) == ["Mityczny towarzysz"]
     assert role_id_of(bot, trophy("pet_mythic")) != first
     assert game.guild.get_role(role_id_of(bot, trophy("pet_mythic"))).name == "Mityczny towarzysz"
@@ -384,7 +384,7 @@ async def test_unreadable_roles_file_means_no_role_is_made(game, broken):
     before = len(game.guild.roles)
     assert achievements.roles_file_readable(bot) is False
     assert await achievements.ensure_roles(bot) == []        # at start-up
-    assert await achievements.ensure_roles(bot) == []        # $roleosiagniec
+    assert await achievements.ensure_roles(bot) == []        # !roleosiagniec
     for key in ("pet_mythic_holo", "pet_mythic", "pet_mythic_holo"):
         assert await achievements.grant(game.scene(), patron, key) is False
     assert len(game.guild.roles) == before
@@ -544,7 +544,7 @@ async def test_a_forced_ensure_roles_ignores_the_back_off_and_its_success_clears
     clock.now += 60
     assert await achievements.grant(scene, patron, "pet_mythic") is False    # still within the hour
 
-    assert len(await achievements.ensure_roles(bot)) == 3                    # $roleosiagniec does not wait
+    assert len(await achievements.ensure_roles(bot)) == 3                    # !roleosiagniec does not wait
     assert await achievements.grant(scene, patron, "pet_mythic") is True
     game.guild.roles.remove(holo)                                            # deleted on the server
     assert await achievements.grant(scene, patron, "pet_mythic_holo") is True   # made again at once
@@ -1020,7 +1020,7 @@ async def test_start_up_never_raises(game, monkeypatch, step):
     await achievements.start_up(game.bot)                    # logged, not raised
 
 
-# -- $osiagniecia ------------------------------------------------------------------------------------
+# -- !osiagniecia ------------------------------------------------------------------------------------
 
 async def test_held_lists_the_achievements_in_the_catalogues_order(game, slayer):
     bot = game.bot
@@ -1093,7 +1093,7 @@ async def test_summary_of_somebody_with_nothing_yet(game):
 async def test_show_achievements_is_for_supporters_only(game_db):
     plain = game_db.add_member("Zwykły")
     await set_pets(game_db.bot.db, plain.id, await add_pet(game_db.bot.db, 7001, mythic=True))
-    assert await achievements.show_achievements(game_db.scene(plain, "$osiagniecia")) is False
+    assert await achievements.show_achievements(game_db.scene(plain, "!osiagniecia")) is False
     answer = game_db.channel.bot_messages[-1]
     # Public, like every answer of the bot, so it says whom it answers.
     assert answer.content.startswith(f"<@{plain.id}> Osiągnięcia kolekcjonerskie są dla wspierających (")
@@ -1113,7 +1113,7 @@ async def test_show_achievements_without_the_database_shows_the_roles_held(game,
     patron = game.add_member("Ala", roles=[PATRON])
     patron.roles.append(slayer)
     give(game, patron, "pet_mythic_seal")
-    assert await achievements.show_achievements(game.scene(patron, "$osiagniecia")) is True
+    assert await achievements.show_achievements(game.scene(patron, "!osiagniecia")) is True
     answer = game.channel.bot_messages[-1]
     assert len(answer.embeds) == 1
     assert f"<@{patron.id}>, masz **2 z 5** osiągnięć." in answer.text
@@ -1128,7 +1128,7 @@ async def test_show_achievements_hands_out_quietly_and_shows_the_summary(game_db
     patron.roles.append(slayer)
     await set_pets(bot.db, patron.id, await add_pet(bot.db, 7001, mythic=True, holo=True))
 
-    assert await achievements.show_achievements(game_db.scene(patron, "$osiagniecia")) is True
+    assert await achievements.show_achievements(game_db.scene(patron, "!osiagniecia")) is True
     assert keys_of(bot, patron) == {"mythic_boss", "pet_mythic", "pet_mythic_holo"}
     assert game_db.channel.sent_count("zdobywa osiągnięcie") == 0    # no announcement, just the summary
     answer = game_db.channel.bot_messages[-1]
@@ -1141,6 +1141,6 @@ async def test_show_achievements_hands_out_quietly_and_shows_the_summary(game_db
     assert f"<@&{slayer.id}>" not in new_line
     assert "Mityczna Pieczęć Arcyłowcy" not in text and "pet_mythic_seal" not in text
 
-    assert await achievements.show_achievements(game_db.scene(patron, "$osiagniecia")) is True
+    assert await achievements.show_achievements(game_db.scene(patron, "!osiagniecia")) is True
     assert "Nowe" not in game_db.channel.bot_messages[-1].text      # nothing new the second time
     assert "**3 z 5**" in game_db.channel.bot_messages[-1].text

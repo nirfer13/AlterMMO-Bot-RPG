@@ -248,7 +248,7 @@ async def twitch_names(bot: "AlterBot", user_id: int | str) -> list[str]:
 
 
 async def get_user_twitch_name(scene: "Scene", user_id: int | str) -> str | None:
-    """``$checkTwitch``: tell whether ``user_id`` linked a Twitch account; returns its name."""
+    """``!checkTwitch``: tell whether ``user_id`` linked a Twitch account; returns its name."""
     names = await twitch_names(scene.bot, user_id)
     if not names:
         await scene.send(MSG_TWITCH_NONE.format(user_id=user_id))
@@ -273,7 +273,7 @@ async def _treasure_winner(bot: "AlterBot", twitch_name: str) -> Any:
     return None
 
 
-#: One payout run at a time (the nightly job and ``$checkTreasure`` must not interleave).
+#: One payout run at a time (the nightly job and ``!checkTreasure`` must not interleave).
 _treasure_lock = asyncio.Lock()
 
 
@@ -360,7 +360,7 @@ async def _check_treasure(bot: "AlterBot") -> int:
             waiting = len(rows) - index - 1
             if waiting > 0:
                 await bot.log_to_owner(f"Pozostałe skarby z Twitcha ({waiting}) czekają w tabeli do "
-                                       "następnego sprawdzenia (albo **$checkTreasure**).")
+                                       "następnego sprawdzenia (albo **!checkTreasure**).")
             break
     if unlinked:
         log.info("Twitch treasures dropped (no linked Discord member): %s", unlinked)

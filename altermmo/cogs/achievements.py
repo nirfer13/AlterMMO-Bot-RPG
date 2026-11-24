@@ -1,14 +1,14 @@
-"""Achievements: ``$osiagniecia`` for supporters, and the roles the bot looks after itself.
+"""Achievements: ``!osiagniecia`` for supporters, and the roles the bot looks after itself.
 
 The game lives in :mod:`altermmo.features.achievements`.  This cog decides *when*:
 
 * once after every start the roles of the new achievements are made when they
   are missing and every supporter gets what their data stands for (veterans
   get the tiers they passed long ago) - quietly, with one note for the owner;
-* ``$osiagniecia`` (supporters; any channel, it only shows something): what
+* ``!osiagniecia`` (supporters; any channel, it only shows something): what
   the player has and how many of how many - never which ones are missing.
   The panel's "Osiągnięcia" button runs the same thing;
-* ``$roleosiagniec`` and ``$nadajosiagniecia`` (administrators): do the two
+* ``!roleosiagniec`` and ``!nadajosiagniecia`` (administrators): do the two
   start-up steps now.
 """
 
@@ -96,7 +96,7 @@ class AchievementsCog(commands.Cog, name="Achievements"):
             await achievements.ensure_roles(self.bot)
             players, roles = await achievements.sync_veterans(self.bot)
         except Exception as exc:  # noqa: BLE001 - told to the administrator, the details are logged
-            log.exception("$nadajosiagniecia failed.")
+            log.exception("!nadajosiagniecia failed.")
             await io.send(ctx.channel, MSG_SYNC_FAILED.format(kind=type(exc).__name__))
             return
         await io.send(ctx.channel, MSG_SYNC_DONE.format(roles=roles, players=players) if roles

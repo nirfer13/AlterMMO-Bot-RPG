@@ -45,7 +45,7 @@ EMPTY_NOTE = (HEAD + "\n▫️ Jajko - brak\n▫️ Poziom 1 - brak\n▫️ Pozi
 def _no_open_questions():
     pets._awaiting_confirmation.clear()
     yield
-    assert not pets._awaiting_confirmation, "a $potwierdzam slot was never released"
+    assert not pets._awaiting_confirmation, "a !potwierdzam slot was never released"
 
 
 # -- helpers ------------------------------------------------------------------------------------
@@ -257,7 +257,7 @@ def test_the_mark_compares_the_cards_at_that_stage_not_the_egg_as_an_egg():
 
 
 def test_the_note_never_tells_what_the_new_egg_has():
-    """What a new egg has is seen on the egg itself (``$towarzysz``) and is announced nowhere (the owner
+    """What a new egg has is seen on the egg itself (``!towarzysz``) and is announced nowhere (the owner
     alone hears about rare finds): the note names the ALBUM's cards only - of the new egg at most that
     its card would be worth more."""
     rich = new_egg(shiny=True, frame="R7-A", seal=3, holo=True)

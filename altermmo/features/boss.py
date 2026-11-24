@@ -14,7 +14,7 @@ Differences from the legacy code (the gameplay itself is unchanged):
   Discord's timestamps, a round broken by a connection problem is repeated
   instead of punishing the player).  The legacy "lag compensation" is gone;
 * lobbies queue the players' messages for their whole duration, so a
-  ``$zaatakuj`` / ``$tak`` typed while the bot is sending something is not lost;
+  ``!zaatakuj`` / ``!tak`` typed while the bot is sending something is not lost;
 * buttons next to the typed commands: "Zaatakuj" under the boss picture (see
   :mod:`altermmo.features.boss_cycle`) and in the single lobby, "Dołącz" /
   "Gotowy" in the legendary lobby.  Clicks go into the same queue as the typed
@@ -51,7 +51,7 @@ import discord
 
 from ..core import challenge, fightlog, io, timing, ui
 from ..core.challenge import Outcome
-from ..settings import ASSETS_DIR, CONFIG_DIR
+from ..settings import ASSETS_DIR, CONFIG_DIR, says_command
 from . import (achievements, boss_cycle, bossvariants, database, expsum, fight_types, general, modifiers,
                patrons, xpsteal)
 
@@ -111,7 +111,7 @@ LOOT_REBIRTH_STONE = 13
 LOOT_MIRROR = 14
 LOOT_SKILL_GEM = 15
 #: Appended to the drop line of a new skill gem (a player can collect several).
-SKILL_GEM_HINT = "Działa tylko aktywny klejnot - zmienisz go komendą **$wybierzklejnot numer**."
+SKILL_GEM_HINT = "Działa tylko aktywny klejnot - zmienisz go komendą **!wybierzklejnot numer**."
 
 _LOOT_TABLES: dict[int, str] = {
     0: "loot_details_Normal",
@@ -208,12 +208,12 @@ _BOSS_COLOUR_FALLBACK = 0x7F5A00
 _BOSS_ADJECTIVES: dict[int, str] = {0: "Zwykły", 1: "Rzadki", 2: "Epicki", 3: "Legendarny", 4: "Mityczny"}
 _BOSS_KINDS: dict[int, str] = {0: "zwykły", 1: "rzadki", 2: "epicki", 4: "MITYCZNY"}
 
-_ATTACK_HINT = "Kliknij **Zaatakuj** albo wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️"
+_ATTACK_HINT = "Kliknij **Zaatakuj** albo wpisz **!zaatakuj**, żeby rozpocząć walkę! ⚔️"
 
 #: Names the attacker (owner's request of 2026-11-21): after a click on "Zaatakuj" there is
 #: no typed command on the channel, so nobody could tell who had attacked.
 MSG_SINGLE_LOBBY = ("⚔️ <@{user_id}> atakuje bossa! Jesteś sam?... *Inny gracz może kliknąć **Zaatakuj** "
-                    "albo wpisać **$zaatakuj**, jeśli chce zawalczyć o bossa!* Zgłoszenia kończą się {deadline}.")
+                    "albo wpisać **!zaatakuj**, jeśli chce zawalczyć o bossa!* Zgłoszenia kończą się {deadline}.")
 MSG_SINGLE_LOBBY_ALONE = "Jesteś sam?... *Nikt inny nie stanął do walki - <@{user_id}> walczy sam!*"
 MSG_SINGLE_LOBBY_RIVAL = "Jesteś sam?... *Nie! <@{user_id}> też chce zawalczyć o bossa!*"
 MSG_ALREADY_FIGHTING = "Już stoisz do walki z tym bossem - czekamy, czy ktoś jeszcze się zgłosi ⚔️"
@@ -259,16 +259,16 @@ VOICE_LAST_CHANCE = "**A myślałem, że czas na rozrywkę...** - *słyszycie g�
 VOICE_READY = "**Jesteście gotowi do ataku?** - *słyszycie głos w swojej głowie*..."
 VOICE_REGROUP = "**Zbierzcie drużynę przed atakiem...** - *słyszycie głos w swojej głowie*..."
 VOICE_SET = "**Wreszcie ktoś godny walki ze mną!** - *słyszycie głos w swojej głowie*..."
-GROUP_HOW_TO_JOIN = ("Kliknij **Dołącz** albo wpisz **$zaatakuj**, jeśli chcesz dołączyć do walki! "
+GROUP_HOW_TO_JOIN = ("Kliknij **Dołącz** albo wpisz **!zaatakuj**, jeśli chcesz dołączyć do walki! "
                      "Potrzeba {size} łowców. Jeśli drużyna się nie zbierze, boss odejdzie {deadline}.")
-GROUP_HOW_TO_CONFIRM = ("Kliknijcie **Gotowy** albo wpiszcie **$tak**. Czas na potwierdzenie mija "
+GROUP_HOW_TO_CONFIRM = ("Kliknijcie **Gotowy** albo wpiszcie **!tak**. Czas na potwierdzenie mija "
                         "{deadline} - kto nie zdąży, wypada z drużyny.")
 GROUP_ROSTER = "Drużyna ({count}/{size})"
 GROUP_ROSTER_EMPTY = "*nikogo jeszcze nie ma*"
 #: Posted with a new panel, so that the mentioned players / role get a notification.
 MSG_GROUP_READY_PING = "Jesteście gotowi do ataku?{mentions}"
 MSG_GROUP_REGROUP_PING = "Zbierzcie drużynę przed atakiem...{mentions}"
-MSG_GROUP_LAST_CHANCE = "Ostatnia szansa, <@&{role_id}>! Kliknij **Dołącz** albo wpisz **$zaatakuj**."
+MSG_GROUP_LAST_CHANCE = "Ostatnia szansa, <@&{role_id}>! Kliknij **Dołącz** albo wpisz **!zaatakuj**."
 MSG_GROUP_SET = "Do walki z legendarnym bossem stają:{mentions}"
 MSG_GROUP_NOT_GATHERED = "Drużyna się nie zebrała."
 # Answers to clicks in the legendary lobby.
@@ -308,7 +308,7 @@ MSG_FLEX = ("Potężny <:GigaChad:970665721321381958> <@{user_id}> napina swe sp
             "Co za widok, robi wrażenie! <:pogu:882182966372106280>")
 MSG_FLEX_DENIED = "<:KEKW:936907435921252363> **Miernota** <:2Head:882184634572627978>"
 MSG_SLAYER_ONLY = "<:KEKW:936907435921252363> **Kpisz sobie, miernoto?** <:2Head:882184634572627978>"
-MSG_BAD_COLOUR = "Podaj kolor w formacie HEX, np. **$kolor ff0000** <:madge:882184635474386974>"
+MSG_BAD_COLOUR = "Podaj kolor w formacie HEX, np. **!kolor ff0000** <:madge:882184635474386974>"
 MSG_COLOUR_FAILED = "Nie udało się zmienić koloru roli <:Sadge:936907659142111273>"
 MSG_ICON_CHANGED = "Ikona została zmieniona Wielki Wojowniku. <:peepoglad:895774173887094874>"
 MSG_ICON_BAD_FORMAT = "<@{user_id}>, zły format ikony. Poprawny format to .png. <:madge:882184635474386974>"
@@ -448,7 +448,7 @@ def _listening(bot: "AlterBot", channel: Any) -> Iterator[asyncio.Queue]:
     """Queue every player message written on ``channel`` while the block runs.
 
     Lobbies ask several questions in a row; with a plain ``wait_for`` after each
-    prompt a ``$zaatakuj`` / ``$tak`` typed while the bot was still sending (or
+    prompt a ``!zaatakuj`` / ``!tak`` typed while the bot was still sending (or
     adding a reaction) was lost.  Bots and other channels never get in.
     """
     queue: asyncio.Queue = asyncio.Queue()
@@ -506,10 +506,10 @@ def _who(item: Any) -> Any:
 
 
 def _is(item: Any, command: str, key: str) -> bool:
-    """True when ``item`` is the typed ``command`` or a click on the button ``key``."""
+    """True when ``item`` is the typed ``command`` ("!tak", also with the old "$" prefix) or a click on ``key``."""
     if isinstance(item, _Knock):
         return item.key == key
-    return _says(item, command)
+    return says_command(item.content, command)
 
 
 async def _knock(inbox: asyncio.Queue, interaction: Any, key: str) -> str:
@@ -523,7 +523,7 @@ async def _knock(inbox: asyncio.Queue, interaction: Any, key: str) -> str:
 def _lobby_door(bot: "AlterBot", door: Callable[[Any], Awaitable[None]]) -> Iterator[None]:
     """While the block runs, a click on the boss picture's "Zaatakuj" button goes to ``door``.
 
-    (Like a typed ``$zaatakuj`` goes to the running lobby.)
+    (Like a typed ``!zaatakuj`` goes to the running lobby.)
     """
     cycle = getattr(bot, "boss_cycle", None)
     if cycle is not None:
@@ -628,7 +628,7 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
     if loot_id == LOOT_SKILL_GEM:
         return bool(await _skills().assign_skill(scene, hunter))
     if loot_id == xpsteal.LOOT_ID:
-        # (A right that cannot be stored is reported to the owner with the $DajKradziez line.)
+        # (A right that cannot be stored is reported to the owner with the !DajKradziez line.)
         return await xpsteal.grant_drop(bot, hunter, xpsteal.amount_from_description(loot["descr"]))
     return True
 
@@ -685,7 +685,7 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     egg, its cosmetic roll may be repeated that many times
     (``pets.assign_pet``).  What drops, and how often, is not changed by it.
     Only the two boss fights pass it: the duel, the tower and the admin's
-    ``$loot`` roll as always.
+    ``!loot`` roll as always.
     """
     bot = scene.bot
     boost = int(boost_percent)
@@ -842,7 +842,7 @@ async def send_boss_image(scene: "Scene", rarity: int, *, special: bool | None =
     nothing more is drawn.  The ready GIF is uploaded like the ordinary
     picture - nothing is composed here.
 
-    ``monster_only=True`` is for the admin preview alone (``$image <rarity>
+    ``monster_only=True`` is for the admin preview alone (``!image <rarity>
     s``, which exists to look at the framed portraits): nobody poses as the
     boss - no supporter is drawn and the player the shrine chose is not asked
     for - so the preview always shows a monster.  The game itself never passes
@@ -919,7 +919,7 @@ async def send_boss_image(scene: "Scene", rarity: int, *, special: bool | None =
 async def single_init(scene: "Scene", rarity: int) -> Any:
     """Decide who fights the boss alone.
 
-    One minute for another player to object - with ``$zaatakuj`` or the
+    One minute for another player to object - with ``!zaatakuj`` or the
     "Zaatakuj" button under the lobby message (whose deadline Discord counts
     down); when somebody does, the first one to type the spell fights.
     Returns the fighter, or None when nobody typed the spell in time (the boss
@@ -932,7 +932,7 @@ async def single_init(scene: "Scene", rarity: int) -> Any:
     window = timing.timeout(step) * LOBBY_STEPS
 
     def objects(item: Any) -> bool:
-        return _who(item).id != attacker.id and _is(item, "$zaatakuj", "object")
+        return _who(item).id != attacker.id and _is(item, "!zaatakuj", "object")
 
     with _listening(bot, channel) as inbox:
         async def allow(interaction: Any, key: str) -> str | None:
@@ -1006,7 +1006,7 @@ async def _settle_record(scene: "Scene", fighters: Sequence[Any], nick: str, tur
     """Store a new kill record and report the 1500 experience for it to the owner.
 
     Exactly as in the old bot the record reward is NOT written to the exp
-    summary (``$Exp``): the owner hands it out from the pinged log line, so
+    summary (``!Exp``): the owner hands it out from the pinged log line, so
     adding it there as well would pay it twice.
     """
     bot = scene.bot
@@ -1282,10 +1282,10 @@ class _GroupLobby:
     """The lobby of a legendary boss: one panel with the party, the buttons and the time left.
 
     The rules and the timing are those of the typed protocol (and typing keeps
-    working): players join with ``$zaatakuj`` / "Dołącz"; a silent step of
+    working): players join with ``!zaatakuj`` / "Dołącz"; a silent step of
     :data:`GROUP_LOBBY_STEP` s counts towards the boss leaving (a join starts
     the step anew); when four are there, each has :data:`GROUP_CONFIRM_TIME` s
-    (anew after every confirmation) to confirm with ``$tak`` / "Gotowy";
+    (anew after every confirmation) to confirm with ``!tak`` / "Gotowy";
     those who do not are dropped and the gathering goes on.
 
     The panel is edited in place - at most once per :data:`PANEL_EDIT_INTERVAL`
@@ -1405,13 +1405,13 @@ class _GroupLobby:
 
     def _joins(self, item: Any) -> bool:
         self._taken(item)
-        return (_is(item, "$zaatakuj", "join")
+        return (_is(item, "!zaatakuj", "join")
                 and all(_who(item).id != player.id for player in self.players))
 
     def _confirms(self, item: Any) -> bool:
         self._taken(item)
         member_id = _who(item).id
-        return (_is(item, "$tak", "ready")
+        return (_is(item, "!tak", "ready")
                 and any(member_id == player.id for player in self.players)
                 and all(member_id != player.id for player in self.confirmed))
 
@@ -1526,7 +1526,7 @@ class _GroupLobby:
             await self._post(self.content, ping=False)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001 - typing $zaatakuj / $tak still works
+        except Exception as exc:  # noqa: BLE001 - typing !zaatakuj / !tak still works
             log.warning("Could not post the legendary lobby panel again (%s: %s).", type(exc).__name__, exc)
 
     async def _stop_painter(self) -> None:
@@ -1548,8 +1548,8 @@ class _GroupLobby:
 async def group_init(scene: "Scene", rarity: int) -> list[Any] | None:
     """Gather a party of four for a legendary boss (see :class:`_GroupLobby`).
 
-    Players join with ``$zaatakuj`` or the "Dołącz" button; when four are
-    there, every one of them has 60 s to confirm with ``$tak`` or "Gotowy"
+    Players join with ``!zaatakuj`` or the "Dołącz" button; when four are
+    there, every one of them has 60 s to confirm with ``!tak`` or "Gotowy"
     (those who do not are dropped and the gathering goes on).  Returns the
     four players in the order they joined, or None when the party did not
     gather in time (the boss leaves).
@@ -1879,7 +1879,7 @@ async def change_icon(scene: "Scene") -> bool:
             await scene.send(MSG_ICONS_UNAVAILABLE)
         elif isinstance(exc, discord.Forbidden):  # no "Manage Roles", or the bot's role is below this one
             await scene.send(MSG_ICON_FORBIDDEN)
-            await bot.log_to_owner("Nie mogę zmienić ikony roli Rzeźnika Potworów ($ikona): brak uprawnienia "
+            await bot.log_to_owner("Nie mogę zmienić ikony roli Rzeźnika Potworów (!ikona): brak uprawnienia "
                                    "\"Zarządzanie rolami\" albo rola bota jest poniżej tej roli.", ping=True)
         else:
             await scene.send(MSG_ICON_REJECTED)

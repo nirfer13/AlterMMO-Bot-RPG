@@ -27,7 +27,7 @@ ZERO = {"CRIT_PERC": 0.0, "REPLACE_PERC": 0.0, "DEF_PERC": 0.0, "DROP_PERC": 0.0
         "LOWHP_PERC": 0.0, "SLOW_PERC": 0.0}
 
 SHARD = {"id": 9, "descr": "Fragment zwoju. Zbierz 10, żeby zdobyć pełny zwój.", "weight": 100}
-EGG = {"id": 10, "descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.", "weight": 100}
+EGG = {"id": 10, "descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **!towarzysz**.", "weight": 100}
 SCROLL = {"id": 11, "descr": "Dostałeś zwój.", "weight": 100}
 LEVEL = {"id": 12, "descr": "Twój towarzysz awansował na wyższy poziom!", "weight": 100}
 STONE = {"id": 13, "descr": "Otrzymałeś kamień przebudzenia.", "weight": 100}
@@ -135,7 +135,7 @@ async def wait_until(condition, timeout: float = 2.0) -> None:
         await asyncio.sleep(0.001)
 
 
-def make_ctx(game, author, content="$polowanie", *, channel=None, admin=False, message=None):
+def make_ctx(game, author, content="!polowanie", *, channel=None, admin=False, message=None):
     channel = channel or game.channel
     if message is None:
         message = FakeMessage(channel, author, content)
@@ -228,7 +228,7 @@ async def test_mob_image_of_a_monster(game, monkeypatch):
     assert embed.title == "💀 Zwykły mob! 💀"
     assert embed.description == ("Na polowaniu pojawił się zwykły potwór! ⚔️"
                                  "\n\n*Inny gracz może dołączyć do polowania, klikając „Dołącz do polowania” "
-                                 "albo wpisując natychmiast $polowanie*.")
+                                 "albo wpisując natychmiast !polowanie*.")
     assert card.button_labels == ["Dołącz do polowania"]
     assert embed.colour.value == 0xFFFFFF and embed.thumbnail.url.endswith("large-green-square_1f7e9.png")
 
@@ -264,7 +264,7 @@ async def test_mob_image_of_a_player_chosen_at_the_shrine(game):
         "\n\nDodatkowe statystyki:\n🔺 Drop zwiększony o 20 %"
         f"\n🔺 Bossem będzie gracz <@{patron.id}>"
         "\n\n*Inny gracz może dołączyć do polowania, klikając „Dołącz do polowania” albo wpisując "
-        "natychmiast $polowanie*.")
+        "natychmiast !polowanie*.")
 
 
 async def test_mob_image_when_the_chosen_player_left_the_server(game, monkeypatch):
@@ -436,10 +436,10 @@ async def test_party_hunt_won(game_db, monkeypatch):
 
     monkeypatch.setattr(daily, "rand_loot", loot_spy)
     other_channel = FakeChannel(555, game_db.guild, bot.fake_user, name="inny")
-    game_db.say_later(ala, "$polowanie", 0.005)                       # already hunting: ignored
-    game_db.say_later(outsider, "$polowanie", 0.01, channel=other_channel)   # another channel: ignored
-    game_db.say_later(outsider, "$pol", 0.015)                        # only the full word joins
-    game_db.say_later(ola, "$polowanie", 0.02)
+    game_db.say_later(ala, "!polowanie", 0.005)                       # already hunting: ignored
+    game_db.say_later(outsider, "!polowanie", 0.01, channel=other_channel)   # another channel: ignored
+    game_db.say_later(outsider, "!pol", 0.015)                        # only the full word joins
+    game_db.say_later(ola, "!polowanie", 0.02)
     game_db.say_later(ela, " $POLOWANIE ", 0.04)
 
     assert await daily.hunt_mobs(game_db.scene(ala), 2, False, None) is True
@@ -472,8 +472,8 @@ async def test_debug_mode_lets_one_tester_fill_the_party(game_db, monkeypatch):
     ala = game_db.add_member("Ala")
     monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 2)
     game_db.auto_answer(ala)
-    game_db.say_later(ala, "$polowanie", 0.01)
-    game_db.say_later(ala, "$polowanie", 0.02)
+    game_db.say_later(ala, "!polowanie", 0.01)
+    game_db.say_later(ala, "!polowanie", 0.02)
     assert await daily.hunt_mobs(game_db.scene(ala), 0, False, None) is True
     assert game_db.channel.contains(f"Rozpoczęliście polowanie <@{ala.id}> <@{ala.id}> <@{ala.id}> ")
 
@@ -535,7 +535,7 @@ async def test_mistake_loses_pays_the_player_monster_and_bans(game_db, monkeypat
     monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 5)
     take_turns(monkeypatch)
     team_answers(game_db, [ala, ola], wrong_rounds={2})
-    game_db.say_later(ola, "$polowanie", 0.01)
+    game_db.say_later(ola, "!polowanie", 0.01)
 
     assert await daily.hunt_mobs(game_db.scene(ala), 1, True, patron) is False
     assert game_db.channel.messages[-1].content == (
@@ -573,7 +573,7 @@ async def test_answer_of_the_wrong_hunter_is_a_mistake(game, skills, monkeypatch
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     take_turns(monkeypatch)
     team_answers(game, [ala, ola], intruder_rounds={1})
-    game.say_later(ola, "$polowanie", 0.01)
+    game.say_later(ola, "!polowanie", 0.01)
     assert await daily.hunt_mobs(game.scene(ala), 0, False, None) is False
     assert game.channel.messages[-1].content == daily.MSG_MISTAKE_LOST
 
@@ -753,7 +753,7 @@ async def test_party_hunt_with_changed_commands(game, skills, monkeypatch):
     monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: len(CHANGED_WORDS) + 1)
     take_turns(monkeypatch)
     team_answers(game, [ala, ola])
-    game.say_later(ola, "$polowanie", 0.01)
+    game.say_later(ola, "!polowanie", 0.01)
 
     assert await daily.hunt_mobs(game.scene(ala), 2, False, None) is True
     names = ["Ala", "Ola"]
@@ -802,7 +802,7 @@ async def test_hunts_do_not_switch_the_changed_commands_off(game, skills, monkey
     assert await modifiers.load_modifiers(bot) == before
 
 
-# -- $polowanie: the whole daily hunt ------------------------------------------------------
+# -- !polowanie: the whole daily hunt ------------------------------------------------------
 
 async def test_daily_hunt_won_and_lost_keep_the_cooldown(game_db, monkeypatch):
     bot = game_db.bot
@@ -879,8 +879,8 @@ async def test_hunting_cog_registers_the_legacy_commands(game):
         admin = bot.get_command(name)
         assert admin is not None and len(admin.checks) == 1
         with pytest.raises(commands.MissingPermissions):
-            await run_checks(admin, make_ctx(game, game.add_member("Gracz"), "$" + name))
-        await run_checks(admin, make_ctx(game, game.add_member("Admin"), "$" + name, admin=True))
+            await run_checks(admin, make_ctx(game, game.add_member("Gracz"), "!" + name))
+        await run_checks(admin, make_ctx(game, game.add_member("Admin"), "!" + name, admin=True))
 
 
 async def test_polowanie_command_rules(game, monkeypatch):
@@ -912,7 +912,7 @@ async def test_polowanie_command_rules(game, monkeypatch):
     await command.callback(cog, ctx)
     assert game.channel.messages[-1].content == (
         "Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, kliknij "
-        "**Zaatakuj** pod bossem albo wpisz **$zaatakuj**, żeby stawić mu czoła.")
+        "**Zaatakuj** pod bossem albo wpisz **!zaatakuj**, żeby stawić mu czoła.")
     await bot.state.set_boss_phase(BossPhase.VISIBLE)
     await command.callback(cog, ctx)
     assert game.channel.messages[-1].content == (
@@ -975,15 +975,15 @@ async def test_second_player_joins_through_the_command_without_a_busy_notice(gam
     await wait_until(lambda: game_db.channel.contains("Inny gracz może dołączyć do polowania"))
     assert bot.state.busy_owner == "hunt"
 
-    # Ola's "$polowanie" joins the hunt; the command it also triggers stays silent.
-    joining = game_db.say(ola, "$polowanie")
+    # Ola's "!polowanie" joins the hunt; the command it also triggers stays silent.
+    joining = game_db.say(ola, "!polowanie")
     with pytest.raises(guards.SilentCheckFailure):
         await run_checks(command, make_ctx(game_db, ola, message=joining))
     assert not game_db.channel.contains(guards.BUSY_NOTICE)
 
     await wait_until(lambda: game_db.channel.contains("Rozpoczęliście polowanie"))
     # Too late to join: an ordinary blocked command, answered with the notice.
-    too_late = game_db.say(late, "$polowanie")
+    too_late = game_db.say(late, "!polowanie")
     with pytest.raises(guards.SilentCheckFailure):
         await run_checks(command, make_ctx(game_db, late, message=too_late))
     assert game_db.channel.contains(guards.BUSY_NOTICE)
@@ -1004,11 +1004,11 @@ async def test_admin_cooldown_commands(game):
     daily.save_daily_to_file(bot, admin.id)
     daily.save_daily_to_file(bot, ala.id)
 
-    await cog.clear_cd_daily_alter.callback(cog, make_ctx(game, admin, "$ClearDailyAlter", admin=True))
+    await cog.clear_cd_daily_alter.callback(cog, make_ctx(game, admin, "!ClearDailyAlter", admin=True))
     assert game.channel.messages[-1].content == "Zresetowano daily cd Altera."
     assert not daily.load_daily_from_file(bot, admin.id) and daily.load_daily_from_file(bot, ala.id)
 
-    await cog.clear_cd_daily.callback(cog, make_ctx(game, admin, "$ClearDaily", admin=True))
+    await cog.clear_cd_daily.callback(cog, make_ctx(game, admin, "!ClearDaily", admin=True))
     assert game.channel.messages[-1].content == "Zresetowano daily cd."
     assert bot.store.daily_cd.all() == [] and bot.owner_log == ["Zresetowano cooldown na daily."]
 

@@ -1,14 +1,14 @@
-"""Patch notes: posted once after every start that brings an update, and ``$patchnotes``.
+"""Patch notes: posted once after every start that brings an update, and ``!patchnotes``.
 
 The rules live in :mod:`altermmo.features.patchnotes`.  This cog decides *when*:
 
 * once per process, after the bot is ready (a plain task, not ``on_ready``: that fires again
   after every reconnect), the entries of ``config/patchNotes.json`` that were not announced
   yet are posted to the patch-notes channel; the owner gets one note;
-* ``$patchnotes`` (administrators; any channel): the status - the highest announced entry and
+* ``!patchnotes`` (administrators; any channel): the status - the highest announced entry and
   where that number comes from, how many entries wait - and it posts what waits, exactly as the
   start-up does;
-* ``$patchnotes od <nr>`` (administrators): posts again from that entry on (the owner removed a
+* ``!patchnotes od <nr>`` (administrators): posts again from that entry on (the owner removed a
   message and wants it back); the remembered number is then the highest one sent.  It never
   jumps over entries that were not announced yet (it refuses and says which ones), and a run
   that stops in the middle never lowers the remembered number.
@@ -30,7 +30,7 @@ from ..features import patchnotes
 
 log = logging.getLogger(__name__)
 
-MSG_USAGE = ("Użycie: **$patchnotes** (stan i wysłanie tego, co czeka) albo **$patchnotes od numer** "
+MSG_USAGE = ("Użycie: **!patchnotes** (stan i wysłanie tego, co czeka) albo **!patchnotes od numer** "
              "(wyślij ponownie od podanego wpisu).")
 MSG_WAIT = "Trwa właśnie wysyłanie patch notesów - poczekam, aż się skończy."
 

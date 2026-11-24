@@ -1,9 +1,9 @@
-"""Skill gem commands: ``$pokazskill``, ``$klejnoty``, ``$wybierzklejnot``, ``$uzyjskilla``, admin helpers.
+"""Skill gem commands: ``!pokazskill``, ``!klejnoty``, ``!wybierzklejnot``, ``!uzyjskilla``, admin helpers.
 
-``$pokazskill`` and ``$klejnoty`` only display something and work on every
-channel of the server; ``$wybierzklejnot`` and ``$uzyjskilla`` are gameplay and
-work on the boss channel only.  The menu under the ``$klejnoty`` list does what
-``$wybierzklejnot`` does, under the same rules (it answers a choice made on
+``!pokazskill`` and ``!klejnoty`` only display something and work on every
+channel of the server; ``!wybierzklejnot`` and ``!uzyjskilla`` are gameplay and
+work on the boss channel only.  The menu under the ``!klejnoty`` list does what
+``!wybierzklejnot`` does, under the same rules (it answers a choice made on
 another channel privately).  The game itself lives in
 :mod:`altermmo.features.skills`.
 """
@@ -34,7 +34,7 @@ class SkillsCog(commands.Cog, name="Skills"):
     async def show_skill(self, ctx: commands.Context) -> None:
         await skills.show_skill(Scene.from_ctx(ctx))
 
-    # ("klejnoty", not "skille": one letter away from ``$skill``, which USES the gem.)
+    # ("klejnoty", not "skille": one letter away from ``!skill``, which USES the gem.)
     @commands.command(name="klejnoty",
                       aliases=["sakwa", "skille", "umiejetnosci", "umiejętności"],
                       brief="Show all skill gems of the user.")
@@ -56,10 +56,10 @@ class SkillsCog(commands.Cog, name="Skills"):
     async def choose_skill_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         if isinstance(error, commands.MissingRequiredArgument):
             try:
-                await io.send(ctx.channel, "Po spacji podaj numer klejnotu z listy **$klejnoty**, "
-                                           "np. **$wybierzklejnot 2**.")
+                await io.send(ctx.channel, "Po spacji podaj numer klejnotu z listy **!klejnoty**, "
+                                           "np. **!wybierzklejnot 2**.")
             except Exception:  # noqa: BLE001 - a hint is never worth an error
-                log.debug("Could not send the $wybierzklejnot hint.", exc_info=True)
+                log.debug("Could not send the !wybierzklejnot hint.", exc_info=True)
         else:
             await ctx.bot.on_command_error(ctx, error, force=True)
 
@@ -105,7 +105,7 @@ class SkillsCog(commands.Cog, name="Skills"):
                 f"{kind} = {name}" for kind, name in skills.GEM_NAMES.items()) + ").")
             return
         if await skills.assign_skill(Scene.from_ctx(ctx), player_id, variant):
-            await io.send(ctx.channel, f"<@{player_id}> dostaje nowy klejnot umiejętności (**$klejnoty**).")
+            await io.send(ctx.channel, f"<@{player_id}> dostaje nowy klejnot umiejętności (**!klejnoty**).")
         else:
             await io.send(ctx.channel, f"<@{player_id}> ma już taki klejnot (albo wszystkie, które mogą wypaść).")
 

@@ -138,7 +138,7 @@ async def test_won_fight_resets_and_schedules_the_next_boss(game_db, cycle, stub
     player = game_db.add_member("Ala")
     cycle.start()
     await wait_phase(bot, BossPhase.VISIBLE)
-    await cycle.attack(game_db.scene(player, "$zaatakuj"))
+    await cycle.attack(game_db.scene(player, "!zaatakuj"))
     assert "reset_end" in stub.calls
     stub.calls.clear()
     await wait_phase(bot, BossPhase.VISIBLE)      # the next boss arrived on its own
@@ -384,7 +384,7 @@ async def test_summoned_boss_whose_fight_was_interrupted_gets_its_minimal_stay_a
 
 
 async def test_start_spawn_while_the_scheduled_boss_waits_does_not_make_it_leave(game_db, cycle, stub):
-    """$startSpawnBoss with spawning already on restarts the loop - the scheduled boss still waits for ever."""
+    """!startSpawnBoss with spawning already on restarts the loop - the scheduled boss still waits for ever."""
     bot = game_db.bot
     bot.timings = dataclasses.replace(FAST, summoned_min_stay=0.0)
     cycle.start()
@@ -400,7 +400,7 @@ async def test_start_spawn_while_the_scheduled_boss_waits_does_not_make_it_leave
 
 @pytest.mark.parametrize("admin", ["reset", "disable"])
 async def test_reset_while_the_summoned_boss_leaves_is_not_undone(game_db, cycle, stub, monkeypatch, admin):
-    """$ResetBoss / $stopSpawnBoss while an unattacked summoned boss is leaving (Discord is slow)."""
+    """!ResetBoss / !stopSpawnBoss while an unattacked summoned boss is leaving (Discord is slow)."""
     bot = game_db.bot
     bot.timings = dataclasses.replace(FAST, respawn_min=1, respawn_max=1, summoned_min_stay=0.0)
     player = game_db.add_member("Ala")
@@ -433,7 +433,7 @@ async def test_reset_while_the_summoned_boss_leaves_is_not_undone(game_db, cycle
 
 async def test_start_spawn_while_the_summoned_boss_leaves_does_not_strand_the_boss(game_db, cycle, stub,
                                                                                     monkeypatch):
-    """$startSpawnBoss restarts the loop in the middle of the leave: the scheduled boss still comes."""
+    """!startSpawnBoss restarts the loop in the middle of the leave: the scheduled boss still comes."""
     bot = game_db.bot
     bot.timings = dataclasses.replace(FAST, respawn_min=1, respawn_max=1, summoned_min_stay=0.0)
     player = game_db.add_member("Ala")
@@ -598,7 +598,7 @@ async def test_scheduled_special_boss_keeps_its_variant_until_the_fight(game_db,
     assert (bot.state.boss.rarity, bot.state.boss.variant) == (1, "krwawy-ksiezyc")
     assert bot.state.snapshot()["boss_variant"] == "krwawy-ksiezyc"
     stub.variant = ""                                             # (whatever is drawn later is another boss)
-    await cycle.attack(game_db.scene(player, "$zaatakuj"))
+    await cycle.attack(game_db.scene(player, "!zaatakuj"))
     assert ("single_fight", "Ala", 1) in stub.calls
     assert stub.special == [{"variant": "krwawy-ksiezyc"}]
     assert bot.state.boss.variant == ""                           # gone with the boss
@@ -610,7 +610,7 @@ async def test_ordinary_boss_is_fought_by_the_old_call(game_db, cycle, stub):
     cycle.start()
     await wait_phase(bot, BossPhase.VISIBLE)
     assert bot.state.boss.variant == ""
-    await cycle.attack(game_db.scene(player, "$zaatakuj"))
+    await cycle.attack(game_db.scene(player, "!zaatakuj"))
     assert stub.special == [{}]                                   # no keyword at all
 
 
@@ -703,7 +703,7 @@ async def test_restart_rolls_the_variant_anew_with_the_picture(game_db, cycle, s
 
 
 async def test_switching_spawning_on_keeps_the_variant_of_a_summoned_boss(game_db, cycle, stub):
-    """$startSpawnBoss restarts the loop, not the boss: its picture stays, so does its variant."""
+    """!startSpawnBoss restarts the loop, not the boss: its picture stays, so does its variant."""
     bot = game_db.bot
     player = game_db.add_member("Ala")
     await cycle.disable()
@@ -792,7 +792,7 @@ async def test_start_clears_the_boss_channel_but_keeps_pins_and_the_oldest_post(
     panel = await game.channel.send("Panel gry")
     await panel.pin()
     await game.channel.send("BOSS rarity 2")                        # a picture whose boss is not attackable
-    game.say(ala, "$zaatakuj")
+    game.say(ala, "!zaatakuj")
     await game.channel.send("1. Boss szarżuje na Ciebie! Wpisz **U N I K**")   # half a fight
     await cycle.tidy_after_start()
     assert game.channel.messages == [rules, panel]
@@ -821,9 +821,9 @@ async def test_tidy_happens_once_per_start_not_at_every_restart_of_the_loop(game
     cycle.start()
     await wait_phase(game.bot, BossPhase.SCHEDULED, BossPhase.WAITING)
     assert calls == ["IDLE"]                                         # before the schedule is touched
-    await cycle.enable()                                             # $startSpawnBoss restarts the loop
+    await cycle.enable()                                             # !startSpawnBoss restarts the loop
     await asyncio.sleep(0.05)
-    await cycle.reset()                                              # $ResetBoss as well
+    await cycle.reset()                                              # !ResetBoss as well
     await asyncio.sleep(0.05)
     assert calls == ["IDLE"]                                         # the loop restarted twice: no second tidy
 

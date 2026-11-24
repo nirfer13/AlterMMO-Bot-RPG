@@ -463,7 +463,8 @@ async def test_more_stable_places_can_be_used(game_db):
     await make_pet(db, 1, level=2, name="Mruczek")
     scene = game.scene(ala)
     assert await pets.store_pet(scene, 7) is False                          # only six places
-    assert game.channel.contains("Twoja stajnia ma 6 miejsc - od 1 do 6")
+    assert game.channel.sent[-1].content == (f"Twoja stajnia ma 6 miejsc - od 1 do 6 <@{ala.id}>! "
+                                             "Wpisz np. **!schowajtowarzysza 1**.")
     assert await pets.store_pet(scene, 6) is True
     assert (await row(db, ala.id))["pet_id_alt6"] == 1 and (await row(db, ala.id))["pet_id"] == 0
     embed, options = await pets._stable_view(game.bot, ala.id)

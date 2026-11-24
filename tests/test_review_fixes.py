@@ -176,7 +176,7 @@ async def test_channel_is_not_free_while_a_chest_is_being_looted(game):
 
     state = game.bot.state
     state.open_event(EventType.CHEST)
-    assert state.try_claim_event(EventType.CHEST)      # $skrzynia is handing out the loot
+    assert state.try_claim_event(EventType.CHEST)      # !skrzynia is handing out the loot
     assert not state.free_for_activity                 # no new event may wipe the channel now
     state.close_event()
     assert state.free_for_activity
@@ -209,7 +209,7 @@ def test_owner_is_told_when_spawning_is_switched_off(game):
     bot = game.bot
     bot.store.runtime_set("boss_spawning_enabled", False)
     bot._review_saved_state()
-    assert any("$startSpawnBoss" in note for note in bot._startup_notes)
+    assert any("!startSpawnBoss" in note for note in bot._startup_notes)
 
 
 @pytest.mark.parametrize("error, code", [

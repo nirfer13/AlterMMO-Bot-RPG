@@ -1,8 +1,8 @@
-"""The Death Tower: ``$wieża``, its rankings and the admin commands of its cooldown.
+"""The Death Tower: ``!wieża``, its rankings and the admin commands of its cooldown.
 
-``$rankingwiezy`` and ``$rekordwiezy`` only display something and work on every
+``!rankingwiezy`` and ``!rekordwiezy`` only display something and work on every
 channel of the server; the run itself works on the boss channel only.  The game
-lives in :mod:`altermmo.features.tower`; the body of ``$wieża`` is
+lives in :mod:`altermmo.features.tower`; the body of ``!wieża`` is
 :func:`altermmo.features.tower.start_tower`, so a button can run exactly the
 same thing.
 """

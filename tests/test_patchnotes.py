@@ -4,7 +4,7 @@ Owner's request of 2026-11-21: "Po każdej aktualizacji i pierwszym uruchomieniu
 tutaj patch notesy po polsku. Bez spoilerów." - the notes come from ``config/patchNotes.json`` (checked
 strictly: a broken file posts nothing), an entry with a spoiler is refused, and the bot finds what it
 announced already by the marker in the footer of its own messages ("Patch notes nr 4-6").  The posting
-itself (start-up, ``$patchnotes``, failures) is tested in test_patchnotes_flow.py.
+itself (start-up, ``!patchnotes``, failures) is tested in test_patchnotes_flow.py.
 """
 
 from __future__ import annotations

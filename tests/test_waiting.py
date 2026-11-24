@@ -364,7 +364,7 @@ async def test_towarzysz_with_a_slow_card_shows_the_notice_then_the_pet(cog, gam
     slow_card(monkeypatch, game.channel)
     moments: list = []
     watch_notice(game.channel, moments)
-    await run(game, player, "$towarzysz")
+    await run(game, player, "!towarzysz")
 
     notice, shown = game.channel.sent[-2:]
     assert notice.content.startswith(COMING) and notice.deleted and notice not in game.channel.messages
@@ -378,7 +378,7 @@ async def test_a_quick_card_shows_no_notice(cog, game_db, monkeypatch, no_leaks)
     game = game_db
     monkeypatch.setattr(waiting, "NOTICE_DELAY", 0.5)                            # a cached card: no await at all
     player = await pet_owner(game)
-    await run(game, player, "$towarzysz")
+    await run(game, player, "!towarzysz")
     clicked = FakeInteraction(game.bot, player, channel=game.channel)
     assert await hub.show_display(clicked, hub.show_pet) is True
     assert not game.channel.ever_sent(COMING)

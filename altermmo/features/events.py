@@ -134,7 +134,7 @@ TOASTS = (
 
 CHEST_TITLE = "<:Loot:912797849916436570> Skrzynia ze skarbami! <:Loot:912797849916436570>"
 CHEST_DESCR = ('Pojawiła się skrzynia ze skarbami! Jedna osoba może ją otworzyć przyciskiem pod tym postem'
-               ' albo komendą **$skrzynia**!'
+               ' albo komendą **!skrzynia**!'
                '\n\n*Wspierający mogą wydropić dodatkowe, kosmetyczne przedmioty!*')
 CHEST_THUMB = 'https://www.altermmo.pl/wp-content/uploads/altermmo-2-112.png'
 
@@ -213,7 +213,7 @@ MSG_ASSASSIN_NO_ACCOUNT = "Nie masz jeszcze peta/konta w systemie."
 MSG_ASSASSIN_POOR = "Potrzebujesz minimum 30 zwojów odrodzenia."
 MSG_ASSASSIN_CONFIRM = ("Czy jesteś pewien, że chcesz zatrudnić zabójcę za 30 zwojów odrodzenia, "
                         "<@{player}>? <:Hmm:984767035617730620> Kliknij **Potwierdzam** "
-                        "albo wpisz **$potwierdzam**.")
+                        "albo wpisz **!potwierdzam**.")
 MSG_ASSASSIN_NOT_CONFIRMED = "Nie potwierdzono zlecenia zabójstwa."
 MSG_ASSASSIN_BETRAYED = ("Zabójca Cię zdradził! Wbija Ci nóż w plecy i zabiera zwoje... "
                          "<:RIP:912797982917816341>")
@@ -443,7 +443,7 @@ class _SignUp:
 # -- chest ---------------------------------------------------------------------------
 
 async def spawn_chest(scene: "Scene", *, view: discord.ui.View | None = None) -> Any:
-    """Show a treasure chest; one player may open it (``$skrzynia`` or the button in ``view``).
+    """Show a treasure chest; one player may open it (``!skrzynia`` or the button in ``view``).
 
     Returns the panel message (the events cog takes its button off when the chest is gone).
     """
@@ -844,9 +844,9 @@ async def _pick_victim(bot: "AlterBot", author_id: int) -> Any:
 
 
 async def assasinate(scene: "Scene") -> bool:
-    """``$zabojca``: for 30 reroll scrolls an assassin kills a random ranked player.
+    """``!zabojca``: for 30 reroll scrolls an assassin kills a random ranked player.
 
-    The client confirms with a button (typing ``$potwierdzam`` works too).
+    The client confirms with a button (typing ``!potwierdzam`` works too).
     Returns True only when the order was placed and paid for (also when the
     assassin betrayed the client); the caller gives the cooldown back otherwise.
     """

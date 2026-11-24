@@ -1,6 +1,6 @@
-"""The pinned "Panel gry": ``$panel`` (administrators) and its permanent buttons.
+"""The pinned "Panel gry": ``!panel`` (administrators) and its permanent buttons.
 
-``$panel`` posts the panel on the boss channel (the channel it is typed on,
+``!panel`` posts the panel on the boss channel (the channel it is typed on,
 when that is a boss channel - production or test) and pins it; typing it
 again replaces the previous panel.  The buttons are registered in
 ``cog_load``, so panels posted before a restart keep working.  Everything
@@ -53,7 +53,7 @@ async def _say(ctx: commands.Context, text: str) -> None:
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001 - an answer to the administrator is never worth an error
-        log.debug("Could not answer $panel.", exc_info=True)
+        log.debug("Could not answer !panel.", exc_info=True)
 
 
 async def setup(bot) -> None:

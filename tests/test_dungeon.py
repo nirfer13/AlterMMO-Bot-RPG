@@ -1813,7 +1813,7 @@ async def test_the_closing_time_is_the_soonest_closing_that_is_no_secret(game_db
 
 async def test_stop_spawn_boss_tells_the_open_mine_its_new_latest_closing(game_db, luck, boss, no_tournament,
                                                                          monkeypatch):
-    """``$stopSpawnBoss`` drops the boss's quiet hour: the mine is no longer closed at its end, so it no longer
+    """``!stopSpawnBoss`` drops the boss's quiet hour: the mine is no longer closed at its end, so it no longer
     calls that moment its latest closing - it shows the next slot at once.  And whatever else changes the
     moment, the watch asks the events cog again at every look."""
     game = game_db
@@ -1832,7 +1832,7 @@ async def test_stop_spawn_boss_tells_the_open_mine_its_new_latest_closing(game_d
     message = await enter(game, mine, ala)
     before = f"najpóźniej <t:{math.ceil(quiet.timestamp())}:R>"
     assert mine.closes_at == quiet and before in mine.announcement.embeds[0].description
-    await cycle.disable()                                                          # the owner: $stopSpawnBoss
+    await cycle.disable()                                                          # the owner: !stopSpawnBoss
     after = f"najpóźniej <t:{math.ceil(slot.timestamp())}:R>"
     assert dungeon.is_open(bot, mine) and mine.closes_at == slot
     assert after in mine.announcement.embeds[0].description and before not in mine.announcement.embeds[0].description
@@ -2183,7 +2183,7 @@ async def test_a_mine_that_is_still_being_closed_keeps_the_next_one_away(game_db
 
 @pytest.mark.parametrize("goes_on", ["watch", "restart"])
 async def test_a_closing_cancelled_between_two_eggs_is_finished_later(game_db, luck, monkeypatch, goes_on):
-    """A shutdown or a cancelled task ($ResetBoss) in the middle of the closing: every egg still gets its fate once."""
+    """A shutdown or a cancelled task (!ResetBoss) in the middle of the closing: every egg still gets its fate once."""
     game, db = game_db, game_db.bot.db
     bot = game.bot
     ala = game.add_member("Ala")
@@ -2409,7 +2409,7 @@ async def test_a_file_that_falls_behind_is_written_again_by_the_watch(game_db, l
 @pytest.mark.parametrize("question", ["second", "first", "sacrifice"])
 async def test_a_word_typed_before_the_question_is_posted_is_no_answer(game_db, luck, no_modifier, monkeypatch,
                                                                        question):
-    """``$potwierdzam`` typed once more while the question is still on its way to Discord answers nothing:
+    """``!potwierdzam`` typed once more while the question is still on its way to Discord answers nothing:
     nobody has seen that question yet, and a sacrifice cannot be undone."""
     game, db = game_db, game_db.bot.db
     ala = game.add_member("Ala", roles=[PATRON])
@@ -2426,7 +2426,7 @@ async def test_a_word_typed_before_the_question_is_posted_is_no_answer(game_db, 
             return
         order.append("posted: " + sent.content)
         if question == "second" and "pytanie 1 z 2" in sent.content:
-            game.say_later(ala, "$potwierdzam", 0.0)                             # the one deliberate answer
+            game.say_later(ala, "!potwierdzam", 0.0)                             # the one deliberate answer
 
     game.channel.send_hooks.append(posted)
     send = ui.ClickView.send
@@ -2434,7 +2434,7 @@ async def test_a_word_typed_before_the_question_is_posted_is_no_answer(game_db, 
     async def slow_send(self, destination, content=None, **kwargs):
         if content and wanted in content:
             order.append("typed")                                                # the word arrives ...
-            game.say(ala, "$potwierdzam")
+            game.say(ala, "!potwierdzam")
             await asyncio.sleep(0.05)                                            # ... during the round trip of the post
         return await send(self, destination, content, **kwargs)
 
@@ -2453,7 +2453,7 @@ async def test_a_word_typed_before_the_question_is_posted_is_no_answer(game_db, 
 
     def answers_in_words(sent) -> None:
         if sent.view is not None and ("pytanie" in sent.content or "poświęcić to jajo" in sent.content):
-            game.say_later(ala, "$potwierdzam", 0.0)
+            game.say_later(ala, "!potwierdzam", 0.0)
 
     game.channel.send_hooks.append(answers_in_words)
     if question != "sacrifice":

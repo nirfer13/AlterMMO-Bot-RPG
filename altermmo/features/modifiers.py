@@ -5,7 +5,7 @@ Port of the legacy ``functions/functions_modifiers.py``.
 The modifiers live in ``data/bossModifier.json`` (``bot.store.modifiers``) in
 the legacy format - one flat JSON object with the keys of
 :data:`INIT_MODIFIERS` - so the file of the production bot can be copied over
-as it is (a key the old file does not have yet simply counts as 0).  They are filled by prayers at the shrine (``$modlitwa``), by pet
+as it is (a key the old file does not have yet simply counts as 0).  They are filled by prayers at the shrine (``!modlitwa``), by pet
 sacrifices and by skill gems, used by the next boss fight and by hunts, and
 zeroed again when the boss fight is over (``boss.reset_end``).  Only supporters
 (patrons, crafters, Twitch subscribers, YouTube supporters - see
@@ -134,7 +134,7 @@ def _read(bot: "AlterBot") -> dict[str, int]:
 
 
 async def init_modifiers(bot: "AlterBot") -> None:
-    """Set every modifier back to 0 (after a boss fight, on ``$ResetBoss``)."""
+    """Set every modifier back to 0 (after a boss fight, on ``!ResetBoss``)."""
     bot.store.modifiers.save(dict(INIT_MODIFIERS))
     log.info("Modifiers reset.")
 
@@ -216,7 +216,7 @@ async def spawn_modifier_shrine(scene: "Scene", *, view: discord.ui.View | None 
 
     e_descr = 'Oto kapliczka zmian, która wpłynie na następnego bossa! '\
         'Jeśli chcesz wpłynąć na następnego bossa, to pomódl się przyciskiem pod tym postem '\
-        'albo wpisując **$modlitwa**.\n\n'\
+        'albo wpisując **!modlitwa**.\n\n'\
         f'*Tylko {patrons.SUPPORTERS_SHORT} ({patrons.SUPPORTERS_LONG}) znają odpowiednią modlitwę,'\
         ' ale każdy może skorzystać z błogosławieństw rzuconych na potwora.*'
 

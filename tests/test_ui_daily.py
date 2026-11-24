@@ -131,7 +131,7 @@ async def test_button_and_typed_word_fill_the_hunt_and_the_card_shows_the_hunter
     await until(lambda: again.answers == [daily.MSG_ALREADY_HUNTING])
     assert roster(card)[1].startswith(f"<@{ala.id}>, <@{ola.id}>\n")
 
-    game.say(ela, "$polowanie")                                         # the typed way still works
+    game.say(ela, "!polowanie")                                         # the typed way still works
     assert await task is True
     assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> <@{ela.id}> <:ok:990161663053422592>")
 
@@ -192,7 +192,7 @@ async def test_the_card_purged_while_gathering_does_not_stop_the_hunt(game, quie
     card, task = await start_gathering(game, ala)
     await card.delete()
     gone(card)
-    game.say(ola, "$polowanie")
+    game.say(ola, "!polowanie")
     assert await task is True
     assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> ")
     assert not ui.is_live(card.id)
@@ -298,12 +298,12 @@ async def test_a_hunt_without_a_card_still_takes_typed_joins(game, quiet_hunt):
     game.bot.debug = False
     ala, ola = game.add_member("Ala"), game.add_member("Ola")
     team_answers(game, [ala, ola])
-    game.say_later(ola, "$polowanie", 0.02)
+    game.say_later(ola, "!polowanie", 0.02)
     assert await daily.hunt_mobs(game.scene(ala), 0, False, None) is True
     assert game.channel.contains(f"Brawo <@{ala.id}> <@{ola.id}> ")
 
 
-# -- $polowanie as one function (for the hub panel) ----------------------------------------
+# -- !polowanie as one function (for the hub panel) ----------------------------------------
 
 async def test_start_hunt_from_a_click_refuses_on_the_channel(game, monkeypatch):
     bot = game.bot
@@ -507,7 +507,7 @@ async def test_start_tower_from_a_click_and_from_the_command(game, monkeypatch):
     assert monday in game.channel.messages[-1].content and len(runs) == 1
 
 
-# -- the gem pouch: a menu instead of $wybierzklejnot --------------------------------------
+# -- the gem pouch: a menu instead of !wybierzklejnot --------------------------------------
 
 OWNER_DEFAULTS = dict(pet_owned=True, reroll_scroll=0, reroll_scroll_shard=0, rebirth_stones=0, mirrors=0,
                       pet_id_alt1=0, pet_id_alt2=0, skill_gem=0, pet_id_alt3=0, pet_id_alt4=0)
@@ -625,7 +625,7 @@ async def test_pouch_with_one_gem_has_no_menu_and_the_menu_expires(game_db, monk
     lone = await collector(game_db, "Ola", gems=((3, skills.SLOW),))
     assert await skills.show_skills(game_db.scene(lone)) is True
     assert game_db.channel.messages[-1].view is None
-    assert "$wybierzklejnot numer" in game_db.channel.messages[-1].embeds[0].description
+    assert "!wybierzklejnot numer" in game_db.channel.messages[-1].embeds[0].description
 
     ala = await collector(game_db)
     monkeypatch.setattr(skills, "POUCH_MENU_SECONDS", 0.05)
@@ -637,7 +637,7 @@ async def test_pouch_with_one_gem_has_no_menu_and_the_menu_expires(game_db, monk
 
 
 async def test_pouch_from_the_hub_panel_is_posted_with_its_menu(game_db):
-    """"Klejnoty" on the panel posts what $klejnoty posts - with the menu, usable by its owner only."""
+    """"Klejnoty" on the panel posts what !klejnoty posts - with the menu, usable by its owner only."""
     ala = await collector(game_db)
     ola = game_db.add_member("Ola")
     click = clicker(game_db, ala)
@@ -692,7 +692,7 @@ async def test_rest_roster_is_repainted_while_the_rest_lasts(game_db, monkeypatc
         seen.append(invitation.embeds[0].fields[0].value)
 
     monkeypatch.setattr(skills.timing, "pause", pause)
-    assert await skills.use_skill(game_db.scene(host, "$skill"), host) == skills.REST
+    assert await skills.use_skill(game_db.scene(host, "!skill"), host) == skills.REST
     assert seen == [f"<@{ola.id}>"]
     assert bot.store.daily_cd.all() == [str(ela.id)]
     assert game_db.channel.ever_sent(skills.MSG_REST_DONE)

@@ -176,7 +176,7 @@ def is_new_record(previous: str, turn_time: timedelta) -> bool:
 
 
 def display_record(record_time: str) -> str:
-    """Record as shown by ``$rekord``: seconds only, e.g. ``15.121325``."""
+    """Record as shown by ``!rekord``: seconds only, e.g. ``15.121325``."""
     parsed = parse_turn_time(record_time)
     if parsed is None:
         return str(record_time)
@@ -261,12 +261,12 @@ async def _ranking_lines(bot: "AlterBot", separator: str) -> tuple[str, list]:
     return "\n".join(lines) + ("\n" if lines else ""), rows
 
 
-#: Last line of ``$ranking``; ``{when}`` is :func:`altermmo.core.ui.when` of the season end.
+#: Last line of ``!ranking``; ``{when}`` is :func:`altermmo.core.ui.when` of the season end.
 MSG_SEASON_ENDS = "\n⏳ Sezon kończy się {when}."
 
 
 async def read_ranking_table(scene: "Scene") -> None:
-    """``$ranking``: post the current top 10 and when the season ends (Discord's live countdown)."""
+    """``!ranking``: post the current top 10 and when the season ends (Discord's live countdown)."""
     from ..core import ui
     from .daily import next_season_end  # (daily imports this module)
 

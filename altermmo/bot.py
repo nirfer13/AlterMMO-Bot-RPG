@@ -24,7 +24,7 @@ from .core.storage import IdListFile, JsonFile, migrate_legacy_file
 from .core.supervisor import Supervisor
 from .features import petcards
 from .features.boss_cycle import BossCycle
-from .settings import COMMAND_PREFIX, PROJECT_ROOT, Ids, Settings, Timings
+from .settings import COMMAND_PREFIX, COMMAND_PREFIXES, PROJECT_ROOT, Ids, Settings, Timings
 
 log = logging.getLogger(__name__)
 
@@ -244,7 +244,7 @@ class Stores:
 
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = data_dir
-        #: Players who already used ``$polowanie`` today.
+        #: Players who already used ``!polowanie`` today.
         self.daily_cd = IdListFile(data_dir / "daily_player_cd.txt")
         #: Players who already entered the Death Tower this week.
         self.weekly_tower_cd = IdListFile(data_dir / "weekly_tower_cd.txt")
@@ -304,7 +304,7 @@ class AlterBot(commands.Bot):
         intents.members = True
         intents.message_content = True  # prefix commands and typed fight answers
         super().__init__(
-            command_prefix=COMMAND_PREFIX,
+            command_prefix=COMMAND_PREFIXES,  # "!" and the silent legacy "$" (settings.py)
             description="AlterMMO Discord Bot",
             intents=intents,
             help_command=None,
@@ -383,7 +383,7 @@ class AlterBot(commands.Bot):
                 noted = [problem for problem in problems if problem not in explained]
             if noted:
                 self._startup_notes.append("Baza danych różni się od oczekiwanej: " + "; ".join(noted)
-                                           + ". Część komend może nie działać (spróbuj `$createAllDatabases`).")
+                                           + ". Część komend może nie działać (spróbuj `!createAllDatabases`).")
             if not problems:
                 log.info("Database structure verified.")
         except Exception as exc:  # noqa: BLE001 - keep starting; queries reconnect lazily
@@ -460,8 +460,8 @@ class AlterBot(commands.Bot):
                              + "` i uruchom go ponownie - stan zostanie przejęty od nowa.")
 
         if not self.boss_cycle.enabled:
-            notes.append("Respawn bossów jest WYŁĄCZONY (zapamiętane `$stopSpawnBoss`). "
-                         "Włącz go komendą `$startSpawnBoss`.")
+            notes.append("Respawn bossów jest WYŁĄCZONY (zapamiętane `!stopSpawnBoss`). "
+                         "Włącz go komendą `!startSpawnBoss`.")
 
     async def on_ready(self) -> None:
         # Fires again after every re-identify (e.g. a long internet outage).
@@ -545,7 +545,7 @@ class AlterBot(commands.Bot):
     async def _report_loop_crash(self, name: str, error: str, crashes: int) -> None:
         await self.log_to_owner(
             f"Pętla `{name}` przerwana przez błąd (raz {crashes}. z rzędu): `{error}`. "
-            "Bot sam ją wznawia; szczegóły w pliku logów i w `$status`.", ping=True)
+            "Bot sam ją wznawia; szczegóły w pliku logów i w `!status`.", ping=True)
 
     async def _report_job_failure(self, name: str, error: str, failures: int) -> None:
         await self.log_to_owner(

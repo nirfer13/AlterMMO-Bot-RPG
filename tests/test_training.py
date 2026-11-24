@@ -904,7 +904,7 @@ def test_the_stable_exception_belongs_to_the_holder_it_was_made_for():
         assert not state.stable_open
         with state.stable_stays_open():
             assert state.stable_open and state.snapshot()["stable_open"] is True
-            assert state.force_release_busy() == "event:TRAINING"            # $ResetBoss in the middle
+            assert state.force_release_busy() == "event:TRAINING"            # !ResetBoss in the middle
             assert not state.stable_open
             with state.hold_busy("hunt"):                                    # somebody else's channel now
                 assert not state.stable_open
@@ -936,7 +936,7 @@ async def test_the_stable_works_during_the_sign_up_and_only_then(game_db, pictur
     assert state.stable_open
 
     # -- the sign-up is open: the stable works although the event holds the channel
-    await run(game, ala, "$stajnia")                      # showing it: the command ...
+    await run(game, ala, "!stajnia")                      # showing it: the command ...
     shown = game.channel.messages[-1]
     assert shown.embeds[0].title == "Stajnia" and ui.is_live(shown.id)
     clicked = await hub_stable(game, ala)                 # ... the button of the pinned game panel ...
@@ -945,19 +945,19 @@ async def test_the_stable_works_during_the_sign_up_and_only_then(game_db, pictur
     looked = await game.click(far, ala, "pet:stable")     # ... and the button under a shown pet
     assert looked.replies == [] and elsewhere.messages[-1].embeds[0].title == "Stajnia"
 
-    await run(game, ala, "$schowajtowarzysza 2")          # putting a companion in ...
+    await run(game, ala, "!schowajtowarzysza 2")          # putting a companion in ...
     assert await slots(db, ala) == [0, 0, 5, 7, 0] and game.channel.contains(pets.MSG_STORED)
-    await run(game, ala, "$wyciagnijtowarzysza 2")        # ... taking one out ...
+    await run(game, ala, "!wyciagnijtowarzysza 2")        # ... taking one out ...
     assert await slots(db, ala) == [5, 0, 0, 7, 0] and game.channel.contains(pets.MSG_UNSTORED)
     swapped = await game.click(shown, ala, "pet:stable-take", values=["3:7"])     # ... and swapping with the list
     assert swapped.replies == [] and await slots(db, ala) == [7, 0, 0, 5, 0]
     assert game.channel.contains(pets.MSG_SWAPPED)
-    await run(game, ala, "$st 1")                         # (the short names too)
-    await run(game, ala, "$wt 1")
+    await run(game, ala, "!st 1")                         # (the short names too)
+    await run(game, ala, "!wt 1")
     assert await slots(db, ala) == [7, 0, 0, 5, 0] and not game.channel.contains(guards.BUSY_NOTICE)
 
     # -- ... and nothing else does
-    for command in ("$towarzysz", "$rankingtowarzyszy", "$odrodzenie", "$porzucam", "$nazwij Inny"):
+    for command in ("!towarzysz", "!rankingtowarzyszy", "!odrodzenie", "!porzucam", "!nazwij Inny"):
         assert await typed_is_busy(game, ala, command), command
     guards._last_notice.clear()
     pet_button = FakeInteraction(game.bot, ala, channel=game.channel)
@@ -975,7 +975,7 @@ async def test_the_stable_works_during_the_sign_up_and_only_then(game_db, pictur
     await sign_up.close()
     await until(lambda: len(fights.pairs) == 1)           # (the first fight waits for the test)
     assert state.busy_owner == "event:TRAINING" and not state.stable_open
-    for command in ("$stajnia", "$s", "$schowajtowarzysza 1", "$wyciagnijtowarzysza 3", "$st 1", "$wt 3"):
+    for command in ("!stajnia", "!s", "!schowajtowarzysza 1", "!wyciagnijtowarzysza 3", "!st 1", "!wt 3"):
         assert await typed_is_busy(game, ala, command), command
     assert await clicked_is_busy(game, shown, ala, "pet:stable-take", values=["3:5"])
     assert (await hub_stable(game, ala)).answers == [ui.MSG_BUSY]
@@ -988,7 +988,7 @@ async def test_the_stable_works_during_the_sign_up_and_only_then(game_db, pictur
     assert not state.busy and not state.stable_open and state.free_for_activity
     assert [(one.pet_id, one.name) for one in fights.pairs[0]] in ([(7, "Mruczek"), (8, "Reksio")],
                                                                    [(8, "Reksio"), (7, "Mruczek")])
-    await run(game, ala, "$wyciagnijtowarzysza 3")        # the event is over: the stable as always
+    await run(game, ala, "!wyciagnijtowarzysza 3")        # the event is over: the stable as always
     assert await slots(db, ala) == [5, 0, 0, 7, 0]
 
 
@@ -996,12 +996,12 @@ async def test_outside_the_training_the_stable_is_blocked_while_busy_as_before(g
     game, db = game_db, game_db.bot.db
     ala = await with_pet(game, "Ala", 5, level=3, owner={"pet_id_alt3": 7})
     await add_pet(db, 7, pet_lvl=2)
-    await run(game, ala, "$stajnia")
+    await run(game, ala, "!stajnia")
     shown = game.channel.messages[-1]
     for owner in ("hunt", "tower", "event:INVASION", "event:DUEL", "adv-reroll"):
         with game.bot.state.hold_busy(owner):
             assert not game.bot.state.stable_open
-            for command in ("$stajnia", "$schowajtowarzysza 1", "$wyciagnijtowarzysza 3"):
+            for command in ("!stajnia", "!schowajtowarzysza 1", "!wyciagnijtowarzysza 3"):
                 assert await typed_is_busy(game, ala, command), (owner, command)
             assert await clicked_is_busy(game, shown, ala, "pet:stable-take", values=["3:7"])
             assert (await hub_stable(game, ala)).answers == [ui.MSG_BUSY]

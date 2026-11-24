@@ -1,4 +1,4 @@
-"""``$kradnijxp`` - spend a "steal experience" boss drop on a chosen member.
+"""``!kradnijxp`` - spend a "steal experience" boss drop on a chosen member.
 
 The theft itself is settled by Horus (see :mod:`altermmo.features.xpsteal`); this
 cog also runs the loop that announces what each theft brought
@@ -30,7 +30,7 @@ class XpStealCog(commands.Cog, name="XpSteal"):
                       brief="Steal Discord experience from the chosen member (boss drop).")
     @guards.boss_channel_only()
     async def steal_xp(self, ctx: commands.Context, *, target: str | None = None) -> None:
-        """Usage: ``$kradnijxp nick`` (or the member's id).  The message disappears at once.
+        """Usage: ``!kradnijxp nick`` (or the member's id).  The message disappears at once.
 
         A mention is understood too, but the texts never suggest it: it notifies the victim."""
         await xpsteal.steal(Scene.from_ctx(ctx), target)

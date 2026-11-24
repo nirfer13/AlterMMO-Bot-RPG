@@ -1,4 +1,4 @@
-"""The daily monster hunt (``$polowanie``): monster picture, typing fight, monster loot.
+"""The daily monster hunt (``!polowanie``): monster picture, typing fight, monster loot.
 
 Port of the legacy ``functions/functions_daily.py``.  Random events and the
 Twitch module use :func:`rand_loot`, :func:`send_mob_image` and
@@ -28,11 +28,11 @@ Differences from the legacy code (the game itself is unchanged):
 
 Joining somebody's hunt (v2 panels): the monster's embed carries a "Dołącz do
 polowania" button (:class:`_JoinPanel`).  A click does exactly what typing
-``$polowanie`` in that moment does - same window (:data:`JOIN_TIME`, restarted by
+``!polowanie`` in that moment does - same window (:data:`JOIN_TIME`, restarted by
 every join), same limit (:data:`MAX_HUNTERS`), joining is free (only the player
 who started the hunt uses the daily attempt) - and both ways keep working side
 by side.  The embed shows who joined; dead hunters cannot click (they cannot
-type either).  :func:`start_hunt` is the whole ``$polowanie`` command, so a
+type either).  :func:`start_hunt` is the whole ``!polowanie`` command, so a
 button elsewhere (the hub panel) can run exactly the same thing.
 
 The "come back later" text shows the real moment of the next reset
@@ -57,7 +57,7 @@ import discord
 from ..core import challenge, clock, fightlog, guards, io, timing, ui
 from ..core.challenge import Outcome
 from ..core.state import BossPhase
-from ..settings import ASSETS_DIR, CONFIG_DIR
+from ..settings import ASSETS_DIR, CONFIG_DIR, says_command
 from . import achievements, boss, database, modifiers
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -73,7 +73,7 @@ MOB_HP_RANGES: dict[int, tuple[int, int]] = {0: (3, 5), 1: (6, 9), 2: (9, 12)}
 MOB_HP_FALLBACK = (9, 12)
 
 #: What another player types to join a hunt that is about to start.
-JOIN_WORD = "$polowanie"
+JOIN_WORD = "!polowanie"
 #: Seconds to wait for (another) player to join; every join restarts the wait.
 JOIN_TIME = 8
 MAX_HUNTERS = 3
@@ -135,7 +135,7 @@ _MOB_KINDS: dict[int, str] = {0: "zwykły", 1: "rzadki"}
 _MOB_KIND_FALLBACK = "UNIKALNY"
 
 MSG_JOIN_HINT = ("\n\n*Inny gracz może dołączyć do polowania, klikając „Dołącz do polowania” albo wpisując "
-                 "natychmiast $polowanie*.")
+                 "natychmiast !polowanie*.")
 
 MSG_SOLO_START = ("Polowanie się rozpoczyna {mentions}<:REEeee:790963160495947856>! Wpisz pojawiające się "
                   "słowa tak szybko, jak to możliwe! Wielkość liter nie ma znaczenia! Wpisz słowa bez "
@@ -166,15 +166,15 @@ LOG_HUNT_CUT_SHORT = ("Polowanie <@{user_id}> zostało przerwane błędem (`{err
 MSG_ATTEMPT_RETURNED = ("<@{user_id}>, z powodu problemów technicznych Twoje dzisiejsze polowanie się nie "
                         "liczy - możesz zapolować ponownie!")
 
-# Answers of ``$polowanie`` (moved here from cogs/hunting.py: the hub panel runs the same command).
+# Answers of ``!polowanie`` (moved here from cogs/hunting.py: the hub panel runs the same command).
 MSG_BOSS_COMING = ("Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:882181709100097587> Gdy to się stanie, "
-                   "kliknij **Zaatakuj** pod bossem albo wpisz **$zaatakuj**, żeby stawić mu czoła.")
+                   "kliknij **Zaatakuj** pod bossem albo wpisz **!zaatakuj**, żeby stawić mu czoła.")
 MSG_BOSS_HERE = ("Teraz pora na walkę z prawdziwym bossem, nie mieszaj się leszczyku "
                  "<:madge:882184635474386974>")
 #: ``{when}``: Discord's live countdown to the next reset (:func:`next_daily_reset`).
 MSG_ON_COOLDOWN = ("Zregeneruj się i spróbuj zapolować ponownie {when} <:Bedge:970576892874854400> Niektóre "
                    "modlitwy przy kapliczkach również są w stanie zregenerować Twoje siły, więc bądź czujny!")
-# Only for a click (a typed $polowanie stays silent during a boss fight, as before).
+# Only for a click (a typed !polowanie stays silent during a boss fight, as before).
 MSG_BOSS_FIGHT = "Trwa walka z bossem - polowanie musi poczekać <:MonkaS:882181709100097587>"
 
 # The "Dołącz do polowania" button under the monster.
@@ -489,7 +489,7 @@ async def set_dead_hunters(scene: "Scene", user_id: Any) -> bool:
 
 # -- the hunt --------------------------------------------------------------------------
 
-#: Answers a join request (a click, through ``ui.reply``); None for a typed ``$polowanie`` (stays silent).
+#: Answers a join request (a click, through ``ui.reply``); None for a typed ``!polowanie`` (stays silent).
 Answer = Callable[[str], Awaitable[Any]]
 
 
@@ -527,7 +527,7 @@ _answers: set[asyncio.Future] = set()
 def is_gathering(channel: Any) -> bool:
     """True while a hunt on ``channel`` waits for more hunters.
 
-    The ``$polowanie`` command asks: typed in that moment the word joins the
+    The ``!polowanie`` command asks: typed in that moment the word joins the
     running hunt, so the command itself must neither start a second hunt nor
     answer with the "bot is busy" notice.
     """
@@ -541,7 +541,7 @@ def is_hunting(channel: Any, member: Any) -> bool:
 
 
 def request_join(channel: Any, member: Any, answer: Answer | None = None) -> bool:
-    """Ask to join the hunt gathering on ``channel`` (what typing ``$polowanie`` does now).
+    """Ask to join the hunt gathering on ``channel`` (what typing ``!polowanie`` does now).
 
     ``answer`` receives the refusal ("already on this hunt", "too
     late"); an accepted member is shown on the monster's embed.  False when no
@@ -589,9 +589,9 @@ class _JoinPanel:
 
     Posted by :func:`send_mob_image`, read by :func:`_gather_hunters`.  A click
     becomes a :class:`_JoinRequest` in :attr:`requests` - the same queue the
-    typed ``$polowanie`` goes to - so both ways follow one set of rules.  The
+    typed ``!polowanie`` goes to - so both ways follow one set of rules.  The
     click is queued the moment it arrives and acknowledged afterwards, so a
-    click counts exactly like a ``$polowanie`` typed at the same moment (the
+    click counts exactly like a ``!polowanie`` typed at the same moment (the
     acknowledgement is a round trip to Discord).  A click of somebody already
     on the list is refused right away and never reaches the queue.  The
     list is repainted by a small background task, at most once per
@@ -715,9 +715,9 @@ async def _next_joiner(queue: asyncio.Queue, hunters: Sequence[Any], seconds: fl
 async def _gather_hunters(scene: "Scene", first: Any, panel: _JoinPanel | None = None) -> list[Any]:
     """``first`` plus up to two players who join; each join restarts the 8 s wait.
 
-    Players join by typing ``$polowanie`` or with the button of ``panel``.
+    Players join by typing ``!polowanie`` or with the button of ``panel``.
     Both are queued for the whole lobby (as in the boss lobbies): with one
-    ``wait_for`` per join, a second ``$polowanie`` arriving right behind the
+    ``wait_for`` per join, a second ``!polowanie`` arriving right behind the
     first one was lost.
     """
     bot = scene.bot
@@ -728,7 +728,7 @@ async def _gather_hunters(scene: "Scene", first: Any, panel: _JoinPanel | None =
     async def on_message(message: discord.Message) -> None:
         if message.author.bot or message.channel.id != channel_id:
             return
-        if str(message.content).strip().lower() == JOIN_WORD:
+        if says_command(message.content, JOIN_WORD):  # "!polowanie", also with the old "$" prefix
             queue.put_nowait(_JoinRequest(message.author))
 
     gathering = _Gathering(queue, hunters, bool(bot.debug))
@@ -781,7 +781,7 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
     """Fight the monster shown by :func:`send_mob_image`.
 
     ``player`` (default: ``scene.author``) starts the hunt; up to two more
-    players may join by typing ``$polowanie`` right away or with the "Dołącz do
+    players may join by typing ``!polowanie`` right away or with the "Dołącz do
     polowania" button of the monster's embed.  Every round one of
     the hunters, drawn at random, has to type the requested word in time; one
     mistake or one missed word loses the hunt (unless the pet protects).
@@ -883,7 +883,7 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
     return True
 
 
-# -- $polowanie ------------------------------------------------------------------------
+# -- !polowanie ------------------------------------------------------------------------
 
 def roll_hunt_rarity() -> int:
     """Rarity of the monster of a daily hunt: 70 % normal, 29 % rare, 2 in 101 unique."""
@@ -903,7 +903,7 @@ async def _give_back_attempt(scene: "Scene", player: Any) -> None:
 
 
 async def daily_hunt(scene: "Scene") -> bool | None:
-    """The whole ``$polowanie`` of ``scene.author``: cooldown, monster, fight.
+    """The whole ``!polowanie`` of ``scene.author``: cooldown, monster, fight.
 
     The caller has already checked the cooldown and holds the busy flag.  The
     cooldown is stored before the monster appears (as in the legacy bot); when
@@ -949,13 +949,13 @@ async def daily_hunt(scene: "Scene") -> bool | None:
 
 
 async def start_hunt(scene: "Scene", *, refuse: Answer | None = None) -> bool:
-    """The whole ``$polowanie`` command of ``scene.author`` (boss phase, cooldown, busy flag, the hunt).
+    """The whole ``!polowanie`` command of ``scene.author`` (boss phase, cooldown, busy flag, the hunt).
 
     The command guards (boss channel, busy notice) run before; this checks
     everything again because a click (the hub panel) has no command guards:
 
     * while a hunt gathers hunters on the channel, a click joins it (as typing
-      ``$polowanie`` does; somebody on the list already is told so);
+      ``!polowanie`` does; somebody on the list already is told so);
       a typed command is silent here (the hunt's own listener has already
       seen the word);
     * ``refuse`` answers a click (``ui.reply``); None (a typed command) answers on

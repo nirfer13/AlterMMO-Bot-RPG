@@ -10,7 +10,7 @@ attempt, also against the real ``io.retry``); the one coalescing entry point (a 
 never two at a time), the waiting while something plays on the boss channel or the boss is about to
 arrive, the quick tries after a give / a removal that failed, the grace period of a holder whose
 supporter role blinks; what asks for a synchronisation (the album, the member events, the safety
-net); ``$kolekcjoner``; and that the rank is no achievement.
+net); ``!kolekcjoner``; and that the rank is no achievement.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def _production(game):
 def _no_open_questions():
     pets._awaiting_confirmation.clear()
     yield
-    assert not pets._awaiting_confirmation, "a $potwierdzam slot was never released"
+    assert not pets._awaiting_confirmation, "a !potwierdzam slot was never released"
 
 
 # -- helpers --------------------------------------------------------------------------------------
@@ -674,7 +674,7 @@ async def test_a_role_that_cannot_be_made_is_told_once_and_tried_again_later_not
         assert outcome == collector.Outcome(collector.NO_ROLE, leader_id=ala.id) and not outcome.try_soon
     assert attempts == [NAME]                                              # one try, not four
     told = collector.LOG_ROLE_FAILED.format(error="Forbidden")
-    assert game.bot.owner_log == [told] and "250" in told and "ręcznie" in told and "$kolekcjoner" in told
+    assert game.bot.owner_log == [told] and "250" in told and "ręcznie" in told and "!kolekcjoner" in told
     assert game.log_channel.sent_count(f"<@{game.bot.ids.owner}>") == 1    # the owner is pinged for it
     assert holders(game) == [] and announcements(game) == []
     assert collector.describe(outcome) == collector.MSG_NO_ROLE
@@ -686,7 +686,7 @@ async def test_a_role_that_cannot_be_made_is_told_once_and_tried_again_later_not
     await collector.sync(game.bot)
     await collector.sync(game.bot)
     assert len(attempts) == 2
-    await collector.sync(game.bot, force=True)                             # the start / $kolekcjoner: at once
+    await collector.sync(game.bot, force=True)                             # the start / !kolekcjoner: at once
     assert len(attempts) == 3 and game.bot.owner_log == [told]             # ... and told only once
 
     by_hand = game.guild.add_role(4242, NAME)                              # the owner made it by hand
@@ -1080,7 +1080,7 @@ async def test_nothing_is_announced_while_the_boss_is_about_to_arrive(game_db, l
     loop()
     await asyncio.sleep(0.3)
     assert seen.calls == 0 and rank_roles(game) == [] and announcements(game) == []
-    assert (await collector.sync_now(bot)).status == collector.BUSY        # $kolekcjoner: the same
+    assert (await collector.sync_now(bot)).status == collector.BUSY        # !kolekcjoner: the same
     assert seen.calls == 0
     await bot.state.set_boss_phase(BossPhase.VISIBLE)                      # the boss is there: quiet again
     assert await until(lambda: desk.runs == 1)
@@ -1168,7 +1168,7 @@ async def test_a_burst_spread_over_time_is_one_run(game_db, loop, monkeypatch):
 
 async def test_kolekcjoner_tries_to_make_the_role_at_once_also_when_it_had_to_wait(game_db, loop, monkeypatch):
     """After a failure the role is not made again for an hour - except by the start and by
-    ``$kolekcjoner``, also by one typed while something played on the boss channel."""
+    ``!kolekcjoner``, also by one typed while something played on the boss channel."""
     game = game_db
     bot = game.bot
     ala = supporter(game, "Ala")
@@ -1185,7 +1185,7 @@ async def test_kolekcjoner_tries_to_make_the_role_at_once_also_when_it_had_to_wa
     assert await until(lambda: desk.runs == 2)
     assert desk.last.status == collector.NO_ROLE and rank_roles(game) == [] and seen.forced == [True, False]
 
-    with bot.state.hold_busy("hunt"):                                      # $kolekcjoner during a hunt
+    with bot.state.hold_busy("hunt"):                                      # !kolekcjoner during a hunt
         assert (await collector.sync_now(bot)).status == collector.BUSY
         await asyncio.sleep(0.2)
         assert desk.runs == 2 and rank_roles(game) == []
@@ -1269,7 +1269,7 @@ async def test_a_give_or_a_removal_that_failed_is_tried_again_soon_a_few_times(g
 
 @pytest.mark.parametrize("trouble", ["no ranking", "no guild", "failed", "not given", "not removed"])
 async def test_kolekcjoner_that_could_not_finish_leaves_the_retry_to_the_loop(game_db, loop, monkeypatch, trouble):
-    """``$kolekcjoner`` answers "spróbuję ponownie sam".  The loop did not see that run: without a
+    """``!kolekcjoner`` answers "spróbuję ponownie sam".  The loop did not see that run: without a
     request it would come back only with its safety net, half an hour later."""
     game = game_db
     bot = game.bot
@@ -1302,7 +1302,7 @@ async def test_kolekcjoner_that_could_not_finish_leaves_the_retry_to_the_loop(ga
 
             patch.setattr(member, method, refused)
 
-        outcome = await collector.sync_now(bot)                            # the administrator types $kolekcjoner
+        outcome = await collector.sync_now(bot)                            # the administrator types !kolekcjoner
         assert outcome.try_soon is (trouble in ("no ranking", "no guild", "failed"))
         assert outcome.unfinished is (trouble in ("not given", "not removed"))
         assert desk.runs == 3 and collector.pending(bot)                   # the promise is with the loop now
@@ -1321,7 +1321,7 @@ async def test_kolekcjoner_that_could_not_finish_leaves_the_retry_to_the_loop(ga
 async def test_kolekcjoner_gets_the_loops_quick_tries_also_when_the_loop_had_used_its_own_up(game_db, loop,
                                                                                           monkeypatch, what):
     """The loop noticed the trouble by itself, made its quick tries and is back to the slow net.  The
-    administrator then types ``$kolekcjoner`` and reads "spróbuję ponownie sam": the loop must try again
+    administrator then types ``!kolekcjoner`` and reads "spróbuję ponownie sam": the loop must try again
     after ``RETRY_SOON`` (its quick tries anew), not once two seconds later and then in half an hour -
     and it must not poll for ever either."""
     game = game_db
@@ -1348,7 +1348,7 @@ async def test_kolekcjoner_gets_the_loops_quick_tries_also_when_the_loop_had_use
     assert desk.runs == runs + 1 + collector.QUICK_RETRIES and desk.last.unfinished   # ... back to the slow net
 
     runs = desk.runs
-    outcome = await collector.sync_now(bot)                                # the administrator types $kolekcjoner
+    outcome = await collector.sync_now(bot)                                # the administrator types !kolekcjoner
     assert outcome.unfinished and desk.runs == runs + 1 and collector.pending(bot)
     if what == "give":
         assert collector.describe(outcome).endswith("Spróbuję ponownie sam.")   # the promise the loop must keep
@@ -1432,7 +1432,7 @@ async def test_only_the_end_of_the_holders_support_begins_a_grace_period(game_db
 
     assert collector.member_changed(bot, ala, plain_ala) is True and desk.grace_until > clock.now
     assert collector.member_left(bot, ola) is True and desk.grace_until > clock.now   # (somebody else left)
-    assert (await collector.sync_now(bot)).status == collector.DONE        # $kolekcjoner: the owner's word
+    assert (await collector.sync_now(bot)).status == collector.DONE        # !kolekcjoner: the owner's word
     assert desk.grace_until == 0.0
 
 
@@ -1841,12 +1841,12 @@ async def test_kolekcjoner_synchronises_now_and_says_what_happened(cog, monkeypa
     ala, ola = supporter(game, "Ala"), supporter(game, "Ola")
     sent = recorded(game, monkeypatch, game.announce_channel)
 
-    await run(game, alter, "$kolekcjoner", channel=game.announce_channel)   # nobody has an album yet
+    await run(game, alter, "!kolekcjoner", channel=game.announce_channel)   # nobody has an album yet
     assert sent[-1][0].content == collector.MSG_NOBODY_UNCHANGED
 
     await cards(bot.db, ala.id, 2)
     collector.request(bot, "test")
-    await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
+    await run(game, alter, "!kolekcjoner", channel=game.announce_channel)
     answer, mentions = sent[-1]
     assert answer.content == " ".join([collector.MSG_HOLDER.format(player_id=ala.id), collector.MSG_GIVEN,
                                        collector.MSG_ANNOUNCED])
@@ -1854,11 +1854,11 @@ async def test_kolekcjoner_synchronises_now_and_says_what_happened(cog, monkeypa
     assert holders(game) == ["Ala"] and announcements(game) == [announced_text(ala)]
     assert not collector.pending(bot)                                       # what was asked for is done
 
-    await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
+    await run(game, alter, "!kolekcjoner", channel=game.announce_channel)
     assert sent[-1][0].content == collector.MSG_HOLDER_UNCHANGED.format(player_id=ala.id)
 
     await cards(bot.db, ola.id, 5)
-    await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
+    await run(game, alter, "!kolekcjoner", channel=game.announce_channel)
     assert sent[-1][0].content == " ".join([
         collector.MSG_HOLDER.format(player_id=ola.id), collector.MSG_GIVEN,
         collector.MSG_REMOVED.format(players=f"<@{ala.id}>"), collector.MSG_ANNOUNCED])
@@ -1873,14 +1873,14 @@ async def test_kolekcjoner_says_why_it_could_not_run(cog, monkeypatch):
     ala, ola, state, _ = await overtaken(game)
 
     with bot.state.hold_busy("event:chest"):                                # something plays: not now
-        await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
+        await run(game, alter, "!kolekcjoner", channel=game.announce_channel)
     assert game.announce_channel.sent[-1].content == collector.MSG_BUSY
     assert untouched(game, ala, state) and asked(bot)                       # ... but left for the loop,
     assert collector._desk(bot).force_next is True                          # with its "try the role now"
 
     real = bot.db
     bot.db = DatabaseDown()
-    await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
+    await run(game, alter, "!kolekcjoner", channel=game.announce_channel)
     assert game.announce_channel.sent[-1].content == collector.MSG_NO_RANKING.format(
         detail=": DatabaseUnavailable")
     assert "spróbuję ponownie sam" in collector.MSG_NO_RANKING and asked(bot)   # the promise is left for the loop
@@ -1888,14 +1888,14 @@ async def test_kolekcjoner_says_why_it_could_not_run(cog, monkeypatch):
 
     with monkeypatch.context() as patch:
         patch.setattr(game.guild, "unavailable", True, raising=False)
-        await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
+        await run(game, alter, "!kolekcjoner", channel=game.announce_channel)
     assert game.announce_channel.sent[-1].content == collector.MSG_NO_GUILD
     assert "spróbuję ponownie sam" in collector.MSG_NO_GUILD and asked(bot)
 
     path = bot.store.collector.path
     good = path.read_text(encoding="utf-8")
     path.write_text("{", encoding="utf-8")
-    await run(game, alter, "$kolekcjoner", channel=game.announce_channel)
+    await run(game, alter, "!kolekcjoner", channel=game.announce_channel)
     assert game.announce_channel.sent[-1].content == collector.MSG_NO_STATE
     assert "ponownie" not in collector.MSG_NO_STATE and not asked(bot)       # (the owner has to mend the file)
     path.write_text(good, encoding="utf-8")
@@ -1907,7 +1907,7 @@ async def test_kolekcjoner_is_for_administrators_only(cog):
     ala = supporter(game, "Ala")
     await cards(game.bot.db, ala.id, 2)
     before = len(game.channel.sent)
-    await run(game, ala, "$kolekcjoner")
+    await run(game, ala, "!kolekcjoner")
     assert len(game.channel.sent) == before and rank_roles(game) == []
     assert collector._desk(game.bot).runs == 0
 
@@ -1967,7 +1967,7 @@ async def test_the_achievements_never_delete_or_count_the_rank(game_db):
     assert all(NAME not in line for line in bot.owner_log[1:])
     assert await achievements.retire_roles(bot) == [] and rank_roles(game) == [role]
 
-    embed = achievements.summary_embed(bot, ala)                            # $osiagniecia: "X z Y" without it
+    embed = achievements.summary_embed(bot, ala)                            # !osiagniecia: "X z Y" without it
     assert f"masz **0 z {len(achievements.TROPHIES)}** osiągnięć" in embed.description
     assert str(role.id) not in embed.description and achievements.held(bot, ala) == []
     await collector.sync(bot)                                               # and the rank leaves theirs alone
@@ -1995,9 +1995,9 @@ async def test_the_ranking_embed_says_what_place_one_carries(game_db):
 
 
 def test_the_help_mentions_the_rank_where_the_collection_ranking_is_described():
-    line = next(line for line in help_cog.HELP_TEXT.split("\n") if line.startswith("- $rankingalbumow"))
+    line = next(line for line in help_cog.HELP_TEXT.split("\n") if line.startswith("- !rankingalbumow"))
     assert "**Kolekcjoner Pupili**" in line and "giveaway" in line and "wspierających" in line
-    assert "$kolekcjoner" not in help_cog.HELP_TEXT                         # the administrators' command: not there
+    assert "!kolekcjoner" not in help_cog.HELP_TEXT                         # the administrators' command: not there
     embed = help_cog.help_embed()
     assert all(len(item.value) <= 1024 for item in embed.fields) and len(embed) <= 6000
 
@@ -2010,7 +2010,7 @@ def test_the_game_panel_names_the_rank_among_the_supporters_benefits():
     assert "rankingu kolekcji" in line and "pierwsze miejsce" in line
     assert f"**{collector.ROLE_NAME}**" in line and "giveaway" in line
     assert patchnotes.spoiler_in_text(line) is None and not any(character.isdigit() for character in line)
-    for word in ("%", "<@", "lobby", "Horus", "$kolekcjoner"):
+    for word in ("%", "<@", "lobby", "Horus", "!kolekcjoner"):
         assert word not in line, word
     assert len(line) <= 240 and len(hub.PANEL_TEXT) <= 4096
 
@@ -2020,7 +2020,7 @@ def test_the_patch_notes_tell_the_players():
     note = notes[10]
     assert note.date == "2026-11-23" and note.title == "Ranga Kolekcjoner Pupili"
     text = " ".join(note.changes)
-    assert NAME in text and "giveaway" in text and "$rankingalbumow" in text
+    assert NAME in text and "giveaway" in text and "!rankingalbumow" in text
     assert "ranking wspierających" in text                                  # said honestly: supporters only
     assert patchnotes.spoiler_in(note) is None and "lobby" not in text and "Horus" not in text
     assert [item.id for item in notes.values()] == list(range(1, len(notes) + 1))

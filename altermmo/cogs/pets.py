@@ -1,17 +1,17 @@
-"""Pet (companion) commands: ``$towarzysz``, ``$odrodzenie``, ``$stajnia`` ...
+"""Pet (companion) commands: ``!towarzysz``, ``!odrodzenie``, ``!stajnia`` ...
 
-Display-only commands (``$towarzysz``, ``$stajnia``, ``$rankingtowarzyszy``)
+Display-only commands (``!towarzysz``, ``!stajnia``, ``!rankingtowarzyszy``)
 work on every channel of the server; everything that changes a pet works on
 the boss channel only.  The game itself lives in :mod:`altermmo.features.pets`,
 including the buttons under a shown pet and the stable (their clicks are
 answered by the views themselves, nothing to register here).
 
-``$nazwij`` takes the whole rest of the message as the name
-(``$nazwij Sir Burek``); quotes around it are still accepted and dropped.
+``!nazwij`` takes the whole rest of the message as the name
+(``!nazwij Sir Burek``); quotes around it are still accepted and dropped.
 
-``$DajPieczec <player_id> <0-3> [tak/nie/częściowa]`` (administrators) sets the
+``!DajPieczec <player_id> <0-3> [tak/nie/częściowa]`` (administrators) sets the
 seal and the foil of a member's active pet (``tak`` full Holo, ``częściowa``
-partial Holo, ``nie`` none, left out: unchanged), ``$DajRamke <player_id> <id|baza>``
+partial Holo, ``nie`` none, left out: unchanged), ``!DajRamke <player_id> <id|baza>``
 its frame result (``S1``, ``R9-A`` ... of the pet's own class; ``baza`` = the
 base frame of the class): the owner's way to look at the cards and to put a
 mistake right - players get their cosmetics only from the rolls of a new egg.
@@ -32,14 +32,14 @@ from ..features import bossdetect, patrons, petcards, pets
 log = logging.getLogger(__name__)
 
 
-MSG_NAME_MISSING = "Po spacji podaj imię towarzysza np. **$nazwij Burek**."
+MSG_NAME_MISSING = "Po spacji podaj imię towarzysza np. **!nazwij Burek**."
 
-# -- $DajPieczec (administrators) -------------------------------------------------------
+# -- !DajPieczec (administrators) -------------------------------------------------------
 MSG_SEAL_SET = ("Towarzysz gracza <@{player_id}> (PET_ID {pet_id}) ma teraz: pieczęć - **{seal}**, "
-                "folia Holo - **{holo}**. Widać to na karcie towarzysza (**$towarzysz**).")
+                "folia Holo - **{holo}**. Widać to na karcie towarzysza (**!towarzysz**).")
 MSG_SEAL_RANGE = "Pieczęć: 0-3 (0 = brak, {names})."
 MSG_SEAL_HOLO = ("Folia Holo: **tak** (pełna), **częściowa** albo **nie** (pominięta - bez zmian), np. "
-                 "**$DajPieczec {player_id} 3 tak**.")
+                 "**!DajPieczec {player_id} 3 tak**.")
 MSG_SEAL_NO_PET = "<@{player_id}> nie ma przy sobie towarzysza - nie ma komu dać pieczęci."
 MSG_SEAL_NO_COLUMNS = ("W tabeli PETS nie ma kolumn SEAL i HOLO (nie udało się ich dodać przy starcie bota), "
                        "więc kosmetyka towarzyszy jest wyłączona. Uruchom bota ponownie - kolumny dodaje "
@@ -51,13 +51,13 @@ SEAL_NONE = "brak"
 #: How ``MSG_SEAL_SET`` names the foil (``petcards.FOIL_*``).
 FOIL_ANSWERS = {petcards.FOIL_NONE: "nie", petcards.FOIL_PARTIAL: "częściowa", petcards.FOIL_FULL: "tak"}
 
-# -- $DajRamke (administrators) ---------------------------------------------------------
+# -- !DajRamke (administrators) ---------------------------------------------------------
 MSG_FRAME_SET = ("Towarzysz gracza <@{player_id}> (PET_ID {pet_id}) ma teraz ramkę **{frame}**. "
-                 "Widać to na karcie towarzysza (**$towarzysz**).")
+                 "Widać to na karcie towarzysza (**!towarzysz**).")
 #: How the answer names the base frame of a class.
 FRAME_BASE = "{name} (podstawowa)"
 MSG_FRAME_BAD = ("Ramki **{given}** nie ma w puli tego towarzysza (klasa: {tier}). Możliwe: {ids} - albo "
-                 "**baza** (podstawowa ramka klasy), np. **$DajRamke {player_id} {example}**.")
+                 "**baza** (podstawowa ramka klasy), np. **!DajRamke {player_id} {example}**.")
 MSG_FRAME_NO_TIER = ("Towarzysz gracza <@{player_id}> (PET_ID {pet_id}) jest zwykły - ramki mają tylko "
                      "towarzysze Shiny, Ultra Shiny i mityczni.")
 MSG_FRAME_NO_PET = "<@{player_id}> nie ma przy sobie towarzysza - nie ma komu dać ramki."
@@ -66,11 +66,11 @@ MSG_FRAME_NO_COLUMNS = ("W tabeli PETS nie ma kolumn FRAME i HOLO_PARTIAL (nie u
                         "folia Holo działają. Uruchom bota ponownie - kolumny dodaje sam przy starcie.")
 MSG_FRAME_NOT_SHOWN = (" Uwaga: ten gracz nie ma teraz rangi wspierającego, więc tej ramki nie widać (karta ma "
                        "podstawową ramkę klasy) - pojawi się, gdy ją zdobędzie.")
-#: Class names in the answers of ``$DajRamke``: labels (as in the owner's pule.json), shown after
+#: Class names in the answers of ``!DajRamke``: labels (as in the owner's pule.json), shown after
 #: "klasa:" so that no word has to agree with the feminine "klasa".
 TIER_NAMES = {"S": "Shiny", "U": "Ultra Shiny", "M": "Mityczny"}
 
-#: What ``$DajPieczec`` takes for the foil (True / False: full Holo / none, as always).
+#: What ``!DajPieczec`` takes for the foil (True / False: full Holo / none, as always).
 _YES_NO = {"tak": True, "t": True, "yes": True, "y": True, "true": True, "1": True, "holo": True,
            "pełna": True, "pelna": True, "pełne": True, "pelne": True, "full": True,
            "nie": False, "n": False, "no": False, "false": False, "0": False, "brak": False,
@@ -78,7 +78,7 @@ _YES_NO = {"tak": True, "t": True, "yes": True, "y": True, "true": True, "1": Tr
            "częściowe": petcards.FOIL_PARTIAL, "czesciowe": petcards.FOIL_PARTIAL,
            "partial": petcards.FOIL_PARTIAL}
 
-#: Opening -> closing quote pairs accepted around a name given to ``$nazwij``.
+#: Opening -> closing quote pairs accepted around a name given to ``!nazwij``.
 _QUOTES = {'"': '"', "„": "”", "“": "”", "”": "”", "«": "»", "‘": "’", "'": "'"}
 
 
@@ -189,7 +189,7 @@ class PetsCog(commands.Cog, name="Pets"):
     async def storepet_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         if isinstance(error, commands.MissingRequiredArgument):
             await _say(ctx, "Po spacji podaj numer miejsca w stajni, do którego chcesz schować " +
-                            "towarzysza (1-4) np. **$schowajtowarzysza 1**.")
+                            "towarzysza (1-4) np. **!schowajtowarzysza 1**.")
         else:
             await ctx.bot.on_command_error(ctx, error, force=True)
 
@@ -205,7 +205,7 @@ class PetsCog(commands.Cog, name="Pets"):
     async def unstorepet_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         if isinstance(error, commands.MissingRequiredArgument):
             await _say(ctx, "Po spacji podaj numer miejsca w stajni, z którego chcesz wyjąć " +
-                            "towarzysza (1-4) np. **$wyciagnijtowarzysza 1**.")
+                            "towarzysza (1-4) np. **!wyciagnijtowarzysza 1**.")
         else:
             await ctx.bot.on_command_error(ctx, error, force=True)
 
@@ -221,7 +221,7 @@ class PetsCog(commands.Cog, name="Pets"):
     @guards.boss_channel_only()
     @guards.unless_busy()
     async def name_pet(self, ctx: commands.Context, *, name: str) -> None:
-        # The whole rest of the message is the name ("$nazwij Sir Burek"), one
+        # The whole rest of the message is the name ("!nazwij Sir Burek"), one
         # pair of quotes around it (the old way to give a long name) is dropped.
         name = _unquote(name)
         if not name:  # only quotes were given

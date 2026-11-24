@@ -1,10 +1,10 @@
-"""The pet album: ``$album`` (alias ``$kolekcja``) and ``$rankingalbumow`` for supporters.
+"""The pet album: ``!album`` (alias ``!kolekcja``) and ``!rankingalbumow`` for supporters.
 
 The game lives in :mod:`altermmo.features.album` (the ranking of the collections:
 :mod:`altermmo.features.albumrank`).  Both commands only show something, so they
 work on every channel of the server and follow the busy policy of the display
-commands (``guards.unless_busy(read_only=True)``), like ``$osiagniecia`` and the
-other rankings.  The hub panel's "Album" button runs ``$album``, its "Rankingi"
+commands (``guards.unless_busy(read_only=True)``), like ``!osiagniecia`` and the
+other rankings.  The hub panel's "Album" button runs ``!album``, its "Rankingi"
 button shows the ranking of the collections too.  The buttons under the album are
 answered by its own view; nothing is registered here (they die with the panel, a
 click after a restart is answered as stale).

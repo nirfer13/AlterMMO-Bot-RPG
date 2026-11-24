@@ -1,6 +1,6 @@
 """The pinned "Panel gry" (first called "Centrum gry"): the game's front door on the boss channel.
 
-An administrator posts it with ``$panel`` (see ``altermmo/cogs/hub.py``); the
+An administrator posts it with ``!panel`` (see ``altermmo/cogs/hub.py``); the
 bot pins it, so the regular purge of the boss channel
 (:func:`altermmo.core.io.clear_channel` keeps pinned messages) never removes
 it.  Posting it again replaces the previous panel: its id is remembered in
@@ -13,7 +13,7 @@ since 2026-11-20, what supporters get on top and where one becomes a
 supporter (:data:`PANEL_SUPPORT_TEXT`: the supporter roles of
 :mod:`altermmo.features.patrons` as role mentions, the benefits, the links).
 A panel that is already pinned gets the current text by itself after the next
-start of the bot (:func:`refresh_panel`); nobody has to type ``$panel`` again.
+start of the bot (:func:`refresh_panel`); nobody has to type ``!panel`` again.
 
 The buttons are *permanent* (fixed ``custom_id``\\ s ``altermmo:hub:...``, no
 timeout, no state in the view): the cog registers one :class:`HubView` at
@@ -21,24 +21,24 @@ start-up, so the panel keeps working after every restart.
 
 Two kinds of buttons:
 
-* **gameplay** - "Polowanie" and "Wieża" run exactly what ``$polowanie`` /
-  ``$wieża`` run (:func:`altermmo.features.daily.start_hunt`,
+* **gameplay** - "Polowanie" and "Wieża" run exactly what ``!polowanie`` /
+  ``!wieża`` run (:func:`altermmo.features.daily.start_hunt`,
   :func:`altermmo.features.tower.start_tower`) for the member who clicked.
   Boss channel only, never for dead hunters (:func:`ui.gate`); the busy flag
   is checked by the commands' own bodies, so a click during a hunt that is
-  still gathering hunters JOINS it, exactly like typing ``$polowanie``.
+  still gathering hunters JOINS it, exactly like typing ``!polowanie``.
   Refusals (cooldown, a boss on the way, busy...) are answered with
   :func:`ui.reply`; the hunt or the tower run itself is public, as when typed.
 * **display** - "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia",
-  "Album", "Pomoc" show exactly what ``$towarzysz``, ``$stajnia``, ``$klejnoty``,
-  the ranking commands (the fourth, ``$rankingalbumow``, only for a supporter - a member
-  who does not support gets the three open ones), ``$osiagniecia``, ``$album`` and ``$pomoc`` show
+  "Album", "Pomoc" show exactly what ``!towarzysz``, ``!stajnia``, ``!klejnoty``,
+  the ranking commands (the fourth, ``!rankingalbumow``, only for a supporter - a member
+  who does not support gets the three open ones), ``!osiagniecia``, ``!album`` and ``!pomoc`` show
   (:func:`display_gate` is also the gate of the album's own buttons): on the
   channel, for everybody, with the same buttons and menus under them (owner's
   decision of 2026-11-20: nothing is visible "only to you").  They follow the busy policy of the display commands
   (``guards.unless_busy(read_only=True)``).  A member who may not write on
   the channel (a dead hunter) cannot make the bot post there for him.
-  "Pomoc" shares the cooldown of ``$pomoc``.
+  "Pomoc" shares the cooldown of ``!pomoc``.
 * **notifications** - "Powiadomienia" (owner's request of 2026-11-22, a row of
   its own) switches the hunters' role (``bot.ids.hunters_role``, "Łowca
   Potworów": the role the bot pings for bosses, events and patch notes) on
@@ -111,7 +111,7 @@ PANEL_GAME_TEXT = (
     "🔔 **Powiadomienia** - kliknij, żeby dostać rolę **Łowca Potworów** i wiedzieć o bossach, "
     "wydarzeniach i nowościach w grze; kolejne kliknięcie ją zdejmuje.\n\n"
     "👹 **Boss** pojawia się na tym kanale co kilkanaście minut do kilkunastu godzin - kliknij "
-    "**Zaatakuj** pod jego obrazkiem albo wpisz **$zaatakuj**.\n"
+    "**Zaatakuj** pod jego obrazkiem albo wpisz **!zaatakuj**.\n"
     "⌨️ **Walki** toczą się na klawiaturze: wpisz podane słowo, zanim minie czas! "
     "<:PepoG:790963160528977980>"
 )
@@ -132,19 +132,19 @@ PANEL_BENEFITS: tuple[str, ...] = (
     # talent point gives depends on the pet's class - pets._GAINS - never on its species.)
     "🥚 **Jaja premium** - z jaj wykluwają się też rzadsze gatunki towarzyszy. **To tylko element "
     "kosmetyczny**: inny wygląd, te same statystyki.",
-    "🪞 **Transformacja** - zmiana wyglądu towarzysza lustrem wizualiów (**$transformacja**).",
-    "🕯️ **Modlitwa w kapliczce** - pomodlić się mogą tylko wspierający (**$modlitwa**), a korzystają "
+    "🪞 **Transformacja** - zmiana wyglądu towarzysza lustrem wizualiów (**!transformacja**).",
+    "🕯️ **Modlitwa w kapliczce** - pomodlić się mogą tylko wspierający (**!modlitwa**), a korzystają "
     "wszyscy.",
     "👹 **Rola bossa** - szansa, że to Ty zostaniesz bossem (i zgarniesz doświadczenie za pokonanego "
     "łowcę) albo bohaterem imprezy u Barda.",
     "🏅 **Kolekcjonerskie osiągnięcia** - role za najrzadsze, mityczne zdobycze. Swoje sprawdzisz "
-    "przyciskiem **Osiągnięcia** (**$osiagniecia**).",
+    "przyciskiem **Osiągnięcia** (**!osiagniecia**).",
     # (Owner, 2026-11-22: "W Panelu gry podkreśl, że są to tylko elementy kosmetyczne.")
     "🔖 **Kolekcjonerskie ozdoby karty** - **wyłącznie elementy kosmetyczne**, bez wpływu na grę. "
     "Każdy nowy towarzysz ma na nie szansę; zdobią kartę, dopóki wspierasz (po przerwie wracają).",
     # (2026-11-23: the rank of the ranking's first place, features/collector.py - no number, no
     # ornament is named.)
-    "📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**$album**) i liczą się w rankingu "
+    "📖 **Album** - poświęceni towarzysze zostają w Twoim albumie (**!album**) i liczą się w rankingu "
     "kolekcji; jego pierwsze miejsce nosi rangę **Kolekcjoner Pupili** (dodatkowa szansa w giveawayach).",
 )
 #: Where to become a supporter: markdown links (they work in an embed description), the
@@ -193,11 +193,11 @@ NOTIFY_ATTEMPT_TIMEOUT = 15.0
 #: Pause before the first repetition of such a call (then three times longer).
 NOTIFY_RETRY_DELAY = 0.5
 
-# Answers of ``$panel`` (for the administrator).
+# Answers of ``!panel`` (for the administrator).
 MSG_POSTED = "**Panel gry** jest na kanale <#{channel_id}> i został przypięty."
 MSG_POSTED_NOT_PINNED = ("**Panel gry** jest na kanale <#{channel_id}>, ale nie udało się go przypiąć "
                          "(bot nie ma uprawnienia **Przypinanie wiadomości** albo kanał ma już 50 przypiętych "
-                         "wiadomości?). Kanał jest regularnie czyszczony - nadaj uprawnienie i wpisz **$panel** "
+                         "wiadomości?). Kanał jest regularnie czyszczony - nadaj uprawnienie i wpisz **!panel** "
                          "jeszcze raz albo przypnij panel ręcznie.")
 MSG_NOT_POSTED = "Nie udało się opublikować **Panelu gry** <:Sadge:936907659142111273>"
 
@@ -281,7 +281,7 @@ def _refusal(interaction: Any) -> Callable[[str], Awaitable[Any]]:
 
 
 async def hunt_clicked(interaction: Any) -> bool:
-    """"Polowanie": ``$polowanie`` for the clicker; True when a hunt took place (minutes later)."""
+    """"Polowanie": ``!polowanie`` for the clicker; True when a hunt took place (minutes later)."""
     from . import daily
 
     # The busy flag is checked by start_hunt itself: during a gathering hunt a click joins it.
@@ -290,7 +290,7 @@ async def hunt_clicked(interaction: Any) -> bool:
     scene = ui.scene_of(interaction)
     if daily.is_gathering(scene.channel) and not daily.is_hunting(scene.channel, scene.author):
         # Queue first, acknowledge second: the click counts from the moment it was made,
-        # like a typed $polowanie or the button under the monster.
+        # like a typed !polowanie or the button under the monster.
         acked = asyncio.ensure_future(ui.ack(interaction))
 
         async def answer(text: str) -> None:
@@ -310,7 +310,7 @@ async def hunt_clicked(interaction: Any) -> bool:
 
 
 async def tower_clicked(interaction: Any) -> bool:
-    """"Wieża": ``$wieża`` for the clicker; True when a run took place (minutes later)."""
+    """"Wieża": ``!wieża`` for the clicker; True when a run took place (minutes later)."""
     from . import tower
 
     if not await ui.gate(interaction, unless_busy=False):  # start_tower answers "busy" itself
@@ -347,7 +347,7 @@ async def display_gate(interaction: Any, *, stable: bool = False) -> bool:
     Also the gate of the buttons under the album (features/album.py): they only
     show something, and must not make a fight stutter either.  ``stable``: the
     button of the stable - it also works while the busy holder keeps the stable
-    open (the sign-up of the "Trening towarzyszy" event), as ``$stajnia`` does.
+    open (the sign-up of the "Trening towarzyszy" event), as ``!stajnia`` does.
     """
     if not await ui.gate(interaction, boss_channel=False,
                          unless_busy=display_blocked_while_busy(interaction.client), stable=stable):
@@ -362,7 +362,7 @@ async def display_gate(interaction: Any, *, stable: bool = False) -> bool:
 
 
 def _help_bucket(bot: "AlterBot", member: Any) -> Any:
-    """The ``$pomoc`` cooldown of ``member`` (shared by the command and the button); None without one."""
+    """The ``!pomoc`` cooldown of ``member`` (shared by the command and the button); None without one."""
     command = bot.get_command("pomoc") if hasattr(bot, "get_command") else None
     buckets = getattr(command, "_buckets", None)
     if buckets is None or not getattr(buckets, "valid", False):
@@ -370,12 +370,12 @@ def _help_bucket(bot: "AlterBot", member: Any) -> Any:
     try:
         return buckets.get_bucket(types.SimpleNamespace(author=member, guild=getattr(member, "guild", None)))
     except Exception:  # noqa: BLE001 - a cooldown that cannot be read is no reason to fail the click
-        log.exception("Could not read the $pomoc cooldown of %s.", getattr(member, "id", member))
+        log.exception("Could not read the !pomoc cooldown of %s.", getattr(member, "id", member))
         return None
 
 
 async def help_clicked(interaction: Any) -> bool:
-    """"Pomoc": the help, as ``$pomoc`` posts it - with the same cooldown (one per player per 10 minutes).
+    """"Pomoc": the help, as ``!pomoc`` posts it - with the same cooldown (one per player per 10 minutes).
 
     The help is a long embed everybody sees: without the cooldown one player
     could fill the channel with it by clicking.
@@ -570,7 +570,7 @@ async def refresh_panel(bot: "AlterBot") -> bool:
         raise
     except Exception as exc:  # noqa: BLE001 - e.g. the panel was removed by hand
         log.warning("Hub panel not refreshed (%s: %s) - it keeps its old text until the next start "
-                    "or $panel.", type(exc).__name__, exc)
+                    "or !panel.", type(exc).__name__, exc)
         return False
 
 
@@ -614,7 +614,7 @@ async def show_rankings(scene: "Scene") -> None:
 
     A member who does not support gets the three open rankings and nothing about the collection
     ranking: most players are not supporters, and a "this is for supporters" line with his ping
-    under every click would only fill the channel (the typed ``$rankingalbumow`` still answers it).
+    under every click would only fill the channel (the typed ``!rankingalbumow`` still answers it).
     """
     from . import albumrank, database, pets, tower
 

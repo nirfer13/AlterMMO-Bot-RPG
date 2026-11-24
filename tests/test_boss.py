@@ -213,7 +213,7 @@ async def test_boss_image_of_a_monster(game, monkeypatch):
     embed = embed_message.embeds[0]
     assert embed.title == "💀 🟪 Epicki boss! 🟪 💀"
     assert embed.description == ("Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! "
-                                 "Kliknij **Zaatakuj** albo wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️")
+                                 "Kliknij **Zaatakuj** albo wpisz **!zaatakuj**, żeby rozpocząć walkę! ⚔️")
     assert embed.colour.value == 0x800080
     assert embed_message.button_labels == ["Zaatakuj"]                  # the button is under the boss
 
@@ -294,7 +294,7 @@ async def test_loot_normal_drop(game, pets, loot, monkeypatch):
     # Right under the drop: how to use the theft (a ping), and the same privately.
     how_to = game.channel.messages[-1].content
     shown = xpsteal.number(2500)                             # "2 500", as in the confirmation and the result
-    assert how_to == xpsteal.MSG_HOW_TO.format(thief=player.id, amount=shown) and "$kradnijxp nick" in how_to
+    assert how_to == xpsteal.MSG_HOW_TO.format(thief=player.id, amount=shown) and "!kradnijxp nick" in how_to
     assert player.dms == [xpsteal.DM_HOW_TO.format(amount=shown, channel=game.bot.ids.boss_channel)]
 
 
@@ -388,7 +388,7 @@ async def test_single_lobby_deadline_is_a_minute_away(game, monkeypatch):
         return None
 
     monkeypatch.setattr(boss, "_next_message", nobody)
-    assert await boss.single_init(game.scene(attacker, "$zaatakuj"), 0) is attacker
+    assert await boss.single_init(game.scene(attacker, "!zaatakuj"), 0) is attacker
     assert shown == [60, ("waited", 60)]
 
 
@@ -399,21 +399,21 @@ async def test_single_init_nobody_objects(game, short_timeouts):
     listeners = len(game.bot.extra_events.get("on_message", []))
 
     def noise():
-        game.say_later(attacker, "$zaatakuj", 0)                              # the attacker again
-        game.say_later(robot, "$zaatakuj", 0)                                 # a bot
-        game.say_later(other, "$zaatakuj", 0, channel=game.announce_channel)  # another channel
+        game.say_later(attacker, "!zaatakuj", 0)                              # the attacker again
+        game.say_later(robot, "!zaatakuj", 0)                                 # a bot
+        game.say_later(other, "!zaatakuj", 0, channel=game.announce_channel)  # another channel
         game.say_later(other, "zaatakuj", 0)                                  # not the command
 
     posted = []
     on_bot_message(game, "Jesteś sam?", lambda: posted.append(game.channel.sent[-1].content))
     on_bot_message(game, "Jesteś sam?", noise)
-    assert await boss.single_init(game.scene(attacker, "$zaatakuj"), 0) is attacker
+    assert await boss.single_init(game.scene(attacker, "!zaatakuj"), 0) is attacker
     # One lobby message whose deadline Discord counts down (no more "... 105..." messages).
     assert len(game.channel.sent) == 1
     # It names the attacker: after a click on "Zaatakuj" nothing else on the channel does.
     assert re.fullmatch(rf"⚔️ <@{attacker.id}> atakuje bossa! "
                         r"Jesteś sam\?\.\.\. \*Inny gracz może kliknąć \*\*Zaatakuj\*\* albo wpisać "
-                        r"\*\*\$zaatakuj\*\*, jeśli chce zawalczyć o bossa!\* "
+                        r"\*\*\!zaatakuj\*\*, jeśli chce zawalczyć o bossa!\* "
                         r"Zgłoszenia kończą się <t:\d+:R>\.", posted[0])
     lobby = game.channel.sent[0]
     assert lobby.content == boss.MSG_SINGLE_LOBBY_ALONE.format(user_id=attacker.id) and lobby.view is None
@@ -449,7 +449,7 @@ async def test_single_init_nobody_types_the_spell(game, monkeypatch):
     rival = game.add_member("Ola")
     await modifiers.modify_modifiers(game.bot, "drop_boost_perc", 25)
     await game.bot.state.set_boss_phase(BossPhase.ENGAGED)
-    on_bot_message(game, "Jesteś sam?", lambda: game.say_later(rival, "$zaatakuj", 0))
+    on_bot_message(game, "Jesteś sam?", lambda: game.say_later(rival, "!zaatakuj", 0))
     on_bot_message(game, "Zaklęcie to", lambda: game.say_later(rival, "nie wiem", 0))
     assert await boss.single_init(game.scene(attacker), 1) is None
     assert game.channel.messages[-1].content == '"Pfff... Miernoty. Nikt z Was nie jest godzien."'
@@ -741,18 +741,18 @@ async def test_group_init_gathers_and_confirms_four_players(game):
 
     def join():
         for player in others:                              # everybody at the same moment
-            game.say_later(player, "$zaatakuj", 0)
-        game.say_later(others[0], "$zaatakuj", 0)          # impatient: typed twice
+            game.say_later(player, "!zaatakuj", 0)
+        game.say_later(others[0], "!zaatakuj", 0)          # impatient: typed twice
 
     def confirm():
-        game.say_later(game.add_member("Obcy"), "$tak", 0)  # not in the party
+        game.say_later(game.add_member("Obcy"), "!tak", 0)  # not in the party
         for player in players:
             game.say_later(player, "$TAK", 0)
 
     posted = as_posted(game)
     on_bot_message(game, "Znajdź więcej chętnych", join)
     on_bot_message(game, "Jesteście gotowi", confirm)
-    scene = game.scene(leader, "$zaatakuj")
+    scene = game.scene(leader, "!zaatakuj")
     assert await boss.group_init(scene, 3) == players
     assert scene.message.reactions == ["⚔️"]
     mentions = " " + "".join(f"<@{p.id}> " for p in players)
@@ -760,9 +760,9 @@ async def test_group_init_gathers_and_confirms_four_players(game):
     first, ready = game.channel.sent
     assert first.deleted and not ready.deleted
     assert posted[0][0] == "" and boss.VOICE_START in posted[0][1]
-    assert "Kliknij **Dołącz** albo wpisz **$zaatakuj**" in posted[0][1] and "<t:" in posted[0][1]
+    assert "Kliknij **Dołącz** albo wpisz **!zaatakuj**" in posted[0][1] and "<t:" in posted[0][1]
     assert posted[1][0] == "Jesteście gotowi do ataku?" + mentions
-    assert "Kliknijcie **Gotowy** albo wpiszcie **$tak**" in posted[1][1]
+    assert "Kliknijcie **Gotowy** albo wpiszcie **!tak**" in posted[1][1]
     # The outcome stays on the panel; its buttons are gone.
     assert ready.view is None and ready.content == "Do walki z legendarnym bossem stają:" + mentions
     assert roster(ready) == ("Drużyna (4/4)", "\n".join(f"✅ <@{p.id}>" for p in players))
@@ -779,7 +779,7 @@ async def test_group_init_boss_leaves_when_nobody_joins(game, monkeypatch):
     first, last_call, verdict = game.channel.sent
     assert first.deleted
     assert posted[1][0] == ("Ostatnia szansa, <@&985071779787730944>! "
-                            "Kliknij **Dołącz** albo wpisz **$zaatakuj**.")
+                            "Kliknij **Dołącz** albo wpisz **!zaatakuj**.")
     assert boss.VOICE_LAST_CHANCE in posted[1][1]
     assert last_call.view is None and last_call.content == "Drużyna się nie zebrała."
     assert boss.MSG_GROUP_GAVE_UP in last_call.text
@@ -796,17 +796,17 @@ async def test_group_init_drops_players_who_do_not_confirm(game, short_timeouts)
     def confirm():
         if next(rounds) == 1:
             for player in (ala, ola):                       # Ela and Ula went for tea
-                game.say_later(player, "$tak", 0)
+                game.say_later(player, "!tak", 0)
         else:
             for player in (ala, ola, iza, ada):
-                game.say_later(player, "$tak", 0)
+                game.say_later(player, "!tak", 0)
 
     posted = as_posted(game)
     on_bot_message(game, "Znajdź więcej chętnych",
-                   lambda: [game.say_later(p, "$zaatakuj", 0) for p in (ola, ela, ula)])
+                   lambda: [game.say_later(p, "!zaatakuj", 0) for p in (ola, ela, ula)])
     on_bot_message(game, "Jesteście gotowi", confirm)
     on_bot_message(game, "Zbierzcie drużynę",
-                   lambda: [game.say_later(p, "$zaatakuj", 0) for p in (iza, ada, ala)])
+                   lambda: [game.say_later(p, "!zaatakuj", 0) for p in (iza, ada, ala)])
     assert await boss.group_init(game.scene(ala), 3) == [ala, ola, iza, ada]
     regroup = [content for content, _ in posted if content.startswith("Zbierzcie drużynę")]
     assert regroup == [f"Zbierzcie drużynę przed atakiem... <@{ala.id}> <@{ola.id}> "]   # pings who stayed
@@ -1289,7 +1289,7 @@ async def test_cycle_runs_a_lost_fight_and_bans_the_loser_after_the_reset(game_d
     bot.state.boss = BossInfo(rarity=0)
     await bot.state.set_boss_phase(BossPhase.VISIBLE)
     game_db.auto_answer(hunter, wrong_on_round=2)
-    await bot.boss_cycle.attack(game_db.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game_db.scene(hunter, "!zaatakuj"))
     assert bot.state.boss_phase is BossPhase.IDLE and not bot.state.busy
     assert dead_role.members == [hunter] and revived.roles == []
     assert await modifiers.load_modifiers(bot) == modifiers.INIT_MODIFIERS
@@ -1314,7 +1314,7 @@ async def test_cycle_keeps_the_boss_after_a_crashed_fight(game_db, monkeypatch, 
 
     game_db.channel.send = broken_once
     listeners = len(bot.extra_events.get("on_message", []))
-    await bot.boss_cycle.attack(game_db.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game_db.scene(hunter, "!zaatakuj"))
     await asyncio.sleep(0.05)
     # Nothing is stuck: the boss is still there, nothing was reset, no listener leaked.
     assert bot.state.boss_phase is BossPhase.VISIBLE and not bot.state.busy
@@ -1323,7 +1323,7 @@ async def test_cycle_keeps_the_boss_after_a_crashed_fight(game_db, monkeypatch, 
     assert game_db.channel.contains("walka została przerwana")
     assert await bot.db.fetchval("SELECT count(*) FROM RANKING") == 0
 
-    await bot.boss_cycle.attack(game_db.scene(hunter, "$zaatakuj"))      # the second try works
+    await bot.boss_cycle.attack(game_db.scene(hunter, "!zaatakuj"))      # the second try works
     assert bot.state.boss_phase is BossPhase.IDLE
     assert await bot.db.fetchval("SELECT POINTS FROM RANKING WHERE ID = $1", str(hunter.id)) == 3
 
@@ -1335,7 +1335,7 @@ async def test_cycle_runs_a_won_fight(game_db, monkeypatch, short_timeouts):
     bot.state.boss = BossInfo(rarity=2)
     await bot.state.set_boss_phase(BossPhase.VISIBLE)
     game_db.auto_answer(hunter)
-    await bot.boss_cycle.attack(game_db.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game_db.scene(hunter, "!zaatakuj"))
     assert bot.state.boss_phase is BossPhase.IDLE
     assert await bot.db.fetchval("SELECT POINTS FROM RANKING WHERE ID = $1", str(hunter.id)) == 6
     assert bot.owner_log[-1].startswith("Ala otrzymał: \n👉 250")
@@ -1459,7 +1459,7 @@ async def test_changed_commands_end_with_the_boss_fight(game_db, monkeypatch, sh
     bot.state.boss = BossInfo(rarity=2)
     await bot.state.set_boss_phase(BossPhase.VISIBLE)
     game_db.auto_answer(hunter, wrong_on_round=None if won else 4)
-    await bot.boss_cycle.attack(game_db.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game_db.scene(hunter, "!zaatakuj"))
     assert bot.state.boss_phase is BossPhase.IDLE and not bot.state.busy
     assert asked_words(game_db.channel) == (CHANGED_WORDS if won else CHANGED_WORDS[:4])
     assert (await bot.db.fetchval("SELECT count(*) FROM RANKING")) == (1 if won else 0)
@@ -1527,7 +1527,7 @@ async def test_change_icon(game):
     bot = game.bot
     slayer_member = game.add_member("Ala", roles=[bot.ids.boss_slayer_role])
     role = bot.role(bot.ids.boss_slayer_role)
-    scene = game.scene(slayer_member, "$ikona")
+    scene = game.scene(slayer_member, "!ikona")
 
     assert not await boss.change_icon(scene)
     assert game.channel.messages[-1].content == "Dodaj ikonę w wiadomości z komendą - format .png <:madge:882184635474386974>"
@@ -1590,7 +1590,7 @@ async def test_change_icon_too_big_is_refused_before_the_download(game):
 
     # Discord did not say the size: the downloaded bytes are measured instead.
     unknown = CountedAttachment(b"\x89PNG" + b"x" * boss.ROLE_ICON_LIMIT, size=0)
-    scene = game.scene(champion, "$ikona")
+    scene = game.scene(champion, "!ikona")
     scene.message.attachments = [unknown]
     assert not await boss.change_icon(scene)
     assert unknown.reads == 1 and role.edits == []
@@ -1634,7 +1634,7 @@ async def test_change_icon_tells_apart_why_discord_refused(game, quick_retries, 
     owner_lines = [m.content for m in game.log_channel.messages]
     if kind == "forbidden":
         assert len(owner_lines) == 1 and owner_lines[0].startswith(f"<@{bot.ids.owner}>!")
-        assert "$ikona" in owner_lines[0]
+        assert "!ikona" in owner_lines[0]
     else:
         assert owner_lines == []
 
@@ -1644,7 +1644,7 @@ async def test_change_icon_download_that_keeps_failing(game, quick_retries):
     champion = game.add_member("Mistrz", roles=[bot.ids.boss_slayer_role])
     role = bot.role(bot.ids.boss_slayer_role)
     broken = CountedAttachment(error=asyncio.TimeoutError())
-    scene = game.scene(champion, "$ikona")
+    scene = game.scene(champion, "!ikona")
     scene.message.attachments = [broken]
     assert not await boss.change_icon(scene)
     assert broken.reads == 3 and role.edits == []            # retried, then given up
@@ -1670,7 +1670,7 @@ async def test_slayer_commands(game, monkeypatch, tmp_path):
     role = bot.role(bot.ids.boss_slayer_role)
     cog = slayer.SlayerCog(bot)
 
-    # $flex
+    # !flex
     ctx, _ = make_ctx(game, nobody)
     await cog.flex.callback(cog, ctx)
     assert game.channel.messages[-1].content == "<:KEKW:936907435921252363> **Miernota** <:2Head:882184634572627978>"
@@ -1681,7 +1681,7 @@ async def test_slayer_commands(game, monkeypatch, tmp_path):
         f"Potężny <:GigaChad:970665721321381958> <@{champion.id}> napina swe sprężyste, naoliwione muskuły! "
         "Co za widok, robi wrażenie! <:pogu:882182966372106280>")
 
-    # $kolor
+    # !kolor
     ctx, resets = make_ctx(game, nobody)
     await cog.colour.callback(cog, ctx, "ff0000")
     assert game.channel.messages[-1].content == ("<:KEKW:936907435921252363> **Kpisz sobie, miernoto?** "
@@ -1694,7 +1694,7 @@ async def test_slayer_commands(game, monkeypatch, tmp_path):
     await cog.colour.callback(cog, ctx)
     assert resets == [ctx, ctx] and len(role.edits) == 1
 
-    # $ikona
+    # !ikona
     ctx, resets = make_ctx(game, nobody, attachments=[FakeAttachment()])
     await cog.icon.callback(cog, ctx)
     assert game.channel.messages[-1].content.startswith("<:KEKW:936907435921252363> **Kpisz sobie, miernoto?**")

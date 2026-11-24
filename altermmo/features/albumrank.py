@@ -34,7 +34,7 @@ The rules (the lead's design, told to the owner):
   then more scored slots, then the player whose newest COUNTED card is older (who got there
   first), then the player id - deterministic, so every place is a different number.
 * **Who may look**: supporters only (:func:`show_ranking`); everybody else gets the same kind of
-  "this is for supporters" answer as ``$album`` / ``$osiagniecia``.
+  "this is for supporters" answer as ``!album`` / ``!osiagniecia``.
 
 Whose support is it, without a Discord request per player?  The bot asks for the member list at
 start-up (``intents.members``, discord.py chunks the guild), and every role change arrives as an
@@ -53,7 +53,7 @@ that 30 000 Decimals need not be decoded) and the score in Python, a card comput
 distinct look, in a worker thread.  Measured on the local test database with 300 players x 100
 entries (``tests/test_albumrank.py``, ``test_the_ranking_is_cheap``, 2026-11-22): about 170 ms for
 the whole ranking (~80 ms the query, ~90 ms the score), the event loop held at most ~60-80 ms at
-a time; one album of 100 entries ~5 ms.  Every ``$album`` (and the panel's overview page) makes
+a time; one album of 100 entries ~5 ms.  Every ``!album`` (and the panel's overview page) makes
 the ranking anew, so there is NO cache - a sacrifice or a removal is reflected at the next look,
 always.  (Before the casts and the thread: ~390 ms, loop held ~200 ms.)
 """
@@ -641,7 +641,7 @@ MSG_SUPPORTERS_ONLY = ("Ranking kolekcji jest dla wspierających ({groups}) <:Pe
 MSG_TITLE = "Najcenniejsze kolekcje towarzyszy!"
 MSG_LINE = "{place} **{name}** · **{points} pkt** · {cards}"
 MSG_OWN_LINE = "Twoje miejsce: **{place}.** z {total} · **{points} pkt** · {cards}"
-MSG_OWN_NONE = "Twojej kolekcji jeszcze tu nie ma - pierwszy wpis w albumie (**$porzucam**) da Ci miejsce."
+MSG_OWN_NONE = "Twojej kolekcji jeszcze tu nie ma - pierwszy wpis w albumie (**!porzucam**) da Ci miejsce."
 MSG_NOBODY = "Nikt jeszcze nie ma kolekcji w albumie - bądź pierwszy! <:peepoBlush:984769061340737586>"
 #: How it works, without naming any ornament and without a number (owner's spoiler rule).
 MSG_HOW = ("Liczy się najrzadsza karta każdego gatunku na każdym etapie - im rzadsza i im wyższy etap "
@@ -716,7 +716,7 @@ QUIET = discord.AllowedMentions.none()
 
 
 async def show_ranking(scene: "Scene") -> bool:
-    """``$rankingalbumow`` / the hub's "Rankingi": supporters only.  False when not shown."""
+    """``!rankingalbumow`` / the hub's "Rankingi": supporters only.  False when not shown."""
     member = scene.author
     if member is None or not patrons.check_if_patron(member):
         await scene.send(supporters_only_text(member))

@@ -13,12 +13,12 @@
 	},
 	{
 		"id": 10,
-		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **!towarzysz**.",
 		"weight": 100
 	},
 	{
 		"id": 12,
-		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **!towarzysz**.",
 		"weight": 8
 	}
 	],"loot_details_Rare": [
@@ -39,22 +39,22 @@
 	},
 	{
 		"id": 10,
-		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **!towarzysz**.",
 		"weight": 100
 	},
 	{
 		"id": 12,
-		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **!towarzysz**.",
 		"weight": 10
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
+		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
 		"weight": 1
 	},
 	{
 		"id": 14,
-		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
+		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **!transformacja**.",
 		"weight": 1
 	}
 	],"loot_details_Epic": [
@@ -65,22 +65,22 @@
 	},
 	{
 		"id": 10,
-		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **!towarzysz**.",
 		"weight": 100
 	},
 	{
 		"id": 12,
-		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **!towarzysz**.",
 		"weight": 15
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
+		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
 		"weight": 3
 	},
 	{
 		"id": 14,
-		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
+		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **!transformacja**.",
 		"weight": 3
 	}
 	],"loot_details_Legend": [
@@ -91,22 +91,22 @@
 	},
 	{
 		"id": 10,
-		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+		"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **!towarzysz**.",
 		"weight": 100
 	},
 	{
 		"id": 12,
-		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **!towarzysz**.",
 		"weight": 15
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
+		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
 		"weight": 3
 	},
 	{
 		"id": 14,
-		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
+		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **!transformacja**.",
 		"weight": 3
 	}
 	],"loot_details_Mythic": [
@@ -117,27 +117,27 @@
 		},
 		{
 			"id": 10,
-			"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **$towarzysz**.",
+			"descr": "Czekaj... Co to? Jajko? Sprawdź wpisując **!towarzysz**.",
 			"weight": 100
 		},
 		{
 			"id": 12,
-			"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **$towarzysz**.",
+			"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **!towarzysz**.",
 			"weight": 100
 		},
 		{
 			"id": 13,
-			"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **$oswiecenie**.",
+			"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
 			"weight": 100
 		},
 		{
 			"id": 14,
-			"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **$transformacja**.",
+			"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **!transformacja**.",
 			"weight": 100
 		},
 		{
 			"id": 15,
-			"descr": "Otrzymałeś klejnot zdolności. Wpisz **$klejnoty**, żeby zobaczyć swoje klejnoty umiejętności.",
+			"descr": "Otrzymałeś klejnot zdolności. Wpisz **!klejnoty**, żeby zobaczyć swoje klejnoty umiejętności.",
 			"weight": 20
 		}]
 }

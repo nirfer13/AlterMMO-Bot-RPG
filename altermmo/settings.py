@@ -42,7 +42,56 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ASSETS_DIR = PROJECT_ROOT / "assets"
 CONFIG_DIR = PROJECT_ROOT / "config"
 
-COMMAND_PREFIX = "$"
+#: The prefix of every command - the one every text of the bot names ("!pomoc").
+COMMAND_PREFIX = "!"
+#: Older prefixes that keep working silently (no text names them): "$" was the prefix until
+#: 2026-11-24, so no player is stranded and old posts stay true.  The owner may empty the
+#: tuple later; then only :data:`COMMAND_PREFIX` works.  (Other bots of the server use "$" too:
+#: "ping" typed with "$" is answered by them and by this bot alike, as it always was; with "!"
+#: only by this one.)
+LEGACY_PREFIXES: tuple[str, ...] = ("$",)
+#: Every prefix the bot answers to (what ``commands.Bot`` gets as ``command_prefix``).
+COMMAND_PREFIXES: tuple[str, ...] = (COMMAND_PREFIX, *LEGACY_PREFIXES)
+
+
+def is_command_text(text: object) -> bool:
+    """True when a message with this content is meant as a command (any of :data:`COMMAND_PREFIXES`).
+
+    The one test for "is this a command" - a fight's late-answer watch and the
+    "lag" complaints skip such messages, whichever prefix the player used.  A
+    command is a prefix followed at once by a letter or a digit ("!pomoc",
+    "!wieża", "!5"): "!" is ordinary punctuation in Polish chat, so "!!! lag",
+    "! lagi" or a lone "!" are chat, not commands (discord.py finds no command in
+    them either - "!!! lag" looks up "!!", "! lagi" looks up nothing).
+    """
+    text = str(text or "")
+    return any(text.startswith(prefix) and text[len(prefix):len(prefix) + 1].isalnum()
+               for prefix in COMMAND_PREFIXES)
+
+
+def command_word(text: object) -> str | None:
+    """The word after the prefix of a typed command, lower-case (``"!Tak "`` -> ``"tak"``).
+
+    None when ``text`` does not start with one of :data:`COMMAND_PREFIXES`.
+    """
+    text = str(text or "").strip()
+    for prefix in COMMAND_PREFIXES:
+        if text.startswith(prefix):
+            return text[len(prefix):].lower()
+    return None
+
+
+def says_command(text: object, command: str) -> bool:
+    """True when ``text`` is exactly the typed ``command`` with any prefix ("!tak", also with the old "$").
+
+    ``command`` may be written with or without a prefix ("!potwierdzam" or
+    "potwierdzam"); the comparison ignores case and surrounding spaces.
+    """
+    word = command_word(text)
+    wanted = command_word(command)
+    if wanted is None:
+        wanted = str(command).strip().lower()
+    return word is not None and word == wanted
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,7 @@ za pełną kolekcję każdego typu peta") - the only addition to the cut-down ca
 * **Pełny album** - the album (:mod:`altermmo.features.album`) covers every
   slot of the collection: every non-mythic species at every stage, whatever
   the frame / foil / seal.  Checked after every sacrifice that was kept
-  (:func:`check_album`) and by the start-up / ``$nadajosiagniecia`` hand-out
+  (:func:`check_album`) and by the start-up / ``!nadajosiagniecia`` hand-out
   (:func:`deserved`); like every role here it is never taken away - also not
   when entries are removed from the album later.
 
@@ -39,7 +39,7 @@ statistics and cost nothing:
 withdrawn the same day, is no longer used; the table is left alone - the bot
 never drops anything.)
 
-``$osiagniecia`` (supporters) shows what the player has and "X of Y" - never
+``!osiagniecia`` (supporters) shows what the player has and "X of Y" - never
 which ones are missing.
 """
 
@@ -142,7 +142,7 @@ class Trophy:
         return not self.ids_attr
 
 
-#: Every achievement, in the order ``$osiagniecia`` shows them.
+#: Every achievement, in the order ``!osiagniecia`` shows them.
 TROPHIES: tuple[Trophy, ...] = (
     Trophy("mythic_boss", "Mityczny boss", ids_attr="mythic_slayer_role"),
     Trophy("pet_mythic", "Mityczny towarzysz"),
@@ -172,7 +172,7 @@ LATER_ROLES_FILE = "achievementRolesLater.json"
 #: The start-up hand-out waits while something plays on the boss channel (seconds between looks).
 QUIET_POLL = 15.0
 #: After a role could not be made, the game does not try again on its own for this long
-#: (seconds).  The next start and ``$roleosiagniec`` try at once.
+#: (seconds).  The next start and ``!roleosiagniec`` try at once.
 ROLE_RETRY_AFTER = 3600.0
 #: How long a role the bot has just made counts as being on the server although Discord's
 #: cache does not show it yet (seconds; the cache learns about it from an event a moment later).
@@ -194,16 +194,16 @@ LOG_ROLES_ADOPTED = ("Role osiągnięć, które już były na serwerze, przypisa
                      "{names}.")
 LOG_ROLES_FAILED = ("Nie udało się utworzyć ról osiągnięć: {names}. Sprawdź, czy bot ma uprawnienie "
                     "\"Zarządzanie rolami\" (i czy serwer nie ma już 250 ról), a potem wpisz "
-                    "**$roleosiagniec**. Do tego czasu tych osiągnięć nie nadaję.")
+                    "**!roleosiagniec**. Do tego czasu tych osiągnięć nie nadaję.")
 LOG_ROLES_FILE_UNREADABLE = ("Nie mogę odczytać pliku z rolami osiągnięć (`{path}`). Nie tworzę ani nie "
-                             "usuwam ról, żeby nie narobić szkód - sprawdź plik i wpisz **$roleosiagniec**.")
+                             "usuwam ról, żeby nie narobić szkód - sprawdź plik i wpisz **!roleosiagniec**.")
 LOG_ROLE_MISSING = ("Rola osiągnięcia {role_id} nie istnieje na serwerze - nie przyznano jej graczowi "
                     "<@{player_id}>. (O tej roli nie piszę więcej do następnego restartu.)")
 LOG_ROLE_NOT_GIVEN = ("Nie udało się nadać roli osiągnięcia {role} graczowi <@{player_id}> - czy rola jest "
                       "poniżej roli bota? (O tej roli nie piszę więcej do następnego restartu.)")
 LOG_ROLES_RETIRED = "Usunąłem z serwera role wycofanych osiągnięć ({count}): {names}."
 LOG_ROLES_NOT_RETIRED = ("Nie udało się usunąć ról wycofanych osiągnięć: {names}. Sprawdź, czy są poniżej "
-                         "roli bota, i wpisz **$roleosiagniec** (albo usuń je ręcznie).")
+                         "roli bota, i wpisz **!roleosiagniec** (albo usuń je ręcznie).")
 LOG_VETERANS = "Zaległe osiągnięcia: nadałem {roles} ról {players} wspierającym."
 
 
@@ -440,7 +440,7 @@ def _adoptable(role: Any, name: str, taken: set[int]) -> bool:
 async def ensure_roles(bot: "AlterBot", *, only: Any = None, force: bool = True) -> list[str]:
     """Make the roles of the achievements that do not exist yet; returns the names made.
 
-    Called after every start and by ``$roleosiagniec`` (everything, at once)
+    Called after every start and by ``!roleosiagniec`` (everything, at once)
     and by :func:`grant` when the role it needs is missing (``only`` = that
     achievement, ``force=False``: not within :data:`ROLE_RETRY_AFTER` of a
     failure, so a server that refuses new roles is not asked at every deed).
@@ -533,7 +533,7 @@ async def retire_roles(bot: "AlterBot") -> list[str]:
     held a role is written to the log before it goes (a deleted role cannot
     be brought back with its members), so nothing is deleted while the
     server's member list is incomplete.  A role that cannot be deleted stays
-    on the list for the next start / ``$roleosiagniec`` and the owner is told.
+    on the list for the next start / ``!roleosiagniec`` and the owner is told.
     Run after every start; once everything is gone it does nothing.  Never raises.
     """
     deleted: list[str] = []
@@ -884,7 +884,7 @@ def _in_action(bot: Any) -> bool:
 async def sync_veterans(bot: "AlterBot") -> tuple[int, int]:
     """Give every supporter on the server the roles their pets and their album stand for, quietly.
 
-    Run after every start (and by ``$nadajosiagniecia``): players who had a
+    Run after every start (and by ``!nadajosiagniecia``): players who had a
     mythic pet (or a full album) before the roles existed, or started to
     support later, get them.  (Everybody with an album has a ``PETOWNER`` row:
     a sacrifice empties the row's pet, it never deletes the row.)  Nothing is announced on the game channels; the owner gets one
@@ -942,11 +942,11 @@ async def start_up(bot: "AlterBot") -> None:
         log.info("Achievements at start-up: %d role(s) given to %d player(s).", roles, players)
     except asyncio.CancelledError:
         raise
-    except Exception:  # noqa: BLE001 - the game goes on; $osiagniecia hands out one by one
+    except Exception:  # noqa: BLE001 - the game goes on; !osiagniecia hands out one by one
         log.exception("Achievements at start-up failed.")
 
 
-# -- $osiagniecia ---------------------------------------------------------------------
+# -- !osiagniecia ---------------------------------------------------------------------
 
 def held(bot: Any, member: Any, extra: Any = ()) -> list[Trophy]:
     """The achievements the member's roles say they have, in the order of the catalogue.
@@ -958,7 +958,7 @@ def held(bot: Any, member: Any, extra: Any = ()) -> list[Trophy]:
 
 
 def summary_embed(bot: Any, member: Any, new: Any = ()) -> discord.Embed:
-    """``$osiagniecia``: what the member has and how many of how many - never what is missing."""
+    """``!osiagniecia``: what the member has and how many of how many - never what is missing."""
     shown = held(bot, member, new)
     lines = [MSG_SUMMARY.format(player_id=member.id, earned=len(shown), total=len(TROPHIES)), ""]
     lines += [f"🏅 <@&{role_id_of(bot, item)}>" for item in shown] or [MSG_SUMMARY_NONE]
@@ -970,7 +970,7 @@ def summary_embed(bot: Any, member: Any, new: Any = ()) -> discord.Embed:
 
 
 async def show_achievements(scene: "Scene") -> bool:
-    """``$osiagniecia`` / the panel button; False for somebody who does not support (he is told)."""
+    """``!osiagniecia`` / the panel button; False for somebody who does not support (he is told)."""
     member = scene.author
     if member is None or not patrons.check_if_patron(member):
         links = " • ".join(f"[{label}](<{url}>)" for label, url in patrons.SUPPORT_LINKS)

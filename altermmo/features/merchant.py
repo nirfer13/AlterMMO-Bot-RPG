@@ -3,7 +3,7 @@
 Owner's request of 2026-11-22 (passed on by the owner's other Claude session):
 
 * the merchant comes like the other random events (the events cog draws him,
-  ``$SpawnEvent merchant`` calls him), at most once a day in the draw
+  ``!SpawnEvent merchant`` calls him), at most once a day in the draw
   (owner, 2026-11-23; :func:`came_today` - a forced one counts as well);
 * he is PASSIVE like the chest (owner, 2026-11-23): the channel is held only
   while his panel is posted, then the event stays open
@@ -171,7 +171,7 @@ class Purchase:
 
 MSG_HAS_POUCH = "Masz już sakwę na jajko - druga się nie przyda."
 DETAIL_POUCH = ("Od teraz jajko, które zdobędziesz, mając przy sobie towarzysza, trafi do sakwy "
-                "(wyjmiesz je komendą **$wyjmijjajko**).")
+                "(wyjmiesz je komendą **!wyjmijjajko**).")
 
 
 async def _check_pouch(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
@@ -187,8 +187,8 @@ async def _hand_pouch(scene: Scene, offer: Offer) -> tuple[bool, str]:
 # random egg
 
 MSG_NO_EGG_ROOM = ("Nie masz gdzie przyjąć jajka: towarzysz jest przy Tobie, a wolnej sakwy na jajko nie masz. "
-                   "Schowaj towarzysza do stajni (**$schowajtowarzysza numer**) i kliknij jeszcze raz.")
-DETAIL_EGG = "Jajko jest Twoje - sprawdź je komendą **$towarzysz** albo **$stajnia**."
+                   "Schowaj towarzysza do stajni (**!schowajtowarzysza numer**) i kliknij jeszcze raz.")
+DETAIL_EGG = "Jajko jest Twoje - sprawdź je komendą **!towarzysz** albo **!stajnia**."
 
 
 async def _check_egg(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
@@ -231,7 +231,7 @@ async def _hand_stable(scene: Scene, offer: Offer) -> tuple[bool, str]:
 # random skill gem
 
 MSG_ALL_GEMS = "Masz już każdy rodzaj klejnotu, jaki można zdobyć - kupiec nie ma dla Ciebie nic nowego."
-DETAIL_GEM = "Nowy klejnot czeka w **$klejnoty**."
+DETAIL_GEM = "Nowy klejnot czeka w **!klejnoty**."
 
 
 async def _check_gem(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
@@ -247,7 +247,7 @@ async def _hand_gem(scene: Scene, offer: Offer) -> tuple[bool, str]:
 # rest kit (the hunt's daily cooldown)
 
 MSG_HUNT_READY = "Dziś jeszcze możesz zapolować - zestaw do wypoczynku przyda się dopiero po polowaniu."
-DETAIL_REST = "Możesz znowu zapolować (**$polowanie**), gdy kupiec odjedzie."
+DETAIL_REST = "Możesz znowu zapolować (**!polowanie**), gdy kupiec odjedzie."
 
 
 async def _check_rest(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
@@ -263,7 +263,7 @@ async def _hand_rest(scene: Scene, offer: Offer) -> tuple[bool, str]:
 # tower ticket (one more entry this week)
 
 MSG_TOWER_READY = ("W tym tygodniu masz jeszcze wejście do Wieży - wejściówka przyda się, gdy je wykorzystasz.")
-DETAIL_TOWER = "Możesz jeszcze raz wyruszyć do Wieży Śmierci (**$wieża**), gdy kupiec odjedzie."
+DETAIL_TOWER = "Możesz jeszcze raz wyruszyć do Wieży Śmierci (**!wieża**), gdy kupiec odjedzie."
 
 
 async def _check_tower(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:

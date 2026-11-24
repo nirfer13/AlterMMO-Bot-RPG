@@ -56,6 +56,7 @@ from typing import Any, Awaitable, Callable, Iterable, Sequence
 
 import discord
 
+from ..settings import command_word, says_command
 from . import challenge, guards, io
 from .scene import Scene
 
@@ -586,7 +587,7 @@ def is_live(message_id: int | None) -> bool:
 class PanelView(GameView):
     """Buttons that live for a while with no coroutine waiting for them.
 
-    For a player's own panel (``$towarzysz`` with its action buttons): subclass
+    For a player's own panel (``!towarzysz`` with its action buttons): subclass
     it, add the buttons with ``@discord.ui.button(custom_id=ui.FLOW_PREFIX +
     "...")`` and post it with :meth:`send`.  After ``timeout`` seconds without
     a click - or when a handler calls :meth:`finish` - the buttons are taken
@@ -670,10 +671,10 @@ class Confirmation:
 
 async def confirm(bot: Any, channel: Any, member: Any, content: str | None = None, *,
                   timeout: float, yes_label: str = "Potwierdzam", no_label: str = "Anuluj",
-                  typed: str | None = "$potwierdzam", **send_kwargs: Any) -> Confirmation:
+                  typed: str | None = "!potwierdzam", **send_kwargs: Any) -> Confirmation:
     """Ask ``member`` a yes/no question with two buttons only they can use.
 
-    The old way - typing ``$potwierdzam`` - keeps working (``typed``; None
+    The old way - typing ``!potwierdzam`` - keeps working (``typed``; None
     switches it off).  The bot listens before it asks, so a quick answer is
     never lost.  Sending the question may raise, like :func:`io.send`.
     """
@@ -682,9 +683,14 @@ async def confirm(bot: Any, channel: Any, member: Any, content: str | None = Non
     waiter: asyncio.Future | None = None
     if typed is not None:
         wanted = typed.strip().lower()
+        if command_word(wanted) is not None:  # a command word: "!potwierdzam", also with the old "$"
+            def check(message: Any) -> bool:
+                return says_command(message.content, wanted)
+        else:
+            def check(message: Any) -> bool:
+                return str(message.content).strip().lower() == wanted
         waiter = asyncio.ensure_future(io.wait_for_message(
-            bot, channel, authors=[member],
-            check=lambda message: str(message.content).strip().lower() == wanted, timeout=None))
+            bot, channel, authors=[member], check=check, timeout=None))
         await asyncio.sleep(0)  # let the listener register itself
     view = ClickView(choices, only=[member], players_only=False)
     clicker: asyncio.Future | None = None

@@ -1,4 +1,4 @@
-"""Copies of the database: one every night, one at start-up when none is fresh, ``$kopia`` on demand.
+"""Copies of the database: one every night, one at start-up when none is fresh, ``!kopia`` on demand.
 
 The copying itself (and why it cannot delete anything) is described in
 :mod:`altermmo.features.backup`.  This cog decides *when*:
@@ -6,7 +6,7 @@ The copying itself (and why it cannot delete anything) is described in
 * every day at 03:15 (between the daily reset and the Twitch treasure);
 * right after the start when the newest copy is older than a day or there is
   none - so the very first start of the bot begins with a copy;
-* ``$kopia`` (administrators): now.
+* ``!kopia`` (administrators): now.
 
 Only the newest ``settings.backup_keep`` copies stay (owner: 14).
 
@@ -37,7 +37,7 @@ FRESH_ENOUGH = 3600.0
 #: How long an automatic copy waits for a quiet moment before it is made anyway.
 QUIET_WAIT = 3 * 3600.0
 QUIET_POLL = 15.0
-#: ``$kopia`` right after a copy would only push an older copy out of the kept ones.
+#: ``!kopia`` right after a copy would only push an older copy out of the kept ones.
 MANUAL_GAP = 600.0
 
 MSG_RUNNING = "Kopia zapasowa właśnie się robi - poczekaj, aż skończy."
@@ -168,7 +168,7 @@ class BackupCog(commands.Cog, name="Backup"):
             return
         except Exception as exc:  # noqa: BLE001 - whatever it was, the administrator must hear it
             _keep_cancellation(exc)
-            log.exception("$kopia failed.")
+            log.exception("!kopia failed.")
             await io.send(ctx.channel, MSG_FAILED_HERE.format(kind=type(exc).__name__))
             await bot.log_to_owner(MSG_FAILED.format(error=f"{type(exc).__name__}: {exc}"))
             return

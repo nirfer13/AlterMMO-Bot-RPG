@@ -118,7 +118,7 @@ def test_the_groups_are_spelled_out_where_there_is_room():
     name, value = help_cog.HELP_FIELDS[-1]
     assert name == "🙏 Wspierający"
     assert value.startswith(f"Komendy tylko dla wspierających ({patrons.SUPPORTERS_LONG}):")
-    assert "$modlitwa" in value and "$transformacja" in value and "**Panelu gry**" in value
+    assert "!modlitwa" in value and "!transformacja" in value and "**Panelu gry**" in value
     for role_id in patrons.SUPPORTER_ROLES:                              # the roles themselves: on the panel
         assert f"<@&{role_id}>" in hub.PANEL_SUPPORT_TEXT
 
@@ -170,7 +170,7 @@ async def test_several_players_are_saved_in_one_write(game, monkeypatch):
 
 
 async def test_exp_command_only_shows_the_summary(game):
-    """Horus collects the file by itself: $Exp must not throw away what it has not picked up yet."""
+    """Horus collects the file by itself: !Exp must not throw away what it has not picked up yet."""
     from types import SimpleNamespace
 
     from altermmo.cogs.admin import AdminCog
@@ -178,7 +178,7 @@ async def test_exp_command_only_shows_the_summary(game):
     cog = AdminCog(game.bot)
     alter = game.add_member("Alter")
     expsum.add_file_exp(game.bot, 7, 250)
-    ctx = SimpleNamespace(bot=game.bot, channel=game.channel, author=alter, message=game.say(alter, "$Exp"))
+    ctx = SimpleNamespace(bot=game.bot, channel=game.channel, author=alter, message=game.say(alter, "!Exp"))
     await cog.exp_summary.callback(cog, ctx)
     assert game.channel.messages[-1].content == "<@7>: 250"
     assert game.bot.store.exp_summary.load() == {"7": 250}                # still there for Horus

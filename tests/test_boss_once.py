@@ -112,7 +112,7 @@ def not_attackable(member) -> str:
 
 
 async def assert_boss_is_gone(game, *members, interrupted_before: int = 0) -> None:
-    """Nobody can attack the boss any more - neither with $zaatakuj nor with a click.
+    """Nobody can attack the boss any more - neither with !zaatakuj nor with a click.
 
     ``interrupted_before``: "the fight was interrupted" notices of earlier encounters.
     """
@@ -123,7 +123,7 @@ async def assert_boss_is_gone(game, *members, interrupted_before: int = 0) -> No
     assert boss_cycle.ui.register(bot, boss_cycle.AttackView())
     old = await boss_cycle.with_attack_button(lambda view: game.channel.send("stary boss", view=view))
     for member in members:
-        await bot.boss_cycle.attack(game.scene(member, "$zaatakuj"))
+        await bot.boss_cycle.attack(game.scene(member, "!zaatakuj"))
         assert game.channel.messages[-1].content == not_attackable(member)
         click = await game.click(old, member, "Zaatakuj")
         assert click.public == [not_attackable(member)]
@@ -197,7 +197,7 @@ async def die_during_the_rewards(game, monkeypatch, hunter) -> None:
 
     monkeypatch.setattr(boss, "rand_loot", loot_of_a_dying_process)
     game.auto_answer(hunter)
-    attack = asyncio.ensure_future(game.bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj")))
+    attack = asyncio.ensure_future(game.bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj")))
     await asyncio.wait_for(reached.wait(), 5)
     attack.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -244,7 +244,7 @@ async def test_won_fight_that_breaks_during_the_rewards_is_not_fought_again(game
     await scheduled_boss(game, monkeypatch, rarity)
     game.auto_answer(hunter)
 
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     assert bot.state.boss_phase is BossPhase.IDLE              # finish ran: the next boss is scheduled
     assert broke(error) in bot.owner_log and pinged(game, broke(error))
@@ -279,7 +279,7 @@ async def test_time_limit_during_the_rewards_ends_the_encounter_for_good(game_db
     await scheduled_boss(game, monkeypatch, 1)
     game.auto_answer(hunter)
 
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     assert looted == ["Ala"]
     assert bot.state.boss_phase is BossPhase.IDLE
@@ -307,7 +307,7 @@ async def test_won_group_fight_that_breaks_during_the_rewards_is_not_fought_agai
     await scheduled_boss(game, monkeypatch, 3, hp=3)
     team_answers(game, players)
 
-    await bot.boss_cycle.attack(game.scene(players[0], "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(players[0], "!zaatakuj"))
 
     assert bot.state.boss_phase is BossPhase.IDLE
     assert pinged(game, broke("RuntimeError: log channel gone"))
@@ -335,7 +335,7 @@ async def test_lost_fight_whose_loss_message_fails_stays_lost(game_db, monkeypat
     else:
         game.auto_answer(hunter, silent_on_round=2)
 
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     assert bot.state.boss_phase is BossPhase.IDLE
     assert not game.channel.ever_sent(lost_text)              # Discord refused it...
@@ -361,7 +361,7 @@ async def test_lost_group_fight_whose_loss_message_fails_stays_lost(game_db, mon
     refuse_text(game, boss.MSG_MISTAKE_LOST)
     team_answers(game, players, wrong_rounds={1, 2})          # the spare chance, then the loss
 
-    await bot.boss_cycle.attack(game.scene(players[0], "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(players[0], "!zaatakuj"))
 
     assert bot.state.boss_phase is BossPhase.IDLE
     assert not game.channel.ever_sent(boss.MSG_MISTAKE_LOST)
@@ -388,7 +388,7 @@ async def test_lost_fight_that_breaks_after_the_decision_still_bans_and_ends(gam
     bot.state.boss = BossInfo(rarity=1, is_player_boss=True, player_boss=patron)
     game.auto_answer(hunter, wrong_on_round=2)
 
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     assert bot.state.boss_phase is BossPhase.IDLE
     assert pinged(game, broke("OSError: disk full"))
@@ -425,7 +425,7 @@ async def test_scheduled_boss_row_is_cleared_before_the_first_reward(game_db, mo
     snapshot_at_the_victory(game, seen)
     game.auto_answer(hunter)
 
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     row = seen["row"]
     assert (row.rarity, row.respawn_started) == (0, False)
@@ -443,7 +443,7 @@ async def test_summoned_boss_note_is_cleared_but_the_paused_schedule_stays(game_
     snapshot_at_the_victory(game, seen)
     game.auto_answer(hunter)
 
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     assert seen["summoned"] is None and seen["paid"] == {}
     row = seen["row"]
@@ -487,7 +487,7 @@ async def test_restart_before_the_decision_still_brings_the_summoned_boss_back(g
     await summoned_boss(game, monkeypatch, 1, scheduled=2)
     prompt = asyncio.Event()
     game.channel.send_hooks.append(lambda message: prompt.set() if message.content.startswith("1. ") else None)
-    attack = asyncio.ensure_future(bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj")))
+    attack = asyncio.ensure_future(bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj")))
     await asyncio.wait_for(prompt.wait(), 5)                   # the hunter has not answered yet
     attack.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -551,7 +551,7 @@ async def test_pending_reset_is_noted_at_the_decision_and_cleared_by_finish(game
     else:
         game.auto_answer(hunter, wrong_on_round=2)
 
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     # Written before the result was told; the losers to ban are part of it.
     assert seen["pending"] == {"losers": [] if won else [hunter.id]}
@@ -586,7 +586,7 @@ async def test_restart_between_a_lost_fight_and_its_reset_does_the_reset_once(ga
 
     game.channel.send = send
     game.auto_answer(hunter, wrong_on_round=2)
-    attack = asyncio.ensure_future(bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj")))
+    attack = asyncio.ensure_future(bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj")))
     await asyncio.wait_for(reached.wait(), 5)
     attack.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -689,7 +689,7 @@ async def test_fight_interrupted_in_the_rounds_leaves_the_boss_attackable(game_d
         return await real_ask(bot_, channel, prompt, **kwargs)
 
     monkeypatch.setattr(challenge, "ask", ask)
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     assert bot.state.boss_phase is BossPhase.VISIBLE
     await eventually(lambda: game.channel.contains(boss_cycle.MSG_FIGHT_INTERRUPTED_STAYS))
@@ -700,7 +700,7 @@ async def test_fight_interrupted_in_the_rounds_leaves_the_boss_attackable(game_d
 
     line_is_dead[0] = False
     game.auto_answer(hunter)
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))          # the second try is fought
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))          # the second try is fought
     assert bot.state.boss_phase is BossPhase.IDLE
     assert list(await ranking(bot)) == [str(hunter.id)]
 
@@ -717,7 +717,7 @@ async def test_time_limit_in_the_lobby_leaves_the_boss_attackable(game_db, monke
         await asyncio.Event().wait()
 
     monkeypatch.setattr(boss, "single_init", lobby_that_never_ends)
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     assert bot.state.boss_phase is BossPhase.VISIBLE
     assert bot.store.runtime_get(SUMMONED) == 1                # still remembered for a restart
@@ -730,7 +730,7 @@ async def test_time_limit_in_the_lobby_leaves_the_boss_attackable(game_db, monke
     monkeypatch.setattr(boss, "single_init", alone)
     bot.settings = dataclasses.replace(bot.settings, boss_fight_time_limit=real_limit)
     game.auto_answer(hunter)
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
     assert bot.state.boss_phase is BossPhase.SCHEDULED         # fought; the paused schedule goes on
     assert bot.store.runtime_get(SUMMONED) is None
 
@@ -750,7 +750,7 @@ async def test_cancelled_undecided_fight_leaves_the_boss_attackable(game_db, mon
         monkeypatch.setattr(boss, "single_init", waiting_lobby)
     else:
         game.channel.send_hooks.append(lambda message: reached.set() if message.content.startswith("1. ") else None)
-    attack = asyncio.ensure_future(bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj")))
+    attack = asyncio.ensure_future(bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj")))
     await asyncio.wait_for(reached.wait(), 5)
     attack.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -766,7 +766,7 @@ async def test_cancelled_undecided_fight_leaves_the_boss_attackable(game_db, mon
 
     monkeypatch.setattr(boss, "single_init", alone)
     game.auto_answer(hunter)
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
     assert bot.state.boss_phase is BossPhase.IDLE
     assert list(await ranking(bot)) == [str(hunter.id)]
 
@@ -850,7 +850,7 @@ async def test_failed_write_at_the_decision_does_not_spoil_the_fight(game_db, mo
 
     monkeypatch.setattr(database, "update_boss_table", flaky_update)
     game.auto_answer(hunter)
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     assert failed == [(0, 0, False)]                           # the write at the decision failed...
     assert bot.state.boss_phase is BossPhase.IDLE              # ...the fight went on and ended as usual
@@ -887,7 +887,7 @@ async def test_decision_of_an_earlier_encounter_is_not_reused(game_db, monkeypat
 
     # Encounter 1: won, then broken during the rewards - this boss is gone.
     await scheduled_boss(game, monkeypatch, 1)
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
     assert bot.state.boss_phase is BossPhase.IDLE and len(broke_reports(bot)) == 1
 
     # The next boss; encounter 2 is interrupted before it is decided: it stays.
@@ -898,14 +898,14 @@ async def test_decision_of_an_earlier_encounter_is_not_reused(game_db, monkeypat
         return RoundResult(Outcome.DISRUPTED)
 
     monkeypatch.setattr(challenge, "ask", dead_line)
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
     assert bot.state.boss_phase is BossPhase.VISIBLE
     await eventually(lambda: game.channel.contains(boss_cycle.MSG_FIGHT_INTERRUPTED_STAYS))
     assert len(broke_reports(bot)) == 1                        # not "decided" because encounter 1 was
 
     # Encounter 3: the boss of encounter 2 is fought normally.
     monkeypatch.setattr(challenge, "ask", real_ask)
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
     assert bot.state.boss_phase is BossPhase.IDLE
     assert seen_at_claim == [None, None, None]                 # every encounter starts undecided
     assert bot.store.exp_summary.load() == {str(hunter.id): 500}
@@ -926,7 +926,7 @@ async def test_interrupted_encounter_then_a_decided_one_ends_with_the_new_result
         return RoundResult(Outcome.DISRUPTED)
 
     monkeypatch.setattr(challenge, "ask", dead_line)
-    await bot.boss_cycle.attack(game.scene(ala, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(ala, "!zaatakuj"))
     assert bot.state.boss_phase is BossPhase.VISIBLE
     await eventually(lambda: game.channel.contains(boss_cycle.MSG_FIGHT_INTERRUPTED_STAYS))
 
@@ -938,7 +938,7 @@ async def test_interrupted_encounter_then_a_decided_one_ends_with_the_new_result
     monkeypatch.setattr(expsum, "add_file_exp", disk_full)
     bot.state.boss = BossInfo(rarity=1, is_player_boss=True, player_boss=ala)
     game.auto_answer(ola, wrong_on_round=1)
-    await bot.boss_cycle.attack(game.scene(ola, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(ola, "!zaatakuj"))
 
     assert pinged(game, broke("OSError: disk full"))
     assert dead_role.members == [ola]                          # the loser of encounter 2 - nobody else
@@ -946,13 +946,13 @@ async def test_interrupted_encounter_then_a_decided_one_ends_with_the_new_result
 
 
 async def test_decision_of_a_fight_from_before_reset_boss_is_ignored(game_db, monkeypatch):
-    """$ResetBoss while a fight sits in its lobby: when that fight is decided later, it is not the
+    """!ResetBoss while a fight sits in its lobby: when that fight is decided later, it is not the
     encounter of the cycle any more - it neither writes the boss table nor owes a reset."""
     game = game_db
     bot = game.bot
     cycle = bot.boss_cycle
     hunter = game.add_member("Ala")
-    bot.store.runtime_set(boss_cycle._KEY_ENABLED, False)       # $ResetBoss starts no new schedule
+    bot.store.runtime_set(boss_cycle._KEY_ENABLED, False)       # !ResetBoss starts no new schedule
     await scheduled_boss(game, monkeypatch, 1)
     in_lobby, go = asyncio.Event(), asyncio.Event()
 
@@ -982,7 +982,7 @@ async def test_decision_of_a_fight_from_before_reset_boss_is_ignored(game_db, mo
         return await real_send(content, **kwargs)
 
     game.channel.send = send
-    attack = asyncio.ensure_future(cycle.attack(game.scene(hunter, "$zaatakuj")))
+    attack = asyncio.ensure_future(cycle.attack(game.scene(hunter, "!zaatakuj")))
     await asyncio.wait_for(in_lobby.wait(), 5)
     await cycle.reset()
     assert bot.state.boss_phase is BossPhase.IDLE
@@ -1005,7 +1005,7 @@ async def test_decision_of_a_fight_from_before_reset_boss_does_not_decide_the_ne
     bot = game.bot
     cycle = bot.boss_cycle
     stale, current = game.add_member("Ala"), game.add_member("Ola")
-    bot.store.runtime_set(boss_cycle._KEY_ENABLED, False)       # $ResetBoss starts no new schedule
+    bot.store.runtime_set(boss_cycle._KEY_ENABLED, False)       # !ResetBoss starts no new schedule
     await scheduled_boss(game, monkeypatch, 1)
     in_lobby = {stale.id: asyncio.Event(), current.id: asyncio.Event()}
     go = asyncio.Event()
@@ -1029,13 +1029,13 @@ async def test_decision_of_a_fight_from_before_reset_boss_does_not_decide_the_ne
         return await real_send(content, **kwargs)
 
     game.channel.send = send
-    first = asyncio.ensure_future(cycle.attack(game.scene(stale, "$zaatakuj")))
+    first = asyncio.ensure_future(cycle.attack(game.scene(stale, "!zaatakuj")))
     second = None
     try:
         await asyncio.wait_for(in_lobby[stale.id].wait(), 5)
-        await cycle.reset()                                    # $ResetBoss
+        await cycle.reset()                                    # !ResetBoss
         assert await cycle.summon(game.scene(), 1, show_image=False)   # a ritual boss appears...
-        second = asyncio.ensure_future(cycle.attack(game.scene(current, "$zaatakuj")))
+        second = asyncio.ensure_future(cycle.attack(game.scene(current, "!zaatakuj")))
         await asyncio.wait_for(in_lobby[current.id].wait(), 5)       # ...and Ola engages it
 
         game.auto_answer(stale)
@@ -1073,7 +1073,7 @@ async def test_hanging_write_at_the_decision_does_not_hold_the_fight(game_db, mo
     monkeypatch.setattr(database, "update_boss_table", hanging_update)
     game.auto_answer(hunter)
 
-    await asyncio.wait_for(bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj")), 5)
+    await asyncio.wait_for(bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj")), 5)
 
     assert hung == ["waiting", "given up"]                     # bounded by DECIDED_WRITE_TIMEOUT
     assert any("boss table after a decided fight" in line and "TimeoutError" in line for line in bot.owner_log)
@@ -1106,7 +1106,7 @@ async def test_fight_time_does_not_include_the_write_at_the_decision(game_db, mo
     monkeypatch.setattr(database, "update_boss_table", slow_update)
     game.auto_answer(hunter)
 
-    await bot.boss_cycle.attack(game.scene(hunter, "$zaatakuj"))
+    await bot.boss_cycle.attack(game.scene(hunter, "!zaatakuj"))
 
     assert decision_writes == [(0, 0, False)]
     [shown] = [m.content for m in game.channel.sent if m.content and m.content.startswith("Zabicie bossa")]

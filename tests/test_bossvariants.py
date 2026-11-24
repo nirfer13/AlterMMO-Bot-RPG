@@ -42,7 +42,7 @@ FULL, PARTIAL = petcards.FOIL_FULL, petcards.FOIL_PARTIAL
 ORDINARY_DIR = settings.ASSETS_DIR / "boss"
 SPECIAL_DIR = ORDINARY_DIR / "special"
 EPIC = ("Pojawił się epicki boss! Zabij go natychmiast, żeby zgarnąć nagrody! "
-        "Kliknij **Zaatakuj** albo wpisz **$zaatakuj**, żeby rozpocząć walkę! ⚔️")
+        "Kliknij **Zaatakuj** albo wpisz **!zaatakuj**, żeby rozpocząć walkę! ⚔️")
 MIST = Variant("mgla", "Mgła", "🌫️ Tego bossa spowija **Mgła**.")
 #: A small config of the tests' own: every boss picture the tests draw is "Mgła", always.
 OWN = {
@@ -536,15 +536,15 @@ async def test_a_failing_roll_never_stops_the_boss(game, config, draws, monkeypa
     assert boss_embed(game).description == EPIC and game.channel.messages[-2].files == ["100.gif"]
 
 
-# -- the admin preview: $image <rarity> [wariant] -------------------------------------------------------
+# -- the admin preview: !image <rarity> [wariant] -------------------------------------------------------
 
 def image_ctx(game, admin):
-    message = FakeMessage(game.channel, admin, "$image")
+    message = FakeMessage(game.channel, admin, "!image")
     return SimpleNamespace(bot=game.bot, channel=game.channel, author=admin, message=message, guild=game.guild)
 
 
 def preview(game, since: int) -> tuple[list[str], str]:
-    """What an ``$image`` call posted after message ``since``: (texts and file names, the boss embed's text)."""
+    """What an ``!image`` call posted after message ``since``: (texts and file names, the boss embed's text)."""
     posted = game.channel.messages[since:]
     embed = next(message.embeds[0] for message in posted if message.embeds)
     return [message.content or ",".join(message.files) for message in posted if not message.embeds], embed.description
@@ -580,7 +580,7 @@ async def test_image_command_can_force_the_special_variant(game, config, draws, 
 
 
 async def test_forced_preview_always_shows_a_monster(game, config, monkeypatch):
-    """``$image <rarity> s`` exists to look at the framed portraits: no player takes the boss's place.
+    """``!image <rarity> s`` exists to look at the framed portraits: no player takes the boss's place.
 
     Not the supporter the dice would pick (about every second real boss), not the player the
     shrine chose (who would be the boss EVERY time until that boss is gone).
@@ -694,7 +694,7 @@ async def test_a_preview_on_the_boss_channel_does_not_touch_the_boss_standing_th
 
 
 async def test_status_shows_a_dash_for_an_ordinary_boss(game_db, monkeypatch):
-    """``$status``: an empty value (the variant of an ordinary boss) is no empty code span."""
+    """``!status``: an empty value (the variant of an ordinary boss) is no empty code span."""
     bot = game_db.bot
     # (A bot that never logged in has no gateway ping - NaN; the report of a running one has a number.)
     monkeypatch.setattr(type(bot), "latency", 0.085)

@@ -496,7 +496,7 @@ async def test_a_role_that_cannot_be_deleted_stays_is_reported_once_and_goes_lat
         achievements.LOG_ROLES_RETIRED.format(count=35, names=", ".join(deleted))]
     assert pings(game) == 1                                     # the failure pings the owner
 
-    assert await achievements.retire_roles(bot) == []          # $roleosiagniec: still refused ...
+    assert await achievements.retire_roles(bot) == []          # !roleosiagniec: still refused ...
     assert len(bot.owner_log) == 2 and pings(game) == 1         # ... the owner was told already
 
     stubborn_old.delete_error = None                            # the owner moved the roles below the bot's

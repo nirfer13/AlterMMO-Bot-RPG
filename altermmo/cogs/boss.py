@@ -1,4 +1,4 @@
-"""Boss commands: ``$zaatakuj`` and the admin controls of the boss cycle.
+"""Boss commands: ``!zaatakuj`` and the admin controls of the boss cycle.
 
 The life-cycle itself lives in :mod:`altermmo.features.boss_cycle`; this cog
 only starts its supervised loop, registers the permanent "Zaatakuj" button
@@ -18,13 +18,13 @@ from ..features import boss_cycle
 
 log = logging.getLogger(__name__)
 
-#: Second word of ``$image`` that asks for the special variant of the boss (compared casefolded).
+#: Second word of ``!image`` that asks for the special variant of the boss (compared casefolded).
 SPECIAL_WORDS = frozenset({"s", "special", "specjalny", "specjalna", "wariant", "1", "tak", "t", "yes", "true"})
-#: Under an ``$image`` preview that shows a special boss: its embed says what a real one says.
+#: Under an ``!image`` preview that shows a special boss: its embed says what a real one says.
 #: (Public like every answer of the bot; names no ornament and no chance.)
 MSG_PREVIEW_ONLY = ("*To tylko podgląd wyjątkowej odsłony bossa - nie zmienia gry i niczego nie obiecuje. "
                     "Przycisk pod podglądem atakuje wyłącznie prawdziwego bossa, jeśli ten stoi na kanale.*")
-#: ``$image <rarity> s`` could not show the special variant of the picture it drew.
+#: ``!image <rarity> s`` could not show the special variant of the picture it drew.
 MSG_PREVIEW_NO_VARIANT = ("Podgląd: ten portret nie ma wyjątkowej odsłony albo brakuje jej pliku, więc widać "
                           "zwykłego bossa. Sprawdź `config/bossVariants.json` i folder `assets/boss/special` "
                           "(szczegóły w logu bota).")
@@ -61,7 +61,7 @@ class BossCog(commands.Cog, name="Boss"):
     @guards.owner_or_admin()
     async def stop_spawning(self, ctx: commands.Context) -> None:
         await self.bot.boss_cycle.disable()
-        await io.send(ctx.channel, "Respawn bossów wyłączony (do ponownego $startSpawnBoss).")
+        await io.send(ctx.channel, "Respawn bossów wyłączony (do ponownego !startSpawnBoss).")
 
     @commands.command(name="checkSpawnBoss", brief="Checking boss spawn time")
     @guards.owner_or_admin()
@@ -99,7 +99,7 @@ class BossCog(commands.Cog, name="Boss"):
     @commands.command(name="image")
     @guards.owner_or_admin()
     async def boss_image(self, ctx: commands.Context, rarity: int, variant: str = "") -> None:
-        """Post the picture of a boss of the given rarity (0-4): ``$image <rarity> [wariant]``.
+        """Post the picture of a boss of the given rarity (0-4): ``!image <rarity> [wariant]``.
 
         Without the second word the picture is rolled like a real spawn (now
         and then a special variant, now and then a player as the boss, see

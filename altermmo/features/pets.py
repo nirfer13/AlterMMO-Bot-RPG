@@ -11,7 +11,7 @@ with the legacy bot - neither has a primary key):
               4 by default) and the egg pouch (``EGG_POUCH``, ``POUCH_PET_ID``):
               an egg that comes while the player has a pet at his side goes
               there instead of being lost; it does not grow until he takes it
-              out (``$wyjmijjajko`` or the stable list);
+              out (``!wyjmijjajko`` or the stable list);
 ``PETS``      one row per pet: name, level 0 (egg) .. 3, talent (``PET_SKILLS``),
               looks and the seven stats used by the fights - and, new in v2,
               the cosmetics ``SEAL`` (0-3), ``HOLO`` (full Holo), ``FRAME``
@@ -26,11 +26,11 @@ Differences from the legacy code (the game rules themselves are unchanged):
 * counters are changed atomically in SQL and every multi-step change runs in
   one transaction that re-reads the current state: scrolls / stones / mirrors
   can no longer be spent from a value read 15 seconds earlier;
-* a player has one pending ``$potwierdzam`` question at a time (one answer
+* a player has one pending ``!potwierdzam`` question at a time (one answer
   used to confirm every open question at once, e.g. a reroll *and* a discard),
-  and the flag is always released (``$porzucam`` without a pet used to block
+  and the flag is always released (``!porzucam`` without a pet used to block
   the command until the next restart);
-* the bot listens for ``$potwierdzam`` before its question is sent and only on
+* the bot listens for ``!potwierdzam`` before its question is sent and only on
   the channel where it asked;
 * NULL counters, a missing ``PETS`` row or a missing picture are handled
   instead of crashing the command;
@@ -39,17 +39,17 @@ Differences from the legacy code (the game rules themselves are unchanged):
 Buttons and menus (the rules behind them are the commands' own):
 
 * every "are you sure?" question has **Potwierdzam / Anuluj** buttons that only
-  the asking player can use; typing ``$potwierdzam`` keeps working;
-* ``$mocneodrodzenie`` is a multi-choice list (up to three stats to leave out)
+  the asking player can use; typing ``!potwierdzam`` keeps working;
+* ``!mocneodrodzenie`` is a multi-choice list (up to three stats to leave out)
   with **Przelosuj / Anuluj** buttons instead of eight reactions;
-* the pet shown by ``$towarzysz`` carries a panel (:class:`PetPanel`) for its
+* the pet shown by ``!towarzysz`` carries a panel (:class:`PetPanel`) for its
   owner: rename in a pop-up window, the stable, and the pet commands.  Showing
   works on every channel; the gameplay buttons, like the commands, only on the
   boss channel, not while the channel is busy and not for dead hunters.  The
   panel acts only on the pet it shows: once another pet is active its buttons
   are refused (typed commands still mean "the active pet");
-* the stable (``$stajnia``) has a list that makes a stabled pet the active one,
-  exactly as ``$wyciagnijtowarzysza <slot>`` does - but only the pet the entry
+* the stable (``!stajnia``) has a list that makes a stabled pet the active one,
+  exactly as ``!wyciagnijtowarzysza <slot>`` does - but only the pet the entry
   names (a stale list is refused and redrawn).
 
 Cosmetics (new in v2, they give no stats):
@@ -63,7 +63,7 @@ Cosmetics (new in v2, they give no stats):
   package of 2026-11-21).  Everybody else's egg has no seal, no foil and the
   base frame of its class.  The result is stored with the specimen
   (``PETS.SEAL`` / ``HOLO`` / ``HOLO_PARTIAL`` / ``FRAME``) and nothing but the
-  owner's ``$DajPieczec`` / ``$DajRamke`` ever changes it: not growing, the
+  owner's ``!DajPieczec`` / ``!DajRamke`` ever changes it: not growing, the
   mirror (the class never changes), a new name, the stable, a new owner or the
   end of the support;
 * the one exception to "ONE roll" (owner's request of 2026-11-22): the egg a
@@ -112,7 +112,7 @@ import asyncpg
 import discord
 
 from ..core import io, timing, ui, waiting
-from ..settings import ASSETS_DIR
+from ..settings import ASSETS_DIR, COMMAND_PREFIX
 from . import achievements, bossdetect, modifiers, patrons, petcards
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -303,7 +303,7 @@ def _frame_table(tier: str) -> tuple[tuple[int, str], ...]:
 #: Every class's frame roll, see :func:`_frame_table`.
 FRAME_ROLL_BELOW: dict[str, tuple[tuple[int, str], ...]] = {tier: _frame_table(tier) for tier in petcards.POOLS}
 
-#: Stats a talent point can go to; the order is the order of the ``$mocneodrodzenie`` menu.
+#: Stats a talent point can go to; the order is the order of the ``!mocneodrodzenie`` menu.
 SKILL_POOL: tuple[str, ...] = (
     "CRIT_PERC", "REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "SLOW_PERC", "DETECTION")
 #: A pet that slows this much cannot get more slow.
@@ -344,16 +344,16 @@ STABLE_BASE_PLACES = 4
 STABLE_MAX_PLACES = 10
 _STABLE_SLOTS: dict[int, str] = {place: f"PET_ID_ALT{place}" for place in range(1, STABLE_MAX_PLACES + 1)}
 
-#: ``$mocneodrodzenie``: 1️⃣ .. 7️⃣ (one per entry of SKILL_POOL), shown in the list.
+#: ``!mocneodrodzenie``: 1️⃣ .. 7️⃣ (one per entry of SKILL_POOL), shown in the list.
 SKILL_EMOTES: tuple[str, ...] = tuple(f"{digit}️⃣" for digit in range(1, 8))
-#: What the entries of SKILL_POOL are called in the ``$mocneodrodzenie`` list.
+#: What the entries of SKILL_POOL are called in the ``!mocneodrodzenie`` list.
 SKILL_LABELS: tuple[str, ...] = (
     "Szansa na krytyczne uderzenie", "Szansa na zastąpienie ataku", "Szansa na zablokowanie ataku",
     "Rzadszy drop", "Zmniejszenie życia przeciwnika", "Spowolnienie przeciwnika", "Wyczuwanie bossa")
 #: At most this many stats can be left out of a reroll (10 scrolls each).
 MAX_SKIPPED = 3
 ACCEPT_EMOTE = "✅"
-CONFIRM_WORD = "$potwierdzam"
+CONFIRM_WORD = "!potwierdzam"
 CONFIRM_TIMEOUT = 15
 MENU_TIMEOUT = 20
 #: Longest time the advanced reroll menu may stay open altogether (it keeps the channel busy).
@@ -375,15 +375,15 @@ CARD_SIZE_MARGIN = 0.05
 MSG_UNSURE = "*Twój towarzysz spogląda na Ciebie niepewnie.*"
 MSG_ALONE_MAD = "Przecież jesteś sam... <:madge:882184635474386974>"
 #: Ends every "are you sure?" question (the buttons sit under it).
-CONFIRM_HINT = "Kliknij **Potwierdzam** albo wpisz **$potwierdzam**."
+CONFIRM_HINT = "Kliknij **Potwierdzam** albo wpisz **!potwierdzam**."
 MSG_ALREADY_WAITING = ("Już czekam na Twoje potwierdzenie. Kliknij **Potwierdzam** (albo wpisz "
-                       "**$potwierdzam**) albo poczekaj, aż prośba wygaśnie.")
+                       "**!potwierdzam**) albo poczekaj, aż prośba wygaśnie.")
 MSG_NO_PET_DATA = "Nie znaleziono danych towarzysza."
 MSG_STORED = "Towarzysz został ulokowany w stajni <:peepoBlush:984769061340737586>"
 MSG_UNSTORED = "Towarzysz został wyciągnięty ze stajni <:peepoBlush:984769061340737586>"
 MSG_SWAPPED = ("Nowy towarzysz został wyciągnięty ze stajni, a stary został w niej schowany "
                "<:peepoBlush:984769061340737586>")
-MSG_EMPTY_SLOT = "W stajni nie ma towarzysza na podanym miejscu. Sprawdź stajnie wpisując **$stajnia**."
+MSG_EMPTY_SLOT = "W stajni nie ma towarzysza na podanym miejscu. Sprawdź stajnie wpisując **!stajnia**."
 MSG_TOO_MANY_SKILLS = ("Wybrałeś za dużo statystyk. Można pominąć **maksymalnie 3**! "
                        "<:madge:882184635474386974>")
 MSG_ADV_REROLL_MENU = (
@@ -395,7 +395,7 @@ MSG_RENAME_EMPTY = "Imię towarzysza nie może być puste <:Hmm:9847670356177306
 MSG_RENAME_COOLDOWN = ("Poczekaj na odnowienie komendy! Imię zmienisz ponownie {when} "
                        "<:Bedge:970576892874854400>")
 #: A panel button under a pet that is no longer the active one (another pet came out of the stable).
-MSG_OTHER_PET = "Ten panel pokazuje innego towarzysza - wpisz **$towarzysz**, żeby zobaczyć aktualnego."
+MSG_OTHER_PET = "Ten panel pokazuje innego towarzysza - wpisz **!towarzysz**, żeby zobaczyć aktualnego."
 #: A stable list entry whose slot no longer holds the pet it names.
 MSG_STABLE_CHANGED = "Stajnia zmieniła się w międzyczasie - wybierz jeszcze raz."
 #: The owner's log channel (no ping, nothing public): an egg with the best seal, full Holo
@@ -428,9 +428,9 @@ def _msg_alone(player_id: int) -> str:
 def _msg_bad_slot(player_id: int, command: str, places: int = STABLE_BASE_PLACES) -> str:
     if places <= STABLE_BASE_PLACES:
         return ("Każdy gracz ma tylko cztery miejsca na przechowanie slotów - 1, 2, 3 oraz 4 <@"
-                + str(player_id) + ">! Wpisz np. **$" + command + " 1**.")
+                + str(player_id) + ">! Wpisz np. **" + COMMAND_PREFIX + command + " 1**.")
     return (f"Twoja stajnia ma {places} miejsc - od 1 do {places} <@{player_id}>! "
-            f"Wpisz np. **${command} 1**.")
+            f"Wpisz np. **{COMMAND_PREFIX}{command} 1**.")
 
 
 def _scrolls(number: int) -> str:
@@ -443,7 +443,7 @@ def _scrolls(number: int) -> str:
 
 
 def adv_reroll_text(selected: Sequence[int]) -> str:
-    """The ``$mocneodrodzenie`` menu with what is chosen so far and what it costs."""
+    """The ``!mocneodrodzenie`` menu with what is chosen so far and what it costs."""
     chosen = [SKILL_LABELS[index] for index in sorted(selected) if 0 <= index < len(SKILL_LABELS)]
     cost = 10 * len(chosen) if chosen else 1
     return (MSG_ADV_REROLL_MENU + "\n\nPominięte: " + (", ".join(f"**{name}**" for name in chosen) or "brak")
@@ -980,7 +980,7 @@ _SHOW_COLUMNS = "PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIR
 
 
 async def _load_shown_pet(bot: "AlterBot", player_id: int) -> tuple[str, Any, Any]:
-    """``(status, items, pet)`` of what ``$towarzysz`` shows; status ``alone`` / ``no_data`` / ``_OK``."""
+    """``(status, items, pet)`` of what ``!towarzysz`` shows; status ``alone`` / ``no_data`` / ``_OK``."""
     owner = await _owner(bot.db, player_id, _SHOW_COLUMNS)
     pet_id = _int(owner["pet_id"]) if owner is not None else 0
     if pet_id <= 0:
@@ -1299,7 +1299,7 @@ async def _egg_stored(bot: "AlterBot", player_id: int, pet_id: int, egg: dict[st
     The best seal, full Holo, an animated frame and the rarest static frame of a
     pool (:data:`RARE_FRAME_PERCENT`) are rare enough for the owner to want to
     know - in ONE message per egg; the player sees them on his egg
-    (``$towarzysz``), so nothing is announced.  A partial Holo (1%) is not
+    (``!towarzysz``), so nothing is announced.  A partial Holo (1%) is not
     reported.  ``kept=False``: the egg was stored only to be sacrificed in the
     same transaction (:func:`place_egg`) - there is no such ``PET_ID`` in
     ``PETS``, so the owner is told nothing; only the columns are remembered.
@@ -1345,7 +1345,7 @@ async def generate_pet_egg(scene: "Scene", player: Any = None) -> int:
     """Generate first pet as an egg (for nobody yet); returns its PET_ID.
 
     Without ``player`` the egg is drawn as for the owner of the server (legacy
-    ``$GenerateEgg``).
+    ``!GenerateEgg``).
     """
     bot = scene.bot
     if player is None:
@@ -1362,8 +1362,8 @@ async def generate_pet_egg(scene: "Scene", player: Any = None) -> int:
 
 
 MSG_EGG_TO_POUCH = ("👝 <@{player_id}>, nowe jajko trafia do sakwy, a Twój towarzysz zostaje przy Tobie. W sakwie "
-                    "jajko nie rośnie - żeby je wychować, wyjmij je komendą **$wyjmijjajko** albo z listy pod "
-                    "**$stajnia**.")
+                    "jajko nie rośnie - żeby je wychować, wyjmij je komendą **!wyjmijjajko** albo z listy pod "
+                    "**!stajnia**.")
 
 
 async def egg_room(bot: "AlterBot", player_id: Any) -> str:
@@ -1561,7 +1561,7 @@ def _foil_value(holo: Any) -> int | None:
 
 async def set_cosmetics(bot: "AlterBot", player_id: Any, seal: Any,
                         holo: bool | int | None = None) -> tuple[str, dict[str, Any] | None]:
-    """Set the seal (and the foil, unless ``holo`` is None) of the player's active pet (``$DajPieczec``).
+    """Set the seal (and the foil, unless ``holo`` is None) of the player's active pet (``!DajPieczec``).
 
     The only way cosmetics change after the egg was drawn (with :func:`set_frame`):
     for the owner, to look at the cards and to put a mistake right.  ``holo``:
@@ -1611,12 +1611,12 @@ async def set_cosmetics(bot: "AlterBot", player_id: Any, seal: Any,
     return _OK, now
 
 
-#: What ``$DajRamke`` takes for "the base frame of the class" (stored as '').
+#: What ``!DajRamke`` takes for "the base frame of the class" (stored as '').
 BASE_FRAME_WORDS = frozenset({"baza", "bazowa", "podstawowa", "base", "brak", "0", "-"})
 
 
 async def set_frame(bot: "AlterBot", player_id: Any, frame: Any) -> tuple[str, dict[str, Any] | None]:
-    """Set the frame result of the player's active pet (``$DajRamke``).
+    """Set the frame result of the player's active pet (``!DajRamke``).
 
     ``frame``: a result id of the pet's own class (``S1``, ``s1-a``, the base id
     itself) or one of :data:`BASE_FRAME_WORDS` - the base is stored as ''.
@@ -1779,7 +1779,7 @@ async def get_pet_skills(bot: "AlterBot", player_id: Any) -> dict[str, Any]:
 
 # -- changes the player has to confirm ------------------------------------------------
 
-#: Players the bot is waiting for (one ``$potwierdzam`` question at a time).
+#: Players the bot is waiting for (one ``!potwierdzam`` question at a time).
 _awaiting_confirmation: set[int] = set()
 
 
@@ -1797,7 +1797,7 @@ def _confirmation_slot(player_id: int) -> Iterator[bool]:
 
 
 async def _confirm(scene: "Scene", player: Any, prompt: str, **send_kwargs: Any) -> ui.Confirmation:
-    """Ask ``prompt`` with Potwierdzam / Anuluj buttons; 15 s for a click or a typed ``$potwierdzam``.
+    """Ask ``prompt`` with Potwierdzam / Anuluj buttons; 15 s for a click or a typed ``!potwierdzam``.
 
     The bot listens for the typed answer before the question becomes visible
     (:func:`ui.confirm`); only ``player`` can answer, only on this channel.
@@ -1825,7 +1825,7 @@ def _other_pet(active_pet_id: int, expected_pet: int | None) -> bool:
 async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, messages: dict[str, str],
                             check: Callable[..., Awaitable[tuple[str, Any]]],
                             apply: Callable[[Any, Any], Awaitable[None]]) -> bool:
-    """Common flow of ``$odrodzenie``, ``$oswiecenie`` and ``$transformacja``.
+    """Common flow of ``!odrodzenie``, ``!oswiecenie`` and ``!transformacja``.
 
     ``check(q, lock)`` says whether the change is possible (``_OK``) or which of
     ``messages`` explains why not.  It runs before the question and once more,
@@ -1905,13 +1905,13 @@ async def reroll_pet(scene: "Scene", player: Any, remove_list: Sequence[int] = (
             "alone": _msg_alone(player_id),
             "no_data": MSG_NO_PET_DATA,
             "poor": ("Nie masz wystarczająco zwojów odrodzenia " + mention + " <:Sadge:936907659142111273> "
-                     "Wpisz **$towarzysz**, żeby sprawdzić ich ilość. Zwoje możesz zdobyć na polowaniu "
+                     "Wpisz **!towarzysz**, żeby sprawdzić ich ilość. Zwoje możesz zdobyć na polowaniu "
                      "lub po zabiciu bossów."),
         })
 
 
 class SkillMenu(ui.ClickView):
-    """The ``$mocneodrodzenie`` menu: a multi-choice list of SKILL_POOL, Przelosuj and Anuluj.
+    """The ``!mocneodrodzenie`` menu: a multi-choice list of SKILL_POOL, Przelosuj and Anuluj.
 
     Only ``player`` can use it (dead hunters neither).  A change of the list
     arrives as a click with the key :attr:`SKIP` whose interaction carries the
@@ -2040,7 +2040,7 @@ async def transform_pet(scene: "Scene", player: Any, *, expected_pet: int | None
                         "towarzysza <:Sadge:936907659142111273> Rangi do zdobycia możesz zobaczyć na tym "
                         "kanale <#688296443156365354>."),
             "poor": ("Nie masz żadnych lustr wizualiów " + mention + " <:Sadge:936907659142111273> "
-                     "Wpisz **$towarzysz**, żeby sprawdzić ich ilość. Lustra możesz zdobyć na polowaniu "
+                     "Wpisz **!towarzysz**, żeby sprawdzić ich ilość. Lustra możesz zdobyć na polowaniu "
                      "lub po zabiciu bossów, jednak są one bardzo rzadkie."),
         })
 
@@ -2053,7 +2053,7 @@ async def enlight_pet(scene: "Scene", player: Any, *, expected_pet: int | None =
     player_id = _pid(player)
     mention = "<@" + str(player_id) + ">"
     unworthy = ("Niestety Twój towarzysz nie jest godny dostąpić oświecenia " + mention
-                + " <:Sadge:936907659142111273> Wpisz **$towarzysz**, żeby sprawdzić jego poziom.")
+                + " <:Sadge:936907659142111273> Wpisz **!towarzysz**, żeby sprawdzić jego poziom.")
 
     async def check(q: Any, lock: bool) -> tuple[str, Any]:
         owner = await _owner(q, player_id, "PET_ID, REBIRTH_STONES", lock=lock)
@@ -2093,9 +2093,9 @@ async def enlight_pet(scene: "Scene", player: Any, *, expected_pet: int | None =
             "no_data": MSG_NO_PET_DATA,
             "unworthy": unworthy,
             "enlightened": ("Twój towarzysz już dostąpił oświecenia " + mention
-                            + " <:prayge:1063891597760139304> Wpisz **$towarzysz**, żeby sprawdzić jego talent."),
+                            + " <:prayge:1063891597760139304> Wpisz **!towarzysz**, żeby sprawdzić jego talent."),
             "poor": ("Nie masz żadnych kamieni olśnienia " + mention + " <:Sadge:936907659142111273> "
-                     "Wpisz **$towarzysz**, żeby sprawdzić ich ilość. Kamienie olśnienia możesz zdobyć na "
+                     "Wpisz **!towarzysz**, żeby sprawdzić ich ilość. Kamienie olśnienia możesz zdobyć na "
                      "polowaniu lub po zabiciu bossów, jednak są one bardzo rzadkie."),
         })
 
@@ -2181,7 +2181,7 @@ async def _sacrifice_in(con: Any, player_id: int, pet_id: int, keeps: bool) -> i
     - the pet is gone, as it always was.  ``album.NotSaved`` passes through:
     the caller's transaction is rolled back and nothing was sacrificed.  The
     caller empties the place the pet stood on (``PETOWNER``) in the same
-    transaction.  One path for every sacrifice of the game: ``$porzucam``
+    transaction.  One path for every sacrifice of the game: ``!porzucam``
     (:func:`discard_pet`) and the mine's egg decisions (:func:`place_egg`).
     """
     from . import album  # (lazily: the album builds on this module)
@@ -2195,7 +2195,7 @@ async def _sacrifice_in(con: Any, player_id: int, pet_id: int, keeps: bool) -> i
 async def _sacrificed(scene: "Scene", player: Any, kept: int | None, *, answer: ui.Confirmation | None = None) -> None:
     """What follows every committed sacrifice: the random boss modifier, then the album's word.
 
-    ``answer``: the confirmation of ``$porzucam`` (gets the legacy "seen"
+    ``answer``: the confirmation of ``!porzucam`` (gets the legacy "seen"
     reaction).  The pet IS in the album once the sacrifice is committed,
     whatever the modifier step does - so the player is told and "Pełny album"
     is checked even when that step fails (its error, e.g. Discord down, still
@@ -2284,7 +2284,7 @@ async def store_pet(scene: "Scene", slot: Any) -> bool:
         await scene.send(_msg_alone(player_id))
     elif status == "no_pet":
         await scene.send("Niestety nie posiadasz aktualnie żadnego peta, <@" + str(player_id)
-                         + ">. Możesz sprawdzić swoją stajnie wpisując **$stajnia**.")
+                         + ">. Możesz sprawdzić swoją stajnie wpisując **!stajnia**.")
     elif status == "bad_slot":
         await scene.send(_msg_bad_slot(player_id, "schowajtowarzysza", places))
     else:
@@ -2398,7 +2398,7 @@ def _pouch_message(player_id: int, status: str, place: int) -> str:
 
 
 async def take_egg_from_pouch(scene: "Scene") -> bool:
-    """``$wyjmijjajko``: the egg in the author's pouch becomes his active pet (and can grow)."""
+    """``!wyjmijjajko``: the egg in the author's pouch becomes his active pet (and can grow)."""
     player_id = _pid(scene.author)
     if player_id in _awaiting_confirmation:
         await scene.send(MSG_ALREADY_WAITING)
@@ -2497,9 +2497,9 @@ async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, 
                      + f"{STABLE_ACTIVE}\n{active}\n\n{STABLE_PLACES}\n" + "\n".join(lines) + pouch_block),
         color=0x34cceb,
     )
-    footer = "Możesz schować lub wyciągnąć peta za pomocą komend $schowajtowarzysza oraz $wyciagnijtowarzysza."
+    footer = "Możesz schować lub wyciągnąć peta za pomocą komend !schowajtowarzysza oraz !wyciagnijtowarzysza."
     if has_pouch:
-        footer += " Jajko z sakwy wyjmiesz komendą $wyjmijjajko."
+        footer += " Jajko z sakwy wyjmiesz komendą !wyjmijjajko."
     embed.set_footer(text=footer)
     embed.set_thumbnail(url="https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png")
     return embed, options
@@ -2510,7 +2510,7 @@ async def check_stable(scene: "Scene") -> bool:
 
     On a channel the stable carries a list (:class:`StablePanel`) that makes a
     stabled pet the active one - only for the author, only where and when
-    ``$wyciagnijtowarzysza`` would work.
+    ``!wyciagnijtowarzysza`` would work.
     """
     bot = scene.bot
     player_id = _pid(scene.author)
@@ -2536,7 +2536,7 @@ async def check_stable(scene: "Scene") -> bool:
 async def store_in_free_place(bot: "AlterBot", player_id: Any) -> tuple[str, int, Any]:
     """Put the pet at the player's side into his FIRST FREE stable place, in one locked transaction.
 
-    ``$schowajtowarzysza <slot>`` (:func:`store_pet`) names a place and swaps
+    ``!schowajtowarzysza <slot>`` (:func:`store_pet`) names a place and swaps
     with whoever stands there; the mine's "Stajnia" button only ever moves the
     active pet out of the way, so it must not bring another pet back.  Returns
     ``(status, place, the pet's PETS row)``: ``alone`` (no row at all),
@@ -2632,7 +2632,7 @@ def egg_row(egg: dict[str, Any]) -> dict[str, Any]:
 async def egg_shown(bot: "AlterBot", guild: Any, player: Any, egg: dict[str, Any]) -> tuple[list[str], Path | None]:
     """How the game shows a rolled egg to ``player``: ``(lines of words, the picture or None)``.
 
-    Exactly what ``$towarzysz`` shows of an egg (:func:`_pet_embed`,
+    Exactly what ``!towarzysz`` shows of an egg (:func:`_pet_embed`,
     :func:`_pet_card`): never its species; the sentence of its class; its
     ornaments in words and on the card only while he supports (one line says
     so when they are hidden).  The picture is the egg's card, or None when the
@@ -2696,7 +2696,7 @@ async def place_egg(scene: "Scene", player: Any, egg: dict[str, Any], where: str
     * :data:`EGG_TO_STABLE` - his first free stable place;
     * :data:`EGG_SWAP` - stable place ``place``, when it still holds
       ``expected_pet``: that pet is sacrificed (:func:`_sacrifice_in`, the
-      path of ``$porzucam``: a supporter's pet goes into his album, anybody
+      path of ``!porzucam``: a supporter's pet goes into his album, anybody
       else's is gone) and the egg takes its place - both or neither;
     * :data:`EGG_SACRIFICE` - the egg itself is sacrificed by the same rule: a
       supporter's egg becomes an album entry (stored and sacrificed in the
@@ -2805,9 +2805,9 @@ async def _edit_panel(message: Any, **kwargs: Any) -> bool:
 
 
 class StablePanel(ui.PanelView):
-    """The list under ``$stajnia``: choose a stabled pet (or the egg in the pouch) to make it the active one.
+    """The list under ``!stajnia``: choose a stabled pet (or the egg in the pouch) to make it the active one.
 
-    Same effect and the same guards as ``$wyciagnijtowarzysza <slot>``: boss
+    Same effect and the same guards as ``!wyciagnijtowarzysza <slot>``: boss
     channel only, not while busy, not for dead hunters.  The stable is redrawn
     after every change.
     """
@@ -2856,7 +2856,7 @@ class StablePanel(ui.PanelView):
         player_id = _pid(interaction.user)
         chosen = self._parse(values[0])
         if player_id in _awaiting_confirmation:
-            await scene.send(MSG_ALREADY_WAITING)  # as $wyciagnijtowarzysza
+            await scene.send(MSG_ALREADY_WAITING)  # as !wyciagnijtowarzysza
         else:
             # The pet the entry names must still be in its slot / the pouch (checked under the lock).
             place = 0
@@ -2887,12 +2887,12 @@ class StablePanel(ui.PanelView):
 
 
 class PetPanel(ui.PanelView):
-    """Buttons under the pet shown by ``$towarzysz``; only its owner can use them.
+    """Buttons under the pet shown by ``!towarzysz``; only its owner can use them.
 
-    ``Zmień imię`` opens a pop-up window (``$nazwij`` with its 23-hour
+    ``Zmień imię`` opens a pop-up window (``!nazwij`` with its 23-hour
     cooldown), ``Stajnia`` shows the stable (display only, any channel), the
-    rest start exactly the flows of ``$odrodzenie``, ``$mocneodrodzenie``,
-    ``$oswiecenie``, ``$transformacja`` and ``$porzucam``.  Gameplay buttons
+    rest start exactly the flows of ``!odrodzenie``, ``!mocneodrodzenie``,
+    ``!oswiecenie``, ``!transformacja`` and ``!porzucam``.  Gameplay buttons
     are refused outside the boss channel, while the channel is
     busy and for dead hunters.  A gameplay button takes the panel's buttons
     away: the flow shows the pet anew when it changed it.  Buttons that make
@@ -2997,7 +2997,7 @@ class PetPanel(ui.PanelView):
             await self.finish()
             await flow(scene)
             return
-        # Like ``$mocneodrodzenie``: the flow holds the channel.  The database read
+        # Like ``!mocneodrodzenie``: the flow holds the channel.  The database read
         # above may have let somebody take it, so the gate looks again; nothing is
         # awaited between its (passing) check and taking the flag.
         if not await ui.gate(interaction):
@@ -3048,7 +3048,7 @@ class PetPanel(ui.PanelView):
 
 
 def _rename_bucket(bot: "AlterBot", member: Any) -> Any:
-    """The ``$nazwij`` cooldown of ``member`` (shared by the command and the button); None without one."""
+    """The ``!nazwij`` cooldown of ``member`` (shared by the command and the button); None without one."""
     command = bot.get_command("nazwij") if hasattr(bot, "get_command") else None
     buckets = getattr(command, "_buckets", None)
     if buckets is None or not getattr(buckets, "valid", False):
@@ -3056,22 +3056,22 @@ def _rename_bucket(bot: "AlterBot", member: Any) -> Any:
     try:
         return buckets.get_bucket(types.SimpleNamespace(author=member, guild=getattr(member, "guild", None)))
     except Exception:  # noqa: BLE001 - a cooldown that cannot be read is no reason to fail the click
-        log.exception("Could not read the $nazwij cooldown of %s.", getattr(member, "id", member))
+        log.exception("Could not read the !nazwij cooldown of %s.", getattr(member, "id", member))
         return None
 
 
 async def rename_from_panel(panel: PetPanel, interaction: Any) -> bool:
-    """``Zmień imię``: ask for the name in a pop-up window, then name the pet like ``$nazwij``.
+    """``Zmień imię``: ask for the name in a pop-up window, then name the pet like ``!nazwij``.
 
     The guards and the 23-hour cooldown of the command apply (the cooldown is
-    the command's own, so a name given with a button counts for ``$nazwij``
+    the command's own, so a name given with a button counts for ``!nazwij``
     and the other way round; a refused naming does not use it up).  Only the
     pet the panel shows is named (see :meth:`PetPanel.shows_active_pet`),
     checked when the button is clicked and again when the window is sent.
 
     The cooldown is charged on the bucket fetched again right before it, with
     nothing awaited in between: discord.py drops a never-used bucket from its
-    cache whenever anybody's ``$nazwij`` looks at the cooldowns, so the bucket
+    cache whenever anybody's ``!nazwij`` looks at the cooldowns, so the bucket
     seen at the click may be an orphan by the time the window is sent.
     """
     bot = interaction.client
@@ -3131,7 +3131,7 @@ def _ranking_entry(place: int, pet: Any) -> str:
     (The old single line listed every property with "Tak" / "Nie" and was hard to read.)
     An egg is "jajko" without its species: an egg does not tell its species before it hatches
     (owner, 2026-11-23 - the rule of the album, meant for the whole game; the stable's
-    :func:`_pet_brief` and ``$towarzysz`` never named it).  Its name, talent and badges stay.
+    :func:`_pet_brief` and ``!towarzysz`` never named it).  Its name, talent and badges stay.
     """
     name = discord.utils.escape_markdown(str(pet["pet_name"] or "")[:20])
     level = _int(pet["pet_lvl"])
@@ -3209,7 +3209,7 @@ async def detect_boss(bot: "AlterBot", boss_rarity: int) -> None:
     for row in rows:
         player_id = _int(row["player_id"])
         if bossdetect.is_off(bot, player_id):
-            continue  # switched off by the player (button under the hint / $wyczuwanie)
+            continue  # switched off by the player (button under the hint / !wyczuwanie)
         try:
             await _warn_about_boss(bot, player_id, text)
         except asyncio.CancelledError:
