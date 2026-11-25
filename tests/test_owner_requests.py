@@ -15,7 +15,7 @@ from altermmo import schema
 from altermmo.cogs import events as events_cog
 from altermmo.core import clock, guards, timing
 from altermmo.core.state import BossPhase, EventType
-from altermmo.features import achievements, album, bossdetect, daily, events, pets, skills, xpsteal
+from altermmo.features import achievements, album, bossdetect, daily, events, missions, pets, skills, xpsteal
 
 from fakes import FakeInteraction, FakeMessage
 
@@ -586,7 +586,8 @@ async def test_new_table_is_created_at_start_up_and_then_verified(db):
     assert "brak tabeli skillpouch" in problems
     # The achievement counters (made and withdrawn on 2026-11-20) are no table of the bot any more.
     assert not any("achievement_counters" in problem for problem in problems)
-    new_tables = 1 + len(album.NEW_TABLES)                         # the gem pouch; the pet album (2026-11-21)
+    # the gem pouch; the pet album (2026-11-21); the companion missions (2026-11-25)
+    new_tables = 1 + len(album.NEW_TABLES) + len(missions.NEW_TABLES)
     assert await schema.create_new_tables(db) == new_tables
     await db.execute("INSERT INTO SKILLPOUCH (PLAYER_ID, SKILL_ID) VALUES (1, 2)")
     assert await schema.create_new_tables(db) == new_tables        # again: nothing breaks, nothing is lost
@@ -657,6 +658,56 @@ async def test_start_up_creates_the_new_table_and_reports_a_broken_database(game
     await db.execute("DROP TABLE TOWER", idempotent=True)          # something the bot cannot repair itself
     await bot.setup_hook()
     assert len(bot._startup_notes) == 1 and "brak tabeli tower" in bot._startup_notes[0]
+
+
+def test_start_up_note_about_the_petowner_columns():
+    """(Companion missions, spec rev. 2 §13.5) the columns of PETOWNER that could not be added say what is off."""
+    from altermmo import bot as bot_module
+
+    note = bot_module.new_columns_note
+    missing = schema.missing_column
+    mission_only = [missing("petowner", column) for column in pets.MISSION_COLUMNS]
+    owner_all = [missing("petowner", column) for column in (*pets.UPGRADE_COLUMNS, *pets.MISSION_COLUMNS)]
+    album_only = [missing("pet_album", "frame"), missing("pet_album", "holo_partial")]
+    assert note(["x"], mission_only) == bot_module.MSG_MISSION_COLUMNS_FAILED.format(problems="x")
+    assert note(["x"], owner_all) == bot_module.MSG_OWNER_COLUMNS_FAILED.format(problems="x")
+    assert note(["x", "y"], [*mission_only, *album_only]) == (
+        bot_module.MSG_ALBUM_COLUMNS_FAILED.format(problems="x; y") + " "
+        + bot_module.MSG_MISSION_COLUMNS_FAILED.format(problems="x; y"))
+    assert "Duża sakwa i Zwoje przywołania są WYŁĄCZONE" in bot_module.MSG_MISSION_COLUMNS_FAILED
+    assert "Miejsca w stajni 5-10" in bot_module.MSG_OWNER_COLUMNS_FAILED and "$" not in (
+        bot_module.MSG_OWNER_COLUMNS_FAILED + bot_module.MSG_MISSION_COLUMNS_FAILED)
+    # Nothing was checked when the database did not answer: the missions are said conditionally.
+    down = bot_module.MSG_DATABASE_DOWN_AT_START
+    assert "tabelę PET_MISSIONS (zlecenia towarzyszy) bot utworzy sam przy pierwszym otwarciu tablicy zleceń" in down
+    assert "BIG_POUCH / POUCH_PET_ID2 / SUMMON_SCROLLS" in down and down.endswith("Reszta gry działa normalnie.")
+
+
+async def test_start_up_notes_when_only_the_mission_columns_cannot_be_added(game_db, monkeypatch):
+    """Today's production PETOWNER (the merchant's columns there): only the three missions' columns are tried."""
+    bot = game_db.bot
+    db = bot.db
+    monkeypatch.setattr(bot, "load_extension", lambda name: asyncio.sleep(0))
+    monkeypatch.setattr(type(db), "connect", lambda self: asyncio.sleep(0))
+    monkeypatch.setattr(schema, "NEW_COLUMN_LOCK_TIMEOUT", "200ms")
+    for column in pets.MISSION_COLUMNS:
+        await db.execute(f"ALTER TABLE PETOWNER DROP COLUMN {column}", idempotent=True)
+    async with db.transaction() as somebody:
+        await somebody.execute("LOCK TABLE PETOWNER IN ACCESS SHARE MODE")
+        await bot.setup_hook()
+    [note] = bot._startup_notes
+    problem = note.removeprefix("Nie udało się dodać do bazy danych kolumn nowych w v2: ").split(". Duża sakwa")[0]
+    assert problem.startswith("petowner (big_pouch, pouch_pet_id2, summon_scrolls): LockNotAvailableError")
+    assert note == bot_module_note(problem)
+    bot._startup_notes = []
+    await bot.setup_hook()                                         # the next start adds them: nothing to say
+    assert bot._startup_notes == [] and await schema.verify(db) == []
+
+
+def bot_module_note(problem: str) -> str:
+    from altermmo import bot as bot_module
+
+    return bot_module.MSG_MISSION_COLUMNS_FAILED.format(problems=problem)
 
 
 async def test_click_is_answered_even_when_the_switch_cannot_be_saved(game, monkeypatch):

@@ -17,6 +17,8 @@ eksport-do-gry/
 /pieczecie-dla-bota.zip
 # the owner's package with the merchant and training pictures (its files live in assets/events/)
 /alterage-eventy-kupiec-i-trening.zip
+# the owner's package with the companion missions pictures (WebP copies live in assets/missions/)
+/discord-rpg-altermmo-zlecenia.zip
 
 # python
 __pycache__/

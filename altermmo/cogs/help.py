@@ -24,7 +24,7 @@ Jeśli brakuje Wam graczy, to warto zawołać rolę <@&985071779787730944>. Do r
 
 Wspierający ({patrons.SUPPORTERS_LONG}) mogą zostać bossami. Jest to losowe. Jednak jeśli taki boss pokona gracza, to użytkownik Discorda, który owym bossem był, zgarnia dodatkowe doświadczenie.
 
-🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży oraz pokazuje towarzysza, stajnię, klejnoty, rankingi (wspierającym także ranking kolekcji) i album. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo wpisując **!potwierdzam**. Wszystkie komendy poniżej działają nadal. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
+🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży, wysyła towarzysza na zlecenie oraz pokazuje towarzysza, stajnię, klejnoty, rankingi (wspierającym także ranking kolekcji) i album. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo wpisując **!potwierdzam**. Wszystkie komendy poniżej działają nadal. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
 
 ⛏️ **Kopalnia Ostatniej Lampy:** schodzi do niej tylko ten, kto pierwszy kliknie **Wejdź do kopalni**. Łup trzeba zabrać, zanim kopalnię zamknie następne wydarzenie albo boss - inaczej przepada.
 
@@ -66,6 +66,8 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
 - !flex - Pokaż innym jakim jesteś koxem.
 - !kolor kolor_hex - Zmienia kolor rangi <@&983798433590673448>, np. !kolor 00FFFF.
 - !ikona - Zmienia ikonę rangi: wyślij komendę z dołączonym obrazkiem .png."""),
+    ("🧭 Zlecenia", """- **!zlecenia - Raz dziennie wysyłasz towarzysza (tego przy Tobie albo ze stajni) na zlecenie z tablicy; szansę widzisz przed wysłaniem**. Pokazuje też postęp i łup. Skrót !zl.
+- !przywolaj - Odczytuje Zwój przywołania zdobyty na zleceniu: na kanał przybywa mityczny boss."""),
     # Before 2026-11-20: "🙏 Patroni" (crafters and patrons only).
     ("🙏 Wspierający", f"""Komendy tylko dla wspierających ({patrons.SUPPORTERS_LONG}):
 - !modlitwa - Gdy pojawi się kapliczka, modlitwą (albo przyciskiem **Pomódl się**) można wpłynąć na statystyki kolejnego bossa.

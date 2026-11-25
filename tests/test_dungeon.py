@@ -922,6 +922,42 @@ async def test_the_treasury_level_goes_to_the_pet_at_the_players_side(game_db, l
         assert xp_of(game, player) == 1000 and await scrolls_of(db, player.id) == 16
 
 
+def test_a_pet_on_a_mission_gets_no_level_and_no_picture():
+    pet = {"pet_id": 1, "pet_name": "Iskra", "pet_lvl": 2, "type": "Cat"}
+    at_home = places(pet=pet, occupied=[(1, 5, None)] * 4)
+    away = at_home._replace(active_away=True)
+    assert dungeon.level_line(at_home) == dungeon.MSG_LEVEL.format(name="Iskra", old=2, new=3)
+    assert dungeon.level_line(away) == dungeon.MSG_LEVEL_AWAY
+    assert dungeon._hatched(at_home) is True and dungeon._hatched(away) is False
+    assert dungeon.granted_lines({"level": "away"}) == [dungeon.MSG_GOT_NO_LEVEL_AWAY]
+
+
+async def test_the_mine_leaves_a_pet_on_a_mission_where_it_is(game_db, luck):
+    from test_pet_away import come_back, send_away
+
+    game, db = game_db, game_db.bot.db
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, pet_id=1, pet_id_alt1=2)
+    await make_pet(db, 1, level=2, name="Iskra")
+    await make_pet(db, 2, level=1)
+    mission = await send_away(db, ala.id, 1)
+    mine, message = await go_down(game, ala, 7)
+    assert message.files == ["07.jpg"]                                         # no "with pet" picture
+    await game.click(message, ala, "stable")
+    assert dungeon.MSG_STABLE_AWAY in message.embeds[0].description
+    assert (await row(db, ala.id))["pet_id"] == 1                              # it stays at her side
+    await game.click(message, ala, "deeper")
+    assert dungeon.MSG_LEVEL_AWAY in message.embeds[0].description             # told in the treasury ...
+    await game.click(message, ala, "claim")
+    assert dungeon.MSG_GOT_NO_LEVEL_AWAY in message.embeds[0].description       # ... and in what she got
+    assert int(await db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = 1")) == 2
+    assert record_of(game, ala)["granted"]["level"] == "away"
+    # Back (not claimed yet): the mine's "Stajnia" can move it again.
+    await come_back(db, mission)
+    assert (await pets.store_in_free_place(game.bot, ala.id))[:2] == (pets._OK, 2)
+    assert (await row(db, ala.id))["pet_id"] == 0
+
+
 async def test_a_reward_that_fails_is_reported_and_never_paid_twice(game_db, luck, monkeypatch):
     game, db = game_db, game_db.bot.db
     ala = game.add_member("Ala")

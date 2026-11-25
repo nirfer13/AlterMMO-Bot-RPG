@@ -296,7 +296,9 @@ async def test_assign_skill_creates_the_row_of_a_new_player(game_db, monkeypatch
              rebirth_stones=0, mirrors=0, pet_id_alt1=0, pet_id_alt2=0, skill_gem=1, pet_id_alt3=0, pet_id_alt4=0,
              # the wandering merchant's columns (new in v2), as in a fresh row
              **{f"pet_id_alt{place}": 0 for place in range(5, 11)}, stable_places=4, egg_pouch=False,
-             pouch_pet_id=0)]
+             pouch_pet_id=0,
+             # ... and the companion missions' (the Duża sakwa, the summoning scrolls)
+             big_pouch=False, pouch_pet_id2=0, summon_scrolls=0)]
     assert await gems(game_db.bot.db) == [(1, "Klejnot Wyjątkowości", 2, 4)]
     assert texts(game_db) == []                                          # the loot code announces the gem
 
@@ -712,6 +714,40 @@ async def test_shiny_gem_wasted_on_a_traveller_without_a_pet(game_db, pet_id):
     assert await skills.use_skill(game_db.scene(owner), owner) == 2
     assert texts(game_db) == [ASK, NO_PET]
     assert game_db.bot.store.skill_weekly_cd.all() == [str(owner.id)]
+
+
+async def test_shiny_gem_does_not_reach_a_pet_on_a_mission(game_db):
+    from test_pet_away import come_back, ends_at, send_away
+
+    db = game_db.bot.db
+    owner, target = await shiny_setup(game_db)
+    mission = await send_away(db, target.id, 21)
+    tags(game_db, owner, f"<@{target.id}>")
+    assert await skills.use_skill(game_db.scene(owner), owner) == 2          # the gem's use is spent ...
+    assert texts(game_db) == [ASK, skills.MSG_TRAVELLER_PET_AWAY.format(
+        player_id=target.id, when=ui.when(await ends_at(db, mission)))]
+    assert await is_shiny(game_db) is False                                  # ... and the pet is as it was
+    assert game_db.bot.store.skill_weekly_cd.all() == [str(owner.id)]
+    await come_back(db, mission)                                              # back (not claimed yet)
+    assert await skills.skill_make_shiny(game_db.scene(owner)) is False      # (the weekly use is gone)
+    game_db.bot.store.skill_weekly_cd.clear()
+    assert await skills.skill_make_shiny(game_db.scene(owner)) is True and await is_shiny(game_db) is True
+
+
+async def test_shiny_gem_waiting_for_a_send_sees_it(game_db):
+    """The send holds the pet's row: the gem locks it first and asks "away" afterwards (spec §7.1)."""
+    from test_pet_away import blocked, sending
+    from altermmo.features import pets
+
+    db = game_db.bot.db
+    owner, target = await shiny_setup(game_db)
+    await pets.missions_table_ready(game_db.bot)
+    tags(game_db, owner, f"<@{target.id}>")
+    async with sending(db, target.id, 21):
+        task = asyncio.ensure_future(skills.skill_make_shiny(game_db.scene(owner)))
+        await blocked(db)
+    assert await task is False and await is_shiny(game_db) is False
+    assert texts(game_db)[-1].startswith(f"Towarzysz <@{target.id}> jest teraz na zleceniu")
 
 
 async def test_shiny_gem_survives_lag(game_db, monkeypatch):

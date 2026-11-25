@@ -88,6 +88,26 @@ async def test_the_buttons_are_registered_at_start_up(game):
     assert {shortcuts.PetButton, shortcuts.AlbumButton} <= registered
 
 
+async def test_the_missions_button_carries_its_player_and_mission(game):
+    """(Companion missions, spec rev. 2 §13.2) "Zlecenia" under a "towarzysz wrócił" post."""
+    view = shortcuts.missions_view(SimpleNamespace(id=123456789012345678), 98765432109876543)
+    (button,) = view.children
+    assert isinstance(button, shortcuts.MissionsButton) and view.timeout is None and view.is_persistent()
+    assert button.custom_id == "altermmo:show:missions:123456789012345678:98765432109876543"
+    assert len(button.custom_id) <= 100 and not button.custom_id.startswith(ui.FLOW_PREFIX)
+    assert button.item.label == "Zlecenia" and str(button.item.emoji) == "🧭"
+    cls = shortcuts.MissionsButton
+    match = cls.__discord_ui_compiled_template__.fullmatch("altermmo:show:missions:77:1234")
+    rebuilt = await cls.from_custom_id(None, None, match)
+    assert (rebuilt.player_id, rebuilt.mission_id) == (77, 1234)
+    assert rebuilt.custom_id == "altermmo:show:missions:77:1234"
+    assert cls.__discord_ui_compiled_template__.fullmatch("altermmo:show:missions:77") is None
+    for other in (shortcuts.PetButton, shortcuts.AlbumButton, shortcuts.EntryButton):
+        assert other.__discord_ui_compiled_template__.fullmatch("altermmo:show:missions:77:1234") is None
+    await game.bot.load_extension("altermmo.cogs.hub")
+    assert cls in set(game.bot._connection._view_store._dynamic_items.values())
+
+
 def test_registering_never_raises():
     class Broken:
         def add_dynamic_items(self, *items):

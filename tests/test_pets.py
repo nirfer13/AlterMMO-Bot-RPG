@@ -58,7 +58,9 @@ def _plain(row) -> dict | None:
 
 #: The PETOWNER columns of the wandering merchant's goods (new in v2) in a fresh row.
 MERCHANT_DEFAULTS = {**{f"pet_id_alt{place}": 0 for place in range(5, 11)}, "stable_places": 4,
-                     "egg_pouch": False, "pouch_pet_id": 0}
+                     "egg_pouch": False, "pouch_pet_id": 0,
+                     # ... and of the companion missions (2026-11-25): the Duża sakwa, the summoning scrolls
+                     "big_pouch": False, "pouch_pet_id2": 0, "summon_scrolls": 0}
 
 
 async def owner_row(db, player_id: int) -> dict | None:
@@ -282,16 +284,21 @@ async def test_schema_is_exactly_the_production_one(game_db):
         ("skill_gem", "numeric"), ("pet_id_alt3", "numeric"), ("pet_id_alt4", "numeric"),
         # new in v2 (the wandering merchant of 2026-11-22): stable places 5-10 and the egg pouch
         *((f"pet_id_alt{place}", "numeric") for place in range(5, 11)),
-        ("stable_places", "numeric"), ("egg_pouch", "boolean"), ("pouch_pet_id", "numeric")]
+        ("stable_places", "numeric"), ("egg_pouch", "boolean"), ("pouch_pet_id", "numeric"),
+        # ... and the companion missions (2026-11-25): the Duża sakwa and the summoning scrolls
+        ("big_pouch", "boolean"), ("pouch_pet_id2", "numeric"), ("summon_scrolls", "numeric")]
     merchant = {*(f"pet_id_alt{place}" for place in range(5, 11)), "stable_places", "egg_pouch", "pouch_pet_id"}
     assert merchant == set(pets.UPGRADE_COLUMNS)
+    missions = set(pets.MISSION_COLUMNS)
+    assert missions == {"big_pouch", "pouch_pet_id2", "summon_scrolls"} and not missions & merchant
     defaults = {row["column_name"]: row["column_default"] for row in rows}
     assert defaults["pet_id_alt3"] == "0" and defaults["pet_id_alt4"] == "0"
     assert all(defaults[f"pet_id_alt{place}"] == "0" for place in range(5, 11)) and defaults["pouch_pet_id"] == "0"
     assert defaults["stable_places"] == "4" and defaults["egg_pouch"] == "false"
+    assert defaults["big_pouch"] == "false" and defaults["pouch_pet_id2"] == "0" and defaults["summon_scrolls"] == "0"
     assert all(value is None for name, value in defaults.items()
-               if name not in ("pet_id_alt3", "pet_id_alt4", *merchant))
-    assert all(row["is_nullable"] == ("NO" if row["column_name"] in merchant else "YES") for row in rows)
+               if name not in ("pet_id_alt3", "pet_id_alt4", *merchant, *missions))
+    assert all(row["is_nullable"] == ("NO" if row["column_name"] in merchant | missions else "YES") for row in rows)
 
     rows, shape = await columns("pets")
     text = "character varying"
@@ -1595,3 +1602,325 @@ async def test_admin_commands(game_db, cog, monkeypatch):
     await run(game_db, boss, "!AddScroll dużo")                          # bad arguments: a usage hint
     assert game_db.channel.messages[-1].content.startswith("Niepoprawne użycie komendy.")
     assert "AddColumn" not in game_db.bot.all_commands                   # the raw ALTER TABLE command is gone
+
+
+# -- the companion missions' foundations: the Duża sakwa and the cores (features/missions.py) ----
+
+def test_the_pouch_of_a_row():
+    small = {"egg_pouch": True, "pouch_pet_id": Decimal(0)}
+    big = {"egg_pouch": True, "big_pouch": True, "pouch_pet_id": 7, "pouch_pet_id2": 0}
+    assert pets._pouch(None) == pets._pouch({"pet_id": 1}) == pets.Pouch(0, (), None)   # no row / no columns
+    assert pets._pouch({"egg_pouch": False, "pouch_pet_id": 0}) == pets.Pouch()
+    assert pets._pouch(small) == pets.Pouch(1, (), "POUCH_PET_ID")
+    assert pets._pouch(small | {"pouch_pet_id": Decimal(7)}) == pets.Pouch(1, (("POUCH_PET_ID", 7),), None)
+    # Read without the mission columns, a pouch is the merchant's one-egg pouch.
+    assert pets._pouch({"egg_pouch": True, "pouch_pet_id": 7}).size == 1
+    assert pets._pouch(big) == pets.Pouch(2, (("POUCH_PET_ID", 7),), "POUCH_PET_ID2")
+    assert pets._pouch(big | {"pouch_pet_id": 0, "pouch_pet_id2": 8}) == pets.Pouch(
+        2, (("POUCH_PET_ID2", 8),), "POUCH_PET_ID")                              # each slot on its own
+    assert pets._pouch(big | {"pouch_pet_id2": 8}) == pets.Pouch(2, (("POUCH_PET_ID", 7), ("POUCH_PET_ID2", 8)), None)
+    assert pets._pouch(big | {"egg_pouch": False}) == pets.Pouch()               # the big flag alone is no pouch
+    assert pets._pouch(small | {"big_pouch": False, "pouch_pet_id2": 9}).eggs == ()   # slot 2 of a small one
+
+
+def test_the_owner_columns_with_the_big_pouch():
+    assert "BIG_POUCH" not in pets._owner_columns(True) and "BIG_POUCH" not in pets._owner_columns(False, True)
+    assert pets._owner_columns(True, True).endswith("STABLE_PLACES, EGG_POUCH, POUCH_PET_ID, BIG_POUCH, POUCH_PET_ID2")
+    assert all("SUMMON_SCROLLS" not in pets._owner_columns(upgrades, big)
+               for upgrades in (False, True) for big in (False, True))
+
+
+async def test_the_mission_columns_are_looked_up_once_and_again_after_a_no(game_db):
+    from altermmo import schema
+
+    bot, db = game_db.bot, game_db.bot.db
+    assert await pets.mission_columns_available(bot) is True
+    for column in pets.MISSION_COLUMNS:
+        await db.execute(f"ALTER TABLE PETOWNER DROP COLUMN {column}", idempotent=True)
+    assert await pets.mission_columns_available(bot, refresh=True) is True     # a "yes" is never asked again
+    bot._mission_columns = None                                                # (a new run)
+    assert await pets.mission_columns_available(bot) is False
+    assert await pets.upgrades_available(bot) is True                          # the merchant's goods stay on
+    assert await schema.add_new_columns(db) == []                              # what the next start does
+    assert await pets.mission_columns_available(bot) is False                  # a "no" is remembered ...
+    assert await pets.mission_columns_available(bot, refresh=True) is True     # ... until looked at again
+
+
+async def test_without_the_mission_columns_the_pouch_holds_one_egg_as_before(game_db, monkeypatch):
+    game, bot, db = game_db, game_db.bot, game_db.bot.db
+    for column in pets.MISSION_COLUMNS:
+        await db.execute(f"ALTER TABLE PETOWNER DROP COLUMN {column}", idempotent=True)
+    rig(monkeypatch, randint=0)
+    ala = game.add_member("Ala")
+    await add_owner(db, ala.id, 1, egg_pouch=True)
+    await add_pet(db, 1, pet_lvl=1)
+    assert await pets.mission_columns_available(bot) is False and await pets.pouch_size(bot, ala.id) == 1
+    assert await pets.egg_room(bot, ala.id) == "pouch"
+    assert await pets.assign_pet(game.scene(ala), ala) == pets.INTO_POUCH
+    assert game.channel.messages[-1].content == pets.MSG_EGG_TO_POUCH.format(player_id=ala.id)
+    assert await pets.egg_room(bot, ala.id) == "" and await pets.assign_pet(game.scene(ala), ala) is False
+    async with db.transaction() as con:
+        assert await pets.upgrade_pouch_in(con, ala.id, upgrades=True, big=False) == ""   # compensated
+    embed, options = await pets._stable_view(bot, ala.id)
+    assert pets.STABLE_POUCH in embed.description and [option.value for option in options] == ["pouch:2"]
+    assert await pets.owned_pet_ids(bot, ala.id) == [1, 2] and await pets.summon_scrolls(bot, ala.id) == 0
+    assert await pets.take_egg_from_pouch(game.scene(ala)) is True
+    assert game.channel.messages[-1].content == pets.MSG_POUCH_SWAPPED.format(player_id=ala.id, slot=1)
+
+
+async def test_the_big_pouch_holds_two_eggs(game_db, monkeypatch):
+    game, bot, db = game_db, game_db.bot, game_db.bot.db
+    rig(monkeypatch, randint=0)
+    ala = game.add_member("Ala")
+    await add_owner(db, ala.id, 1, egg_pouch=True, big_pouch=True)
+    await add_pet(db, 1, pet_lvl=1, pet_name="Mruczek")
+    scene = game.scene(ala)
+    assert await pets.pouch_size(bot, ala.id) == 2 and await pets.egg_room(bot, ala.id) == "pouch"
+
+    # Drop eggs fill slot 1, then slot 2 - the pet at her side stays.
+    assert await pets.assign_pet(scene, ala) == pets.INTO_POUCH
+    assert game.channel.messages[-1].content == pets.MSG_EGG_TO_BIG_POUCH.format(player_id=ala.id, filled=1)
+    assert (await pets.egg_places(bot, ala.id)).pouch is True
+    assert await pets.assign_pet(scene, ala) == pets.INTO_POUCH
+    assert "nowe jajko trafia do sakwy (2/2)" in game.channel.messages[-1].content
+    row = await owner_row(db, ala.id)
+    assert (row["pet_id"], row["pouch_pet_id"], row["pouch_pet_id2"]) == (1, 2, 3)
+    assert await pets.egg_room(bot, ala.id) == "" and (await pets.egg_places(bot, ala.id)).pouch is False
+    assert await pets.assign_pet(scene, ala) is False                          # full: the drop is lost
+    assert await pets.owned_pet_ids(bot, ala.id) == [1, 2, 3]
+
+    # The stable shows both eggs, each with an entry of its own.
+    embed, options = await pets._stable_view(bot, ala.id)
+    assert pets.STABLE_BIG_POUCH.format(filled=2) in embed.description and pets.STABLE_POUCH not in embed.description
+    assert [option.value for option in options] == ["pouch:2", "pouch:3"]
+
+    # The stable list takes the egg of slot 2 by its id; slot 1 keeps its egg.
+    assert await pets._take_from_pouch(bot, ala.id, 3) == ("swapped", 1)
+    row = await owner_row(db, ala.id)
+    assert (row["pet_id"], row["pet_id_alt1"], row["pouch_pet_id"], row["pouch_pet_id2"]) == (3, 1, 2, 0)
+    assert await pets._take_from_pouch(bot, ala.id, 3) == ("changed", 0)
+    embed, _options = await pets._stable_view(bot, ala.id)
+    assert pets.STABLE_BIG_POUCH.format(filled=1) in embed.description
+
+    # A new egg fills the free slot 2 again; !wyjmijjajko takes slot 1 first and says what is left.
+    assert await pets.assign_pet(scene, ala) == pets.INTO_POUCH
+    assert (await owner_row(db, ala.id))["pouch_pet_id2"] == 4
+    assert await pets.take_egg_from_pouch(scene) is True
+    assert game.channel.messages[-1].content == (pets.MSG_POUCH_SWAPPED.format(player_id=ala.id, slot=2)
+                                                 + " W sakwie czeka jeszcze jedno jajko.")
+    row = await owner_row(db, ala.id)
+    assert (row["pet_id"], row["pet_id_alt2"], row["pouch_pet_id"], row["pouch_pet_id2"]) == (2, 3, 0, 4)
+    assert await pets.take_egg_from_pouch(scene) is True
+    assert game.channel.messages[-1].content == pets.MSG_POUCH_SWAPPED.format(player_id=ala.id, slot=3)
+    assert await pets.take_egg_from_pouch(scene) is False
+    assert game.channel.messages[-1].content == pets.MSG_POUCH_EMPTY.format(player_id=ala.id)
+
+
+async def test_an_egg_placed_anywhere_goes_to_the_side_then_both_pouch_slots_then_the_stable(game_db, monkeypatch):
+    game, db = game_db, game_db.bot.db
+    rig(monkeypatch, randint=0)
+    ala = game.add_member("Ala")
+    await add_owner(db, ala.id, 0, egg_pouch=True, big_pouch=True, pet_id_alt1=50, pet_id_alt2=51, pet_id_alt3=52)
+    placed = [await pets.place_egg(game.scene(ala), ala, pets.roll_egg(ala), pets.EGG_ANYWHERE) for _ in range(5)]
+    assert [egg.status for egg in placed] == [pets.EGG_ACTIVE, pets.EGG_IN_POUCH, pets.EGG_IN_POUCH,
+                                              pets.EGG_IN_STABLE, pets.EGG_NO_ROOM]
+    assert placed[3].place == 4 and placed[4].pet_id == 0
+    row = await owner_row(db, ala.id)
+    assert (row["pet_id"], row["pouch_pet_id"], row["pouch_pet_id2"], row["pet_id_alt4"]) == tuple(
+        egg.pet_id for egg in placed[:4])
+
+
+async def test_the_hooks_of_a_new_egg_never_raise(game_db, monkeypatch):
+    game = game_db
+    rig(monkeypatch, randint=lambda low, high: 1000 if high == 1000 else 0)  # a mythic egg
+    ala = game.add_member("Ala")
+    egg = pets.roll_egg(ala, cosmetics=False)
+    scene = game.scene(ala)
+    before = len(game.channel.messages)
+    await pets.after_new_egg(scene, ala, ala.id, 1, egg, False, False, announce=False)
+    assert len(game.channel.messages) == before                                # a quiet channel: no word
+    await pets.after_new_egg(scene, None, ala.id, 1, egg, False, False, announce=True)   # (he left the server)
+    assert game.channel.messages[-1].content == (
+        f"Łowca <@{ala.id}> zdobył mitycznego towarzysza! <:POGGERS:936907543849078844>")
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    noted: list = []
+
+    async def note(scene, player, egg, *, into=None):
+        noted.append(into)
+
+    monkeypatch.setattr(pets.achievements, "check_pets", broken)
+    monkeypatch.setattr(pets, "_album_note", note)
+    await pets.after_new_egg(scene, ala, ala.id, 1, egg, False, False, announce=False, notes=["drop"])
+    assert noted == [["drop"]]                                                 # the note comes all the same
+    await pets.after_new_egg(scene, ala, ala.id, 1, egg, False, False, announce=False, album=False)
+    assert noted == [["drop"]]
+
+
+async def test_the_counters_of_a_mission_change_inside_the_callers_transaction(game_db):
+    db = game_db.bot.db
+    await add_owner(db, 1, 0, reroll_scroll=10, reroll_scroll_shard=None, rebirth_stones=1)
+    async with db.transaction() as con:
+        await pets._lock_player(con, 1)
+        await pets.add_items_in(con, 1, scrolls=2, shards=3, stones=1, mirrors=4)
+        await pets.add_items_in(con, 2, scrolls=1, mirrors=1)                  # no row yet: created
+        assert await pets.take_scrolls_in(con, 1, 13) is None                  # 12 are not enough: nothing taken
+        assert await pets.take_scrolls_in(con, 1, 5) == 7
+        assert await pets.take_scrolls_in(con, 3, 1) is None                   # no row
+        assert [await pets.add_stable_place_in(con, 1, 6) for _ in range(3)] == [5, 6, 0]
+        assert await pets.add_stable_place_in(con, 3) == 0
+    row = await owner_row(db, 1)
+    assert (row["reroll_scroll"], row["reroll_scroll_shard"], row["rebirth_stones"], row["mirrors"],
+            row["stable_places"]) == (7, 3, 2, 4, 6)
+    row = await owner_row(db, 2)
+    assert (row["pet_id"], row["pet_owned"], row["reroll_scroll"], row["reroll_scroll_shard"], row["rebirth_stones"],
+            row["mirrors"]) == (0, False, 1, 0, 0, 1)
+    with pytest.raises(RuntimeError):
+        async with db.transaction() as con:
+            await pets.add_items_in(con, 1, scrolls=100)
+            raise RuntimeError("the claim failed later")
+    assert (await owner_row(db, 1))["reroll_scroll"] == 7                     # rolled back with the rest
+    # The old one-counter writers and the merchant's purchase are wrappers of the cores now.
+    assert await pets.assign_mirror(game_db.scene(), 2, 1) is True
+    assert await pets.take_scrolls(game_db.bot, 1, 8) == (False, 7)
+    assert await pets.take_scrolls(game_db.bot, 1, 7) == (True, 0)
+    assert (await owner_row(db, 1))["mirrors"] == 6
+    with pytest.raises(ValueError):
+        await pets._add_item(game_db.bot, "PET_ID", 1, 1)
+
+
+async def test_the_pouch_step_of_a_mission(game_db):
+    bot, db = game_db.bot, game_db.bot.db
+    await add_owner(db, 1, 0)
+
+    async def step(player_id: int, *, upgrades: bool = True, big: bool = True) -> str:
+        async with db.transaction() as con:
+            await pets._lock_player(con, player_id)
+            return await pets.upgrade_pouch_in(con, player_id, upgrades=upgrades, big=big)
+
+    assert await step(1, upgrades=False) == ""                                # the columns are missing
+    assert await step(1) == "pouch" and await pets.pouch_size(bot, 1) == 1
+    assert await step(1, big=False) == ""                                     # no Duża sakwa without its columns
+    assert await step(1) == "big" and await pets.pouch_size(bot, 1) == 2
+    assert await step(1) == ""                                                # the Duża sakwa already
+    assert await step(2) == "" and await owner_row(db, 2) is None            # no row: the caller compensates
+    row = await owner_row(db, 1)
+    assert (row["egg_pouch"], row["big_pouch"]) == (True, True) and await pets.has_egg_pouch(bot, 1) is True
+
+
+async def test_summoning_scrolls(game_db):
+    bot, db = game_db.bot, game_db.bot.db
+    await add_owner(db, 1, 0)
+
+    async def add(player_id: int, cap: int = 3) -> int:
+        async with db.transaction() as con:
+            return await pets.add_summon_scroll_in(con, player_id, cap=cap)
+
+    assert [await add(1) for _ in range(4)] == [1, 2, 3, 0]                   # at most ``cap``
+    assert await add(2) == 0 and await pets.summon_scrolls(bot, 2) == 0       # no row
+    assert await pets.summon_scrolls(bot, 1) == 3
+    assert await pets.take_summon_scroll(bot, 1) == 2
+    await pets.return_summon_scroll(bot, 1)
+    assert await pets.summon_scrolls(bot, 1) == 3
+    assert [await pets.take_summon_scroll(bot, 1) for _ in range(4)] == [2, 1, 0, None]
+    assert await pets.give_summon_scrolls(bot, 1, 5, 3) == 3                  # the owner's command, up to the cap
+    assert await pets.give_summon_scrolls(bot, 9, 2, 3) == 2                  # a player without a row gets one
+    assert (await owner_row(db, 9))["summon_scrolls"] == 2 and await count(db, "PETOWNER") == 2
+    bot._mission_columns = False
+    assert await pets.summon_scrolls(bot, 1) == 0                             # without the columns: none
+
+
+async def test_the_level_of_a_mission_goes_to_the_pet_that_went(game_db, monkeypatch):
+    db = game_db.bot.db
+    await add_owner(db, 1, 5, pet_id_alt2=6, pet_id_alt3=8, egg_pouch=True, pouch_pet_id=7)
+    await add_pet(db, 5, pet_lvl=1, pet_skills=1, type="Bear")
+    await add_pet(db, 6, pet_lvl=2, pet_skills=3, type="Cat", variant="1", crit_perc=4)
+    await add_pet(db, 7, pet_lvl=0, type="Dog")                                # the egg in the pouch
+    await add_pet(db, 8, pet_lvl=3, type="Cat")                                # at the top already
+    await add_pet(db, 9, pet_lvl=1, type="Cat")                                # nobody's
+    await add_owner(db, 2, 10)
+    await add_pet(db, 10, pet_lvl=0, type="Cat")                               # an egg at the side
+    rig(monkeypatch, choices=["CRIT_PERC", "CRIT_PERC"], randint=lambda low, high: 2 if high == 2 else low)
+
+    async def level(player_id: int, pet_id: int, species: str = "Cat"):
+        async with db.transaction() as con:
+            await pets._lock_player(con, player_id)
+            return await pets.level_mission_pet_in(con, player_id, pet_id, upgrades=True, big=True, species=species)
+
+    after, new_level = await level(1, 6)                                       # sent from the stable
+    assert new_level == 3 and (pets._int(after["pet_lvl"]), pets._int(after["pet_skills"])) == (3, 5)
+    assert (pets._int(after["crit_perc"]), after["variant"]) == (10, "1")
+    assert (await level(1, 5, "Bear"))[1] == 2                                 # sent from her side
+    assert await level(1, 6) is None                                           # level 3 is the top
+    assert await level(1, 8) is None
+    assert await level(1, 7, "Dog") is None                                    # the pouch never grows
+    assert await level(1, 9) is None                                           # not hers
+    assert await level(1, 5, "Cat") is None                                    # another species: a reused PET_ID
+    assert await level(2, 10) is None                                          # an egg
+    assert await level(3, 5, "Bear") is None and await level(1, 0) is None
+    assert (await pet_row(db, 5))["pet_lvl"] == 2 and (await pet_row(db, 9))["pet_lvl"] == 1
+
+
+@pytest.mark.parametrize("roll, min_class, flags", [
+    (0, 0, (False, False, False)), (0, 900, (True, False, False)), (899, 900, (True, False, False)),
+    (950, 900, (True, False, False)), (985, 900, (True, True, False)), (0, 980, (True, True, False)),
+    (979, 980, (True, True, False)), (998, 900, (True, True, True)), (1000, 980, (True, True, True))])
+def test_min_class_draws_a_class_below_it_again(monkeypatch, roll, min_class, flags):
+    pools, ranges = rig(monkeypatch, randint=lambda low, high: roll if high == 1000 else low)
+    egg = pets.roll_egg(FakeMember("Ala"), cosmetics=False, min_class=min_class)
+    assert (egg["SHINY"], egg["ULTRA_SHINY"], egg["MYTHIC"]) == flags
+    redrawn = 0 < min_class and roll < min_class
+    assert ranges[:2] == [(0, 1000), (min_class, pets.MYTHIC_FROM - 1)] if redrawn else (
+        (min_class, pets.MYTHIC_FROM - 1) not in ranges)
+
+
+def test_min_class_zero_draws_exactly_what_the_game_always_drew():
+    member = FakeMember("Ala")
+    for seed in range(200):
+        random.seed(seed)
+        expected = pets._roll_egg(member)
+        state = random.getstate()
+        random.seed(seed)
+        assert pets.roll_egg(member, min_class=0) == expected and random.getstate() == state
+
+
+@pytest.mark.parametrize("min_class, percent", [
+    (0, {"ordinary": 89.91, "shiny": 7.99, "ultra": 1.80, "mythic": 0.30}),
+    (900, {"shiny": 81.39, "ultra": 18.31, "mythic": 0.30}),
+    (980, {"ultra": 99.70, "mythic": 0.30})])
+def test_min_class_odds_by_enumeration(monkeypatch, min_class, percent):
+    """Every class roll, and every second roll it can lead to: the exact odds of a mission egg."""
+    from collections import Counter
+    from fractions import Fraction
+
+    script: list[int] = []
+    asked: list[tuple[int, int]] = []
+
+    def randint(low, high):
+        asked.append((low, high))
+        return script.pop(0) if script else low
+
+    monkeypatch.setattr(random, "randint", randint)
+    monkeypatch.setattr(random, "choice", lambda pool: list(pool)[0])
+
+    def draw(*rolls: int) -> str:
+        script[:], asked[:] = list(rolls), []
+        egg = pets._roll_egg(None, cosmetics=False, min_class=min_class)
+        return "mythic" if egg["MYTHIC"] else "ultra" if egg["ULTRA_SHINY"] else "shiny" if egg["SHINY"] else "ordinary"
+
+    odds: Counter = Counter()
+    redrawn = 0
+    for first in range(1001):
+        kind = draw(first)
+        if 0 < min_class and first < min_class:
+            assert asked[1] == (min_class, pets.MYTHIC_FROM - 1)           # again, from min_class, never mythic
+            redrawn += 1
+        else:
+            odds[kind] += Fraction(1, 1001)
+    second = range(min_class, pets.MYTHIC_FROM)
+    for roll in second if redrawn else ():
+        odds[draw(0, roll)] += Fraction(redrawn, 1001 * len(second))
+    assert sum(odds.values()) == 1 and odds["mythic"] == Fraction(3, 1001)    # mythic never rises
+    assert {kind: round(float(share) * 100, 2) for kind, share in odds.items()} == percent

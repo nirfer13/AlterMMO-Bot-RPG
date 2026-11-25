@@ -179,5 +179,15 @@
         "changes": [
             "Kopalnia Ostatniej Lampy ma krótszy opis. W każdej komorze widzisz tylko łup, który wyniesiesz, jeśli wrócisz teraz, i szansę na zejście niżej - co czeka głębiej, odkryjesz dopiero na miejscu."
         ]
+    },
+    {
+        "id": 18,
+        "date": "2026-11-25",
+        "title": "Zlecenia towarzyszy",
+        "changes": [
+            "Nowy przycisk **Zlecenia** w **Panelu gry** (i komenda **!zlecenia**): raz dziennie na tablicy czekają trzy zlecenia - zwykłe, rzadkie albo epickie. Wybierasz jedno i wysyłasz na nie towarzysza: tego przy sobie albo ze stajni. Szansę powodzenia widzisz, zanim go wyślesz - liczą się jego talent i umiejętności, których wymaga zlecenie.",
+            "Towarzysz na zleceniu wraca po kilku godzinach, a z najdalszych dopiero po dobie. Do tego czasu nie walczy u Twojego boku, nie wyczuwa bossów, nie trenuje i nie da się go przenieść ani zmienić - wysłanie towarzysza, który jest przy Tobie, ma swoją cenę. Postęp sprawdzisz tym samym przyciskiem, a o powrocie dowiesz się na kanale bossa.",
+            "Trudniejsze i dłuższe zlecenia kryją lepsze łupy: zwoje, jajka, a czasem coś, czego nie sprzeda żaden kupiec. Sakwa na jajko może tam urosnąć, a najodważniejsi przyniosą Zwój przywołania - **!przywolaj** sprowadza wtedy na kanał potężnego bossa."
+        ]
     }
 ]

@@ -11,8 +11,12 @@ with the legacy bot - neither has a primary key):
               4 by default) and the egg pouch (``EGG_POUCH``, ``POUCH_PET_ID``):
               an egg that comes while the player has a pet at his side goes
               there instead of being lost; it does not grow until he takes it
-              out (``!wyjmijjajko`` or the stable list);
-``PETS``      one row per pet: name, level 0 (egg) .. 3, talent (``PET_SKILLS``),
+              out (``!wyjmijjajko`` or the stable list) - and, new with the
+              companion missions (features/missions.py, 2026-11-25), the
+              Duża sakwa (``BIG_POUCH``: a second egg, ``POUCH_PET_ID2``) and
+              the summoning scrolls (``SUMMON_SCROLLS``), both rewards of a
+              mission only (:data:`MISSION_COLUMNS`, :class:`Pouch`);
+``PETS``    one row per pet: name, level 0 (egg) .. 3, talent (``PET_SKILLS``),
               looks and the seven stats used by the fights - and, new in v2,
               the cosmetics ``SEAL`` (0-3), ``HOLO`` (full Holo), ``FRAME``
               (the frame result, '' = the base of the class) and
@@ -91,6 +95,16 @@ Cosmetics (new in v2, they give no stats):
   (illustration, foil, frame, seal) and names a rarer frame, its seal and its
   foil in words (:func:`_pet_card`) - from the egg on: an egg has its frame,
   seal and foil like a hatched pet.
+
+A pet on a companion mission (:mod:`altermmo.features.missions`, owner's
+"Model A" of 2026-11-25) stays where it was - at the player's side or in its
+stable place - and is only flagged away by its ``PET_MISSIONS`` row until the
+row's ``ENDS_AT``.  This module owns that predicate (:func:`sql_not_away`,
+:func:`away_until`, :func:`missions_table_ready`): such a pet gives no fight
+bonus (:func:`get_pet_skills`), detects no boss, does not grow, cannot be
+rerolled, enlightened, transformed, named, sacrificed, moved or given away;
+it still counts as the player's (achievements, the album, the stable).  An
+egg that comes meanwhile goes to the pouch, as for any pet at his side.
 """
 
 from __future__ import annotations
@@ -98,10 +112,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import json
 import logging
 import random
 import time
 import types
+from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
@@ -111,7 +127,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, NamedTuple
 import asyncpg
 import discord
 
-from ..core import io, timing, ui, waiting
+from ..core import clock, io, timing, ui, waiting
 from ..settings import ASSETS_DIR, COMMAND_PREFIX
 from . import achievements, bossdetect, modifiers, patrons, petcards
 
@@ -170,7 +186,10 @@ SCHEMA: tuple[str, ...] = (
            PET_ID_ALT10 NUMERIC NOT NULL DEFAULT 0,
            STABLE_PLACES NUMERIC NOT NULL DEFAULT 4,
            EGG_POUCH BOOLEAN NOT NULL DEFAULT FALSE,
-           POUCH_PET_ID NUMERIC NOT NULL DEFAULT 0
+           POUCH_PET_ID NUMERIC NOT NULL DEFAULT 0,
+           BIG_POUCH BOOLEAN NOT NULL DEFAULT FALSE,
+           POUCH_PET_ID2 NUMERIC NOT NULL DEFAULT 0,
+           SUMMON_SCROLLS NUMERIC NOT NULL DEFAULT 0
        )""",
     """CREATE TABLE IF NOT EXISTS PETS (
            PET_ID NUMERIC,
@@ -214,11 +233,20 @@ NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("petowner", "stable_places", "NUMERIC NOT NULL DEFAULT 4"),
     ("petowner", "egg_pouch", "BOOLEAN NOT NULL DEFAULT FALSE"),
     ("petowner", "pouch_pet_id", "NUMERIC NOT NULL DEFAULT 0"),
+    # Companion missions (2026-11-25): the big egg pouch (a second egg), and the summoning scrolls.
+    ("petowner", "big_pouch", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("petowner", "pouch_pet_id2", "NUMERIC NOT NULL DEFAULT 0"),
+    ("petowner", "summon_scrolls", "NUMERIC NOT NULL DEFAULT 0"),
 )
 #: The columns of ``PETOWNER`` the merchant's stable places and egg pouch need (all there, or
 #: those goods are off and the stable keeps its four places: :func:`upgrades_available`).
 UPGRADE_COLUMNS: tuple[str, ...] = (*(f"pet_id_alt{place}" for place in range(5, 11)),
                                     "stable_places", "egg_pouch", "pouch_pet_id")
+#: The PETOWNER columns of the companion missions: the Duża sakwa and the summoning scrolls
+#: (all there, or those rewards are compensated and !przywolaj is off: :func:`mission_columns_available`).
+#: Not part of :data:`UPGRADE_COLUMNS`: a failed migration of these must not switch off stable
+#: places 5-10 in the code.
+MISSION_COLUMNS: tuple[str, ...] = ("big_pouch", "pouch_pet_id2", "summon_scrolls")
 #: The first cosmetic columns of ``PETS`` - the seal and full Holo (both there, or cosmetics
 #: are off: :func:`cosmetics_available`).
 COSMETIC_COLUMNS: tuple[str, ...] = ("seal", "holo")
@@ -749,12 +777,45 @@ async def upgrades_available(bot: "AlterBot", *, refresh: bool = False) -> bool:
     return bool(known)
 
 
-def _owner_columns(upgrades: bool) -> str:
-    """The ``PETOWNER`` columns of the active pet, the stable and (with ``upgrades``) the pouch."""
+async def mission_columns_available(bot: "AlterBot", *, refresh: bool = False) -> bool:
+    """Whether ``PETOWNER`` has every :data:`MISSION_COLUMNS` (the Duża sakwa, the summoning scrolls).
+
+    Added at start-up like :data:`UPGRADE_COLUMNS` (``schema.add_new_columns``,
+    a table's missing columns all or none).  Without them the game works as
+    before the companion missions: the pouch holds one egg, a mission's big
+    pouch and summoning scroll are compensated, and ``!przywolaj`` is off.
+    Remembered on the bot like :func:`upgrades_available`; ``refresh=True``
+    looks again after a "no".
+    """
+    known = getattr(bot, "_mission_columns", None)
+    if known is None or (refresh and not known):
+        present = {str(row[0]) for row in await bot.db.fetch(_SQL_OWNER_COLUMNS, list(MISSION_COLUMNS))}
+        known = present.issuperset(MISSION_COLUMNS)
+        if not known:
+            log.warning("PETOWNER has no %s column(s): the egg pouch holds one egg and the summoning scrolls "
+                        "of the companion missions are off.",
+                        " / ".join(column.upper() for column in MISSION_COLUMNS if column not in present))
+        bot._mission_columns = known  # type: ignore[attr-defined]
+    return bool(known)
+
+
+async def _owner_shape(bot: "AlterBot") -> tuple[bool, bool]:
+    """``(upgrades_available, mission_columns_available)``: what :func:`_owner_columns` may read."""
+    return await upgrades_available(bot), await mission_columns_available(bot)
+
+
+def _owner_columns(upgrades: bool, big: bool = False) -> str:
+    """The ``PETOWNER`` columns of the active pet, the stable and (with ``upgrades``) the pouch.
+
+    ``big`` (with ``upgrades``; :func:`mission_columns_available`): also the
+    Duża sakwa's flag and its second egg.
+    """
     places = STABLE_MAX_PLACES if upgrades else STABLE_BASE_PLACES
     columns = ["PET_ID", *(_STABLE_SLOTS[place] for place in range(1, places + 1))]
     if upgrades:
         columns += ["STABLE_PLACES", "EGG_POUCH", "POUCH_PET_ID"]
+        if big:
+            columns += ["BIG_POUCH", "POUCH_PET_ID2"]
     return ", ".join(columns)
 
 
@@ -767,12 +828,44 @@ def _places_of(owner: Any) -> int:
     return max(STABLE_BASE_PLACES, min(places, STABLE_MAX_PLACES))
 
 
-def _pouch_of(owner: Any) -> tuple[bool, int]:
-    """``(has the egg pouch, PET_ID of the egg in it or 0)`` of a ``PETOWNER`` row."""
+#: The egg pouch's columns, slot by slot: the Sakwa na jajko's one egg, then the Duża sakwa's second.
+_POUCH_SLOTS: tuple[str, ...] = ("POUCH_PET_ID", "POUCH_PET_ID2")
+
+
+class Pouch(NamedTuple):
+    """The egg pouch of a ``PETOWNER`` row (:func:`_pouch`).
+
+    Capacity 0 without ``EGG_POUCH``, 1 with it (the merchant's Sakwa na jajko)
+    and 2 with ``EGG_POUCH`` and ``BIG_POUCH`` (the Duża sakwa of the companion
+    missions; only when the row was read with those columns).  The slots are
+    ``POUCH_PET_ID``, then ``POUCH_PET_ID2``; each is independent (an egg taken
+    from slot 1 does not move the one in slot 2).
+    """
+
+    #: 0, 1 or 2.
+    size: int = 0
+    #: ``(column, PET_ID)`` of the filled slots, in slot order.
+    eggs: tuple[tuple[str, int], ...] = ()
+    #: The first empty slot's column, or None (no pouch, or it is full).
+    free_column: str | None = None
+
+
+def _pouch(owner: Any) -> Pouch:
+    """The :class:`Pouch` of a ``PETOWNER`` row (read by :func:`_owner_columns`); no row or columns: no pouch."""
+    if owner is None:
+        return Pouch()
     try:
-        return owner["egg_pouch"] is True, max(_int(owner["pouch_pet_id"]), 0)
+        if owner["egg_pouch"] is not True:
+            return Pouch()
+        try:
+            size = 2 if owner["big_pouch"] is True else 1
+        except (KeyError, IndexError):
+            size = 1
+        slots = [(column, max(_int(owner[column.lower()]), 0)) for column in _POUCH_SLOTS[:size]]
     except (KeyError, IndexError):
-        return False, 0
+        return Pouch()
+    return Pouch(size, tuple((column, pet_id) for column, pet_id in slots if pet_id > 0),
+                 next((column for column, pet_id in slots if pet_id <= 0), None))
 
 
 async def _lock_player(con: Any, player_id: int) -> None:
@@ -792,8 +885,305 @@ async def _pet(q: Any, pet_id: int, *, lock: bool = False) -> Any:
 
 
 async def _active_pet(q: Any, player_id: int, *, lock: bool = False) -> Any:
-    """The ``PETS`` row of the player's active pet, or None."""
+    """The ``PETS`` row of the player's active pet, or None (also when it is on a mission: see :func:`_present_pet`)."""
     return await q.fetchrow(_SQL_ACTIVE_PET + (" FOR UPDATE OF p" if lock else ""), player_id)
+
+
+# -- a pet on a companion mission (features/missions.py) -----------------------------------
+#
+# "Model A" (owner, 2026-11-25): the pet that went stays in its PETOWNER column; its mission row
+# says it is away until ENDS_AT.  Away is derived from the time (``ENDS_AT > now()``, the database's
+# clock), so it is back on time whatever the bot does.  While away it gives no fight bonus,
+# detects no boss, does not train, does not grow, cannot be changed, moved or sacrificed.
+#
+# The race rule (spec §7.1): a change checks "away" in a statement of its OWN, after it has taken
+# its row lock (the send locks the PETOWNER and the PETS row).  Under READ COMMITTED a NOT EXISTS
+# folded into a ``... FOR UPDATE`` (or into the UPDATE itself) that waited for the send's lock is
+# re-checked only on the locked row, with the statement's OLD snapshot - it would not see the
+# ``away`` row the send just committed.  So :func:`sql_not_away` is for read-only queries only.
+
+#: The missions' table (``missions.TABLE``; this module never imports missions at its top).
+_MISSIONS_TABLE = "PET_MISSIONS"
+#: "The pet ``{pet}`` (an SQL expression) is on a mission right now."
+_SQL_AWAY = ("EXISTS (SELECT 1 FROM PET_MISSIONS m WHERE m.PET_ID = {pet} "
+             "AND m.STATUS = 'away' AND m.ENDS_AT > now())")
+_SQL_AWAY_UNTIL = """SELECT ENDS_AT FROM PET_MISSIONS
+                     WHERE PET_ID = $1 AND STATUS = 'away' AND ENDS_AT > now() LIMIT 1"""
+_SQL_AWAY_AMONG = """SELECT PET_ID, ENDS_AT FROM PET_MISSIONS
+                     WHERE PET_ID = ANY($1::numeric[]) AND STATUS = 'away' AND ENDS_AT > now()"""
+_SQL_AWAY_OF = """SELECT PET_ID, ENDS_AT, OFFERS, CHOSEN FROM PET_MISSIONS
+                  WHERE PLAYER_ID = $1 AND STATUS = 'away' AND ENDS_AT > now() LIMIT 1"""
+#: The active pet unless it is on a mission (``{away}``: :func:`sql_not_away`).  Read-only.
+_SQL_PRESENT_PET = """SELECT p.* FROM PETOWNER o JOIN PETS p ON p.PET_ID = o.PET_ID
+                      WHERE o.PLAYER_ID = $1 AND o.PET_ID > 0 AND {away} LIMIT 1"""
+#: Seconds after which a "the table is not there" is looked at again.
+_READY_RECHECK = 600.0
+
+MSG_PET_AWAY = ("🧭 Twój towarzysz **{name}** jest na zleceniu i wróci {when}, <@{player_id}>. Do tego czasu "
+                "nie można go zmieniać ani przenosić.")
+MSG_SLOT_AWAY = ("🧭 Towarzysz z miejsca {slot} jest na zleceniu i wróci {when}, <@{player_id}> - do tego czasu "
+                 "zostaje w stajni.")
+#: The stable's line of a pet on a mission (it has no entry in the list then).
+STABLE_AWAY = " - 🧭 na zleceniu, wraca {when}"
+#: Under the stable while the pet at the player's side is on a mission: every entry would move it - none.
+STABLE_SIDE_AWAY = ("🧭 Dopóki towarzysz przy Tobie nie wróci ze zlecenia, nikogo nie wyjmiesz ze stajni "
+                    "ani z sakwy.")
+#: Under ``!towarzysz`` when the pet shown is on a mission (``mission``: its name).
+MSG_SHOWN_AWAY = "\n🧭 **Na zleceniu:** „{mission}” - wraca {when}"
+#: The statuses of a move refused because a pet would have to move although it is on a mission:
+#: the active pet (:data:`MSG_PET_AWAY`) / the pet of the stable place in question (:data:`MSG_SLOT_AWAY`).
+AWAY, SLOT_AWAY = "away", "slot_away"
+
+
+class PetAway(Exception):
+    """A pet on a mission was about to be sacrificed (:func:`_sacrifice_in`: the last line of defence)."""
+
+    def __init__(self, pet_id: int) -> None:
+        super().__init__(f"pet {pet_id} is on a mission")
+        self.pet_id = pet_id
+
+
+class Away(NamedTuple):
+    """A pet on a mission, as a refusal tells it: its name and when it is back."""
+
+    name: str
+    until: datetime
+
+
+async def missions_table_ready(bot: "AlterBot", *, refresh: bool = False) -> bool:
+    """True when ``PET_MISSIONS`` exists (cached on ``bot._pet_missions``; a "no" is looked at again after 10 minutes).
+
+    Without the table nobody can be away, so every away filter is skipped - a
+    fight must never run a statement against a missing table (a failed
+    statement aborts the whole PostgreSQL transaction).  A "yes" is final;
+    ``refresh=True`` looks again at once (``missions.ensure_table`` has just
+    made it).
+    """
+    known = getattr(bot, "_pet_missions", None)
+    if known is not None and (known[0] or (not refresh and clock.monotonic() - known[1] < _READY_RECHECK)):
+        return bool(known[0])
+    ready = bool(await bot.db.fetchval(f"SELECT to_regclass('{_MISSIONS_TABLE.lower()}') IS NOT NULL"))
+    if not ready:
+        log.info("Table %s is not there (yet): nobody is on a companion mission.", _MISSIONS_TABLE)
+    bot._pet_missions = (ready, clock.monotonic())  # type: ignore[attr-defined]
+    return ready
+
+
+def sql_not_away(pet: str, ready: bool) -> str:
+    """The SQL condition "the pet ``pet`` (an SQL expression) is not on a mission"; "TRUE" when the table is missing.
+
+    Read-only queries only (spec §7.1): a change checks with :func:`away_until`
+    after its own row lock.
+    """
+    return f"NOT {_SQL_AWAY.format(pet=pet)}" if ready else "TRUE"
+
+
+async def _away_ends(q: Any, pet_id: Any, ready: bool) -> datetime | None:
+    """When the pet ``pet_id`` is back from its mission, or None (not away, no pet, no table).  ONE statement."""
+    pet_id = _int(pet_id)
+    if not ready or pet_id <= 0:
+        return None
+    return await q.fetchval(_SQL_AWAY_UNTIL, pet_id)
+
+
+async def away_until(bot: "AlterBot", q: Any, pet_id: Any) -> datetime | None:
+    """When the pet ``pet_id`` comes back from its mission; None when it is not on one.
+
+    ``q``: the connection of the caller's transaction - after the caller's row
+    lock this is the fresh statement of the race rule (spec §7.1) - or
+    ``bot.db``.  None without the table (:func:`missions_table_ready`).
+    """
+    return await _away_ends(q, pet_id, await missions_table_ready(bot))
+
+
+async def _away_among(bot: "AlterBot", q: Any, pet_ids: Sequence[int]) -> dict[int, datetime]:
+    """``{PET_ID: when it is back}`` of those of ``pet_ids`` that are on a mission (one statement)."""
+    wanted = [pet_id for pet_id in pet_ids if pet_id > 0]
+    if not wanted or not await missions_table_ready(bot):
+        return {}
+    return {_int(row["pet_id"]): row["ends_at"] for row in await q.fetch(_SQL_AWAY_AMONG, wanted)}
+
+
+async def away_of(bot: "AlterBot", q: Any, player_id: Any) -> tuple[int, datetime, str] | None:
+    """The player's pet on a mission as ``(PET_ID, when it is back, the mission's name)``, or None.  For texts.
+
+    The mission is the offer the player chose (``OFFERS[CHOSEN]``); its name
+    comes from the missions' config (``missions.mission_name``, imported
+    lazily - missions builds on this module), or is its key when that cannot
+    be told.
+    """
+    if not await missions_table_ready(bot):
+        return None
+    row = await q.fetchrow(_SQL_AWAY_OF, _pid(player_id))
+    if row is None:
+        return None
+    return _int(row["pet_id"]), row["ends_at"], _mission_name(row["offers"], row["chosen"])
+
+
+def _mission_name(offers: Any, chosen: Any) -> str:
+    """The name of the chosen offer of a mission row (its key when the config does not know it).  Never raises."""
+    key = ""
+    try:
+        key = str(json.loads(offers)[int(chosen)]["key"])
+        from . import missions  # (lazily: missions builds on this module)
+
+        name = getattr(missions, "mission_name", None)
+        return str(name(key)) if callable(name) else key
+    except Exception:  # noqa: BLE001 - a text: the key (or nothing) is enough
+        return key or "zlecenie"
+
+
+async def _present_pet(bot: "AlterBot", q: Any, player_id: int) -> Any:
+    """The ``PETS`` row of the player's active pet unless it is on a mission, or None.
+
+    Read-only - there is deliberately no ``lock`` (spec §7.1): a change locks
+    with :func:`_active_pet` and asks :func:`away_until` afterwards.
+    """
+    away = sql_not_away("p.PET_ID", await missions_table_ready(bot))
+    return await q.fetchrow(_SQL_PRESENT_PET.format(away=away), player_id)
+
+
+def _called(pet: Any) -> str:
+    """How a refusal names the pet: its name, or its species when it was never named (markdown-safe)."""
+    if pet is None:
+        return DEFAULT_NAME
+    name = str(pet["pet_name"] or "").strip()
+    if not name or name == DEFAULT_NAME:
+        name = POLISH_TYPES.get(str(pet["type"]), "") or DEFAULT_NAME
+    return discord.utils.escape_markdown(name[:60])
+
+
+def _away_message(player_id: int, name: str, ends_at: datetime) -> str:
+    """:data:`MSG_PET_AWAY` for the pet ``name`` that is back at ``ends_at``."""
+    return MSG_PET_AWAY.format(name=name, when=ui.when(ends_at), player_id=player_id)
+
+
+async def _away_check(bot: "AlterBot", q: Any, pet_id: int) -> tuple[str, Any] | None:
+    """``(AWAY, Away)`` when the pet ``pet_id`` is on a mission, else None - a statement of its own (spec §7.1).
+
+    The ``check`` of :func:`_confirmed_change` asks this after its row lock.
+    """
+    until = await away_until(bot, q, pet_id)
+    if until is None:
+        return None
+    return AWAY, Away(_called(await _pet(q, pet_id)), until)
+
+
+#: The pet ``$1`` is back from a mission nobody has paid yet (``ENDS_AT`` passed, ``STATUS`` still away).
+_SQL_UNPAID = "SELECT 1 FROM PET_MISSIONS WHERE PET_ID = $1 AND STATUS = 'away' LIMIT 1"
+#: :func:`transform_pet` refused while the mission it would confuse is unpaid (its claim failed just now).
+RETURNING = "returning"
+MSG_PET_RETURNING = ("🧭 Twój towarzysz właśnie wraca ze zlecenia, <@{player_id}>. Zajrzyj do **!zlecenia**, "
+                     "a potem spróbuj ponownie.")
+
+
+async def _claim_due_mission(scene: "Scene", player_id: int) -> None:
+    """The player's mission that has ended but was not claimed yet is paid now (``missions.claim_due``,
+    imported lazily: missions builds on this module).  Never raises."""
+    from . import missions
+
+    await missions.claim_due(scene, player_id)
+
+
+async def _mission_unpaid(bot: "AlterBot", q: Any, pet_id: int) -> bool:
+    """Whether the pet ``pet_id`` is back from a mission that is not paid yet - a statement of its own.
+
+    :func:`transform_pet` waits for that claim: the claim's level compares the
+    ``TYPE`` the pet was sent with (:func:`level_mission_pet_in`).
+    """
+    if not await missions_table_ready(bot):
+        return False
+    return await q.fetchval(_SQL_UNPAID, pet_id) is not None
+
+
+async def _move_refusal(bot: "AlterBot", player_id: int, status: str, slot: int = 0) -> str:
+    """The text of a move refused with :data:`AWAY` / :data:`SLOT_AWAY` (``slot``: the stable place).
+
+    Read again (the player's one mission row): the lock that decided is gone
+    by now.  When the pet came back in the meantime the stable "changed".
+    """
+    away = await away_of(bot, bot.db, player_id)
+    if away is None:
+        return MSG_STABLE_CHANGED
+    pet_id, ends_at, _mission = away
+    if status == SLOT_AWAY:
+        return MSG_SLOT_AWAY.format(slot=slot, when=ui.when(ends_at), player_id=player_id)
+    return _away_message(player_id, _called(await _pet(bot.db, pet_id)), ends_at)
+
+
+class MissionPet(NamedTuple):
+    """A pet that can go on a companion mission (:func:`mission_pets`)."""
+
+    #: ``"active:<PET_ID>"`` (at the player's side) or ``"<place>:<PET_ID>"`` (a stable place).
+    key: str
+    #: 0 = at the player's side ("przy Tobie"), 1..10 = the stable place.
+    place: int
+    #: The pet's whole ``PETS`` row.
+    row: Any
+
+
+#: The prefix of :attr:`MissionPet.key` for the pet at the player's side.
+MISSION_ACTIVE = "active"
+
+
+async def mission_pets(bot: "AlterBot", player_id: Any) -> tuple[list[MissionPet], int]:
+    """The player's pets that can go on a mission now, and how many eggs stay at home.
+
+    The pet at his side and those of his stable places - hatched (an egg
+    cannot go), with a ``PETS`` row, not on a mission already; never an egg
+    of the pouch.  In place order (the side first).  Read without a lock (a
+    list to choose from: :func:`mission_pet_in` decides again).
+    """
+    player_id = _pid(player_id)
+    owner = await _owner(bot.db, player_id, _owner_columns(*await _owner_shape(bot)))
+    if owner is None:
+        return [], 0
+    slots = [(0, _int(owner["pet_id"])),
+             *((place, _int(owner[_STABLE_SLOTS[place].lower()])) for place in range(1, _places_of(owner) + 1))]
+    wanted = [pet_id for _place, pet_id in slots if pet_id > 0]
+    if not wanted:
+        return [], 0
+    away = sql_not_away("p.PET_ID", await missions_table_ready(bot))
+    rows: dict[int, Any] = {}
+    for row in await bot.db.fetch(f"SELECT p.* FROM PETS p WHERE p.PET_ID = ANY($1::numeric[]) AND {away}", wanted):
+        rows.setdefault(_int(row["pet_id"]), row)
+    found, eggs = [], 0
+    for place, pet_id in slots:
+        row = rows.get(pet_id) if pet_id > 0 else None
+        if row is None:
+            continue
+        if _int(row["pet_lvl"]) < 1:
+            eggs += 1
+            continue
+        found.append(MissionPet(f"{MISSION_ACTIVE if place == 0 else place}:{pet_id}", place, row))
+    return found, eggs
+
+
+async def mission_pet_in(con: Any, bot: "AlterBot", player_id: int, key: str) -> tuple[str, Any, int]:
+    """The pet ``key`` (:attr:`MissionPet.key`) that is to go on a mission, inside the caller's transaction.
+
+    Locks the player's ``PETOWNER`` row, then the pet's ``PETS`` row, and asks
+    "away" afterwards in a statement of its own (spec §7.1).  Returns
+    ``(status, the pet's row, place)``: ``"ok"``; ``"changed"`` (the pet is no
+    longer where the key says, or the key is not one); ``"no_data"`` (no
+    ``PETS`` row); ``"egg"``; ``"away"`` (on a mission already).
+    """
+    upgrades, big = await _owner_shape(bot)
+    owner = await _owner(con, player_id, _owner_columns(upgrades, big), lock=True)
+    where, _, wanted = str(key).partition(":")
+    pet_id = _slot_number(wanted) or 0
+    place = 0 if where == MISSION_ACTIVE else (_slot_number(where) or -1)
+    column = "PET_ID" if place == 0 else _slot_column(place, _places_of(owner)) if owner is not None else None
+    if owner is None or pet_id <= 0 or column is None or _int(owner[column.lower()]) != pet_id:
+        return "changed", None, 0
+    pet = await _pet(con, pet_id, lock=True)
+    if pet is None:
+        return "no_data", None, place
+    if _int(pet["pet_lvl"]) < 1:
+        return "egg", pet, place
+    if await away_until(bot, con, pet_id):
+        return AWAY, pet, place
+    return _OK, pet, place
 
 
 async def _save_pet(con: Any, pet: Any, stats: dict[str, Any], *, level: int | None = None,
@@ -921,15 +1311,29 @@ def _class_look(pet: Any) -> tuple[int, str]:
     return 0xfffffc, ""
 
 
-def _pet_embed(player_id: int, pet: Any, items: Any, *, cosmetics: bool = True) -> discord.Embed:
-    """The pet's embed.  ``cosmetics``: whether its ornaments are shown (the owner supports)."""
+def _pet_embed(player_id: int, pet: Any, items: Any, *, cosmetics: bool = True,
+               away: tuple[datetime, str] | None = None) -> discord.Embed:
+    """The pet's embed.  ``cosmetics``: whether its ornaments are shown (the owner supports).
+
+    ``away``: the pet is on a companion mission - ``(when it is back, the
+    mission's name)``, said after the sentence of its class.  The summoning
+    scrolls (``items["summon_scrolls"]``, when read) are listed with the items
+    while the player has any.
+    """
+    summons = 0
+    with contextlib.suppress(KeyError, IndexError, TypeError):
+        summons = _int(items["summon_scrolls"])
     scroll_desc = (f"\n**💎 PRZEDMIOTY:**\nZwoje odrodzenia: {_int(items['reroll_scroll'])}\n" +
                    f"Fragmenty zwojów: {_int(items['reroll_scroll_shard'])}\n"
                    f"Kamienie olśnienia: {_int(items['rebirth_stones'])}" +
-                   f"\nLustra wizualiów: {_int(items['mirrors'])}")
+                   f"\nLustra wizualiów: {_int(items['mirrors'])}" +
+                   (f"\nZwoje przywołania: {summons}" if summons > 0 else ""))
 
     color, words = _class_look(pet)
     add_desc = f"\n\n{words}" if words else ""
+    if away is not None:
+        add_desc += "\n" + MSG_SHOWN_AWAY.format(
+            mission=discord.utils.escape_markdown(str(away[1])), when=ui.when(away[0]))
 
     # A rarer frame, the seal and the foil in words as well - for an egg too (owner's decision
     # of 2026-11-20: they are visible from the egg on).  They are shown only while the owner
@@ -980,8 +1384,13 @@ _SHOW_COLUMNS = "PET_ID, REROLL_SCROLL, REROLL_SCROLL_SHARD, REBIRTH_STONES, MIR
 
 
 async def _load_shown_pet(bot: "AlterBot", player_id: int) -> tuple[str, Any, Any]:
-    """``(status, items, pet)`` of what ``!towarzysz`` shows; status ``alone`` / ``no_data`` / ``_OK``."""
-    owner = await _owner(bot.db, player_id, _SHOW_COLUMNS)
+    """``(status, items, pet)`` of what ``!towarzysz`` shows; status ``alone`` / ``no_data`` / ``_OK``.
+
+    The items include the summoning scrolls when ``PETOWNER`` has their column
+    (:func:`mission_columns_available`).
+    """
+    columns = _SHOW_COLUMNS + (", SUMMON_SCROLLS" if await mission_columns_available(bot) else "")
+    owner = await _owner(bot.db, player_id, columns)
     pet_id = _int(owner["pet_id"]) if owner is not None else 0
     if pet_id <= 0:
         return "alone", owner, None
@@ -992,13 +1401,14 @@ async def _load_shown_pet(bot: "AlterBot", player_id: int) -> tuple[str, Any, An
     return _OK, owner, pet
 
 
-def _shown_embed(player_id: int, pet: Any, items: Any, *,
-                 cosmetics: bool = True) -> tuple[discord.Embed, Path | None]:
+def _shown_embed(player_id: int, pet: Any, items: Any, *, cosmetics: bool = True,
+                 away: tuple[datetime, str] | None = None) -> tuple[discord.Embed, Path | None]:
     """The pet's embed and its source picture (None: no picture; the embed then has no image).
 
     The picture is the plain illustration; :func:`_shown` turns it into the card.
+    ``away``: see :func:`_pet_embed`.
     """
-    embed = _pet_embed(player_id, pet, items, cosmetics=cosmetics)
+    embed = _pet_embed(player_id, pet, items, cosmetics=cosmetics, away=away)
     image = _pet_image(pet)
     if image is None or not image.is_file():
         log.warning("Pet %s (%s, %s, level %s, variant %s) has no picture (%s); showing it without one.",
@@ -1082,18 +1492,27 @@ async def _pet_card(bot: "AlterBot", guild: Any, pet: Any, source: Path | None, 
     return Path(card)
 
 
+async def _shown_away(bot: "AlterBot", player_id: int, pet: Any) -> tuple[datetime, str] | None:
+    """``(when it is back, the mission's name)`` when the shown pet ``pet`` is on a companion mission, else None."""
+    away = await away_of(bot, bot.db, player_id)
+    if away is None or away[0] != _int(pet["pet_id"]):
+        return None
+    return away[1], away[2]
+
+
 async def _shown(bot: "AlterBot", guild: Any, player: Any, pet: Any, items: Any, *,
-                 wait: waiting.Waiting | None = None) -> tuple[discord.Embed, Path | None]:
+                 wait: waiting.Waiting | None = None,
+                 away: tuple[datetime, str] | None = None) -> tuple[discord.Embed, Path | None]:
     """The pet's embed and the file to send with it (its card, see :func:`_pet_card`).
 
     ``player``: the pet's owner (a member or a bare id) - a rarer frame, his
     seal and foil are shown only while he is a supporter (:func:`_is_supporter`).
     The embed's image always names the file returned here.  ``wait``: see
-    :func:`_pet_card`.
+    :func:`_pet_card`.  ``away``: see :func:`_pet_embed`.
     """
     # Only a pet (or an egg) with something to show needs the answer (a bare id costs a lookup).
     cosmetics = ornaments_of(pet).any and await _is_supporter(bot, player)
-    embed, source = _shown_embed(_pid(player), pet, items, cosmetics=cosmetics)
+    embed, source = _shown_embed(_pid(player), pet, items, cosmetics=cosmetics, away=away)
     image = await _pet_card(bot, guild, pet, source, cosmetics=cosmetics, wait=wait)
     if image is not None and image != source:
         embed.set_image(url=f"attachment://{image.name}")
@@ -1131,14 +1550,15 @@ async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool
         await scene.send(MSG_NO_PET_DATA)
         return False
 
+    away = await _shown_away(bot, player_id, pet)
     async with waiting.notice(scene.channel) as wait:
         embed, image = await _shown(bot, getattr(scene.channel, "guild", None), player, pet, owner,
-                                    wait=wait)
+                                    wait=wait, away=away)
         files = {} if image is None else {"file_path": image}
         if not buttons:
             await scene.send(embed=embed, **files)
             return True
-        panel = PetPanel(player, pet, image=image)
+        panel = PetPanel(player, pet, image=image, away=away is not None)
         try:
             await panel.send(scene.channel, embed=embed, **files)
         except BaseException:
@@ -1149,7 +1569,8 @@ async def show_pet(scene: "Scene", player: Any, *, buttons: bool = True) -> bool
 
 # -- eggs -----------------------------------------------------------------------------
 
-def _roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True, rerolls: int = 0) -> dict[str, Any]:
+def _roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True, rerolls: int = 0,
+              min_class: int = 0) -> dict[str, Any]:
     """Draw a new egg for ``player``.
 
     Supporters (patrons, crafters, Twitch subscribers, YouTube supporters) can
@@ -1178,9 +1599,20 @@ def _roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True, rerol
     The cosmetic rolls use ``random.randrange`` and come last, so the legacy
     draws (``randint`` / ``choice``) are exactly what they were - and with
     ``rerolls=0`` so is the whole sequence of draws.
+
+    ``min_class`` (the companion missions' Rzadkie / Nadzwyczajne jajko, e.g.
+    :data:`SHINY_FROM` / :data:`ULTRA_SHINY_FROM`): a class roll below it - and
+    below :data:`MYTHIC_FROM` - is drawn again from ``min_class ..
+    MYTHIC_FROM - 1``, so the egg is at least of that class while a mythic egg
+    stays exactly as likely as ever (3 in 1001).  Better by class only: the
+    cosmetics still follow the supporter rule.  With ``min_class=0`` nothing
+    changes, not even the sequence of draws.  ``player`` None (he left the
+    server) is no supporter.
     """
-    supporter = patrons.check_if_patron(player)
+    supporter = player is not None and patrons.check_if_patron(player)
     percentage = random.randint(0, 1000)
+    if 0 < min_class and percentage < min_class and percentage < MYTHIC_FROM:
+        percentage = random.randint(min(int(min_class), MYTHIC_FROM - 1), MYTHIC_FROM - 1)
     mythic = percentage >= MYTHIC_FROM
     if mythic:
         pets_list = MYTHIC_EGGS
@@ -1364,6 +1796,10 @@ async def generate_pet_egg(scene: "Scene", player: Any = None) -> int:
 MSG_EGG_TO_POUCH = ("👝 <@{player_id}>, nowe jajko trafia do sakwy, a Twój towarzysz zostaje przy Tobie. W sakwie "
                     "jajko nie rośnie - żeby je wychować, wyjmij je komendą **!wyjmijjajko** albo z listy pod "
                     "**!stajnia**.")
+#: The same for the Duża sakwa (two eggs): ``filled`` - how many of its two slots hold an egg now.
+MSG_EGG_TO_BIG_POUCH = ("👝 <@{player_id}>, nowe jajko trafia do sakwy ({filled}/2), a Twój towarzysz zostaje przy "
+                        "Tobie. W sakwie jajko nie rośnie - żeby je wychować, wyjmij je komendą **!wyjmijjajko** "
+                        "albo z listy pod **!stajnia**.")
 
 
 async def egg_room(bot: "AlterBot", player_id: Any) -> str:
@@ -1373,12 +1809,10 @@ async def egg_room(bot: "AlterBot", player_id: Any) -> str:
     before it takes the scrolls; :func:`assign_pet` decides again under the lock).
     """
     player_id = _pid(player_id)
-    upgrades = await upgrades_available(bot)
-    owner = await _owner(bot.db, player_id, _owner_columns(upgrades))
+    owner = await _owner(bot.db, player_id, _owner_columns(*await _owner_shape(bot)))
     if owner is None or _int(owner["pet_id"]) <= 0:
         return "active"
-    has_pouch, in_pouch = _pouch_of(owner)
-    return "pouch" if has_pouch and in_pouch <= 0 else ""
+    return "pouch" if _pouch(owner).free_column else ""
 
 
 #: What :func:`assign_pet` returns when the egg went into the egg pouch.  Truthy like ``True``,
@@ -1396,8 +1830,9 @@ async def assign_pet(scene: "Scene", player: Any, *, cosmetic_rerolls: int = 0,
 
     The egg becomes the active pet of a player without one.  A player who has a
     pet at his side keeps it; the egg goes into his egg pouch when he has one
-    (bought from the wandering merchant) and it is empty - and the channel is
-    told so.  Otherwise no egg (as always: the drop is lost).  An egg in the
+    (bought from the wandering merchant) and it has room - its first free
+    slot: the Duża sakwa of the companion missions holds two eggs - and the
+    channel is told so.  Otherwise no egg (as always: the drop is lost).  An egg in the
     pouch is not the active pet, so nothing levels it up.
 
     ``cosmetic_rerolls``: the egg drops from a special boss - its cosmetic roll
@@ -1415,35 +1850,66 @@ async def assign_pet(scene: "Scene", player: Any, *, cosmetic_rerolls: int = 0,
     bot = scene.bot
     player_id = _pid(player)
     cosmetics, frames = await _cosmetic_state(bot)
-    upgrades = await upgrades_available(bot)
+    upgrades, big = await _owner_shape(bot)
     async with bot.db.transaction() as con:
         await _lock_player(con, player_id)
-        owner = await _owner(con, player_id, _owner_columns(upgrades))
-        to_pouch = False
+        owner = await _owner(con, player_id, _owner_columns(upgrades, big))
+        pouch: Pouch | None = None
         if owner is not None and _int(owner["pet_id"]) > 0:
-            has_pouch, in_pouch = _pouch_of(owner)
-            if not has_pouch or in_pouch > 0:
+            pouch = _pouch(owner)
+            if pouch.free_column is None:
                 log.debug("Player %s already has a pet (and no room in an egg pouch); no egg assigned.",
                           player_id)
                 return False
-            to_pouch = True
         egg = _roll_egg(player, cosmetics=cosmetics, frames=frames, rerolls=cosmetic_rerolls)
         pet_id = await _insert_egg(con, egg)
-        if to_pouch:
-            await con.execute("UPDATE PETOWNER SET POUCH_PET_ID = $2 WHERE PLAYER_ID = $1", player_id, pet_id)
+        if pouch is not None:
+            await con.execute(f"UPDATE PETOWNER SET {pouch.free_column} = $2 WHERE PLAYER_ID = $1",
+                              player_id, pet_id)
         elif owner is not None:
             await con.execute("UPDATE PETOWNER SET PET_ID = $2 WHERE PLAYER_ID = $1", player_id, pet_id)
         else:
             await _insert_owner(con, player_id, pet_id, True, 0, 0, 0, 0, 0)
-    log.info("Pet %s assigned to player %s%s.", pet_id, player_id, " (into the egg pouch)" if to_pouch else "")
-    await _egg_stored(bot, player_id, pet_id, egg, cosmetics, frames)
-    if to_pouch:
-        await _say_safely(scene, MSG_EGG_TO_POUCH.format(player_id=player_id))
-    if egg["MYTHIC"]:
-        await _announce_mythic(scene, player_id)
-    await achievements.check_pets(scene, player)  # a mythic pet (with Holo / the rarest seal); never raises
-    await _album_note(scene, player, egg, into=album_note)  # supporters only; never raises
-    return INTO_POUCH if to_pouch else True
+    log.info("Pet %s assigned to player %s%s.", pet_id, player_id,
+             f" (into the egg pouch, {pouch.free_column})" if pouch is not None else "")
+    if pouch is not None:
+        await _say_safely(scene, MSG_EGG_TO_POUCH.format(player_id=player_id) if pouch.size <= 1 else
+                          MSG_EGG_TO_BIG_POUCH.format(player_id=player_id, filled=len(pouch.eggs) + 1))
+    # A mythic pet (with Holo / the rarest seal) and, for a supporter, his album's note; never raises.
+    await after_new_egg(scene, player, player_id, pet_id, egg, cosmetics, frames, announce=True, notes=album_note)
+    return INTO_POUCH if pouch is not None else True
+
+
+async def after_new_egg(scene: "Scene", member: Any, player_id: int, pet_id: int, egg: dict[str, Any],
+                        cosmetics: bool, frames: bool, *, announce: bool, notes: list[str] | None = None,
+                        album: bool = True, kept: bool = True) -> None:
+    """The hooks of an egg that was just stored for the player - after the commit.  Never raises.
+
+    :func:`_egg_stored` (lost columns, the owner's word about rare cosmetics),
+    the announcement of a mythic egg (only with ``announce``),
+    ``achievements.check_pets`` (announced with ``announce``) and - with
+    ``album`` - a supporter's album note (:func:`_album_note`; ``notes``: its
+    text goes into this list instead of a message of its own).  ``member``: the
+    member, or None / a bare id (he left the server: no supporter, and the
+    trophies are checked by id).  ``kept=False``: the egg was stored only to be
+    sacrificed in the same transaction (:func:`place_egg`) - only the columns are
+    remembered.  Whatever fails here is logged: the egg is the player's already.
+    Used by :func:`assign_pet`, :func:`place_egg` and the companion missions.
+    """
+    player = member if member is not None else player_id
+    try:
+        await _egg_stored(scene.bot, player_id, pet_id, egg, cosmetics, frames, kept=kept)
+        if not kept:
+            return
+        if egg["MYTHIC"] and announce:
+            await _announce_mythic(scene, player_id)
+        await achievements.check_pets(scene, player, announce=announce)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - committed: the egg is the player's whatever a hook does
+        log.exception("Egg %s of player %s: a hook after the commit failed.", pet_id, player_id)
+    if album:
+        await _album_note(scene, player, egg, into=notes)  # supporters only; never raises
 
 
 async def _album_note(scene: "Scene", player: Any, egg: dict[str, Any], *, into: list[str] | None = None) -> None:
@@ -1476,8 +1942,10 @@ async def _say_safely(scene: "Scene", text: str) -> None:
 async def give_egg_pouch(bot: "AlterBot", player_id: Any) -> bool:
     """The wandering merchant's egg pouch: True when the player got it, False when he has one already.
 
-    A pouch is for ever and holds one egg; a player has at most one.  Needs
-    :func:`upgrades_available` (the caller checks it).
+    A pouch is for ever and holds one egg; a player has at most one (a
+    companion mission can make it the Duża sakwa, :func:`upgrade_pouch_in` - the
+    merchant sells only the first pouch).  Needs :func:`upgrades_available` (the
+    caller checks it).
     """
     player_id = _pid(player_id)
     async with bot.db.transaction() as con:
@@ -1491,19 +1959,26 @@ async def give_egg_pouch(bot: "AlterBot", player_id: Any) -> bool:
 
 
 async def owned_pet_ids(bot: "AlterBot", player_id: Any) -> list[int]:
-    """Every pet of the player: the active one, the stable places and the egg in the pouch."""
-    upgrades = await upgrades_available(bot)
-    owner = await _owner(bot.db, _pid(player_id), _owner_columns(upgrades))
+    """Every pet of the player: the active one, the stable places and the eggs in the pouch (both slots)."""
+    owner = await _owner(bot.db, _pid(player_id), _owner_columns(*await _owner_shape(bot)))
     if owner is None:
         return []
     ids = [_int(owner["pet_id"]),
            *(_int(owner[_STABLE_SLOTS[place].lower()]) for place in range(1, _places_of(owner) + 1)),
-           _pouch_of(owner)[1]]
+           *(pet_id for _column, pet_id in _pouch(owner).eggs)]
     return [pet_id for pet_id in ids if pet_id > 0]
 
 
+async def pouch_size(bot: "AlterBot", player_id: Any) -> int:
+    """How many eggs the player's pouch holds: 0 (none), 1 (Sakwa na jajko) or 2 (Duża sakwa) - for texts."""
+    upgrades, big = await _owner_shape(bot)
+    if not upgrades:
+        return 0
+    return _pouch(await _owner(bot.db, _pid(player_id), _owner_columns(upgrades, big))).size
+
+
 async def has_egg_pouch(bot: "AlterBot", player_id: Any) -> bool:
-    """True when the player owns the egg pouch (False also when the columns are missing)."""
+    """True when the player owns the egg pouch - also the Duża sakwa (False when the columns are missing)."""
     if not await upgrades_available(bot):
         return False
     return bool(await bot.db.fetchval(
@@ -1526,17 +2001,114 @@ async def add_stable_place(bot: "AlterBot", player_id: Any, limit: int = STABLE_
     Needs :func:`upgrades_available` (the caller checks it).
     """
     player_id = _pid(player_id)
-    limit = min(int(limit), STABLE_MAX_PLACES)
     async with bot.db.transaction() as con:
         await _lock_player(con, player_id)
-        places = await con.fetchval(
-            """UPDATE PETOWNER SET STABLE_PLACES = GREATEST(STABLE_PLACES, $3) + 1
-               WHERE PLAYER_ID = $1 AND GREATEST(STABLE_PLACES, $3) < $2 RETURNING STABLE_PLACES""",
-            player_id, limit, STABLE_BASE_PLACES)
+        return await add_stable_place_in(con, player_id, limit)
+
+
+async def add_stable_place_in(con: Any, player_id: int, limit: int = STABLE_MAX_PLACES) -> int:
+    """:func:`add_stable_place` inside the caller's transaction (he holds the player's lock).
+
+    The new number of places, or 0 at ``limit`` already or without a
+    ``PETOWNER`` row.  Needs :func:`upgrades_available` (the caller checks it).
+    """
+    limit = min(int(limit), STABLE_MAX_PLACES)
+    places = await con.fetchval(
+        """UPDATE PETOWNER SET STABLE_PLACES = GREATEST(STABLE_PLACES, $3) + 1
+           WHERE PLAYER_ID = $1 AND GREATEST(STABLE_PLACES, $3) < $2 RETURNING STABLE_PLACES""",
+        player_id, limit, STABLE_BASE_PLACES)
     if places is None:
         return 0
     log.info("Player %s has %s stable places now.", player_id, _int(places))
     return _int(places)
+
+
+async def upgrade_pouch_in(con: Any, player_id: int, *, upgrades: bool, big: bool) -> str:
+    """The companion missions' "Ulepszenie sakwy", inside the caller's transaction (player's lock held).
+
+    No pouch yet: the Sakwa na jajko (``"pouch"``, needs ``upgrades``); the
+    Sakwa already: the Duża sakwa, a second egg (``"big"``, needs ``big`` -
+    :func:`mission_columns_available`).  ``""`` when nothing could be given (the
+    Duża sakwa already, the columns are missing, or no ``PETOWNER`` row: the
+    caller compensates, and that creates the row).
+    """
+    if not upgrades:
+        return ""
+    if await con.fetchval("UPDATE PETOWNER SET EGG_POUCH = TRUE WHERE PLAYER_ID = $1 AND EGG_POUCH = FALSE "
+                          "RETURNING 1", player_id):
+        log.info("Player %s got the egg pouch (a mission).", player_id)
+        return "pouch"
+    if big and await con.fetchval("UPDATE PETOWNER SET BIG_POUCH = TRUE WHERE PLAYER_ID = $1 AND EGG_POUCH "
+                                  "AND NOT BIG_POUCH RETURNING 1", player_id):
+        log.info("Player %s got the big egg pouch (a mission).", player_id)
+        return "big"
+    return ""
+
+
+# -- the summoning scrolls (a reward of the companion missions, features/missions.py) ----------
+
+async def add_summon_scroll_in(con: Any, player_id: int, *, cap: int) -> int:
+    """One more Zwój przywołania, inside the caller's transaction; the new count, 0 at ``cap`` / without a row.
+
+    Needs :func:`mission_columns_available` (the caller checks it).
+    """
+    count = await con.fetchval(
+        """UPDATE PETOWNER SET SUMMON_SCROLLS = SUMMON_SCROLLS + 1
+           WHERE PLAYER_ID = $1 AND SUMMON_SCROLLS < $2 RETURNING SUMMON_SCROLLS""", player_id, int(cap))
+    return _int(count)
+
+
+async def summon_scrolls(bot: "AlterBot", player_id: Any) -> int:
+    """How many Zwoje przywołania the player has (0 without a row or the columns)."""
+    if not await mission_columns_available(bot):
+        return 0
+    return _int(await bot.db.fetchval("SELECT MAX(SUMMON_SCROLLS) FROM PETOWNER WHERE PLAYER_ID = $1",
+                                      _pid(player_id)))
+
+
+async def take_summon_scroll(bot: "AlterBot", player_id: Any) -> int | None:
+    """Use one Zwój przywołania, atomically: the count left, or None when the player has none.
+
+    Needs :func:`mission_columns_available` (the caller checks it).  Never
+    retried (``idempotent=False``): a reply lost after the commit must not take
+    a second scroll - it raises ``DatabaseUnavailable`` instead.
+    """
+    left = await bot.db.fetchval(
+        """UPDATE PETOWNER SET SUMMON_SCROLLS = SUMMON_SCROLLS - 1
+           WHERE PLAYER_ID = $1 AND SUMMON_SCROLLS > 0 RETURNING SUMMON_SCROLLS""", _pid(player_id),
+        idempotent=False)
+    return None if left is None else _int(left)
+
+
+async def return_summon_scroll(bot: "AlterBot", player_id: Any) -> None:
+    """Give back the scroll :func:`take_summon_scroll` took (the summon did not happen).
+
+    Not cut at a cap: the player had it a moment ago.  Raises when the
+    database fails (the caller tells the owner).
+    """
+    await bot.db.execute("UPDATE PETOWNER SET SUMMON_SCROLLS = SUMMON_SCROLLS + 1 WHERE PLAYER_ID = $1",
+                         _pid(player_id))
+
+
+async def give_summon_scrolls(bot: "AlterBot", player_id: Any, number: int, cap: int) -> int:
+    """The owner's ``!DajZwojPrzywolania``: add ``number`` scrolls, up to ``cap``; the new count.
+
+    The player's row is created when he has none.  Needs
+    :func:`mission_columns_available` (the caller checks it).
+    """
+    player_id, number, cap = _pid(player_id), max(int(number), 0), max(int(cap), 0)
+    async with bot.db.transaction() as con:
+        await _lock_player(con, player_id)
+        count = await con.fetchval(
+            """UPDATE PETOWNER SET SUMMON_SCROLLS = GREATEST(LEAST(SUMMON_SCROLLS + $2, $3), SUMMON_SCROLLS)
+               WHERE PLAYER_ID = $1 RETURNING SUMMON_SCROLLS""", player_id, number, cap)
+        if count is None:
+            await _insert_owner(con, player_id, 0, False, 0, 0, 0, 0, 0)
+            count = await con.fetchval(
+                "UPDATE PETOWNER SET SUMMON_SCROLLS = $2 WHERE PLAYER_ID = $1 RETURNING SUMMON_SCROLLS",
+                player_id, min(number, cap))
+    log.info("Player %s has %s summoning scroll(s) now.", player_id, _int(count))
+    return _int(count)
 
 
 #: The row lock every change of a pet takes (as ``_active_pet(lock=True)``), but naming its
@@ -1576,6 +2148,8 @@ async def set_cosmetics(bot: "AlterBot", player_id: Any, seal: Any,
     partial Holo was asked for and ``PETS`` cannot keep it, see
     :func:`frames_available`), ``alone`` (no active pet) or ``_OK`` with
     ``pet_id`` / ``seal`` / ``holo`` (full Holo) / ``foil`` (``FOIL_*``).
+    Allowed for a pet on a companion mission too: it is the owner's, and only
+    the looks change.
     """
     player_id = _pid(player_id)
     try:
@@ -1628,7 +2202,8 @@ async def set_frame(bot: "AlterBot", player_id: Any, frame: Any) -> tuple[str, d
     ``no_tier`` (an ordinary pet: no frame at all), ``bad_frame`` with
     ``tier`` (the id is not a result of the pet's class: the caller lists
     ``petcards.POOLS[tier]``) or ``_OK`` with ``pet_id`` / ``tier`` / ``frame``
-    (the stored id, '' = base).
+    (the stored id, '' = base).  Allowed for a pet on a companion mission too
+    (the owner's command, the looks only).
     """
     player_id = _pid(player_id)
     wanted = str(frame or "").strip()
@@ -1659,13 +2234,17 @@ async def reassign_pet(bot: "AlterBot", pet_id: Any, player_id: Any) -> bool:
     """Give an existing pet to a player without an active pet; True when it was done.
 
     The pet comes as it is - with its frame, seal and foil: they belong to the
-    specimen, not to its owner, so nothing is rolled here.
+    specimen, not to its owner, so nothing is rolled here.  A pet on a
+    companion mission is not reassigned (False, as for every refusal).
     """
     pet_id, player_id = int(pet_id), _pid(player_id)
     async with bot.db.transaction() as con:
         await _lock_player(con, player_id)
-        if await _pet(con, pet_id) is None:
+        if await _pet(con, pet_id, lock=True) is None:
             log.info("Pet %s does not exist; nothing reassigned.", pet_id)
+            return False
+        if await away_until(bot, con, pet_id):  # (after the pet's lock, a statement of its own)
+            log.info("Pet %s is on a mission; not reassigned.", pet_id)
             return False
         owner = await _owner(con, player_id, "PET_ID")
         if owner is None:
@@ -1686,16 +2265,33 @@ _ITEM_COLUMNS: tuple[str, ...] = ("REROLL_SCROLL", "REROLL_SCROLL_SHARD", "REBIR
 
 async def _add_item(bot: "AlterBot", column: str, number: Any, player_id: Any) -> bool:
     """Add ``number`` to one item counter of the player (creating his row when needed)."""
+    if column not in _ITEM_COLUMNS:
+        raise ValueError(f"not an item counter: {column}")
     player_id, number = _pid(player_id), int(number)
     async with bot.db.transaction() as con:
         await _lock_player(con, player_id)
-        tag = await con.execute(
-            f"UPDATE PETOWNER SET {column} = COALESCE({column}, 0) + $2 WHERE PLAYER_ID = $1",
-            player_id, number)
-        if tag == "UPDATE 0":
-            await _insert_owner(con, player_id, 0, False,
-                                *(number if name == column else 0 for name in _ITEM_COLUMNS), 0)
+        await add_items_in(con, player_id, **{_ITEM_KEYWORDS[column]: number})
     return True
+
+
+#: The keyword of :func:`add_items_in` for each counter of :data:`_ITEM_COLUMNS`.
+_ITEM_KEYWORDS: dict[str, str] = dict(zip(_ITEM_COLUMNS, ("scrolls", "shards", "stones", "mirrors")))
+
+
+async def add_items_in(con: Any, player_id: int, *, scrolls: int = 0, shards: int = 0, stones: int = 0,
+                       mirrors: int = 0) -> None:
+    """Add to the player's item counters in ONE statement, inside the caller's transaction.
+
+    The caller holds the player's lock (:func:`_lock_player`); a player without
+    a ``PETOWNER`` row gets one with these counters.
+    """
+    numbers = (int(scrolls), int(shards), int(stones), int(mirrors))
+    tag = await con.execute(
+        "UPDATE PETOWNER SET " + ", ".join(f"{column} = COALESCE({column}, 0) + ${index}"
+                                           for index, column in enumerate(_ITEM_COLUMNS, start=2))
+        + " WHERE PLAYER_ID = $1", player_id, *numbers)
+    if tag == "UPDATE 0":
+        await _insert_owner(con, player_id, 0, False, *numbers, 0)
 
 
 async def take_scrolls(bot: "AlterBot", player_id: Any, number: int) -> tuple[bool, int]:
@@ -1707,13 +2303,19 @@ async def take_scrolls(bot: "AlterBot", player_id: Any, number: int) -> tuple[bo
     player_id, number = _pid(player_id), int(number)
     async with bot.db.transaction() as con:
         await _lock_player(con, player_id)
-        left = await con.fetchval(
-            """UPDATE PETOWNER SET REROLL_SCROLL = REROLL_SCROLL - $2
-               WHERE PLAYER_ID = $1 AND REROLL_SCROLL >= $2 RETURNING REROLL_SCROLL""", player_id, number)
+        left = await take_scrolls_in(con, player_id, number)
         if left is not None:
-            return True, _int(left)
+            return True, left
         return False, _int(await con.fetchval(
             "SELECT MAX(COALESCE(REROLL_SCROLL, 0)) FROM PETOWNER WHERE PLAYER_ID = $1", player_id))
+
+
+async def take_scrolls_in(con: Any, player_id: int, number: int) -> int | None:
+    """Spend ``number`` reroll scrolls inside the caller's transaction: what is left, or None (not enough)."""
+    left = await con.fetchval(
+        """UPDATE PETOWNER SET REROLL_SCROLL = REROLL_SCROLL - $2
+           WHERE PLAYER_ID = $1 AND REROLL_SCROLL >= $2 RETURNING REROLL_SCROLL""", player_id, int(number))
+    return None if left is None else _int(left)
 
 
 async def return_scrolls(bot: "AlterBot", player_id: Any, number: int) -> bool:
@@ -1749,29 +2351,74 @@ async def level_up_pet(scene: "Scene", player_id: Any, *, album_note: list[str] 
     ``album_note`` (a drop: ``boss.rand_loot`` / ``daily.rand_loot``; ``player_id`` is then the
     member): a supporter's album note about the pet at its new stage is added to the list for
     the drop's embed (owner, 2026-11-24; ``album.note_level_up``).  Never at the cost of the level.
+
+    A pet on a companion mission does not grow: False (a drop leaves its level
+    line out).  The lock comes first and "away" is asked in a statement of its
+    own (spec §7.1: a NOT EXISTS inside the ``FOR UPDATE OF p`` that waited for
+    the send's lock would not see the send, and would level the pet just sent).
     """
     player = player_id
     player_id = _pid(player_id)
     async with scene.bot.db.transaction() as con:
         pet = await _active_pet(con, player_id, lock=True)
-        if pet is None:
+        if pet is None or _int(pet["pet_lvl"]) >= MAX_LEVEL:
             return False
-        level = _int(pet["pet_lvl"])
-        if level >= MAX_LEVEL:
+        if await away_until(scene.bot, con, pet["pet_id"]):
+            log.info("Pet %s of player %s is on a mission; no level.", pet["pet_id"], player_id)
             return False
-        variant = _int(pet["variant"])
-        if level == 0:  # an egg has one of 11 looks, a hatched pet one of 2
-            variant %= 2
-        add_skill = 2 if pet["mythic"] else random.randint(1, 2)
-        stats = _stats_of(pet)
-        for _ in range(add_skill):
-            _roll_skill(stats, SKILL_POOL, pet)
-        await _save_pet(con, pet, stats, level=level + 1,
-                        skills=_int(pet["pet_skills"]) + add_skill, variant=variant)
-    log.info("Pet %s of player %s reached level %s (+%s talent).", pet["pet_id"], player_id, level + 1, add_skill)
+        level, add_skill = await _grow_in(con, pet)
+    log.info("Pet %s of player %s reached level %s (+%s talent).", pet["pet_id"], player_id, level, add_skill)
     if album_note is not None:
         await _level_note(scene, player, player_id, album_note)
     return True
+
+
+async def _grow_in(con: Any, pet: Any) -> tuple[int, int]:
+    """One level for the (locked, below :data:`MAX_LEVEL`) pet ``pet``: ``(new level, talent added)``.
+
+    The rule of every level-up: 2 talent points for a mythic pet, else 1-2,
+    each spent by :func:`_roll_skill`; an egg that hatches keeps one of the two
+    looks of a hatched pet.
+    """
+    level = _int(pet["pet_lvl"])
+    variant = _int(pet["variant"])
+    if level == 0:  # an egg has one of 11 looks, a hatched pet one of 2
+        variant %= 2
+    add_skill = 2 if pet["mythic"] else random.randint(1, 2)
+    stats = _stats_of(pet)
+    for _ in range(add_skill):
+        _roll_skill(stats, SKILL_POOL, pet)
+    await _save_pet(con, pet, stats, level=level + 1, skills=_int(pet["pet_skills"]) + add_skill, variant=variant)
+    return level + 1, add_skill
+
+
+async def level_mission_pet_in(con: Any, player_id: int, pet_id: Any, *, upgrades: bool, big: bool = False,
+                               species: str) -> tuple[Any, int] | None:
+    """The companion missions' level for the pet that went: ``(its PETS row after, new level)`` or None.
+
+    Inside the caller's transaction (he holds the player's lock).  The pet must
+    still be the player's - at his side or in one of his stable places, never in
+    the pouch - hatched and below :data:`MAX_LEVEL`, and of ``species`` (the
+    ``TYPE`` it had when it was sent: ``_insert_egg`` reuses the highest
+    ``PET_ID``, so a pet sacrificed after its return may have left its id to a
+    new one).  Otherwise None: the caller compensates.  The growth is the one
+    of :func:`level_up_pet` (:func:`_grow_in`).
+    """
+    pet_id = _int(pet_id)
+    if pet_id <= 0:
+        return None
+    owner = await _owner(con, player_id, _owner_columns(upgrades, big), lock=True)
+    if owner is None:
+        return None
+    columns = ["pet_id", *(_STABLE_SLOTS[place].lower() for place in range(1, _places_of(owner) + 1))]
+    if all(_int(owner[column]) != pet_id for column in columns):
+        return None
+    pet = await _pet(con, pet_id, lock=True)
+    if pet is None or not 1 <= _int(pet["pet_lvl"]) < MAX_LEVEL or str(pet["type"]) != str(species):
+        return None
+    level, add_skill = await _grow_in(con, pet)
+    log.info("Pet %s of player %s reached level %s on a mission (+%s talent).", pet_id, player_id, level, add_skill)
+    return await _pet(con, pet_id), level
 
 
 async def _level_note(scene: "Scene", player: Any, player_id: int, into: list[str]) -> None:
@@ -1792,10 +2439,12 @@ async def get_pet_skills(bot: "AlterBot", player_id: Any) -> dict[str, Any]:
     """Stats of the player's active pet for a fight (zeros when he has none).
 
     Always returns every key of :data:`NO_PET_SKILLS` with plain ``int`` /
-    ``float`` values (``DETECTION`` is a bool).
+    ``float`` values (``DETECTION`` is a bool).  A pet on a companion mission
+    is not at his side: zeros (:func:`_present_pet`) - in every fight, the
+    hunt, the tower and the drop boost alike.
     """
     skills = dict(NO_PET_SKILLS)
-    pet = await _active_pet(bot.db, _pid(player_id))
+    pet = await _present_pet(bot, bot.db, _pid(player_id))
     if pet is not None:
         for name in skills:
             skills[name] = bool(pet["detection"]) if name == "DETECTION" else _num(pet[name.lower()])
@@ -1857,14 +2506,22 @@ async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, message
     with the rows locked, in the transaction that applies the change - whatever
     happened during the 15 seconds, nothing is paid for twice or with items
     that are gone.  The status ``other_pet`` (see :func:`_other_pet`) is
-    answered with :data:`MSG_OTHER_PET`.
+    answered with :data:`MSG_OTHER_PET`, and :data:`AWAY` (the pet is on a
+    companion mission; ``check`` returns ``(AWAY, Away)``, see
+    :func:`_away_check`) with :data:`MSG_PET_AWAY` - shared by every caller.
     """
     bot = scene.bot
     player_id = _pid(player)
     messages = {"other_pet": MSG_OTHER_PET, **messages}
-    status, _ = await check(bot.db, False)
+
+    def refusal(status: str, data: Any) -> str:
+        if status == AWAY and isinstance(data, Away):
+            return _away_message(player_id, data.name, data.until)
+        return messages[status]
+
+    status, data = await check(bot.db, False)
     if status != _OK:
-        await scene.send(messages[status])
+        await scene.send(refusal(status, data))
         return False
     with _confirmation_slot(player_id) as free:
         if not free:
@@ -1880,7 +2537,7 @@ async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, message
             if status == _OK:
                 await apply(con, data)
     if status != _OK:
-        await scene.send(messages[status])
+        await scene.send(refusal(status, data))
         return False
     await show_pet(scene, player)
     return True
@@ -1906,6 +2563,8 @@ async def reroll_pet(scene: "Scene", player: Any, remove_list: Sequence[int] = (
             return "alone", None
         if _other_pet(pet_id, expected_pet):
             return "other_pet", None
+        if away := await _away_check(scene.bot, q, pet_id):  # (after the owner lock, a statement of its own)
+            return away
         if _int(owner["reroll_scroll"]) < cost:
             return "poor", None
         pet = await _pet(q, pet_id, lock=lock)
@@ -1984,8 +2643,15 @@ async def adv_reroll_pet(scene: "Scene", *, expected_pet: int | None = None) -> 
     too (it keeps the channel busy, so endless clicking must not hold it for
     ever).  Then the ordinary reroll question follows (:func:`reroll_pet`,
     which also gets ``expected_pet``).
+
+    A pet on a companion mission is refused before the menu opens (the menu
+    would hold the channel for nothing); :func:`reroll_pet` checks again, locked.
     """
     user = scene.author
+    pet = await _active_pet(scene.bot.db, _pid(user))
+    if pet is not None and (until := await away_until(scene.bot, scene.bot.db, pet["pet_id"])):
+        await scene.send(_away_message(_pid(user), _called(pet), until))
+        return False
     selected: list[int] = []
     menu_deadline = time.monotonic() + timing.timeout(MENU_TOTAL_TIMEOUT)
     async with SkillMenu(user) as menu:
@@ -2020,9 +2686,16 @@ async def transform_pet(scene: "Scene", player: Any, *, expected_pet: int | None
     Only the looks change (``TYPE`` / ``QUALITY`` / ``VARIANT``): the class
     (``SHINY`` / ``ULTRA_SHINY``), and with it the frame, the seal and the foil
     belong to the specimen and stay.  ``expected_pet``: as in :func:`reroll_pet`.
+
+    A companion mission of the pet that has ended but was not paid yet is
+    paid first (:func:`_claim_due_mission`): its level reward knows the pet
+    by the ``TYPE`` it was sent with - a transform before the claim would turn
+    the level into its compensation.  While it stays unpaid (the claim failed)
+    the transform is refused (:data:`MSG_PET_RETURNING`).
     """
     player_id = _pid(player)
     mention = "<@" + str(player_id) + ">"
+    await _claim_due_mission(scene, player_id)
 
     async def check(q: Any, lock: bool) -> tuple[str, Any]:
         owner = await _owner(q, player_id, "PET_ID, MIRRORS", lock=lock)
@@ -2031,6 +2704,10 @@ async def transform_pet(scene: "Scene", player: Any, *, expected_pet: int | None
             return "alone", None
         if _other_pet(pet_id, expected_pet):
             return "other_pet", None
+        if away := await _away_check(scene.bot, q, pet_id):  # (after the owner lock, a statement of its own)
+            return away
+        if await _mission_unpaid(scene.bot, q, pet_id):
+            return RETURNING, None
         pet = await _pet(q, pet_id, lock=lock)
         if pet is None:
             return "no_data", None
@@ -2059,6 +2736,7 @@ async def transform_pet(scene: "Scene", player: Any, *, expected_pet: int | None
         messages={
             "alone": _msg_alone(player_id),
             "no_data": MSG_NO_PET_DATA,
+            RETURNING: MSG_PET_RETURNING.format(player_id=player_id),
             "mythic": "Mitycznego towarzysza nie można transformować, " + mention + "!",
             "no_rank": ("Musisz mieć rangę Patrona, Craftera, subskrybenta Twitch lub wspierającego na "
                         "YouTube " + mention + ", żeby przetransformować "
@@ -2087,6 +2765,8 @@ async def enlight_pet(scene: "Scene", player: Any, *, expected_pet: int | None =
             return "alone", None
         if _other_pet(pet_id, expected_pet):
             return "other_pet", None
+        if away := await _away_check(scene.bot, q, pet_id):  # (after the owner lock, a statement of its own)
+            return away
         if _int(owner["rebirth_stones"]) <= 0:
             return "poor", None
         pet = await _pet(q, pet_id, lock=lock)
@@ -2141,6 +2821,9 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
     "Pełny album" is checked even when the boss modifier step fails (its error
     still reaches the caller).
     Everybody else's sacrifice is exactly what it always was.
+
+    A pet on a companion mission is not sacrificed: refused before the
+    question and again in the transaction, after the owner lock.
     """
     from . import album  # (lazily: the album builds on this module)
 
@@ -2159,6 +2842,10 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
         if _other_pet(_int(owner["pet_id"]), expected_pet):
             await scene.send(MSG_OTHER_PET)
             return False
+        if away := await _away_check(bot, bot.db, _int(owner["pet_id"])):  # (a pet on a mission stays)
+            await scene.send(_away_message(player_id, away[1].name, away[1].until))
+            return False
+        ready = await missions_table_ready(bot)
         answer = await _confirm(
             scene, player,
             "Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@" + str(player_id)
@@ -2169,13 +2856,18 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
             return False
         keeps = patrons.check_if_patron(player)  # the status at the moment of the sacrifice
         # The pet that is active *now* goes, together with its row in PETS (into the album).
+        away: tuple[str, Any] | None = None
         try:
             async with bot.db.transaction() as con:
                 owner = await _owner(con, player_id, "PET_ID", lock=True)
                 pet_id = _int(owner["pet_id"]) if owner is not None else 0
                 other = _other_pet(pet_id, expected_pet)
                 if pet_id > 0 and not other:
-                    kept = await _sacrifice_in(con, player_id, pet_id, keeps)  # NotSaved: everything is rolled back
+                    # Sent on a mission during the question?  (After the owner lock, a statement of its own.)
+                    away = await _away_check(bot, con, pet_id)
+                if pet_id > 0 and not other and away is None:
+                    # NotSaved (and PetAway, which the check above rules out): everything is rolled back
+                    kept = await _sacrifice_in(con, player_id, pet_id, keeps, ready=ready)
                     await con.execute("UPDATE PETOWNER SET PET_ID = 0 WHERE PLAYER_ID = $1", player_id)
         except album.NotSaved as exc:
             log.error("Player %s: pet %s not sacrificed, the album could not be written (%s).",
@@ -2192,13 +2884,17 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
         if pet_id <= 0:
             await scene.send(MSG_ALONE_MAD)
             return False
+        if away is not None:
+            log.info("Player %s: discard of pet %s refused, it went on a mission.", player_id, pet_id)
+            await scene.send(_away_message(player_id, away[1].name, away[1].until))
+            return False
         log.info("Player %s discarded pet %s%s.", player_id, pet_id,
                  "" if kept is None else f" (kept in the album as entry {kept})")
         await _sacrificed(scene, player, kept, answer=answer)
     return True
 
 
-async def _sacrifice_in(con: Any, player_id: int, pet_id: int, keeps: bool) -> int | None:
+async def _sacrifice_in(con: Any, player_id: int, pet_id: int, keeps: bool, *, ready: bool = False) -> int | None:
     """The sacrifice of one pet inside the caller's transaction: its row leaves ``PETS``.
 
     ``keeps`` (the owner supports at this moment): the row goes into his album
@@ -2208,9 +2904,15 @@ async def _sacrifice_in(con: Any, player_id: int, pet_id: int, keeps: bool) -> i
     caller empties the place the pet stood on (``PETOWNER``) in the same
     transaction.  One path for every sacrifice of the game: ``!porzucam``
     (:func:`discard_pet`) and the mine's egg decisions (:func:`place_egg`).
+
+    ``ready`` (:func:`missions_table_ready`; there is no bot here): a pet on a
+    companion mission raises :class:`PetAway` - the last line of defence, both
+    callers refuse such a pet before.
     """
     from . import album  # (lazily: the album builds on this module)
 
+    if await _away_ends(con, pet_id, ready):
+        raise PetAway(pet_id)
     pet = await _pet(con, pet_id, lock=True) if keeps else None
     kept = await album.keep(con, player_id, pet) if pet is not None else None
     await con.execute("DELETE FROM PETS WHERE PET_ID = $1", pet_id)
@@ -2242,23 +2944,37 @@ async def name_pet(scene: "Scene", name: str, *, expected_pet: int | None = None
 
     ``expected_pet``: the pet a panel was showing; False (nothing named) when
     another pet is active.
+
+    A pet on a companion mission is not named (a name can make it shiny):
+    False with :data:`MSG_PET_AWAY`.  One transaction: the owner's row is
+    locked first and "away" is asked in a statement of its own (spec §7.1).
     """
     bot = scene.bot
     player_id = _pid(scene.author)
     name = str(name)[:MAX_NAME_LENGTH]
-    owner = await _owner(bot.db, player_id, "PET_ID")
-    pet_id = _int(owner["pet_id"]) if owner is not None else 0
+    away: tuple[str, Any] | None = None
+    shiny = False
+    async with bot.db.transaction() as con:
+        owner = await _owner(con, player_id, "PET_ID", lock=True)
+        pet_id = _int(owner["pet_id"]) if owner is not None else 0
+        if pet_id > 0 and not _other_pet(pet_id, expected_pet):
+            away = await _away_check(bot, con, pet_id)
+            if away is None:
+                percentage = random.randint(0, 100)
+                shiny = percentage >= 85
+                await con.execute("UPDATE PETS SET PET_NAME = $2, SHINY = TRUE WHERE PET_ID = $1" if shiny else
+                                  "UPDATE PETS SET PET_NAME = $2 WHERE PET_ID = $1", pet_id, name)
     if pet_id <= 0:
         await scene.send(MSG_ALONE_MAD)
         return False
     if _other_pet(pet_id, expected_pet):
         await scene.send(MSG_OTHER_PET)
         return False
+    if away is not None:
+        await scene.send(_away_message(player_id, away[1].name, away[1].until))
+        return False
 
-    percentage = random.randint(0, 100)
-    if percentage >= 85:
-        await bot.db.execute("UPDATE PETS SET PET_NAME = $2, SHINY = TRUE WHERE PET_ID = $1",
-                             pet_id, name, idempotent=True)
+    if shiny:
         try:
             await scene.send("Towarzysz wygląda na bardzo wdzięcznego i dostrzegasz" +
                              ", że wygląda jakoś inaczej <:Susge:973591024322633858>")
@@ -2267,9 +2983,6 @@ async def name_pet(scene: "Scene", name: str, *, expected_pet: int | None = None
         except Exception as exc:  # noqa: BLE001 - the pet is named and shiny, whatever Discord says
             log.warning("Pet %s turned shiny but the player could not be told: %s: %s",
                         pet_id, type(exc).__name__, exc)
-    else:
-        await bot.db.execute("UPDATE PETS SET PET_NAME = $2 WHERE PET_ID = $1",
-                             pet_id, name, idempotent=True)
     await io.safe_react(scene.message, "<:peepoBlush:984769061340737586>")
     return True
 
@@ -2280,6 +2993,9 @@ async def store_pet(scene: "Scene", slot: Any) -> bool:
     """Put the author's pet into stable place 1..N (a pet kept there comes out).
 
     N is 4, or more for a player who bought places from the wandering merchant.
+    Neither the pet at his side nor the one of that place may be on a
+    companion mission (the swap would move it): :data:`MSG_PET_AWAY` /
+    :data:`MSG_SLOT_AWAY`, asked after the owner lock (spec §7.1).
     """
     bot = scene.bot
     player_id = _pid(scene.author)
@@ -2288,6 +3004,7 @@ async def store_pet(scene: "Scene", slot: Any) -> bool:
         return False
     upgrades = await upgrades_available(bot)
     places = STABLE_BASE_PLACES
+    refusal = ""
     async with bot.db.transaction() as con:
         owner = await _owner(con, player_id, _owner_columns(upgrades), lock=True)
         current = _int(owner["pet_id"]) if owner is not None else 0
@@ -2301,11 +3018,22 @@ async def store_pet(scene: "Scene", slot: Any) -> bool:
         elif column is None:
             status = "bad_slot"
         else:
-            status = _OK
             stored = max(_int(owner[column.lower()]), 0)
-            await con.execute(f"UPDATE PETOWNER SET {column} = $2, PET_ID = $3 WHERE PLAYER_ID = $1",
-                              player_id, current, stored)
-    if status == "alone":
+            away = await _away_among(bot, con, [current, stored])
+            if current in away:
+                status = AWAY
+                refusal = _away_message(player_id, _called(await _pet(con, current)), away[current])
+            elif stored in away:
+                status = SLOT_AWAY
+                refusal = MSG_SLOT_AWAY.format(slot=_slot_number(slot), when=ui.when(away[stored]),
+                                               player_id=player_id)
+            else:
+                status = _OK
+                await con.execute(f"UPDATE PETOWNER SET {column} = $2, PET_ID = $3 WHERE PLAYER_ID = $1",
+                                  player_id, current, stored)
+    if refusal:
+        await scene.send(refusal)
+    elif status == "alone":
         await scene.send(_msg_alone(player_id))
     elif status == "no_pet":
         await scene.send("Niestety nie posiadasz aktualnie żadnego peta, <@" + str(player_id)
@@ -2322,7 +3050,10 @@ async def _take_out(bot: "AlterBot", player_id: int, slot: int, expected_pet: in
 
     Status ``alone`` / ``bad_slot`` (not one of the player's places) / ``empty``
     / ``swapped`` / ``taken``, or ``changed`` (nothing done) when
-    ``expected_pet`` is given and the place no longer holds it.
+    ``expected_pet`` is given and the place no longer holds it - or, nothing
+    done, :data:`SLOT_AWAY` (the place's pet is on a companion mission) /
+    :data:`AWAY` (the pet at his side is: the swap would move it), asked after
+    the owner lock (spec §7.1; the text: :func:`_move_refusal`).
     """
     upgrades = await upgrades_available(bot)
     async with bot.db.transaction() as con:
@@ -2338,6 +3069,11 @@ async def _take_out(bot: "AlterBot", player_id: int, slot: int, expected_pet: in
         if stabled <= 0:
             return "empty"
         current = max(_int(owner["pet_id"]), 0)
+        away = await _away_among(bot, con, [stabled, current])
+        if stabled in away:
+            return SLOT_AWAY
+        if current in away:
+            return AWAY
         await con.execute(f"UPDATE PETOWNER SET {column} = $2, PET_ID = $3 WHERE PLAYER_ID = $1",
                           player_id, current, stabled)
         return "swapped" if current > 0 else "taken"
@@ -2357,20 +3093,27 @@ async def unstore_pet(scene: "Scene", slot: Any) -> bool:
     if status == "bad_slot":
         await scene.send(_msg_bad_slot(player_id, "wyciagnijtowarzysza", await stable_places(scene.bot, player_id)))
         return False
-    await scene.send(_unstore_message(player_id, status))
+    await scene.send(await _unstore_text(scene.bot, player_id, status, number))
     return status in ("swapped", "taken")
 
 
 def _unstore_message(player_id: int, status: str) -> str:
-    """What the channel is told after a :func:`_take_out` (any status but ``changed`` / ``bad_slot``)."""
+    """What the channel is told after a :func:`_take_out` (any status but ``changed`` / ``bad_slot`` / away)."""
     return {"alone": _msg_alone(player_id), "empty": MSG_EMPTY_SLOT,
             "swapped": MSG_SWAPPED, "taken": MSG_UNSTORED}[status]
 
 
+async def _unstore_text(bot: "AlterBot", player_id: int, status: str, slot: int) -> str:
+    """:func:`_unstore_message`, and the refusals of a pet on a mission (:func:`_move_refusal`)."""
+    if status in (AWAY, SLOT_AWAY):
+        return await _move_refusal(bot, player_id, status, slot)
+    return _unstore_message(player_id, status)
+
+
 # -- the egg pouch (sold by the wandering merchant) --------------------------------------
 
-MSG_POUCH_NONE = ("Nie masz sakwy na jajko, <@{player_id}>. Czasem sprzedaje ją wędrowny kupiec "
-                  "<:Hmm:984767035617730620>")
+MSG_POUCH_NONE = ("Nie masz sakwy na jajko, <@{player_id}>. Czasem sprzedaje ją wędrowny kupiec, a czasem "
+                  "przynosi ją towarzysz ze zlecenia <:Hmm:984767035617730620>")
 MSG_POUCH_EMPTY = "Twoja sakwa na jajko jest pusta, <@{player_id}>."
 MSG_POUCH_NO_ROOM = ("Nie ma gdzie odłożyć towarzysza, który jest teraz przy Tobie, <@{player_id}> - stajnia "
                      "jest pełna. Zwolnij w niej miejsce i spróbuj jeszcze raz.")
@@ -2378,66 +3121,109 @@ MSG_POUCH_TAKEN = ("🥚 Jajko z sakwy jest teraz przy Tobie, <@{player_id}>, i 
                    "<:peepoBlush:984769061340737586>")
 MSG_POUCH_SWAPPED = ("🥚 Jajko z sakwy jest teraz przy Tobie, <@{player_id}>, a dotychczasowy towarzysz "
                      "odpoczywa w stajni na miejscu {slot}. <:peepoBlush:984769061340737586>")
+#: Added to MSG_POUCH_TAKEN / MSG_POUCH_SWAPPED when the Duża sakwa still holds its other egg.
+MSG_POUCH_ONE_LEFT = " W sakwie czeka jeszcze jedno jajko."
 
 
 async def _take_from_pouch(bot: "AlterBot", player_id: int, expected_pet: int | None) -> tuple[str, int]:
-    """Make the egg in the pouch the active pet, in one locked transaction.
+    """Make an egg in the pouch the active pet, in one locked transaction.
 
-    The pet at the player's side goes to his first free stable place.  Returns
+    ``expected_pet``: the egg the stable list named (in either slot of the Duża
+    sakwa); None (``!wyjmijjajko``): the egg of the first filled slot.  The pet
+    at the player's side goes to his first free stable place.  Returns
     ``(status, place)``: ``none`` (no pouch, or the columns are missing),
-    ``empty``, ``no_room`` (a pet at his side and the stable is full),
-    ``changed`` (``expected_pet`` is no longer in the pouch), ``taken`` (no pet
-    was at his side) or ``swapped`` with the place the old pet went to.
+    ``empty`` (no egg in it), ``no_room`` (a pet at his side and the stable is
+    full), ``changed`` (``expected_pet`` is in no slot of the pouch), ``taken``
+    (no pet was at his side) or ``swapped`` with the place the old pet went to
+    - or :data:`AWAY` (nothing done): the pet at his side is on a companion
+    mission and would have to go to the stable (asked after the owner lock).
     """
-    if not await upgrades_available(bot):
+    upgrades, big = await _owner_shape(bot)
+    if not upgrades:
         return "none", 0
     async with bot.db.transaction() as con:
-        owner = await _owner(con, player_id, _owner_columns(True), lock=True)
-        if owner is None:
+        owner = await _owner(con, player_id, _owner_columns(True, big), lock=True)
+        pouch = _pouch(owner)
+        if not pouch.size:
             return "none", 0
-        has_pouch, egg = _pouch_of(owner)
-        if not has_pouch:
-            return "none", 0
-        if expected_pet is not None and egg != expected_pet:
-            return "changed", 0
-        if egg <= 0:
+        if expected_pet is not None:
+            slot = next(((column, egg) for column, egg in pouch.eggs if egg == expected_pet), None)
+            if slot is None:
+                return "changed", 0
+        elif pouch.eggs:
+            slot = pouch.eggs[0]
+        else:
             return "empty", 0
+        column_of_egg, egg = slot
         current = max(_int(owner["pet_id"]), 0)
+        if current > 0 and await away_until(bot, con, current):
+            return AWAY, 0
         if current <= 0:
-            await con.execute("UPDATE PETOWNER SET PET_ID = $2, POUCH_PET_ID = 0 WHERE PLAYER_ID = $1",
+            await con.execute(f"UPDATE PETOWNER SET PET_ID = $2, {column_of_egg} = 0 WHERE PLAYER_ID = $1",
                               player_id, egg)
             return "taken", 0
         for place in range(1, _places_of(owner) + 1):
             column = _STABLE_SLOTS[place]
             if _int(owner[column.lower()]) <= 0:
-                await con.execute(f"UPDATE PETOWNER SET {column} = $2, PET_ID = $3, POUCH_PET_ID = 0 "
+                await con.execute(f"UPDATE PETOWNER SET {column} = $2, PET_ID = $3, {column_of_egg} = 0 "
                                   "WHERE PLAYER_ID = $1", player_id, current, egg)
                 return "swapped", place
         return "no_room", 0
 
 
-def _pouch_message(player_id: int, status: str, place: int) -> str:
-    """What the channel is told after :func:`_take_from_pouch` (any status but ``changed``)."""
-    return {"none": MSG_POUCH_NONE, "empty": MSG_POUCH_EMPTY, "no_room": MSG_POUCH_NO_ROOM,
+def _pouch_message(player_id: int, status: str, place: int, *, left: int = 0) -> str:
+    """What the channel is told after :func:`_take_from_pouch` (any status but ``changed``).
+
+    ``left``: eggs still in the pouch after one was taken (the Duża sakwa holds two).
+    """
+    text = {"none": MSG_POUCH_NONE, "empty": MSG_POUCH_EMPTY, "no_room": MSG_POUCH_NO_ROOM,
             "taken": MSG_POUCH_TAKEN, "swapped": MSG_POUCH_SWAPPED}[status].format(player_id=player_id, slot=place)
+    if left > 0 and status in ("taken", "swapped"):
+        text += MSG_POUCH_ONE_LEFT
+    return text
+
+
+async def _eggs_in_pouch(bot: "AlterBot", player_id: int) -> int:
+    """How many eggs wait in the player's pouch now (read without a lock, for a text)."""
+    upgrades, big = await _owner_shape(bot)
+    if not upgrades:
+        return 0
+    return len(_pouch(await _owner(bot.db, player_id, _owner_columns(upgrades, big))).eggs)
 
 
 async def take_egg_from_pouch(scene: "Scene") -> bool:
-    """``!wyjmijjajko``: the egg in the author's pouch becomes his active pet (and can grow)."""
+    """``!wyjmijjajko``: an egg in the author's pouch becomes his active pet (and can grow).
+
+    The Duża sakwa gives the egg of its first filled slot.
+    """
     player_id = _pid(scene.author)
     if player_id in _awaiting_confirmation:
         await scene.send(MSG_ALREADY_WAITING)
         return False
     status, place = await _take_from_pouch(scene.bot, player_id, None)
+    await scene.send(await _pouch_text(scene.bot, player_id, status, place))
+    return status in ("taken", "swapped")
+
+
+async def _pouch_text(bot: "AlterBot", player_id: int, status: str, place: int) -> str:
+    """:func:`_pouch_message` after :func:`_take_from_pouch` (any status but ``changed``), with the eggs left.
+
+    :data:`AWAY`: the pet at his side is on a mission (:func:`_move_refusal`).
+    """
+    if status == AWAY:
+        return await _move_refusal(bot, player_id, status)
+    left = 0
     if status in ("taken", "swapped"):
         log.info("Player %s took the egg out of the pouch (%s, place %s).", player_id, status, place)
-    await scene.send(_pouch_message(player_id, status, place))
-    return status in ("taken", "swapped")
+        left = await _eggs_in_pouch(bot, player_id)
+    return _pouch_message(player_id, status, place, left=left)
 
 
 STABLE_ACTIVE = "🐾 **Przy Tobie**"
 STABLE_PLACES = "🐴 **W stajni**"
 STABLE_POUCH = "👝 **W sakwie**"
+#: The heading of the Duża sakwa (a mission's reward): ``filled`` of its two slots hold an egg.
+STABLE_BIG_POUCH = "🎒 **W Dużej sakwie** ({filled}/2)"
 STABLE_NOBODY = "*brak towarzysza*"
 STABLE_FREE = "*wolne miejsce*"
 STABLE_POUCH_EMPTY = "*pusta*"
@@ -2465,17 +3251,23 @@ async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, 
     """The stable embed and the pets that can be taken out (None: the player has no row).
 
     The places the player has (4, or more bought from the wandering merchant)
-    and, when he owns one, the egg pouch.
+    and, when he owns one, the egg pouch.  A pet on a companion mission says
+    so on its line (:data:`STABLE_AWAY`) and has no entry in the list; while
+    it is the pet at his side the list has no entry at all (each would swap
+    it out - refused) and the stable says why (:data:`STABLE_SIDE_AWAY`).
     """
-    upgrades = await upgrades_available(bot)
-    owner = await _owner(bot.db, player_id, _owner_columns(upgrades))
+    owner = await _owner(bot.db, player_id, _owner_columns(*await _owner_shape(bot)))
     if owner is None:
         return None
+    away = await away_of(bot, bot.db, player_id)
+    away_pet, away_line = (away[0], STABLE_AWAY.format(when=ui.when(away[1]))) if away is not None else (0, "")
 
     places = _places_of(owner)
     pet_ids = [_int(owner["pet_id"]), *(_int(owner[_STABLE_SLOTS[place].lower()]) for place in range(1, places + 1))]
-    has_pouch, in_pouch = _pouch_of(owner)
-    wanted = [pet_id for pet_id in (*pet_ids, in_pouch) if pet_id > 0]
+    side_away = pet_ids[0] > 0 and pet_ids[0] == away_pet
+    pouch = _pouch(owner)
+    in_pouch = [pet_id for _column, pet_id in pouch.eggs]
+    wanted = [pet_id for pet_id in (*pet_ids, *in_pouch) if pet_id > 0]
     pets_by_id: dict[int, Any] = {}
     if wanted:
         rows = await bot.db.fetch(
@@ -2495,9 +3287,11 @@ async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, 
             pet = pets_by_id.get(pet_id)
             if pet is None:
                 line = STABLE_NO_DATA
+            elif pet_id == away_pet:  # on a mission: it stays where it is
+                line = _pet_line(pet) + away_line
             else:
                 line = _pet_line(pet)
-                if index > 0:  # "slot:pet": a stale list cannot take out another pet than it names
+                if index > 0 and not side_away:  # "slot:pet": a stale list cannot take out another pet
                     options.append(ui.Option(f"{index}:{pet_id}", _pet_brief(pet)[:100],
                                              f"Miejsce w stajni {index}", emoji="🐾"))
         if index == 0:
@@ -2505,25 +3299,26 @@ async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, 
         else:
             lines.append(f"**{index}.** {line}")
     pouch_block = ""
-    if has_pouch:
-        if in_pouch <= 0:
-            pouch_line = STABLE_POUCH_EMPTY
-        else:
-            egg = pets_by_id.get(in_pouch)
-            pouch_line = STABLE_NO_DATA if egg is None else _pet_line(egg)
-            if egg is not None:
-                options.append(ui.Option(f"{POUCH_OPTION}:{in_pouch}", _pet_brief(egg)[:100],
-                                         "Sakwa na jajko", emoji="👝"))
-        pouch_block = f"\n\n{STABLE_POUCH}\n{pouch_line}"
+    if pouch.size:
+        pouch_lines = []
+        for egg_id in in_pouch:  # one line and one entry per egg (the Duża sakwa holds two)
+            egg = pets_by_id.get(egg_id)
+            pouch_lines.append(STABLE_NO_DATA if egg is None else _pet_line(egg))
+            if egg is not None and not side_away:
+                options.append(ui.Option(f"{POUCH_OPTION}:{egg_id}", _pet_brief(egg)[:100],
+                                         "Sakwa na jajko" if pouch.size <= 1 else "Duża sakwa", emoji="👝"))
+        heading = STABLE_POUCH if pouch.size <= 1 else STABLE_BIG_POUCH.format(filled=len(in_pouch))
+        pouch_block = f"\n\n{heading}\n" + ("\n".join(pouch_lines) or STABLE_POUCH_EMPTY)
 
     embed = discord.Embed(
         title="Stajnia",
         description=("Oto Twoja stajnia, <@" + str(player_id) + "> <:peepoBlush:984769061340737586>\n\n"
-                     + f"{STABLE_ACTIVE}\n{active}\n\n{STABLE_PLACES}\n" + "\n".join(lines) + pouch_block),
+                     + f"{STABLE_ACTIVE}\n{active}\n\n{STABLE_PLACES}\n" + "\n".join(lines) + pouch_block
+                     + (f"\n\n{STABLE_SIDE_AWAY}" if side_away else "")),
         color=0x34cceb,
     )
     footer = "Możesz schować lub wyciągnąć peta za pomocą komend !schowajtowarzysza oraz !wyciagnijtowarzysza."
-    if has_pouch:
+    if pouch.size:
         footer += " Jajko z sakwy wyjmiesz komendą !wyjmijjajko."
     embed.set_footer(text=footer)
     embed.set_thumbnail(url="https://www.altermmo.pl/wp-content/uploads/altermmo-5-112.png")
@@ -2565,7 +3360,9 @@ async def store_in_free_place(bot: "AlterBot", player_id: Any) -> tuple[str, int
     with whoever stands there; the mine's "Stajnia" button only ever moves the
     active pet out of the way, so it must not bring another pet back.  Returns
     ``(status, place, the pet's PETS row)``: ``alone`` (no row at all),
-    ``no_pet`` (nobody at his side), ``full`` (no free place) or ``_OK``.
+    ``no_pet`` (nobody at his side), ``full`` (no free place), :data:`AWAY`
+    (the pet at his side is on a companion mission: it is not moved; asked
+    after the owner lock) or ``_OK``.
     """
     player_id = _pid(player_id)
     upgrades = await upgrades_available(bot)
@@ -2576,6 +3373,8 @@ async def store_in_free_place(bot: "AlterBot", player_id: Any) -> tuple[str, int
         current = _int(owner["pet_id"])
         if current <= 0:
             return "no_pet", 0, None
+        if await away_until(bot, con, current):
+            return AWAY, 0, await _pet(con, current)
         for place in range(1, _places_of(owner) + 1):
             column = _STABLE_SLOTS[place]
             if _int(owner[column.lower()]) <= 0:
@@ -2592,16 +3391,22 @@ class EggPlaces(NamedTuple):
 
     #: Nobody at his side: the egg can become his companion.
     active: bool
-    #: He owns the egg pouch and it is empty.
+    #: He owns the egg pouch and it has a free slot (the Duża sakwa holds two eggs).
     pouch: bool
     #: How many stable places he has.
     places: int
     #: The numbers of his free stable places.
     free: tuple[int, ...]
-    #: His occupied stable places as ``(place, PET_ID, the pet's row or None without data)``.
+    #: His occupied stable places as ``(place, PET_ID, the pet's row or None without data)`` - without
+    #: the places whose pet is on a companion mission (:attr:`away`): a swap must never offer one.
     occupied: tuple[tuple[int, int, Any], ...]
-    #: The pet at his side (``PET_ID`` / ``PET_NAME`` / ``PET_LVL`` / ``TYPE``), or None.
+    #: The pet at his side (``PET_ID`` / ``PET_NAME`` / ``PET_LVL`` / ``TYPE``), or None - also when it
+    #: is on a mission (:attr:`active_away`), so the texts can name it.
     active_pet: Any = None
+    #: The pet at his side is on a companion mission (it gets no level, it cannot be moved).
+    active_away: bool = False
+    #: The stable places whose pet is on a mission: neither free nor in :attr:`occupied`.
+    away: frozenset[int] = frozenset()
 
     @property
     def room(self) -> str:
@@ -2612,28 +3417,31 @@ class EggPlaces(NamedTuple):
 async def egg_places(bot: "AlterBot", player_id: Any) -> EggPlaces:
     """The player's places for a new egg: at his side, the pouch, every stable place (see :class:`EggPlaces`)."""
     player_id = _pid(player_id)
-    upgrades = await upgrades_available(bot)
-    owner = await _owner(bot.db, player_id, _owner_columns(upgrades))
+    owner = await _owner(bot.db, player_id, _owner_columns(*await _owner_shape(bot)))
     if owner is None:
         return EggPlaces(True, False, STABLE_BASE_PLACES, tuple(range(1, STABLE_BASE_PLACES + 1)), ())
     places = _places_of(owner)
     stabled = {place: _int(owner[_STABLE_SLOTS[place].lower()]) for place in range(1, places + 1)}
     active = _int(owner["pet_id"])
-    has_pouch, in_pouch = _pouch_of(owner)
     wanted = [pet_id for pet_id in (active, *stabled.values()) if pet_id > 0]
     rows: dict[int, Any] = {}
     if wanted:
         for row in await bot.db.fetch(
                 "SELECT PET_ID, PET_NAME, PET_LVL, TYPE FROM PETS WHERE PET_ID = ANY($1::numeric[])", wanted):
             rows.setdefault(_int(row["pet_id"]), row)
+    away = await _away_among(bot, bot.db, wanted)
     return EggPlaces(
-        active <= 0, has_pouch and in_pouch <= 0, places,
+        active <= 0, _pouch(owner).free_column is not None, places,
         tuple(place for place, pet_id in stabled.items() if pet_id <= 0),
-        tuple((place, pet_id, rows.get(pet_id)) for place, pet_id in stabled.items() if pet_id > 0),
-        rows.get(active) if active > 0 else None)
+        tuple((place, pet_id, rows.get(pet_id)) for place, pet_id in stabled.items()
+              if pet_id > 0 and pet_id not in away),
+        rows.get(active) if active > 0 else None,
+        active > 0 and active in away,
+        frozenset(place for place, pet_id in stabled.items() if pet_id > 0 and pet_id in away))
 
 
-def roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True) -> dict[str, Any]:
+def roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True, rerolls: int = 0,
+             min_class: int = 0) -> dict[str, Any]:
     """A new egg for ``player``, rolled exactly as :func:`assign_pet` rolls one - but not stored yet.
 
     The egg of the mine: the game's normal egg (a supporter's may be of a
@@ -2641,8 +3449,13 @@ def roll_egg(player: Any, *, cosmetics: bool = True, frames: bool = True) -> dic
     standard pool; a mythic one is possible for everybody).  It is stored when
     the player has said where it goes (:func:`place_egg`).  The result holds
     plain numbers, texts and booleans, so it can wait in a JSON file.
+
+    The companion missions pass ``rerolls`` (a supporter's cosmetic roll may be
+    repeated, as for a special boss's egg) and ``min_class`` (the egg is at
+    least of that class; mythic as likely as ever) - see :func:`_roll_egg`.
+    ``player`` may be None (he left the server: no supporter).
     """
-    return _roll_egg(player, cosmetics=cosmetics, frames=frames)
+    return _roll_egg(player, cosmetics=cosmetics, frames=frames, rerolls=rerolls, min_class=min_class)
 
 
 def egg_row(egg: dict[str, Any]) -> dict[str, Any]:
@@ -2729,6 +3542,10 @@ async def place_egg(scene: "Scene", player: Any, egg: dict[str, Any], where: str
     * :data:`EGG_ANYWHERE` - at his side, else the pouch, else a free stable
       place; nothing is ever sacrificed for it.
 
+    (The pouch: its first free slot - the Duża sakwa has two.  The work inside
+    the transaction is :func:`place_egg_in`, which the companion missions run
+    in their own claim transaction; the hooks below are :func:`after_new_egg`.)
+
     When the place is not what the caller saw (a pet moved meanwhile, the pouch
     filled) nothing happens and the status is :data:`EGG_CHANGED` - or
     :data:`EGG_NO_ROOM` for :data:`EGG_ANYWHERE`: the caller still holds the
@@ -2750,63 +3567,92 @@ async def place_egg(scene: "Scene", player: Any, egg: dict[str, Any], where: str
     if member is None and where in (EGG_SWAP, EGG_SACRIFICE):
         member = await bot.member(player_id)
     keeps = member is not None and patrons.check_if_patron(member)
-    upgrades = await upgrades_available(bot)
+    upgrades, big = await _owner_shape(bot)
     cosmetics, frames = await _cosmetic_state(bot)
-    pet_id, kept, gone = 0, None, 0
+    ready = await missions_table_ready(bot)
     async with bot.db.transaction() as con:
         await _lock_player(con, player_id)
-        owner = await _owner(con, player_id, _owner_columns(upgrades), lock=True)
-        if where == EGG_SACRIFICE:
-            if keeps:  # the album keeps a PETS row: the egg is one for the length of this transaction
-                pet_id = await _insert_egg(con, egg)
-                kept = await _sacrifice_in(con, player_id, pet_id, True)
-            status, column, number = EGG_SACRIFICED, None, 0
-        else:
-            active = _int(owner["pet_id"]) if owner is not None else 0
-            has_pouch, in_pouch = _pouch_of(owner) if owner is not None else (False, 0)
-            places = _places_of(owner) if owner is not None else STABLE_BASE_PLACES
-            free = [number for number in range(1, places + 1)
-                    if owner is None or _int(owner[_STABLE_SLOTS[number].lower()]) <= 0]
-            column, number = None, 0
-            if where in (EGG_TO_ROOM, EGG_ANYWHERE) and active <= 0:
-                status, column = EGG_ACTIVE, "PET_ID"
-            elif where in (EGG_TO_ROOM, EGG_ANYWHERE) and has_pouch and in_pouch <= 0:
-                status, column = EGG_IN_POUCH, "POUCH_PET_ID"
-            elif where in (EGG_TO_STABLE, EGG_ANYWHERE) and free:
-                status, number = EGG_IN_STABLE, free[0]
-                column = _STABLE_SLOTS[number]
-            elif where == EGG_SWAP:
-                number = _slot_number(place) or 0
-                column = _slot_column(number, places) if owner is not None else None
-                wanted = _int(expected_pet)
-                if column is None or wanted <= 0 or _int(owner[column.lower()]) != wanted:
-                    return EggPlaced(EGG_CHANGED)
-                status, gone = EGG_SWAPPED, wanted
-                kept = await _sacrifice_in(con, player_id, wanted, keeps)  # NotSaved: nothing happened
-            else:
-                return EggPlaced(EGG_NO_ROOM if where == EGG_ANYWHERE else EGG_CHANGED)
+        result = await place_egg_in(con, player_id, egg, where, upgrades=upgrades, big=big, place=place,
+                                    expected_pet=expected_pet, keeps=keeps, ready=ready)
+    if not result.done:
+        return result
+    status = result.status
+    # (A sacrificed egg is not reported as a stored one: its PET_ID is not in PETS - only the columns
+    # it was stored with for that moment are remembered.)
+    if result.pet_id or status == EGG_SACRIFICED:
+        await after_new_egg(scene, member, player_id, result.pet_id, egg, cosmetics, frames, announce=announce,
+                            album=False, kept=status != EGG_SACRIFICED)
+    if status in (EGG_SWAPPED, EGG_SACRIFICED) and member is not None:
+        try:
+            await _sacrificed(scene.with_author(member), member, result.kept)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - committed: the caller must hear what happened to the egg
+            log.exception("Egg of player %s (%s): a hook after the commit failed.", player_id, status)
+    return result
+
+
+async def place_egg_in(con: Any, player_id: int, egg: dict[str, Any], where: str, *, upgrades: bool,
+                       big: bool = False, place: Any = None, expected_pet: int | None = None,
+                       keeps: bool = False, ready: bool = False) -> EggPlaced:
+    """The core of :func:`place_egg`, inside the caller's transaction (he holds the player's lock).
+
+    Reads the player's row again (``FOR UPDATE``), stores the egg where
+    ``where`` says (or sacrifices it / the stabled ``expected_pet``; ``keeps``:
+    the player supports, so what is sacrificed goes into his album) and
+    returns what happened.  :data:`EGG_TO_ROOM` / :data:`EGG_ANYWHERE` fill the
+    player's side, then the pouch's first free slot (the Duża sakwa has two),
+    then - only :data:`EGG_ANYWHERE` - a free stable place.  ``upgrades`` /
+    ``big``: :func:`upgrades_available` / :func:`mission_columns_available`.
+    ``ready`` (:func:`missions_table_ready`): a stabled pet on a companion
+    mission is never sacrificed for the egg - :data:`EGG_SWAP` answers
+    :data:`EGG_CHANGED` (asked after the owner lock, spec §7.1).
+    Runs no hooks (:func:`after_new_egg` does, after the commit);
+    ``album.NotSaved`` passes through.
+    """
+    kept, gone = None, 0
+    owner = await _owner(con, player_id, _owner_columns(upgrades, big), lock=True)
+    if where == EGG_SACRIFICE:
+        pet_id = 0
+        if keeps:  # the album keeps a PETS row: the egg is one for the length of this transaction
             pet_id = await _insert_egg(con, egg)
-            if owner is None:  # (PET_OWNED as assign_pet / _add_item write it for a first row)
-                await _insert_owner(con, player_id, 0, status == EGG_ACTIVE, 0, 0, 0, 0, 0)
-            await con.execute(f"UPDATE PETOWNER SET {column} = $2 WHERE PLAYER_ID = $1", player_id, pet_id)
+            kept = await _sacrifice_in(con, player_id, pet_id, True)
+        status, number = EGG_SACRIFICED, 0
+    else:
+        active = _int(owner["pet_id"]) if owner is not None else 0
+        free_pouch = _pouch(owner).free_column
+        places = _places_of(owner) if owner is not None else STABLE_BASE_PLACES
+        free = [number for number in range(1, places + 1)
+                if owner is None or _int(owner[_STABLE_SLOTS[number].lower()]) <= 0]
+        column, number = None, 0
+        if where in (EGG_TO_ROOM, EGG_ANYWHERE) and active <= 0:
+            status, column = EGG_ACTIVE, "PET_ID"
+        elif where in (EGG_TO_ROOM, EGG_ANYWHERE) and free_pouch is not None:
+            status, column = EGG_IN_POUCH, free_pouch
+        elif where in (EGG_TO_STABLE, EGG_ANYWHERE) and free:
+            status, number = EGG_IN_STABLE, free[0]
+            column = _STABLE_SLOTS[number]
+        elif where == EGG_SWAP:
+            number = _slot_number(place) or 0
+            column = _slot_column(number, places) if owner is not None else None
+            wanted = _int(expected_pet)
+            if column is None or wanted <= 0 or _int(owner[column.lower()]) != wanted:
+                return EggPlaced(EGG_CHANGED)
+            if await _away_ends(con, wanted, ready):  # (sent on a mission since the player chose it)
+                log.info("Egg of player %s: pet %s is on a mission, not sacrificed for it.", player_id, wanted)
+                return EggPlaced(EGG_CHANGED)
+            status, gone = EGG_SWAPPED, wanted
+            kept = await _sacrifice_in(con, player_id, wanted, keeps, ready=ready)  # NotSaved: nothing happened
+        else:
+            return EggPlaced(EGG_NO_ROOM if where == EGG_ANYWHERE else EGG_CHANGED)
+        pet_id = await _insert_egg(con, egg)
+        if owner is None:  # (PET_OWNED as assign_pet / _add_item write it for a first row)
+            await _insert_owner(con, player_id, 0, status == EGG_ACTIVE, 0, 0, 0, 0, 0)
+        await con.execute(f"UPDATE PETOWNER SET {column} = $2 WHERE PLAYER_ID = $1", player_id, pet_id)
     log.info("Egg of player %s: %s (pet %s, place %s%s%s).", player_id, status, pet_id or "-", number or "-",
              f", pet {gone} sacrificed for it" if gone else "",
              "" if kept is None else f", kept in the album as entry {kept}")
-    result = EggPlaced(status, 0 if status == EGG_SACRIFICED else pet_id, number, kept, gone)
-    try:
-        if pet_id:  # (a sacrificed egg is not reported as a stored one: its PET_ID is not in PETS)
-            await _egg_stored(bot, player_id, pet_id, egg, cosmetics, frames, kept=status != EGG_SACRIFICED)
-        if status != EGG_SACRIFICED:
-            if egg["MYTHIC"] and announce:
-                await _announce_mythic(scene, player_id)
-            await achievements.check_pets(scene, member if member is not None else player_id, announce=announce)
-        if status in (EGG_SWAPPED, EGG_SACRIFICED) and member is not None:
-            await _sacrificed(scene.with_author(member), member, kept)
-    except asyncio.CancelledError:
-        raise
-    except Exception:  # noqa: BLE001 - committed: the caller must hear what happened to the egg
-        log.exception("Egg of player %s (%s): a hook after the commit failed.", player_id, status)
-    return result
+    return EggPlaced(status, 0 if status == EGG_SACRIFICED else pet_id, number, kept, gone)
 
 
 # -- panels (buttons under a shown pet and under the stable) ---------------------------
@@ -2895,9 +3741,9 @@ class StablePanel(ui.PanelView):
                 log.info("Stable list of %s: %r no longer matches the stable.", player_id, values[0])
                 await ui.reply(interaction, MSG_STABLE_CHANGED)
             elif chosen is not None and chosen[0] == 0:
-                await scene.send(_pouch_message(player_id, status, place))
+                await scene.send(await _pouch_text(scene.bot, player_id, status, place))
             else:
-                await scene.send(_unstore_message(player_id, status))
+                await scene.send(await _unstore_text(scene.bot, player_id, status, chosen[0] if chosen else 0))
         # Redrawn in every case: the list must not keep showing the entry as chosen.
         view = await _stable_view(scene.bot, player_id)
         if view is None:
@@ -2928,18 +3774,23 @@ class PetPanel(ui.PanelView):
     is active (taken out of the stable meanwhile) a click takes the buttons off
     and is answered with :data:`MSG_OTHER_PET`; the flows re-check
     it after their question too.  ``image``: the file sent with the panel (the
-    pet's card, see :func:`_pet_card`).
+    pet's card, see :func:`_pet_card`).  ``away``: the pet is on a companion
+    mission - nothing can change it, so only ``Stajnia`` is shown (a click
+    that races a send is refused by :meth:`_play` and the flows themselves).
     """
 
     def __init__(self, player: Any, pet: Any, *, image: Path | None = None,
-                 timeout: float | None = None) -> None:
+                 timeout: float | None = None, away: bool = False) -> None:
         super().__init__(owner=player, timeout=PANEL_TIMEOUT if timeout is None else timeout)
         self.player = player
         self.pet_id = _int(pet["pet_id"])
         self.image = image
         self.pet_name = str(pet["pet_name"] or "")
+        self.away = away
         level, skills = _int(pet["pet_lvl"]), _int(pet["pet_skills"])
         hidden = set()
+        if away:
+            hidden |= {self.rename, self.reroll, self.adv_reroll, self.enlight, self.transform, self.discard}
         if level < 1:
             hidden |= {self.reroll, self.adv_reroll}
         if not (level == MAX_LEVEL and skills <= ENLIGHT_MAX_SKILLS):
@@ -3010,10 +3861,28 @@ class PetPanel(ui.PanelView):
         await self.finish()
         return False
 
+    async def _not_away(self, interaction: Any) -> bool:
+        """True unless this panel's pet is on a companion mission (it went after the panel was shown).
+
+        Otherwise the click is answered with :data:`MSG_PET_AWAY` and the
+        panel's buttons are taken off.
+        """
+        bot = interaction.client
+        until = await away_until(bot, bot.db, self.pet_id)
+        if until is None:
+            return True
+        log.info("Pet panel of %s: pet %s is on a mission; click refused.", self.owner_id, self.pet_id)
+        await ui.reply(interaction, _away_message(_pid(interaction.user), _called(await _pet(bot.db, self.pet_id)),
+                                                  until))
+        await self.finish()
+        return False
+
     async def _play(self, interaction: Any, flow: Callable[["Scene"], Awaitable[bool]], *,
                     hold: str | None = None) -> None:
         """Run a gameplay flow for the click, with the guards of its command."""
         if not await ui.gate(interaction) or not await self.shows_active_pet(interaction):
+            return
+        if not await self._not_away(interaction):
             return
         log.info("Pet panel of %s: %s.", self.owner_id, (interaction.data or {}).get("custom_id"))
         scene = ui.scene_of(interaction)
@@ -3057,7 +3926,8 @@ class PetPanel(ui.PanelView):
     async def _redraw(self, bot: "AlterBot", pet: Any, items: Any, wait: waiting.Waiting) -> bool:
         """:meth:`redraw` once the pet is read: draw its card, edit the message."""
         guild = getattr(self.message, "guild", None) or getattr(self.player, "guild", None)
-        embed, image = await _shown(bot, guild, self.player, pet, items, wait=wait)
+        embed, image = await _shown(bot, guild, self.player, pet, items, wait=wait,
+                                    away=await _shown_away(bot, _pid(self.player), pet))
         if image == self.image:
             return await _edit_panel(self.message, embed=embed)
         try:
@@ -3102,6 +3972,8 @@ async def rename_from_panel(panel: PetPanel, interaction: Any) -> bool:
     bot = interaction.client
     if not await ui.gate(interaction) or not await panel.shows_active_pet(interaction):
         return False
+    if not await panel._not_away(interaction):  # (a name can make it shiny: not while on a mission)
+        return False
     bucket = _rename_bucket(bot, interaction.user)
     if bucket is not None:
         retry_after = bucket.get_retry_after()  # a preview only: the window is not opened in vain
@@ -3118,8 +3990,8 @@ async def rename_from_panel(panel: PetPanel, interaction: Any) -> bool:
     if not name:
         await ui.reply(submitted, MSG_RENAME_EMPTY)
         return False
-    if not await panel.shows_active_pet(submitted):  # the window may have been open for minutes
-        return False
+    if not await panel.shows_active_pet(submitted) or not await panel._not_away(submitted):
+        return False  # (the window may have been open for minutes)
     if bot.state.busy:
         await ui.reply(submitted, ui.MSG_BUSY)
         return False
@@ -3225,9 +4097,11 @@ async def detect_boss(bot: "AlterBot", boss_rarity: int) -> None:
     The warning's first line is :data:`MSG_BOSS_WARNING`; under it one line and a
     button tell how to switch the warnings off (``bossdetect.dm_warning``).
     """
+    # (A pet on a companion mission detects nothing: it is not at its owner's side.)
+    away = sql_not_away("p.PET_ID", await missions_table_ready(bot))
     rows = await bot.db.fetch(
-        """SELECT DISTINCT o.PLAYER_ID FROM PETOWNER o JOIN PETS p ON p.PET_ID = o.PET_ID
-           WHERE p.DETECTION = TRUE AND o.PET_ID > 0 AND o.PLAYER_ID > 0""")
+        f"""SELECT DISTINCT o.PLAYER_ID FROM PETOWNER o JOIN PETS p ON p.PET_ID = o.PET_ID
+            WHERE p.DETECTION = TRUE AND o.PET_ID > 0 AND o.PLAYER_ID > 0 AND {away}""")
     rarity = _RARITY_NAMES[min(max(_int(boss_rarity), 0), len(_RARITY_NAMES) - 1)]
     text = bossdetect.dm_warning(bot, MSG_BOSS_WARNING.format(rarity=rarity))
     log.info("Boss detection: warning %d player(s) about a boss (%s).", len(rows), rarity)

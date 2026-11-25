@@ -207,10 +207,13 @@ MSG_LEVEL_EGG = ("🐾 **Awans:** jajo przy Tobie ({name}) wykluje się · pozio
 MSG_LEVEL_MAX = "🐾 **Awans:** {name} ma już najwyższy poziom - awansu nie będzie."
 MSG_LEVEL_NONE = ("🐾 **Awans:** nie masz przy sobie towarzysza - poziom ze skarbca przepadnie (dostaje go pet "
                   "aktywny przy odbiorze).")
+#: The pet at his side is on a companion mission (features/missions.py): it does not grow.
+MSG_LEVEL_AWAY = "🐾 **Awans:** Twój towarzysz jest na zleceniu - poziomu ze skarbca nie dostanie."
 
 MSG_STABLED = "{name} odpoczywa w stajni. Masz teraz miejsce na jajo."
 MSG_STABLE_NOBODY = "Nie masz przy sobie towarzysza, którego można schować do stajni."
 MSG_STABLE_FULL = "W stajni nie ma wolnego miejsca - Twój towarzysz zostaje przy Tobie."
+MSG_STABLE_AWAY = "Twój towarzysz jest na zleceniu - nie da się go teraz odprowadzić do stajni."
 
 RESULT_TITLE = "⛏️ Powrót z łupem · {number}/{total} · {name}"
 MSG_SAFE_RETURN = ("„Dopiero w świetle dnia sprawdzasz zawartość torby. Poniżej znajdziesz wszystko, co udało ci "
@@ -220,6 +223,7 @@ MSG_GOT_SCROLLS = "✅ {scrolls} odrodzenia"
 MSG_GOT_LEVEL = "✅ awans: {name} · poziom {old} → {new}"
 MSG_GOT_NO_LEVEL_MAX = "➖ awans: Twój towarzysz ma już najwyższy poziom"
 MSG_GOT_NO_LEVEL_NONE = "➖ awans: nie masz przy sobie towarzysza"
+MSG_GOT_NO_LEVEL_AWAY = "➖ awans: Twój towarzysz jest na zleceniu"
 MSG_GOT_FAILED = ("⚠️ Nie udało się przyznać: {what} <:Sadge:936907659142111273> Administracja dostała już znać "
                   "i przyzna to ręcznie.")
 MSG_BEING_PAID = "*Łup jest właśnie wypłacany...*"
@@ -463,8 +467,8 @@ def page_too_long(config: Config) -> str:
     pet = {"pet_id": 1, "pet_name": name, "pet_lvl": 1, "type": "Cat"}
     crowded = pets.EggPlaces(False, False, 99, (), (), pet)
     roomy = pets.EggPlaces(True, True, 99, tuple(range(1, 100)), ())
-    notice = max(MSG_STABLED.format(name=_pet_name(pet)), MSG_STABLE_NOBODY, MSG_STABLE_FULL, MSG_PLACES_UNKNOWN,
-                 ui.MSG_FAILED, key=len)
+    notice = max(MSG_STABLED.format(name=_pet_name(pet)), MSG_STABLE_NOBODY, MSG_STABLE_FULL, MSG_STABLE_AWAY,
+                 MSG_PLACES_UNKNOWN, ui.MSG_FAILED, key=len)
     pages = [("the announcement", announcement_embed(config, went_down=f"<@{player_id}>", latest=latest))]
     for chamber in config.chambers:
         number = chamber.number
@@ -740,6 +744,8 @@ def level_line(places: pets.EggPlaces | None) -> str:
     pet = places.active_pet
     if pet is None:
         return MSG_LEVEL_NONE
+    if places.active_away:
+        return MSG_LEVEL_AWAY
     level = pets._int(pet["pet_lvl"])
     if level >= pets.MAX_LEVEL:
         return MSG_LEVEL_MAX.format(name=_pet_name(pet))
@@ -804,6 +810,8 @@ def granted_lines(granted: dict[str, Any] | None) -> list[str]:
         lines.append(MSG_GOT_NO_LEVEL_MAX)
     elif level == "none":
         lines.append(MSG_GOT_NO_LEVEL_NONE)
+    elif level == "away":
+        lines.append(MSG_GOT_NO_LEVEL_AWAY)
     if granted.get("failed"):
         lines.append(MSG_GOT_FAILED.format(what=", ".join(granted["failed"])))
     return lines
@@ -965,7 +973,9 @@ async def _places(bot: "AlterBot", player_id: int) -> pets.EggPlaces | None:
 
 
 def _hatched(places: pets.EggPlaces | None) -> bool:
-    return places is not None and places.active_pet is not None and pets._int(places.active_pet["pet_lvl"]) > 0
+    """A hatched pet at the player's side (the "with pet" picture) - not one that is on a companion mission."""
+    return (places is not None and places.active_pet is not None and not places.active_away
+            and pets._int(places.active_pet["pet_lvl"]) > 0)
 
 
 async def _page(mine: Mine, expedition: Expedition) -> tuple[discord.Embed, Path | None, list[Button]]:
@@ -1288,6 +1298,8 @@ async def _stable(mine: Mine, expedition: Expedition) -> None:
         expedition.notice = MSG_STABLED.format(name=_pet_name(pet) if pet is not None else pets.DEFAULT_NAME)
     elif status == "full":
         expedition.notice = MSG_STABLE_FULL
+    elif status == pets.AWAY:
+        expedition.notice = MSG_STABLE_AWAY
     else:
         expedition.notice = MSG_STABLE_NOBODY
     expedition.touch()
@@ -1365,8 +1377,10 @@ async def _leave(mine: Mine, expedition: Expedition, interaction: Any) -> None:
                 level = pets._int(before["pet_lvl"]) if before is not None else 0
                 granted["level"] = {"name": _pet_name(before) if before is not None else pets.DEFAULT_NAME,
                                     "old": level, "new": level + 1}
-            else:
-                granted["level"] = "none" if before is None else "max"
+            elif before is None:
+                granted["level"] = "none"
+            else:  # (a pet on a companion mission does not grow either)
+                granted["level"] = "away" if await pets.away_until(bot, bot.db, before["pet_id"]) else "max"
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -2058,11 +2072,13 @@ def _jobs(bot: "AlterBot") -> list[_Job]:
     return jobs
 
 
-def _quiet(bot: "AlterBot", *, after_restart: bool = False) -> bool:
+def channel_quiet(bot: "AlterBot", *, after_restart: bool = False) -> bool:
     """True when the mine may post on the boss channel: nobody holds it and no fight is on.
 
     After a restart also: the start-up clearing of the channel is done (it
-    would take the summary away at once).
+    would take the summary away at once).  Also the companion missions' notifier
+    asks this before it posts (``missions.tick``) and whether a claim may
+    announce a mythic egg.
     """
     state = bot.state
     try:
@@ -2072,6 +2088,10 @@ def _quiet(bot: "AlterBot", *, after_restart: bool = False) -> bool:
     if state.busy or challenge.fight_on(channel) or state.boss_phase in (BossPhase.ENGAGED, BossPhase.FIGHTING):
         return False
     return not after_restart or bool(getattr(bot.boss_cycle, "tidied", True))
+
+
+#: (The mine's own name of :func:`channel_quiet`.)
+_quiet = channel_quiet
 
 
 async def _still_there(message: Any) -> bool:

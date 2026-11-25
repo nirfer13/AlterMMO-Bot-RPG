@@ -29,6 +29,12 @@ Two kinds of buttons:
   still gathering hunters JOINS it, exactly like typing ``!polowanie``.
   Refusals (cooldown, a boss on the way, busy...) are answered with
   :func:`ui.reply`; the hunt or the tower run itself is public, as when typed.
+  "Zlecenia" (2026-11-25, the companion missions) shows what ``!zlecenia``
+  shows - the player's mission board, its progress or its result
+  (:func:`altermmo.features.missions.show_board`): on the boss channel only,
+  but with the gate of a display button (:func:`display_gate`) - it only
+  shows the board; what changes the game (sending a pet, a new board, the
+  recall) is gated by the board's own buttons.
 * **display** - "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia",
   "Album", "Pomoc" show exactly what ``!towarzysz``, ``!stajnia``, ``!klejnoty``,
   the ranking commands (the fourth, ``!rankingalbumow``, only for a supporter - a member
@@ -90,6 +96,8 @@ GEMS_ID = BUTTON_PREFIX + "gems"
 RANKINGS_ID = BUTTON_PREFIX + "rankings"
 ACHIEVEMENTS_ID = BUTTON_PREFIX + "achievements"
 ALBUM_ID = BUTTON_PREFIX + "album"
+#: The companion missions (2026-11-25); permanent like the others - it must never change.
+MISSIONS_ID = BUTTON_PREFIX + "missions"
 HELP_ID = BUTTON_PREFIX + "help"
 NOTIFY_ID = BUTTON_PREFIX + "notify"
 
@@ -101,6 +109,8 @@ PANEL_GAME_TEXT = (
     "⚔️ **Polowanie** - zapoluj na zwykłe stwory (raz dziennie, modlitwa w kapliczce może to odnowić). "
     "Inni łowcy dołączą przyciskiem pod potworem.\n"
     "🏰 **Wieża** - wyrusz na eksplorację Wieży Śmierci (raz w tygodniu). Im wyżej, tym trudniej!\n"
+    "🧭 **Zlecenia** - raz dziennie wyślij towarzysza na zlecenie z tablicy: szansę powodzenia poznasz przed "
+    "wysłaniem, a im trudniejsze i dłuższe zlecenie, tym lepszy łup.\n"
     "🐾 **Towarzysz**, 🐴 **Stajnia**, 💎 **Klejnoty** - podejrzyj swojego towarzysza, stajnię "
     "i klejnoty umiejętności.\n"
     "🏆 **Rankingi** - sezonowy ranking łowców, Wieża Śmierci, najbardziej utalentowani towarzysze "
@@ -161,7 +171,7 @@ PANEL_SUPPORT_TEXT = (
 )
 #: The whole description of the panel (Discord's limit: 4096 characters; ``tests/test_ui_hub.py``).
 PANEL_TEXT = PANEL_GAME_TEXT + "\n\n" + PANEL_SUPPORT_TEXT
-PANEL_FOOTER = "Polowanie i Wieża ruszają tylko na tym kanale i nie wtedy, gdy trwa inne wydarzenie."
+PANEL_FOOTER = "Polowanie, Wieża i Zlecenia działają tylko na tym kanale i nie wtedy, gdy trwa inne wydarzenie."
 PANEL_COLOUR = 0x42F34C
 
 MSG_DB_DOWN = "Baza danych jest chwilowo niedostępna. Spróbuj ponownie za moment <:Sadge:936907659142111273>"
@@ -230,6 +240,11 @@ class HubView(ui.GameView):
                        custom_id=TOWER_ID)
     async def tower(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await tower_clicked(interaction)
+
+    @discord.ui.button(label="Zlecenia", emoji="🧭", style=discord.ButtonStyle.primary, row=0,
+                       custom_id=MISSIONS_ID)
+    async def missions(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await missions_clicked(interaction)
 
     @discord.ui.button(label="Towarzysz", emoji="🐾", style=discord.ButtonStyle.secondary, row=1,
                        custom_id=PET_ID)
@@ -322,6 +337,22 @@ async def tower_clicked(interaction: Any) -> bool:
                                                                  refuse=_refusal(interaction)))
 
 
+async def missions_clicked(interaction: Any, *, seen: int = 0) -> bool:
+    """"Zlecenia": the player's mission board (or its progress / result) on the boss channel.
+
+    ``seen``: the mission whose result post the button was under (``shortcuts.MissionsButton``):
+    the player has read that result, so the board does not show it again.
+    """
+    from . import missions
+
+    if not await display_gate(interaction, stable=True, boss_channel=True):
+        return False
+    if not await ui.ack(interaction):
+        return False  # Discord gave the click up: the player saw "interaction failed"
+    log.info("Hub: missions clicked by %s.", interaction.user.id)
+    return bool(await _guarded(interaction, lambda: missions.show_board(ui.scene_of(interaction), seen=seen)))
+
+
 def display_blocked_while_busy(bot: "AlterBot") -> bool:
     """Whether display-only buttons wait for a free channel (as ``guards.unless_busy(read_only=True)``)."""
     return getattr(getattr(bot, "settings", None), "busy_policy", "notify") != "read_only_free"
@@ -341,15 +372,17 @@ async def show_display(interaction: Any, show: Callable[["Scene"], Awaitable[Any
     return True
 
 
-async def display_gate(interaction: Any, *, stable: bool = False) -> bool:
+async def display_gate(interaction: Any, *, stable: bool = False, boss_channel: bool = False) -> bool:
     """May a display button show something now?  Refusals are answered here.
 
-    Also the gate of the buttons under the album (features/album.py): they only
-    show something, and must not make a fight stutter either.  ``stable``: the
-    button of the stable - it also works while the busy holder keeps the stable
-    open (the sign-up of the "Trening towarzyszy" event), as ``!stajnia`` does.
+    Also the gate of the buttons under the album (features/album.py) and of
+    the mission board's buttons that only change the view (features/missions.py):
+    they only show something, and must not make a fight stutter either.
+    ``stable``: the button of the stable - it also works while the busy holder
+    keeps the stable open (the sign-up of the "Trening towarzyszy" event), as
+    ``!stajnia`` does.  ``boss_channel``: only on the boss channel (the missions).
     """
-    if not await ui.gate(interaction, boss_channel=False,
+    if not await ui.gate(interaction, boss_channel=boss_channel,
                          unless_busy=display_blocked_while_busy(interaction.client), stable=stable):
         return False
     if challenge.fight_on(interaction.channel):

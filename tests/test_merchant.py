@@ -498,6 +498,23 @@ async def test_the_pouch_is_sold_once_per_player(game_db, cart):
     await asyncio.gather(task, return_exceptions=True)
 
 
+async def test_the_pouch_is_not_sold_to_the_owner_of_the_big_pouch(game_db, cart):
+    """The Duża sakwa (a companion mission's reward) is a pouch too: the merchant sells only the first one."""
+    game, db = game_db, game_db.bot.db
+    cart("egg_pouch")
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=600, egg_pouch=True, big_pouch=True)
+    assert await pets.has_egg_pouch(game.bot, ala.id) is True and await pets.pouch_size(game.bot, ala.id) == 2
+    task = start(game)
+    panel = await game.wait_for_buttons(merchant.buy_key(0))
+    refused = await game.click(panel, ala, merchant.buy_key(0))
+    await until(lambda: refused.answers)
+    assert refused.answers == [merchant.MSG_HAS_POUCH] and await scrolls_of(db, ala.id) == 600
+    assert (await row(db, ala.id))["big_pouch"] is True
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
 async def test_an_egg_in_the_pouch_does_not_grow(game_db, monkeypatch):
     game, db = game_db, game_db.bot.db
     ala = game.add_member("Ala")

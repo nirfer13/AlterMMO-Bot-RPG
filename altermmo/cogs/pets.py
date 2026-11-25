@@ -348,7 +348,7 @@ class PetsCog(commands.Cog, name="Pets"):
             await io.send(ctx.channel, f"Pet {pet_id} przypisany do gracza <@{player_id}>.")
         else:
             await io.send(ctx.channel, f"Pet {pet_id} nie został przypisany: gracz <@{player_id}> ma już "
-                                       "towarzysza albo taki pet nie istnieje.")
+                                       "towarzysza, taki pet nie istnieje albo jest na zleceniu.")
 
 
 async def setup(bot) -> None:

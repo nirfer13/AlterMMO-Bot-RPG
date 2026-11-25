@@ -37,6 +37,7 @@ SCHEMA_MODULES: tuple[str, ...] = (
     "altermmo.features.album",
     "altermmo.features.tower",
     "altermmo.features.twitch",
+    "altermmo.features.missions",
 )
 
 
@@ -160,13 +161,21 @@ EXPECTED_COLUMNS: dict[str, dict[str, str]] = {
     "record": {"id": "numeric", "record_time": "character varying", "nick": "character varying"},
     "history": {"id": "numeric", "fight_time": "character varying", "nick": "character varying"},
     "ranking": {"id": "character varying", "nick": "character varying", "points": "numeric"},
-    "petowner": {"player_id": "numeric", "pet_id": "numeric", "pet_owned": "boolean", "reroll_scroll": "numeric", "reroll_scroll_shard": "numeric", "rebirth_stones": "numeric", "mirrors": "numeric", "pet_id_alt1": "numeric", "pet_id_alt2": "numeric", "skill_gem": "numeric", "pet_id_alt3": "numeric", "pet_id_alt4": "numeric", **{f"pet_id_alt{place}": "numeric" for place in range(5, 11)}, "stable_places": "numeric", "egg_pouch": "boolean", "pouch_pet_id": "numeric"},  # pet_id_alt5 .. pouch_pet_id: new in v2 (the wandering merchant), see add_new_columns
+    "petowner": {"player_id": "numeric", "pet_id": "numeric", "pet_owned": "boolean", "reroll_scroll": "numeric", "reroll_scroll_shard": "numeric", "rebirth_stones": "numeric", "mirrors": "numeric", "pet_id_alt1": "numeric", "pet_id_alt2": "numeric", "skill_gem": "numeric", "pet_id_alt3": "numeric", "pet_id_alt4": "numeric", **{f"pet_id_alt{place}": "numeric" for place in range(5, 11)}, "stable_places": "numeric", "egg_pouch": "boolean", "pouch_pet_id": "numeric", "big_pouch": "boolean", "pouch_pet_id2": "numeric", "summon_scrolls": "numeric"},  # pet_id_alt5 .. pouch_pet_id: new in v2 (the wandering merchant), big_pouch .. summon_scrolls: the companion missions, see add_new_columns
     "pets": {"pet_id": "numeric", "pet_name": "character varying", "pet_lvl": "numeric", "pet_skills": "numeric", "quality": "character varying", "shiny": "boolean", "type": "character varying", "variant": "character varying", "crit_perc": "numeric", "replace_perc": "numeric", "def_perc": "numeric", "drop_perc": "numeric", "lowhp_perc": "numeric", "slow_perc": "numeric", "init_perc": "numeric", "detection": "boolean", "ultra_shiny": "boolean", "mythic": "boolean", "seal": "numeric", "holo": "boolean", "frame": "character varying", "holo_partial": "boolean"},  # seal .. holo_partial: new in v2, see add_new_columns
     "skills": {"skill_id": "numeric", "gem_name": "character varying", "skill_variant": "numeric", "slow_perc": "numeric"},
     "skillpouch": {"player_id": "numeric", "skill_id": "numeric"},  # new in v2, see create_new_tables
     "achievements": {"player_id": "numeric", "boss_kills": "numeric", "hunts": "numeric", "butchers": "numeric"},
     # new in v2 (features/album.py, see create_new_tables): the album's own columns + the snapshot of a PETS row
     "pet_album": {"entry_id": "bigint", "player_id": "numeric", "added_at": "timestamp with time zone", "pet_id": "numeric", "pet_name": "character varying", "pet_lvl": "numeric", "pet_skills": "numeric", "quality": "character varying", "shiny": "boolean", "type": "character varying", "variant": "character varying", "crit_perc": "numeric", "replace_perc": "numeric", "def_perc": "numeric", "drop_perc": "numeric", "lowhp_perc": "numeric", "slow_perc": "numeric", "init_perc": "numeric", "detection": "boolean", "ultra_shiny": "boolean", "mythic": "boolean", "seal": "numeric", "holo": "boolean", "frame": "character varying", "holo_partial": "boolean"},
+    # new in v2 (features/missions.py, see create_new_tables): the companion missions, one row per board
+    "pet_missions": {"mission_id": "bigint", "player_id": "numeric", "period_start": "timestamp with time zone",
+                     "rolled_at": "timestamp with time zone", "offers": "text", "rerolls": "integer", "status": "text",
+                     "chosen": "integer", "pet_id": "numeric", "pet_place": "integer", "pet_snapshot": "text",
+                     "chance": "integer", "roll": "integer", "outcome": "text",
+                     "sent_at": "timestamp with time zone", "ends_at": "timestamp with time zone",
+                     "paid_at": "timestamp with time zone", "result": "text", "announced_at": "timestamp with time zone",
+                     "seen_at": "timestamp with time zone"},
     "tower": {"player_id": "numeric", "tower_level": "numeric", "time": "character varying"},
     "chatters_information": {"chtr_id": "integer", "chtr_name": "text", "chtr_time": "integer", "chtr_comments": "integer", "chtr_isvip": "boolean", "chtr_issub": "boolean", "chtr_ismod": "boolean", "chtr_isbroadcaster": "boolean", "discord_id": "text", "watchstreak": "integer"},
     "treasure_table": {"chtr_id": "integer", "chtr_name": "text", "windatetime": "text"},

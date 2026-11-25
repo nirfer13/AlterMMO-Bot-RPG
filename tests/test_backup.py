@@ -533,6 +533,20 @@ async def test_emptied_pet_album_is_normal_but_a_lost_one_is_reported(db, folder
     assert lost.shrunk == (("pet_album", 2, 0),) and "pet_album" in lost.missing
 
 
+async def test_an_emptied_mission_history_is_reported(db, folders):
+    """(Companion missions, spec rev. 2 §6.1) PET_MISSIONS is the history of every board - its rows are never
+    deleted, so even a small table that becomes empty is a real loss (it is NOT in MAY_BECOME_EMPTY)."""
+    assert "pet_missions" in backup.TABLES
+    assert "pet_missions" not in backup.MAY_BECOME_EMPTY and "pet_missions" not in backup.SHRINK_BY_DESIGN
+    await db.execute("INSERT INTO PET_MISSIONS (PLAYER_ID, PERIOD_START, OFFERS) "
+                     "SELECT g, now(), '[]' FROM generate_series(1, 3) g")
+    await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    await db.execute("DELETE FROM PET_MISSIONS")
+    emptied = await backup.create_backup(db, folders.data, folders.backups, keep=14)
+    assert emptied.shrunk == (("pet_missions", 3, 0),)
+    assert "setval(pg_get_serial_sequence('pet_missions', 'mission_id')" in backup.__doc__
+
+
 async def test_copy_of_the_other_database_is_not_compared_with(db, folders):
     """A copy of the test database (debug) says nothing about the production one."""
     await db.execute("INSERT INTO TOWER (PLAYER_ID, TOWER_LEVEL, TIME) SELECT g, 1, '0:00:01' "

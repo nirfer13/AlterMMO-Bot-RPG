@@ -78,6 +78,7 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.slayer",
     "altermmo.cogs.achievements",
     "altermmo.cogs.album",
+    "altermmo.cogs.missions",
     "altermmo.cogs.collector",
     "altermmo.cogs.xpsteal",
     "altermmo.cogs.twitch",
@@ -104,10 +105,12 @@ def cooldown_text(retry_after: float) -> str:
 #: Start-up note for the owner: a module of the bot cannot be imported (see ``import_all_modules``).
 MSG_MODULES_BROKEN = ("Nie udało się wczytać części kodu bota: {modules}. Funkcje z tych plików nie "
                       "działają - szczegóły są w logu bota.")
-#: Start-up notes for the owner: ``schema.add_new_columns`` could not add what v2 needs.  The
-#: only such columns are the pet cosmetics (``pets.NEW_COLUMNS``) and their copy in the pet album
-#: (``album.NEW_COLUMNS``); the game plays on without them.  One note per start, the one that
-#: says what is really off (:func:`new_columns_note`):
+#: Start-up notes for the owner: ``schema.add_new_columns`` could not add what v2 needs.  Such
+#: columns are the pet cosmetics (``pets.NEW_COLUMNS`` of ``PETS``), their copy in the pet album
+#: (``album.NEW_COLUMNS``) and the ``PETOWNER`` columns of the wandering merchant's goods
+#: (``pets.UPGRADE_COLUMNS``) and of the companion missions (``pets.MISSION_COLUMNS``); the game
+#: plays on without them.  The note says what is really off (:func:`new_columns_note`) - one of
+#: these about ``PETS`` (or the album), one about ``PETOWNER``:
 #: the first cosmetic columns of ``PETS`` (seal / Holo) are missing - all cosmetics are off;
 MSG_NEW_COLUMNS_FAILED = (
     "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Kosmetyka towarzyszy "
@@ -127,6 +130,17 @@ MSG_ALBUM_COLUMNS_FAILED = (
     "albo z częściową folią Holo nie da się zapisać w albumie, więc jego porzucenie jest ODRZUCANE "
     "(gracz dostaje komunikat, towarzysz zostaje u niego). Pozostali towarzysze trafiają do albumu "
     "normalnie - reszta gry działa normalnie. Bot spróbuje ponownie przy następnym starcie.")
+#: ``PETOWNER`` lacks the merchant's columns (stable places 5-10, the egg pouch; then also the missions');
+MSG_OWNER_COLUMNS_FAILED = (
+    "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Miejsca w stajni 5-10, Sakwa na jajko, "
+    "Duża sakwa i Zwoje przywołania są WYŁĄCZONE: stajnia ma 4 miejsca, kupiec nie sprzedaje miejsc ani sakwy, "
+    "a takie nagrody ze zleceń zamieniają się w zwoje odrodzenia - reszta gry działa normalnie. Bot spróbuje "
+    "ponownie przy następnym starcie.")
+#: ... ``PETOWNER`` lacks only the companion missions' columns (the Duża sakwa, the summoning scrolls).
+MSG_MISSION_COLUMNS_FAILED = (
+    "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Duża sakwa i Zwoje przywołania są "
+    "WYŁĄCZONE: takie nagrody ze zleceń zamieniają się w zwoje odrodzenia, a **!przywolaj** odpowiada, że zwoje "
+    "są niedostępne - reszta gry działa normalnie. Bot spróbuje ponownie przy następnym starcie.")
 
 
 def new_columns_note(not_added: list[str], problems: list[str]) -> str | None:
@@ -138,8 +152,11 @@ def new_columns_note(not_added: list[str], problems: list[str]) -> str | None:
     (only those columns of ``PETS``), or keeping such a pet in the album (only
     the album's columns).  ``add_new_columns`` adds a table's columns all or
     none, and without the frame columns of ``PETS`` no pet has a rare frame -
-    so the first case that applies is the whole truth.  None when nothing new
-    is missing after all (the columns are there: nothing is off).
+    so the first case that applies is the whole truth.  ``PETOWNER`` is
+    another table: its note (the merchant's columns - the missions' are then
+    missing too -, or only the missions') is added to that one, joined with a
+    space.  None when nothing new is missing after all (the columns are
+    there: nothing is off).
 
     A feature module that cannot be imported is skipped (never raised): its
     own start-up note (:data:`MSG_MODULES_BROKEN`) tells the owner, and an
@@ -154,17 +171,25 @@ def new_columns_note(not_added: list[str], problems: list[str]) -> str | None:
         from .features import pets  # (the feature modules import this module's neighbours)
     except Exception:  # noqa: BLE001 - see MSG_MODULES_BROKEN
         return None
+    owner_missing = {column for table, column in missing if table == "petowner"}
+    owner_note = None
+    if owner_missing & set(pets.UPGRADE_COLUMNS):
+        owner_note = MSG_OWNER_COLUMNS_FAILED.format(problems=details)
+    elif owner_missing & set(pets.MISSION_COLUMNS):
+        owner_note = MSG_MISSION_COLUMNS_FAILED.format(problems=details)
+    pets_note = None
     if any(("pets", column) in missing for column in pets.COSMETIC_COLUMNS):
-        return MSG_NEW_COLUMNS_FAILED.format(problems=details)
-    if any(("pets", column) in missing for column in pets.FRAME_COLUMNS):
-        return MSG_FRAME_COLUMNS_FAILED.format(problems=details)
-    try:
-        from .features import album
-    except Exception:  # noqa: BLE001 - see MSG_MODULES_BROKEN (and its columns are not in ``missing``)
-        return None
-    if any(table == album.TABLE.lower() for table, _ in missing):
-        return MSG_ALBUM_COLUMNS_FAILED.format(problems=details)
-    return None
+        pets_note = MSG_NEW_COLUMNS_FAILED.format(problems=details)
+    elif any(("pets", column) in missing for column in pets.FRAME_COLUMNS):
+        pets_note = MSG_FRAME_COLUMNS_FAILED.format(problems=details)
+    else:
+        try:
+            from .features import album
+        except Exception:  # noqa: BLE001 - see MSG_MODULES_BROKEN (and its columns are not in ``missing``)
+            album = None
+        if album is not None and any(table == album.TABLE.lower() for table, _ in missing):
+            pets_note = MSG_ALBUM_COLUMNS_FAILED.format(problems=details)
+    return " ".join(note for note in (pets_note, owner_note) if note) or None
 
 
 def _importable_new_columns() -> list[tuple[str, str, str]]:
@@ -200,7 +225,10 @@ MSG_DATABASE_DOWN_AT_START = (
     "nowe ramki i częściowa folia Holo nie są losowane ani zapisywane; tabelę PET_ALBUM bot utworzy "
     "sam przy pierwszym porzuceniu towarzysza przez wspierającego (do tego czasu album jest pusty), "
     "a bez samych jej kolumn FRAME / HOLO_PARTIAL "
-    "odrzucane jest porzucenie towarzysza z rzadką ramką albo częściową folią Holo. "
+    "odrzucane jest porzucenie towarzysza z rzadką ramką albo częściową folią Holo; "
+    "tabelę PET_MISSIONS (zlecenia towarzyszy) bot utworzy sam przy pierwszym otwarciu tablicy zleceń (do tego "
+    "czasu nikt nie jest na zleceniu), a bez kolumn BIG_POUCH / POUCH_PET_ID2 / SUMMON_SCROLLS tabeli PETOWNER "
+    "Duża sakwa i Zwoje przywołania są wyłączone. "
     "Reszta gry działa normalnie.")
 #: Start-up note: the library that composes the pet cards is missing on this machine.
 MSG_NO_PILLOW = (

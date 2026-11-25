@@ -450,6 +450,43 @@ def test_next_resets(now, daily_reset, season_end):
     assert daily.next_season_end(now) == season_end
 
 
+@pytest.mark.parametrize("at, reset", [
+    (_warsaw(2026, 11, 18, 2, 29, 59), _warsaw(2026, 11, 17, 2, 30)),    # a second before the reset
+    (_warsaw(2026, 11, 18, 2, 30), _warsaw(2026, 11, 18, 2, 30)),        # at the reset: inclusive
+    (_warsaw(2026, 11, 18, 23, 0), _warsaw(2026, 11, 18, 2, 30)),
+    (_warsaw(2026, 11, 23, 14, 59, 59), _warsaw(2026, 11, 23, 2, 30)),   # Monday, before the season end
+    (_warsaw(2026, 11, 23, 15, 0), _warsaw(2026, 11, 23, 15, 0)),        # Monday 15:00: a second period
+    (_warsaw(2026, 11, 24, 2, 29), _warsaw(2026, 11, 23, 15, 0)),        # ... until Tuesday 02:30
+    (_warsaw(2026, 11, 24, 2, 30), _warsaw(2026, 11, 24, 2, 30)),
+    (_warsaw(2026, 3, 29, 1, 0), _warsaw(2026, 3, 28, 2, 30)),           # summer time starts at 02:00
+    (_warsaw(2026, 3, 29, 4, 0), _warsaw(2026, 3, 29, 2, 30)),
+    (_warsaw(2026, 10, 25, 1, 0), _warsaw(2026, 10, 24, 2, 30)),         # winter time: 02:30 comes twice
+    (_warsaw(2026, 10, 25, 4, 0), _warsaw(2026, 10, 25, 2, 30)),
+])
+def test_previous_daily_reset(at, reset):
+    assert daily.previous_daily_reset(at) == reset
+
+
+def test_previous_daily_reset_on_the_dst_days_is_one_moment():
+    """The period start is the same instant all day (the missions' unique key), whatever the offset."""
+    spring = {daily.previous_daily_reset(_warsaw(2026, 3, 29, hour, 0)).astimezone(clock.UTC) for hour in range(4, 24)}
+    autumn = {daily.previous_daily_reset(_warsaw(2026, 10, 25, hour, 0)).astimezone(clock.UTC) for hour in range(3, 24)}
+    assert spring == {datetime(2026, 3, 29, 1, 30, tzinfo=clock.UTC)}     # 02:30 CET, as next_daily_reset says
+    assert autumn == {datetime(2026, 10, 25, 0, 30, tzinfo=clock.UTC)}    # the first 02:30 (summer time)
+
+
+def test_previous_daily_reset_is_the_counterpart_of_the_next():
+    """Every reset the hunt announces is, at that moment, the start of the period - over both DST days."""
+    from datetime import timedelta
+
+    for start in (_warsaw(2026, 3, 20, 0, 0), _warsaw(2026, 10, 18, 0, 0), _warsaw(2026, 11, 16, 0, 0)):
+        for step in range(0, 14 * 24 * 4):
+            moment = start + timedelta(minutes=15 * step)
+            upcoming = daily.next_daily_reset(moment)
+            assert daily.previous_daily_reset(upcoming) == upcoming
+            assert daily.previous_daily_reset(moment) < upcoming
+
+
 async def test_reset_moments_are_the_ones_of_the_schedule(monkeypatch):
     """The texts promise what cogs/schedule.py really does."""
     seen: dict = {}

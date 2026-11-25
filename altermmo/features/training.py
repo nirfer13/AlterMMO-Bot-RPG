@@ -133,6 +133,9 @@ MSG_TRAINING_NO_PET = ("Nie masz przy sobie towarzysza, którego można wysłać
                        "<:Sadge:936907659142111273> Zajrzyj do stajni (**!stajnia**).")
 MSG_TRAINING_EGG = ("Twój towarzysz to jeszcze jajko - na trening jest za wcześnie <:Bedge:970576892874854400> "
                     "Wyciągnij ze stajni wyklutego towarzysza (**!stajnia**) i kliknij jeszcze raz.")
+#: The companion at his side is on a companion mission (features/missions.py) until ``when``.
+MSG_TRAINING_AWAY = ("Twój towarzysz jest na zleceniu - wróci {when} i dopiero wtedy będzie mógł trenować "
+                     "<:Bedge:970576892874854400>")
 MSG_TRAINING_NOBODY = "*Plac treningowy świeci pustkami...*"
 MSG_TRAINING_DROPPED = "🥚 Bez wyklutego towarzysza u boku nie ma treningu - tym razem odpadają: {players}."
 MSG_TRAINING_ALONE = ("Towarzysz **{pet}** ({mention}) nie ma dziś z kim trenować <:Sadge:936907659142111273> "
@@ -356,8 +359,9 @@ def _fighter(member: Any, pet: Any) -> Fighter:
                    stats={key: _stat(pet, key.lower()) for key in STAT_KEYS})
 
 
+#: ``{away}``: ``pets.sql_not_away`` - a companion on a mission is "no companion" (a read-only query).
 _SQL_SNAPSHOT = """SELECT o.PLAYER_ID AS OWNER_ID, p.* FROM PETOWNER o JOIN PETS p ON p.PET_ID = o.PET_ID
-                   WHERE o.PLAYER_ID = ANY($1::numeric[]) AND o.PET_ID > 0"""
+                   WHERE o.PLAYER_ID = ANY($1::numeric[]) AND o.PET_ID > 0 AND {away}"""
 
 
 async def _snapshot(bot: "AlterBot", members: Sequence[Any]) -> tuple[list[Fighter], list[Any]]:
@@ -366,11 +370,13 @@ async def _snapshot(bot: "AlterBot", members: Sequence[Any]) -> tuple[list[Fight
     One query for everybody - one moment.  From here on the training knows
     only these rows: a companion put into the stable, renamed or rerolled
     later fights as it was.  A player without an active companion, or with an
-    egg, is dropped.
+    egg, is dropped - and so is one whose companion is on a companion mission
+    (defensive: a mission cannot be sent while the sign-up holds the channel).
     """
     if not members:
         return [], []
-    rows = await bot.db.fetch(_SQL_SNAPSHOT, [int(member.id) for member in members])
+    away = pets.sql_not_away("p.PET_ID", await pets.missions_table_ready(bot))
+    rows = await bot.db.fetch(_SQL_SNAPSHOT.format(away=away), [int(member.id) for member in members])
     active: dict[int, Any] = {}
     for row in rows:
         active.setdefault(pets._int(row["owner_id"]), row)
@@ -396,13 +402,17 @@ class _TrainingSignUp(events._SignUp):
         user_id = interaction.user.id
         if user_id in self._clicked:
             return events.MSG_ALREADY_SIGNED
+        bot = self.scene.bot
         try:
-            pet = await pets._active_pet(self.scene.bot.db, int(user_id))
+            pet = await pets._active_pet(bot.db, int(user_id))
+            until = await pets.away_until(bot, bot.db, pet["pet_id"]) if pet is not None else None
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - the database hiccuped: the player may click again
             log.exception("Training: the companion of %s could not be read.", user_id)
             return ui.MSG_FAILED
+        if until is not None:  # (on a companion mission: back at ``until``)
+            return MSG_TRAINING_AWAY.format(when=ui.when(until))
         if pet is None:
             return MSG_TRAINING_NO_PET
         if pets._int(pet["pet_lvl"]) < 1:

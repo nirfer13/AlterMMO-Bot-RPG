@@ -194,6 +194,9 @@ MSG_NO_SUCH_TRAVELLER = ("Niestety podany podróżnik nie istnieje. "
                          "Moc Twojego kamienia umiejętności została wyczerpana.")
 MSG_TRAVELLER_WITHOUT_PET = ("Niestety podany podróżnik nie posiada aktualnie towarzysza "
                              "<:Sadge:936907659142111273> Moc Twojego kamienia umiejętności została wyczerpana.")
+#: The traveller's companion is on a companion mission (features/missions.py) until ``when``.
+MSG_TRAVELLER_PET_AWAY = ("Towarzysz <@{player_id}> jest teraz na zleceniu (wróci {when}), więc moc klejnotu go "
+                          "nie dosięgła <:Hmm:984767035617730620>")
 MSG_FESTIVAL_DONE = ("Wygląda na to, że bossowie i potwory odczuwają efekty Twojego kamienia umiejętności "
                      "<:MonkaChrist:783992337075929098>")
 MSG_SLOW_DONE = "Klejnot sprawia, że przeciwnicy lepią się od błota i poruszają się znacznie wolniej."
@@ -234,14 +237,6 @@ def _int(value: Any) -> int:
     try:
         return int(value) if value is not None else 0
     except (TypeError, ValueError, ArithmeticError):
-        return 0
-
-
-def _affected(command_tag: str) -> int:
-    """Number of rows from a command tag such as ``UPDATE 1``."""
-    try:
-        return int(str(command_tag).split()[-1])
-    except (ValueError, IndexError):
         return 0
 
 
@@ -967,12 +962,20 @@ async def skill_make_shiny(scene: "Scene") -> bool:
         await scene.send(MSG_NO_SUCH_TRAVELLER)
         return False
 
-    changed = await bot.db.execute(
-        """UPDATE PETS SET SHINY = TRUE
-           WHERE PET_ID IN (SELECT PET_ID FROM PETOWNER WHERE PLAYER_ID = $1 AND PET_ID > 0)""",
-        user_id, idempotent=True)
-    if _affected(changed) == 0:
+    # One transaction: the pet is locked first and "away" is asked in a statement of its own (a NOT
+    # EXISTS folded into the UPDATE would not see a mission sent while it waited for the lock).
+    until = None
+    async with bot.db.transaction() as con:
+        pet = await pets._active_pet(con, user_id, lock=True)
+        if pet is not None:
+            until = await pets.away_until(bot, con, pet["pet_id"])
+            if until is None:
+                await con.execute("UPDATE PETS SET SHINY = TRUE WHERE PET_ID = $1", pet["pet_id"])
+    if pet is None:
         await scene.send(MSG_TRAVELLER_WITHOUT_PET)
+        return False
+    if until is not None:  # (the gem's use is spent anyway, as for a traveller without a pet)
+        await scene.send(MSG_TRAVELLER_PET_AWAY.format(player_id=user_id, when=ui.when(until)))
         return False
 
     log.info("Skill gem of %s made the pet of player %s shiny.", author.id, user_id)

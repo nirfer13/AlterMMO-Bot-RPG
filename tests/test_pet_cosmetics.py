@@ -257,6 +257,26 @@ def test_only_supporters_roll_and_only_once(monkeypatch):
     assert asked == [(1000,), (1000,), (10000,)]
 
 
+def test_a_mission_egg_is_better_by_class_only(monkeypatch):
+    """The companion missions' Rzadkie / Nadzwyczajne jajko (``min_class`` with ``rerolls``): a non-supporter's
+    egg is of a better class and still never gets a seal, a foil or a rarer frame (owner, 2026-11-25: the
+    cosmetics stay a supporters' benefit); a supporter's gets the repeats of a special boss's egg."""
+    rig(monkeypatch, randint=lambda low, high: 0 if high == 1000 else low)  # an ordinary roll, drawn again
+    asked = dice(monkeypatch, 0, 0, 9999)
+    for nobody in (FakeMember("Ala"), None):                                  # None: he left the server
+        for min_class, rerolls, flags in ((900, 3, (True, False)), (980, 6, (True, True))):
+            egg = pets.roll_egg(nobody, min_class=min_class, rerolls=rerolls)
+            assert (egg["SHINY"], egg["ULTRA_SHINY"], egg["MYTHIC"]) == (*flags, False)
+            assert (egg["SEAL"], egg["HOLO"], egg["FRAME"], egg["HOLO_PARTIAL"]) == (0, False, "", False)
+    assert asked == []                                                        # nothing was rolled for them
+
+    # Two rolls with nothing but the base look of a Shiny, then the third one is kept.
+    asked = dice(monkeypatch, 999, 999, 0, 999, 999, 0, 0, 0, 9999)
+    egg = pets.roll_egg(crafter(), min_class=900, rerolls=3)
+    assert egg["SHINY"] is True and egg["ULTRA_SHINY"] is False
+    assert (egg["SEAL"], egg["HOLO"], egg["FRAME"]) == (3, True, "R7-A") and len(asked) == 9
+
+
 @pytest.mark.parametrize("egg_roll, shiny, ultra, mythic, tier", [
     (0, False, False, False, ""), (905, True, False, False, "S"), (985, True, True, False, "U"),
     (1000, True, True, True, "M")])
@@ -468,8 +488,10 @@ async def test_the_columns_are_looked_up_once_per_run(game_db, monkeypatch):
         assert await pets.assign_pet(game_db.scene(), game_db.add_member(name)) is True
     assert await pets.cosmetics_available(bot, refresh=True) is True           # a "yes" is never asked again
     assert await pets.frames_available(bot, refresh=True) is True
-    # One look answers both (the merchant's PETOWNER columns are looked up once too, on their own).
-    assert lookups == [(["seal", "holo", "frame", "holo_partial"],), (list(pets.UPGRADE_COLUMNS),)]
+    # One look answers both (the merchant's PETOWNER columns are looked up once too, on their own, and so
+    # are those of the companion missions' Duża sakwa).
+    assert lookups == [(["seal", "holo", "frame", "holo_partial"],), (list(pets.UPGRADE_COLUMNS),),
+                       (list(pets.MISSION_COLUMNS),)]
 
 
 @pytest.mark.parametrize("make, cosmetics_on, frames_on", [
@@ -1169,12 +1191,19 @@ async def test_migration_is_what_the_feature_modules_declare(db):
                                     ("petowner", "stable_places", "NUMERIC NOT NULL DEFAULT 4"),
                                     ("petowner", "egg_pouch", "BOOLEAN NOT NULL DEFAULT FALSE"),
                                     ("petowner", "pouch_pet_id", "NUMERIC NOT NULL DEFAULT 0"),
+                                    # the companion missions' Duża sakwa and summoning scrolls (2026-11-25)
+                                    ("petowner", "big_pouch", "BOOLEAN NOT NULL DEFAULT FALSE"),
+                                    ("petowner", "pouch_pet_id2", "NUMERIC NOT NULL DEFAULT 0"),
+                                    ("petowner", "summon_scrolls", "NUMERIC NOT NULL DEFAULT 0"),
                                     ("pet_album", "frame", "VARCHAR(16) NOT NULL DEFAULT ''"),
                                     ("pet_album", "holo_partial", "BOOLEAN NOT NULL DEFAULT FALSE")]
     assert pets.COSMETIC_COLUMNS == ("seal", "holo") and pets.FRAME_COLUMNS == ("frame", "holo_partial")
     assert [column for table, column, _ in pets.NEW_COLUMNS if table == "pets"] == [*pets.COSMETIC_COLUMNS,
                                                                                    *pets.FRAME_COLUMNS]
-    assert [column for table, column, _ in pets.NEW_COLUMNS if table == "petowner"] == list(pets.UPGRADE_COLUMNS)
+    assert [column for table, column, _ in pets.NEW_COLUMNS if table == "petowner"] == [*pets.UPGRADE_COLUMNS,
+                                                                                       *pets.MISSION_COLUMNS]
+    assert {column: schema.EXPECTED_COLUMNS["petowner"][column] for column in pets.MISSION_COLUMNS} == {
+        "big_pouch": "boolean", "pouch_pet_id2": "numeric", "summon_scrolls": "numeric"}
     assert schema.EXPECTED_COLUMNS["pets"]["seal"] == "numeric"
     assert schema.EXPECTED_COLUMNS["pets"]["holo"] == "boolean"
     assert schema.EXPECTED_COLUMNS["pets"]["frame"] == "character varying"
@@ -1309,7 +1338,12 @@ def test_start_up_note_says_only_what_is_really_missing():
     missing = schema.missing_column
     every = [missing(table, column) for table, column, _ in schema.new_columns()]
     album_only = [missing("pet_album", "frame"), missing("pet_album", "holo_partial")]
-    assert note(["x"], every) == bot_module.MSG_NEW_COLUMNS_FAILED.format(problems="x")   # the worst case wins
+    # The worst case of PETS wins; PETOWNER (the merchant's and the missions' columns) is another table,
+    # its own note follows (companion missions, 2026-11-25).
+    assert note(["x"], every) == (bot_module.MSG_NEW_COLUMNS_FAILED.format(problems="x") + " "
+                                  + bot_module.MSG_OWNER_COLUMNS_FAILED.format(problems="x"))
+    pets_only = [problem for problem in every if not problem.startswith("petowner")]
+    assert note(["x"], pets_only) == bot_module.MSG_NEW_COLUMNS_FAILED.format(problems="x")
     assert note(["x", "y"], [missing("pets", "frame"), *album_only]) == (
         bot_module.MSG_FRAME_COLUMNS_FAILED.format(problems="x; y"))
     assert note(["x"], album_only) == bot_module.MSG_ALBUM_COLUMNS_FAILED.format(problems="x")

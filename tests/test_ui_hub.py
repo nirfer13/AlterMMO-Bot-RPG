@@ -26,11 +26,11 @@ from fakes import FakeInteraction, FakeMember, FakeMessage
 from test_pets import add_owner, add_pet
 from test_ui_daily import active_gem, collector
 
-LABELS = ["Polowanie", "Wieża", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia", "Album", "Pomoc",
+LABELS = ["Polowanie", "Wieża", "Zlecenia", "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia", "Album", "Pomoc",
           "Powiadomienia"]
 #: The custom ids of the panel's buttons: panels pinned long ago still send exactly these.
-BUTTON_IDS = ["altermmo:hub:hunt", "altermmo:hub:tower", "altermmo:hub:pet", "altermmo:hub:stable",
-              "altermmo:hub:gems", "altermmo:hub:rankings", "altermmo:hub:achievements", "altermmo:hub:album",
+BUTTON_IDS = ["altermmo:hub:hunt", "altermmo:hub:tower", "altermmo:hub:missions", "altermmo:hub:pet",
+              "altermmo:hub:stable", "altermmo:hub:gems", "altermmo:hub:rankings", "altermmo:hub:achievements", "altermmo:hub:album",
               "altermmo:hub:help", "altermmo:hub:notify"]
 PATRON = patrons.PATRON_ROLES[0]
 #: Typed words the help mentions that are not commands (answers inside a flow).
@@ -174,7 +174,7 @@ async def test_every_extension_loads_and_permanent_buttons_never_share_an_id(gam
                for custom_id in ids)
     assert {"altermmo:boss:attack", "altermmo:events:chest", "altermmo:events:pray",
             "altermmo:boss-detect-off"} <= set(ids)
-    assert {hub.HUNT_ID, hub.TOWER_ID, hub.PET_ID, hub.STABLE_ID, hub.GEMS_ID, hub.RANKINGS_ID,
+    assert {hub.HUNT_ID, hub.TOWER_ID, hub.MISSIONS_ID, hub.PET_ID, hub.STABLE_ID, hub.GEMS_ID, hub.RANKINGS_ID,
             hub.ACHIEVEMENTS_ID, hub.ALBUM_ID, hub.HELP_ID, hub.NOTIFY_ID} == set(BUTTON_IDS) <= set(ids)
     # Every permanent view is stateless and never times out.
     assert all(view.timeout is None for view in bot.persistent_views)
@@ -261,6 +261,25 @@ def test_panel_fits_discord_limits_and_stays_compact():
     assert "📖 **Album** - kolekcja Twoich poświęconych towarzyszy (dla wspierających).\n" in hub.PANEL_GAME_TEXT
 
 
+def test_the_missions_button_follows_the_tower_and_has_its_line():
+    """(Companion missions, 2026-11-25) "Zlecenia" on row 0 after "Wieża", with its permanent id and its line."""
+    view = hub.HubView()
+    try:
+        children = list(view.children)
+        button = children[2]
+        assert [item.label for item in children[:3]] == ["Polowanie", "Wieża", "Zlecenia"]
+        assert button.custom_id == hub.MISSIONS_ID == "altermmo:hub:missions" and button.row == 0
+        assert str(button.emoji) == "🧭" and button.style is discord.ButtonStyle.primary
+    finally:
+        view.stop()
+    assert ("🏰 **Wieża** - wyrusz na eksplorację Wieży Śmierci (raz w tygodniu). Im wyżej, tym trudniej!\n"
+            "🧭 **Zlecenia** - raz dziennie wyślij towarzysza na zlecenie z tablicy") in hub.PANEL_GAME_TEXT
+    assert hub.PANEL_FOOTER == ("Polowanie, Wieża i Zlecenia działają tylko na tym kanale i nie wtedy, gdy trwa "
+                                "inne wydarzenie.")
+    assert "wysyła towarzysza na zlecenie" in help_cog.HELP_INTRO
+    assert [field.name for field in help_cog.help_embed().fields][-2:] == ["🧭 Zlecenia", "🙏 Wspierający"]
+
+
 def test_panel_buttons_fit_discord_limits_and_keep_their_ids():
     view = hub.HubView()
     try:
@@ -268,7 +287,7 @@ def test_panel_buttons_fit_discord_limits_and_keep_their_ids():
         assert [item.label for item in children] == LABELS
         # Discord: at most 5 rows of at most 5 buttons; ids of at most 100 characters, labels of 80.
         per_row = collections.Counter(item.row for item in children)
-        assert per_row == {0: 2, 1: 3, 2: 4, 3: 1} and max(per_row.values()) <= 5 and len(per_row) <= 5
+        assert per_row == {0: 3, 1: 3, 2: 4, 3: 1} and max(per_row.values()) <= 5 and len(per_row) <= 5
         assert all(len(item.custom_id) <= 100 and len(item.label) <= 80 for item in children)
         # The ids of the buttons that existed before never change (old pinned panels send them);
         # the new button got its own one.
@@ -392,10 +411,10 @@ async def test_panel_is_posted_pinned_remembered_and_survives_the_purge(game, co
     labels = [item.label for item in message.view.children]
     assert labels == LABELS
     rows = [item.row for item in message.view.children]
-    assert rows == [0, 0, 1, 1, 1, 2, 2, 2, 2, 3]
+    assert rows == [0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 3]
     assert [item.custom_id for item in message.view.children] == BUTTON_IDS
     styles = {item.label: item.style for item in message.view.children}
-    assert styles["Polowanie"] is styles["Wieża"] is discord.ButtonStyle.primary
+    assert styles["Polowanie"] is styles["Wieża"] is styles["Zlecenia"] is discord.ButtonStyle.primary
     assert message.pinned and pins == [("pin", message.id)]
     assert bot.store.runtime_get(hub.PANEL_KEY) == {"channel": game.channel.id, "message": message.id}
 

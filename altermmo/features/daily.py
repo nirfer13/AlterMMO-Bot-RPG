@@ -1041,6 +1041,17 @@ def next_daily_reset(after: datetime | None = None) -> datetime:
     return min(clock.next_daily(hour, minute, after=after), next_season_end(after))
 
 
+def previous_daily_reset(at: datetime | None = None) -> datetime:
+    """The last reset at or before ``at``: 02:30 Warsaw or the season end (Monday 15:00), whichever is later.
+
+    The counterpart of :func:`next_daily_reset` (the period of the daily hunt and of the companion missions).
+    """
+    hour, minute = DAILY_RESET_AT
+    weekday, s_hour, s_minute = SEASON_END_AT
+    return max(clock.previous_daily(hour, minute, before=at),
+               clock.previous_weekly(weekday, s_hour, s_minute, before=at))
+
+
 # -- the daily cooldown list -----------------------------------------------------------
 
 def save_daily_to_file(bot: "AlterBot", player_id: int | str) -> None:

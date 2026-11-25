@@ -39,7 +39,17 @@ The owner's conditions: **absolutely nothing may be deleted while a copy is made
   far fewer rows than in the copy before is reported to the owner with a ping
   (:attr:`Backup.shrunk`): that is the moment to put an older copy aside.
 * Restoring is deliberately not a bot command: putting data back means
-  overwriting, and that should be a human's decision.
+  overwriting, and that should be a human's decision.  The ids the database
+  counts itself (``GENERATED ALWAYS AS IDENTITY``: the pet album's
+  ``ENTRY_ID``, the companion missions' ``MISSION_ID``) are not part of the
+  CSV copy - after putting those rows back, move each counter past them::
+
+      SELECT setval(pg_get_serial_sequence('pet_album', 'entry_id'), MAX(ENTRY_ID)) FROM PET_ALBUM;
+      SELECT setval(pg_get_serial_sequence('pet_missions', 'mission_id'), MAX(MISSION_ID)) FROM PET_MISSIONS;
+
+  (``PET_MISSIONS`` is the history of every board - its rows are never
+  deleted, so it is not in :data:`MAY_BECOME_EMPTY`: an emptied copy of it is
+  reported.)
 
 The database address (it holds the password) is never written into a copy.
 
