@@ -429,7 +429,7 @@ class EventsCog(commands.Cog, name="Events"):
         if success:
             summoned = await bot.boss_cycle.summon(scene, rarity, show_image=False,
                                                    is_player_boss=is_player_boss,
-                                                   player_boss=player_boss, variant=variant)
+                                                   player_boss=player_boss, variant=variant, origin="ritual")
             if not summoned:
                 # Cannot happen in practice (spawn_ritual checked a moment ago and
                 # nothing was awaited since); if it does, say that this boss is not real.

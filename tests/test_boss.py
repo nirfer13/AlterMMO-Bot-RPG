@@ -20,8 +20,8 @@ from altermmo.core import challenge, io, timing
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossInfo, BossPhase
-from altermmo.features import (achievements, boss, bossvariants, database, fight_types, modifiers, patrons,
-                               xpsteal)
+from altermmo.features import (achievements, boss, bossvariants, database, fight_types, items, modifiers,
+                               patrons, xpsteal)
 
 from fakes import FakeAttachment, FakeMember, FakeMessage, requested_word
 
@@ -201,6 +201,8 @@ def test_real_loot_config_is_readable(monkeypatch):
     for rarity in range(6):
         table = boss._loot_table(rarity)
         assert table and all({"id", "descr", "weight"} <= set(item) for item in table)
+        # (The new items of features/items.py ship with weight 0 - deploy safety; the older rows never.)
+        assert all(item["weight"] > 0 for item in table if item["id"] not in items.BY_LOOT_ID)
     assert boss._loot_table(5) == boss._loot_table(3)
 
 
@@ -360,6 +362,51 @@ async def test_loot_item_that_fails_does_not_cost_the_others(game, pets, loot, m
     message = await boss.rand_loot(game.scene(), 2, player, 0)
     assert "Jajko" not in message and "👉 Kamień\n" in message and "👉 Klejnot\n" in message
     assert any("Nie udało się przyznać łupu" in line and "Jajko" in line for line in game.bot.owner_log)
+
+
+async def test_loot_rows_drop_only_from_their_sources_and_weight_0_never(game, pets, loot, monkeypatch):
+    """(Items, 2026-11-26) ``"sources"`` and ``"boost": false`` of a row; a row that cannot drop rolls no die."""
+    rolls: list[float] = []
+    monkeypatch.setattr(random, "random", lambda: rolls.append(0.0) or 0.0)    # every row that is rolled drops
+    player = game.add_member("Ala")
+    fig = {"id": 1, "descr": "Wszędzie", "weight": 100}
+    loot(Mythic=[fig, {**fig, "descr": "Zero", "weight": 0}, {**fig, "descr": "Boss", "sources": ["boss"]},
+                 {**fig, "descr": "Przywołany", "sources": ["summoned"]},
+                 {**fig, "descr": "Wieża", "sources": ["tower", "duel"]},
+                 {**fig, "descr": "Bez wzmocnienia", "weight": 60, "boost": False}])
+    # A scheduled boss (nothing set: the default), with a boost that would double every weight.
+    assert await boss.rand_loot(game.scene(), 4, player, 100) == (
+        "👉 Wszędzie\n👉 Wszędzie (Bonus)\n👉 Boss\n👉 Boss (Bonus)\n👉 Bez wzmocnienia\n")
+    assert len(rolls) == 3                                    # "Zero", "Przywołany", "Wieża": no die at all
+    for source, line in (("summoned", "Przywołany"), ("tower", "Wieża"), ("duel", "Wieża"), ("boss", "Boss")):
+        with items.loot_source(source):
+            assert await boss.rand_loot(game.scene(), 4, player, 0) == (
+                f"👉 Wszędzie\n👉 {line}\n👉 Bez wzmocnienia\n"), source
+    assert items.LOOT_SOURCE.get() is None
+    # Weight 0 never drops - not even when random() returns exactly 0.0 (it did before the guard).
+    loot(Mythic=[{**fig, "weight": 0}, {**fig, "weight": 0, "boost": False}])
+    rolls.clear()
+    assert await boss.rand_loot(game.scene(), 4, player, 500) == "" and rolls == []
+
+
+async def test_a_new_item_goes_to_the_items_module_and_a_reserved_id_stays_text(game, pets, loot, monkeypatch):
+    given: list = []
+    answer = [True]
+
+    async def grant_drop(bot, hunter, loot_id):
+        given.append((hunter.id, loot_id))
+        return answer[0]
+
+    monkeypatch.setattr(items, "grant_drop", grant_drop)
+    player = game.add_member("Ala")
+    key = {"id": 17, "descr": "🗝️ **Klucz do wieży**!", "weight": 100}
+    loot(Epic=[key, {"id": 24, "descr": "Róg Strzyboga", "weight": 100}])
+    assert await boss.rand_loot(game.scene(), 2, player, 0) == (
+        f"👉 🗝️ **Klucz do wieży**!\n{items.DROP_HINT}\n👉 Róg Strzyboga\n")
+    assert given == [(player.id, 17)] and pets.calls == []
+    answer[0] = False                                         # the store is not there: the line is left out
+    assert await boss.rand_loot(game.scene(), 2, player, 0) == "👉 Róg Strzyboga\n"
+    assert given == [(player.id, 17), (player.id, 17)] and game.bot.owner_log == []
 
 
 async def test_loot_survives_a_failed_embed_and_unknown_rarity(game, loot):
@@ -1098,6 +1145,22 @@ async def test_every_member_of_the_party_gets_the_bonus(game_db, pets, loot, spe
     team_answers(game_db, players)
     assert (await boss.group_fight(game_db.scene(players[0]), players, False, None)).won
     assert seen == [(3, player.id, {}) for player in players] and pets.bonus == [{}] * 4
+
+
+async def test_duel_loot_is_drawn_as_a_duels(game_db, pets, loot, monkeypatch):
+    """(Items, 2026-11-26) the winner's loot comes from ``"duel"``: some rows never drop in a duel."""
+    sources = []
+
+    async def rand_loot(scene, rarity, hunter, boost_percent, **extra):
+        sources.append(items.LOOT_SOURCE.get())
+        return ""
+
+    monkeypatch.setattr(boss, "rand_loot", rand_loot)
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    pets.skills[ala.id] = {"CRIT_PERC": Decimal("100"), "LOWHP_PERC": Decimal("50")}
+    duel_setup(game_db, ala, ola, starter=ala)
+    assert await boss.duel_fight(game_db.scene(), [ala, ola]) == (True, ala)
+    assert sources == ["duel"] and items.LOOT_SOURCE.get() is None
 
 
 async def test_duel_loot_never_gets_the_bonus(game_db, pets, loot, special, monkeypatch):

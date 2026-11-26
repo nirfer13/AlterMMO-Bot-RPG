@@ -58,7 +58,7 @@ from ..core import challenge, clock, fightlog, guards, io, timing, ui
 from ..core.challenge import Outcome
 from ..core.state import BossPhase
 from ..settings import ASSETS_DIR, CONFIG_DIR, says_command
-from . import achievements, boss, database, modifiers, shortcuts
+from . import achievements, boss, database, items, modifiers, shortcuts
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -303,7 +303,9 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
     """Hand one loot item to ``hunter``; False when there was nothing to give.
 
     (A player who already has a pet gets no egg, a pet at the top level cannot
-    level up...).  Items without a mechanic of their own are text only.
+    level up...).  The new items (ids 16-25, ``features/items.py``) go to the
+    item store (:func:`items.grant_drop`; False only while the store is not
+    there).  Items without a mechanic of their own are text only.
     """
     loot_id = loot["id"]
     if loot_id == LOOT_EGG:
@@ -320,6 +322,8 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
         return bool(await _pets().assign_rebirth_stone(scene, 1, hunter.id))
     if loot_id == LOOT_MIRROR:
         return bool(await _pets().assign_mirror(scene, 1, hunter.id))
+    if items.by_loot_id(loot_id) is not None:
+        return await items.grant_drop(scene.bot, hunter, loot_id)
     return True
 
 
@@ -343,7 +347,10 @@ async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: boo
     if not granted:
         log.info("Monster loot %s rolled for %s but there was nothing to grant.", loot["id"], hunter.id)
         return ""
-    return "👉 " + loot["descr"] + (" (Bonus)\n" if bonus else "\n")
+    line = "👉 " + loot["descr"] + (" (Bonus)\n" if bonus else "\n")
+    if items.by_loot_id(loot["id"]) is not None and not bonus:
+        line += items.DROP_HINT + "\n"
+    return line
 
 
 async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: float) -> str:
@@ -362,6 +369,12 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     does not call ``pets.level_up_pet``, so the random draws of a level-up (the
     talent, the skill) are not made either and the draws after it in this drop
     differ from what they would have been.
+
+    Where the drop comes from (``items.LOOT_SOURCE``; by default the world - a
+    hunt, an event, the training, Twitch - and ``"duel"`` for a duel's walkover
+    and a tournament's lone player) decides which rows may drop, as in
+    ``boss.rand_loot`` (``items.loot_weight``: ``"sources"``, ``"boost": false``,
+    weight 0 never drops).
     """
     bot = scene.bot
     boost = int(boost_percent)
@@ -387,8 +400,11 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
             pet_changed = True
         return line
 
+    source = items.current_source(items.SOURCE_WORLD)
     for loot in _loot_table(int(rarity)):
-        weight = (boost / 100 + 1) * loot["weight"]
+        weight = items.loot_weight(loot, boost, source)
+        if weight <= 0:
+            continue  # (not from here, or weight 0: no die is rolled, the draws after it stay the same)
         if weight > 100:
             drop_message += await drop(loot, False)
             if random.random() * 100 <= weight - 100:

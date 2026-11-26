@@ -40,7 +40,7 @@ from ..core import challenge, fightlog, guards, io, timing, ui
 from ..core.challenge import Outcome
 from ..core.state import BossPhase
 from ..settings import ASSETS_DIR
-from . import boss, daily, database
+from . import boss, daily, database, items
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -307,9 +307,10 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
                         scene.send(MSG_FLOOR_CLEARED.format(user_id=hunter.id)), context=context)
     await daily.guarded(bot, "czas walki", scene.send(daily.fight_time_message(fight_time, floor_hp)),
                         context=context)
-    await daily.guarded(bot, f"łup <@{hunter.id}> za piętro {tower_level}",
-                        boss.rand_loot(scene, floor_loot_rarity(tower_level), hunter, pet["DROP_PERC"]),
-                        context=context)
+    with items.loot_source(items.SOURCE_TOWER):  # (some rows never drop in the tower: features/items.py)
+        await daily.guarded(bot, f"łup <@{hunter.id}> za piętro {tower_level}",
+                            boss.rand_loot(scene, floor_loot_rarity(tower_level), hunter, pet["DROP_PERC"]),
+                            context=context)
     await daily.guarded(bot, f"rekord wieży <@{hunter.id}> (piętro {tower_level})",
                         _store_record(bot, hunter.id, tower_level, fight_time), context=context)
     return True

@@ -13,7 +13,7 @@ import pytest
 import altermmo.features
 from altermmo.core import clock, io
 from altermmo.core.state import BossInfo, BossPhase
-from altermmo.features import boss_cycle, database
+from altermmo.features import boss_cycle, database, items
 from altermmo.features.fight_types import FightInterrupted, FightResult
 from altermmo.settings import Timings
 
@@ -37,6 +37,8 @@ class StubBoss:
         self.variant = ""
         #: The extra keywords of every fight ({} = the call as it always was).
         self.special: list[dict] = []
+        #: Where the loot of every fight would come from (``items.LOOT_SOURCE``; None: a scheduled boss).
+        self.sources: list = []
 
     def rarity_for_respawn_time(self, seconds, *, debug):
         return self.base_rarity
@@ -58,6 +60,7 @@ class StubBoss:
     async def single_fight(self, scene, hunter, rarity, is_player_boss, player_boss, **special):
         self.calls.append(("single_fight", hunter.name, rarity))
         self.special.append(special)
+        self.sources.append(items.LOOT_SOURCE.get())
         if self.fight_gate is not None:
             await self.fight_gate.wait()
         if self.fight_error is not None:
@@ -72,6 +75,7 @@ class StubBoss:
     async def group_fight(self, scene, players, is_player_boss, player_boss, **special):
         self.calls.append(("group_fight", len(players)))
         self.special.append(special)
+        self.sources.append(items.LOOT_SOURCE.get())
         return self.result
 
     async def reset_end(self, bot):
@@ -546,6 +550,63 @@ async def test_summoned_boss_comes_back_after_a_restart(game_db, cycle, stub):
     assert bot.store.runtime_get("summoned_boss_rarity") is None      # dealt with: not brought back again
     await wait_phase(bot, BossPhase.WAITING)
     assert bot.boss_cycle.arrives_at == planned                       # ...and the scheduled boss still comes
+
+
+async def test_a_summoned_boss_keeps_its_origin_across_a_restart_and_its_loot_is_a_summoned_ones(game_db, cycle,
+                                                                                                 stub):
+    """(Items, 2026-11-26) ``BossInfo.origin`` and its own key in runtime.json (the rarity stays a plain int)."""
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN
+    player = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(player), 4, origin="scroll")
+    assert bot.state.boss.origin == "scroll"
+    assert bot.store.runtime_get("summoned_boss_rarity") == 4
+    info = bot.store.runtime_get("summoned_boss_info")
+    assert info["origin"] == "scroll" and abs((datetime.fromisoformat(info["at"]) - clock.utcnow()).total_seconds()) < 5
+
+    # "Restart" as in test_summoned_boss_comes_back_after_a_restart: the origin comes back with the boss.
+    bot.supervisor.stop(boss_cycle.LOOP_NAME)
+    await bot.state.set_boss_phase(BossPhase.IDLE)
+    bot.boss_cycle = boss_cycle.BossCycle(bot)
+    bot.boss_cycle.start()
+    await wait_phase(bot, BossPhase.VISIBLE)
+    assert bot.state.boss_rarity == 4 and bot.state.boss.origin == "scroll"
+    await bot.boss_cycle.attack(game_db.scene(player))
+    assert stub.sources == ["summoned"] and items.LOOT_SOURCE.get() is None
+    assert bot.store.runtime_get("summoned_boss_rarity") is None and bot.store.runtime_get("summoned_boss_info") is None
+    await wait_phase(bot, BossPhase.WAITING)
+
+    # A gem boss (and any summon that names no origin) is summoned as well; an unknown origin is none.
+    assert await bot.boss_cycle.summon(game_db.scene(player), 2, origin="nonsense")
+    assert bot.state.boss.origin == "" and bot.store.runtime_get("summoned_boss_info")["origin"] == ""
+    await bot.boss_cycle.attack(game_db.scene(player))
+    assert stub.sources == ["summoned", "summoned"]
+
+
+async def test_a_scheduled_boss_draws_the_loot_of_a_scheduled_boss(game_db, cycle, stub):
+    bot = game_db.bot
+    player = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.VISIBLE)
+    assert bot.state.boss.origin == "" and bot.store.runtime_get("summoned_boss_info") is None
+    await cycle.attack(game_db.scene(player))
+    assert stub.sources == [None]                              # (boss.rand_loot's default: "boss")
+
+
+async def test_the_summoning_paths_name_their_origin():
+    """The scroll, the gem and the ritual say how their boss came (BossCycle.summon's ``origin``)."""
+    import inspect
+
+    from altermmo.cogs import events as events_cog
+    from altermmo.features import missions, skills
+
+    assert boss_cycle.SUMMON_ORIGINS == ("", "scroll", "gem", "ritual")
+    assert inspect.signature(boss_cycle.BossCycle.summon).parameters["origin"].default == ""
+    assert 'summon(scene, SUMMON_RARITY, origin="scroll")' in inspect.getsource(missions._read_scroll)
+    assert 'summon(scene, rarity, origin="gem")' in inspect.getsource(skills)
+    assert 'origin="ritual"' in inspect.getsource(events_cog)
 
 
 async def test_switching_spawning_on_does_not_wipe_a_summoned_boss(game_db, cycle, stub):

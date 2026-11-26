@@ -61,8 +61,9 @@ def fight_on(channel: Any) -> bool:
     (:func:`altermmo.core.ui.reply`), buttons that would show or start
     something are refused silently.  (Every extra message also uses up
     Discord's budget of 5 messages per 5 seconds on the channel, which delays
-    the fight's own prompts.)  Typed commands keep their own busy notice
-    (one per 20 s, ``guards.notify_busy``).
+    the fight's own prompts.)  Typed commands say nothing either: their busy
+    notice (``guards.notify_busy``) is not posted, and the newer commands are
+    refused silently (``guards.not_during_fight``).
     """
     channel_id = getattr(channel, "id", None)
     if channel_id is None:

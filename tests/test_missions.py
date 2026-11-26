@@ -148,8 +148,9 @@ def test_the_shipped_config_validates_and_is_the_catalog_of_the_spec():
     assert [len([m for m in cfg.missions if m.tier == index]) for index in range(3)] == [10, 9, 9]
     assert cfg.slot2 == {"zwykle": 50, "rzadkie": 45, "epickie": 5}
     assert cfg.slot3 == {"zwykle": 0, "rzadkie": 70, "epickie": 30}
-    assert (cfg.pity_after, cfg.reroll_price, cfg.rerolls_per_period, cfg.great_divisor, cfg.summon_cap) == \
-        (4, 5, 1, 10, 3)
+    assert (cfg.pity_after, cfg.reroll_price, cfg.rerolls_per_period, cfg.great_divisor) == (4, 5, 1, 10)
+    # (No cap of the Zwoje przywołania since 2026-11-26; the shipped file keeps the key for the code before.)
+    assert not hasattr(cfg, "summon_cap") and SHIPPED_RAW["summon_cap"] == 3
     assert [cfg.tiers[key].hours for key in missions.TIERS] == [(3, 4, 6), (6, 8, 12), (12, 18, 24)]
     assert cfg.tiers["epickie"].summon == {18: Fraction(1, 100), 24: Fraction(2, 100)}
     assert cfg.eggs == {"egg": (0, 0), "rare_egg": (900, 3), "great_egg": (980, 6)}
@@ -181,7 +182,6 @@ def _broken(change):
 
 @pytest.mark.parametrize("change, said", [
     (lambda raw: raw.update(nowy=1), "unknown nowy"),
-    (lambda raw: raw.pop("summon_cap"), "missing summon_cap"),
     (lambda raw: raw["missions"][0].update(star="rare_egg"), "has no chance"),                # zwykłe: rare_egg 0
     (lambda raw: raw["missions"][3].update(flavour="Wielka Wyprawa po miód."), "'wyprawa'"),
     (lambda raw: raw["missions"][3].update(name="Wpisz $zlecenia"), "'$'"),
@@ -216,6 +216,15 @@ def test_a_broken_config_is_refused(tmp_path, change, said):
     with pytest.raises(missions.ConfigError) as error:
         missions.load_config(path)
     assert said in str(error.value) and "missionsConfig.json" in str(error.value)
+
+
+@pytest.mark.parametrize("change", [lambda raw: raw.pop("summon_cap"), lambda raw: raw.update(summon_cap=0),
+                                    lambda raw: raw.update(summon_cap="dowolnie")])
+def test_the_summon_cap_is_an_optional_key_that_is_not_read(tmp_path, change):
+    """Owner (2026-11-26): no caps anywhere - a file with or without ``summon_cap`` loads the same."""
+    path = tmp_path / "missionsConfig.json"
+    path.write_text(json.dumps(_broken(change), ensure_ascii=False), encoding="utf-8")
+    assert missions.load_config(path) == missions.load_config(SHIPPED)
 
 
 def test_a_config_that_is_no_json_or_missing_is_refused(tmp_path):
@@ -913,11 +922,11 @@ async def test_every_reward_that_cannot_be_given_is_compensated(game_db):
         {"kind": "stone"}, {"kind": "mirror"},
         {"kind": "place", "comp": {"scrolls": 10}},
         {"kind": "pouch", "comp": {"scrolls": 15}},
-        {"kind": "summon", "cap": 3, "comp": {"scrolls": 20}}]
+        {"kind": "summon", "count": 4}]                                       # no cap since 2026-11-26
     owner = await owner_row(db, ala.id)
     assert (owner["reroll_scroll"], owner["reroll_scroll_shard"], owner["rebirth_stones"], owner["mirrors"]) == \
-        (2 + 1 + 3 + 10 + 15 + 20, 1 + 3 + 3, 1, 1)
-    assert (owner["stable_places"], owner["summon_scrolls"]) == (10, 3)
+        (2 + 1 + 3 + 10 + 15, 1 + 3 + 3, 1, 1)
+    assert (owner["stable_places"], owner["summon_scrolls"]) == (10, 4)
     assert await db.fetchval("SELECT COUNT(*) FROM PETS") == eggs_before
     assert (await pet_row(db, 5))["pet_lvl"] == 3
 
@@ -935,10 +944,10 @@ async def test_the_pouch_steps_up_and_the_summoning_scrolls_are_kept(game_db):
         [{"kind": "pouch", "to": "pouch"}, {"kind": "summon", "count": 1}],
         [{"kind": "pouch", "to": "big"}, {"kind": "summon", "count": 2}],
         [{"kind": "pouch", "comp": {"scrolls": 15}}, {"kind": "summon", "count": 3}],
-        [{"kind": "pouch", "comp": {"scrolls": 15}}, {"kind": "summon", "cap": 3, "comp": {"scrolls": 20}}]]
+        [{"kind": "pouch", "comp": {"scrolls": 15}}, {"kind": "summon", "count": 4}]]   # no cap since 2026-11-26
     owner = await owner_row(db, ala.id)
-    assert owner["egg_pouch"] and owner["big_pouch"] and owner["summon_scrolls"] == 3
-    assert owner["reroll_scroll"] == 15 + 15 + 20
+    assert owner["egg_pouch"] and owner["big_pouch"] and owner["summon_scrolls"] == 4
+    assert owner["reroll_scroll"] == 15 + 15
 
 
 async def test_without_the_new_columns_the_items_are_compensated(game_db):
@@ -1150,7 +1159,7 @@ async def test_a_scroll_summons_a_mythic_boss(game_db, summons):
     ala = await player_with(game_db, summon_scrolls=2)
     confirms(game_db, ala)
     assert await missions.use_summon_scroll(game_db.scene(ala, "!przywolaj")) is True
-    assert [(author, rarity) for author, rarity, _ in summons.calls] == [(ala, 4)]
+    assert summons.calls == [(ala, 4, {"origin": "scroll"})]                          # BossInfo.origin
     assert summons.markers[0]["player"] == ala.id                              # kept while the boss comes ...
     assert game_db.bot.store.runtime_get(missions.SUMMON_MARKER) is None       # ... and cleared after
     assert await scrolls_of(db, ala.id) == 1
@@ -2017,9 +2026,12 @@ async def test_the_owners_commands(game_db, missions_cog):
     assert await pets.away_until(game_db.bot, db, 5) is None
     assert await missions.end_now(game_db.bot, ala) is None                           # nothing away any more
     ctx = SimpleNamespace(channel=game_db.channel, message=game_db.scene(ala).message)
-    await missions_cog.give_summon.callback(missions_cog, ctx, ala, 5)                 # up to the cap (3)
-    assert (await owner_row(db, ala.id))["summon_scrolls"] == 3
-    assert game_db.channel.contains(f"Gracz <@{ala.id}> ma teraz Zwoje przywołania: 3 (najwyżej 3).")
+    await missions_cog.give_summon.callback(missions_cog, ctx, ala, 5)                 # no cap (2026-11-26)
+    assert (await owner_row(db, ala.id))["summon_scrolls"] == 6
+    assert game_db.channel.contains(f"Gracz <@{ala.id}> ma teraz Zwoje przywołania: 6.")
+    await missions_cog.give_summon.callback(missions_cog, ctx, ala, -9)                # a minus takes, never below 0
+    assert (await owner_row(db, ala.id))["summon_scrolls"] == 0
+    assert game_db.channel.contains(f"Gracz <@{ala.id}> ma teraz Zwoje przywołania: 0.")
     await missions_cog.end_mission.callback(missions_cog, ctx, ala)
     assert game_db.channel.contains(f"Gracz <@{ala.id}> nie ma towarzysza na zleceniu.")
 

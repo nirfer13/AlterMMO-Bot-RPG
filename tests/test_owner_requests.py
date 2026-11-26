@@ -15,7 +15,7 @@ from altermmo import schema
 from altermmo.cogs import events as events_cog
 from altermmo.core import clock, guards, timing
 from altermmo.core.state import BossPhase, EventType
-from altermmo.features import achievements, album, bossdetect, daily, events, missions, pets, skills, xpsteal
+from altermmo.features import achievements, album, bossdetect, daily, events, items, missions, pets, skills, xpsteal
 
 from fakes import FakeInteraction, FakeMessage
 
@@ -586,8 +586,8 @@ async def test_new_table_is_created_at_start_up_and_then_verified(db):
     assert "brak tabeli skillpouch" in problems
     # The achievement counters (made and withdrawn on 2026-11-20) are no table of the bot any more.
     assert not any("achievement_counters" in problem for problem in problems)
-    # the gem pouch; the pet album (2026-11-21); the companion missions (2026-11-25)
-    new_tables = 1 + len(album.NEW_TABLES) + len(missions.NEW_TABLES)
+    # the gem pouch; the pet album (2026-11-21); the companion missions (2026-11-25); the player items (2026-11-26)
+    new_tables = 1 + len(album.NEW_TABLES) + len(missions.NEW_TABLES) + len(items.NEW_TABLES)
     assert await schema.create_new_tables(db) == new_tables
     await db.execute("INSERT INTO SKILLPOUCH (PLAYER_ID, SKILL_ID) VALUES (1, 2)")
     assert await schema.create_new_tables(db) == new_tables        # again: nothing breaks, nothing is lost

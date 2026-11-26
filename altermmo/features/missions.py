@@ -269,7 +269,6 @@ class Config:
     reroll_price: int
     rerolls_per_period: int
     great_divisor: int
-    summon_cap: int
     tiers: Mapping[str, Tier]
     #: ``{kind: ("scrolls" | "shards", count)}``.
     compensation: Mapping[str, tuple[str, int]]
@@ -281,8 +280,13 @@ class Config:
         return self.tiers[TIERS[index]]
 
 
-_TOP_KEYS = ("offers", "reroll_price", "rerolls_per_period", "great_divisor", "summon_cap", "tiers",
+_TOP_KEYS = ("offers", "reroll_price", "rerolls_per_period", "great_divisor", "tiers",
              "compensation", "eggs", "failure_lines", "missions")
+#: Keys the file may have and that are not read: ``_opis`` (the owner's note) and ``summon_cap`` - the
+#: cap of the Zwoje przywołania, gone since 2026-11-26 (owner: "no caps anywhere").  The shipped file
+#: keeps it, because a bot of the code before (still running until its restart) re-reads the file
+#: and requires it.
+_IGNORED_TOP_KEYS = ("_opis", "summon_cap")
 _TIER_KEYS = ("hours", "mult", "base", "talent", "span", "min", "max", "targets", "success", "failure_shards")
 _MISSION_KEYS = ("key", "tier", "emoji", "name", "needs", "star", "flavour", "success")
 
@@ -306,7 +310,7 @@ def load_config(path: Path | None = None) -> Config:
 
 
 def _parse(raw: Any) -> Config:
-    _keys(raw, _TOP_KEYS, "the file", optional=("_opis",))
+    _keys(raw, _TOP_KEYS, "the file", optional=_IGNORED_TOP_KEYS)
     offers = raw["offers"]
     _keys(offers, ("slot2", "slot3", "pity_after"), "offers")
     slot2, slot3 = (_weights(offers[slot], f"offers.{slot}") for slot in ("slot2", "slot3"))
@@ -337,8 +341,7 @@ def _parse(raw: Any) -> Config:
     return Config(slot2, slot3, _whole(offers["pity_after"], "offers.pity_after", 0),
                   _whole(raw["reroll_price"], "reroll_price", 0),
                   _whole(raw["rerolls_per_period"], "rerolls_per_period", 0),
-                  _whole(raw["great_divisor"], "great_divisor", 1), _whole(raw["summon_cap"], "summon_cap", 0),
-                  tiers, compensation, eggs, failure_lines, missions)
+                  _whole(raw["great_divisor"], "great_divisor", 1), tiers, compensation, eggs, failure_lines, missions)
 
 
 def _tier(key: str, index: int, raw: Any) -> Tier:
@@ -1039,11 +1042,13 @@ async def _grant(con: Any, bot: "AlterBot", member: Any, player_id: int, row: An
         else:
             compensate(index, "pouch", kind="pouch", **({} if upgrades and big else {"off": True}))
     for index, _reward in each("summon"):
-        count = await pets.add_summon_scroll_in(con, player_id, cap=config.summon_cap) if big else 0
+        # (No cap since 2026-11-26: only missing columns are compensated - a stored result of the
+        # older code may still say ``"cap"``, see :data:`MSG_GOT_SUMMON_COMP`.)
+        count = await pets.add_summon_scroll_in(con, player_id) if big else 0
         if count:
             lines[index] = {"kind": "summon", "count": count}
         else:
-            compensate(index, "summon", kind="summon", **({"cap": config.summon_cap} if big else {"off": True}))
+            compensate(index, "summon", kind="summon", off=True)
     for index, reward in each(*EGG_KINDS):
         kind = reward["kind"]
         rule = config.eggs[kind]
@@ -1325,7 +1330,7 @@ async def _read_scroll(scene: "Scene", player_id: int, say: Callable[[str], Awai
     summoned = False
     try:
         _mark_summon(bot, {"player": player_id, "at": clock.utcnow().isoformat()})
-        summoned = bool(await bot.boss_cycle.summon(scene, SUMMON_RARITY))
+        summoned = bool(await bot.boss_cycle.summon(scene, SUMMON_RARITY, origin="scroll"))
     finally:
         if not summoned:
             try:
@@ -1500,6 +1505,7 @@ MSG_GOT_BIG_POUCH = "🎒 **Duża sakwa!** Twoja sakwa mieści teraz dwa jajka."
 MSG_GOT_POUCH_COMP = "🎒 Sakwa - Twoja Duża sakwa jest już największa, więc dostajesz {comp}"
 MSG_GOT_SUMMON = ("📯 **Zwój przywołania!** Odczytaj go przyciskiem **Zwój przywołania** albo komendą **!przywolaj**, "
                   "gdy kanał będzie wolny - przybędzie mityczny boss.")
+#: (Results paid before 2026-11-26, when the scrolls had a cap - such stored results are still shown.)
 MSG_GOT_SUMMON_COMP = "📯 Zwój przywołania - masz już {cap}, więc dostajesz {comp}"
 #: ... the same three when the reward could not be given because its database columns are missing (``"off"``).
 MSG_GOT_PLACE_OFF = "🐴 Miejsce w stajni - chwilowo niedostępne, więc dostajesz {comp}"

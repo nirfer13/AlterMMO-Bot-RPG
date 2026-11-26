@@ -1022,6 +1022,27 @@ async def test_enlightenment_adds_talent_for_a_stone(game_db, monkeypatch):
     assert (await owner_row(db, player.id))["rebirth_stones"] == 2 and game_db.channel.count(ASK) == 1
 
 
+async def test_a_typed_change_of_the_pet_says_nothing_during_a_fight(game_db, monkeypatch):
+    """(2026-11-26) owner's rule: nothing posts into a running fight - ``_confirmed_change`` (``!oswiecenie``,
+    ``!odrodzenie``, ``!transformacja``) checks the fight before its first post; nothing is taken either."""
+    from altermmo.core import challenge
+
+    db = game_db.bot.db
+    player = game_db.add_member("Ala")
+    await add_owner(db, player.id, 5, rebirth_stones=1, reroll_scroll=3)
+    await add_pet(db, 5, pet_lvl=3, pet_skills=6)
+    confirms(game_db, player)
+    with challenge.round_running(game_db.channel):
+        before = len(game_db.channel.sent)
+        assert await pets.enlight_pet(game_db.scene(player), player) is False
+        assert await pets.reroll_pet(game_db.scene(player), player) is False
+        assert len(game_db.channel.sent) == before
+    row = await owner_row(db, player.id)
+    assert (row["rebirth_stones"], row["reroll_scroll"]) == (1, 3) and (await pet_row(db, 5))["pet_skills"] == 6
+    rig(monkeypatch, choices=["CRIT_PERC"] * 9)
+    assert await pets.enlight_pet(game_db.scene(player), player) is True         # afterwards as always
+
+
 async def test_enlightenment_refusals_and_timeout(game_db, short_timeouts):
     db = game_db.bot.db
     player = game_db.add_member("Ala")
@@ -1814,20 +1835,23 @@ async def test_summoning_scrolls(game_db):
     bot, db = game_db.bot, game_db.bot.db
     await add_owner(db, 1, 0)
 
-    async def add(player_id: int, cap: int = 3) -> int:
+    async def add(player_id: int, number: int = 1) -> int:
         async with db.transaction() as con:
-            return await pets.add_summon_scroll_in(con, player_id, cap=cap)
+            await pets._lock_player(con, player_id)
+            return await pets.add_summon_scroll_in(con, player_id, number)
 
-    assert [await add(1) for _ in range(4)] == [1, 2, 3, 0]                   # at most ``cap``
-    assert await add(2) == 0 and await pets.summon_scrolls(bot, 2) == 0       # no row
-    assert await pets.summon_scrolls(bot, 1) == 3
-    assert await pets.take_summon_scroll(bot, 1) == 2
+    assert [await add(1) for _ in range(4)] == [1, 2, 3, 4]                   # no cap (owner, 2026-11-26)
+    assert await add(2, 2) == 2 and (await owner_row(db, 2))["summon_scrolls"] == 2   # no row: it is made
+    assert await pets.summon_scrolls(bot, 1) == 4
+    assert await pets.take_summon_scroll(bot, 1) == 3
     await pets.return_summon_scroll(bot, 1)
-    assert await pets.summon_scrolls(bot, 1) == 3
-    assert [await pets.take_summon_scroll(bot, 1) for _ in range(4)] == [2, 1, 0, None]
-    assert await pets.give_summon_scrolls(bot, 1, 5, 3) == 3                  # the owner's command, up to the cap
-    assert await pets.give_summon_scrolls(bot, 9, 2, 3) == 2                  # a player without a row gets one
-    assert (await owner_row(db, 9))["summon_scrolls"] == 2 and await count(db, "PETOWNER") == 2
+    assert await pets.summon_scrolls(bot, 1) == 4
+    assert [await pets.take_summon_scroll(bot, 1) for _ in range(5)] == [3, 2, 1, 0, None]
+    assert await pets.give_summon_scrolls(bot, 1, 25) == 25                  # the owner's command: no cap either
+    assert await pets.give_summon_scrolls(bot, 1, -30) == 0                  # a minus takes them, never below 0
+    assert await pets.give_summon_scrolls(bot, 9, 2) == 2                    # a player without a row gets one
+    assert await pets.give_summon_scrolls(bot, 8, -1) == 0                   # ... but not for a minus
+    assert (await owner_row(db, 9))["summon_scrolls"] == 2 and await count(db, "PETOWNER") == 3
     bot._mission_columns = False
     assert await pets.summon_scrolls(bot, 1) == 0                             # without the columns: none
 

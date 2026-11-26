@@ -12,7 +12,7 @@ import pytest
 from altermmo.core import challenge, timing, ui
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import EventType
-from altermmo.features import events, patrons
+from altermmo.features import events, items, patrons
 
 
 # -- helpers -------------------------------------------------------------------------
@@ -79,6 +79,20 @@ def loot(monkeypatch):
 
     monkeypatch.setattr(events.daily, "rand_loot", rand_loot)
     return calls
+
+
+@pytest.fixture
+def loot_sources(loot, monkeypatch):
+    """Where each recorded ``daily.rand_loot`` call draws from (``items.LOOT_SOURCE``; None: the world)."""
+    sources: list = []
+    recorded = events.daily.rand_loot
+
+    async def rand_loot(scene, rarity, hunter, boost_percent):
+        sources.append(items.LOOT_SOURCE.get())
+        return await recorded(scene, rarity, hunter, boost_percent)
+
+    monkeypatch.setattr(events.daily, "rand_loot", rand_loot)
+    return sources
 
 
 def low_rolls(monkeypatch) -> None:
@@ -588,14 +602,14 @@ async def test_duel_draw_is_reported(game, loot, duels):
     assert loot == []
 
 
-async def test_duel_lone_challenger_wins_by_walkover(game_db, loot, duels, short_timeouts):
+async def test_duel_lone_challenger_wins_by_walkover(game_db, loot, loot_sources, duels, short_timeouts):
     game = game_db
     game.bot.debug = False
     ala = game.add_member("O'Brien")
     join_on(game, "Pojedynek!", ala)
     assert await events.spawn_duel(game.scene()) is False
     assert duels.calls == []
-    assert loot == [(2, ala, 0)]
+    assert loot == [(2, ala, 0)] and loot_sources == ["duel"]            # a walkover's loot is a duel's
     assert game.channel.contains(f"O'Brien wyzywa <@&{game.bot.ids.hunters_role}> na pojedynek!")
     assert game.channel.contains("*Arena pozostaje pusta...*")
     row = await game.bot.db.fetchrow("SELECT NICK, POINTS FROM RANKING WHERE ID = $1", str(ala.id))
@@ -739,12 +753,12 @@ async def test_tournament_cancelled_without_players(game, loot, duels, short_tim
     assert no_listeners(game) and no_live_buttons(game)
 
 
-async def test_tournament_single_player_gets_loot(game, loot, duels, quick):
+async def test_tournament_single_player_gets_loot(game, loot, loot_sources, duels, quick):
     ala = game.add_member("Ala")
     clicked = clicks_on(game, "Tygodniowy turniej PvP!", (ala, "join"), (ala, "join"), (game.bot.user, "join"))
     assert await events.spawn_pvp_tournament(game.scene()) == ala
     assert (await clicked[0])[1].answers == [events.MSG_ALREADY_SIGNED]
-    assert loot == [(2, ala, 0)]
+    assert loot == [(2, ala, 0)] and loot_sources == ["duel"]            # the lone player's loot is a duel's
     assert duels.calls == []
     roster = panel(game, "Tygodniowy turniej PvP!")
     assert "Zapisani (1)" in roster.text and ala.mention in roster.text and events.MSG_SIGN_UP_CLOSED in roster.text

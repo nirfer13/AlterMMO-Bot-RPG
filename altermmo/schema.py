@@ -38,6 +38,7 @@ SCHEMA_MODULES: tuple[str, ...] = (
     "altermmo.features.tower",
     "altermmo.features.twitch",
     "altermmo.features.missions",
+    "altermmo.features.items",
 )
 
 
@@ -176,6 +177,8 @@ EXPECTED_COLUMNS: dict[str, dict[str, str]] = {
                      "sent_at": "timestamp with time zone", "ends_at": "timestamp with time zone",
                      "paid_at": "timestamp with time zone", "result": "text", "announced_at": "timestamp with time zone",
                      "seen_at": "timestamp with time zone"},
+    # new in v2 (features/items.py, see create_new_tables): the player items, one row per player and item
+    "player_items": {"player_id": "numeric", "item": "character varying", "count": "integer"},
     "tower": {"player_id": "numeric", "tower_level": "numeric", "time": "character varying"},
     "chatters_information": {"chtr_id": "integer", "chtr_name": "text", "chtr_time": "integer", "chtr_comments": "integer", "chtr_isvip": "boolean", "chtr_issub": "boolean", "chtr_ismod": "boolean", "chtr_isbroadcaster": "boolean", "discord_id": "text", "watchstreak": "integer"},
     "treasure_table": {"chtr_id": "integer", "chtr_name": "text", "windatetime": "text"},

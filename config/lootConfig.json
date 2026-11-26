@@ -20,6 +20,33 @@
 		"id": 12,
 		"descr": "Twój towarzysz awansował na wyższy poziom! Sprawdź wpisując **!towarzysz**.",
 		"weight": 8
+	},
+	{
+		"id": 18,
+		"descr": "🪶 **Pióro Żar-ptaka**! Wciąż tli się w nim ogień z dalekiej krainy - podobno pomaga towarzyszom sięgnąć wyżej (**!oswiecenie**).",
+		"weight": 0,
+		"boost": false,
+		"sources": ["boss", "summoned", "duel"]
+	},
+	{
+		"id": 19,
+		"descr": "🪤 **Przynęta**! Pachnie tak, że żaden potwór z puszczy się nie oprze. Zarzucisz ją, ruszając na polowanie (**!przyneta**).",
+		"weight": 0
+	},
+	{
+		"id": 20,
+		"descr": "🕊️ **Zwój wskrzeszenia**! Odczytany nad poległym łowcą stawia go z powrotem na nogi (**!wskrzes @gracz**).",
+		"weight": 0
+	},
+	{
+		"id": 22,
+		"descr": "🪢 **Lina sztygara**! Mocna, konopna, pamięta niejedną sztolnię - przyda się w Kopalni Ostatniej Lampy.",
+		"weight": 0
+	},
+	{
+		"id": 25,
+		"descr": "✨ **Nieuchwytny pył**! Szczypta czegoś, co nie chce dać się złapać. Nosisz go przy sobie - sam wie, kiedy się przydać.",
+		"weight": 0
 	}
 	],"loot_details_Rare": [
 	{
@@ -49,13 +76,46 @@
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
+		"descr": "Otrzymałeś Kamień olśnienia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
 		"weight": 1
 	},
 	{
 		"id": 14,
 		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **!transformacja**.",
 		"weight": 1
+	},
+	{
+		"id": 17,
+		"descr": "🗝️ **Klucz do wieży**! Zardzewiały, ale pasuje do Drzwi Wieży Śmierci: otworzy je ponownie, gdy w tym tygodniu już tam byłeś (**!klucz**).",
+		"weight": 0,
+		"sources": ["boss", "summoned", "duel"]
+	},
+	{
+		"id": 18,
+		"descr": "🪶 **Pióro Żar-ptaka**! Wciąż tli się w nim ogień z dalekiej krainy - podobno pomaga towarzyszom sięgnąć wyżej (**!oswiecenie**).",
+		"weight": 0,
+		"boost": false,
+		"sources": ["boss", "summoned", "duel"]
+	},
+	{
+		"id": 19,
+		"descr": "🪤 **Przynęta**! Pachnie tak, że żaden potwór z puszczy się nie oprze. Zarzucisz ją, ruszając na polowanie (**!przyneta**).",
+		"weight": 0
+	},
+	{
+		"id": 20,
+		"descr": "🕊️ **Zwój wskrzeszenia**! Odczytany nad poległym łowcą stawia go z powrotem na nogi (**!wskrzes @gracz**).",
+		"weight": 0
+	},
+	{
+		"id": 22,
+		"descr": "🪢 **Lina sztygara**! Mocna, konopna, pamięta niejedną sztolnię - przyda się w Kopalni Ostatniej Lampy.",
+		"weight": 0
+	},
+	{
+		"id": 25,
+		"descr": "✨ **Nieuchwytny pył**! Szczypta czegoś, co nie chce dać się złapać. Nosisz go przy sobie - sam wie, kiedy się przydać.",
+		"weight": 0
 	}
 	],"loot_details_Epic": [
 	{
@@ -75,13 +135,52 @@
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
+		"descr": "Otrzymałeś Kamień olśnienia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
 		"weight": 3
 	},
 	{
 		"id": 14,
 		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **!transformacja**.",
 		"weight": 3
+	},
+	{
+		"id": 16,
+		"descr": "📯 **Zwój przywołania**! Odczytasz go komendą **!przywolaj** - na kanał bossa przybędzie mityczny boss.",
+		"weight": 0,
+		"sources": ["boss"]
+	},
+	{
+		"id": 17,
+		"descr": "🗝️ **Klucz do wieży**! Zardzewiały, ale pasuje do Drzwi Wieży Śmierci: otworzy je ponownie, gdy w tym tygodniu już tam byłeś (**!klucz**).",
+		"weight": 0,
+		"sources": ["boss", "summoned", "duel"]
+	},
+	{
+		"id": 18,
+		"descr": "🪶 **Pióro Żar-ptaka**! Wciąż tli się w nim ogień z dalekiej krainy - podobno pomaga towarzyszom sięgnąć wyżej (**!oswiecenie**).",
+		"weight": 0,
+		"boost": false,
+		"sources": ["boss", "summoned", "duel"]
+	},
+	{
+		"id": 19,
+		"descr": "🪤 **Przynęta**! Pachnie tak, że żaden potwór z puszczy się nie oprze. Zarzucisz ją, ruszając na polowanie (**!przyneta**).",
+		"weight": 0
+	},
+	{
+		"id": 20,
+		"descr": "🕊️ **Zwój wskrzeszenia**! Odczytany nad poległym łowcą stawia go z powrotem na nogi (**!wskrzes @gracz**).",
+		"weight": 0
+	},
+	{
+		"id": 22,
+		"descr": "🪢 **Lina sztygara**! Mocna, konopna, pamięta niejedną sztolnię - przyda się w Kopalni Ostatniej Lampy.",
+		"weight": 0
+	},
+	{
+		"id": 25,
+		"descr": "✨ **Nieuchwytny pył**! Szczypta czegoś, co nie chce dać się złapać. Nosisz go przy sobie - sam wie, kiedy się przydać.",
+		"weight": 0
 	}
 	],"loot_details_Legend": [
 	{
@@ -101,13 +200,52 @@
 	},
 	{
 		"id": 13,
-		"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
+		"descr": "Otrzymałeś Kamień olśnienia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
 		"weight": 3
 	},
 	{
 		"id": 14,
 		"descr": "Otrzymałeś lustro wizualiów. Możesz zmienić wygląd swojego towarzysza wpisując **!transformacja**.",
 		"weight": 3
+	},
+	{
+		"id": 16,
+		"descr": "📯 **Zwój przywołania**! Odczytasz go komendą **!przywolaj** - na kanał bossa przybędzie mityczny boss.",
+		"weight": 0,
+		"sources": ["boss"]
+	},
+	{
+		"id": 17,
+		"descr": "🗝️ **Klucz do wieży**! Zardzewiały, ale pasuje do Drzwi Wieży Śmierci: otworzy je ponownie, gdy w tym tygodniu już tam byłeś (**!klucz**).",
+		"weight": 0,
+		"sources": ["boss", "summoned", "duel"]
+	},
+	{
+		"id": 18,
+		"descr": "🪶 **Pióro Żar-ptaka**! Wciąż tli się w nim ogień z dalekiej krainy - podobno pomaga towarzyszom sięgnąć wyżej (**!oswiecenie**).",
+		"weight": 0,
+		"boost": false,
+		"sources": ["boss", "summoned", "duel"]
+	},
+	{
+		"id": 19,
+		"descr": "🪤 **Przynęta**! Pachnie tak, że żaden potwór z puszczy się nie oprze. Zarzucisz ją, ruszając na polowanie (**!przyneta**).",
+		"weight": 0
+	},
+	{
+		"id": 20,
+		"descr": "🕊️ **Zwój wskrzeszenia**! Odczytany nad poległym łowcą stawia go z powrotem na nogi (**!wskrzes @gracz**).",
+		"weight": 0
+	},
+	{
+		"id": 22,
+		"descr": "🪢 **Lina sztygara**! Mocna, konopna, pamięta niejedną sztolnię - przyda się w Kopalni Ostatniej Lampy.",
+		"weight": 0
+	},
+	{
+		"id": 25,
+		"descr": "✨ **Nieuchwytny pył**! Szczypta czegoś, co nie chce dać się złapać. Nosisz go przy sobie - sam wie, kiedy się przydać.",
+		"weight": 0
 	}
 	],"loot_details_Mythic": [
 		{
@@ -127,7 +265,7 @@
 		},
 		{
 			"id": 13,
-			"descr": "Otrzymałeś kamień przebudzenia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
+			"descr": "Otrzymałeś Kamień olśnienia. Możesz zwiększyć talent swojego towarzysza wpisując **!oswiecenie**.",
 			"weight": 100
 		},
 		{
@@ -139,5 +277,44 @@
 			"id": 15,
 			"descr": "Otrzymałeś klejnot zdolności. Wpisz **!klejnoty**, żeby zobaczyć swoje klejnoty umiejętności.",
 			"weight": 20
+		},
+		{
+			"id": 16,
+			"descr": "📯 **Zwój przywołania**! Odczytasz go komendą **!przywolaj** - na kanał bossa przybędzie mityczny boss.",
+			"weight": 0,
+			"sources": ["boss"]
+		},
+		{
+			"id": 17,
+			"descr": "🗝️ **Klucz do wieży**! Zardzewiały, ale pasuje do Drzwi Wieży Śmierci: otworzy je ponownie, gdy w tym tygodniu już tam byłeś (**!klucz**).",
+			"weight": 0,
+			"sources": ["boss", "summoned", "duel"]
+		},
+		{
+			"id": 18,
+			"descr": "🪶 **Pióro Żar-ptaka**! Wciąż tli się w nim ogień z dalekiej krainy - podobno pomaga towarzyszom sięgnąć wyżej (**!oswiecenie**).",
+			"weight": 0,
+			"boost": false,
+			"sources": ["boss", "summoned", "duel"]
+		},
+		{
+			"id": 19,
+			"descr": "🪤 **Przynęta**! Pachnie tak, że żaden potwór z puszczy się nie oprze. Zarzucisz ją, ruszając na polowanie (**!przyneta**).",
+			"weight": 0
+		},
+		{
+			"id": 20,
+			"descr": "🕊️ **Zwój wskrzeszenia**! Odczytany nad poległym łowcą stawia go z powrotem na nogi (**!wskrzes @gracz**).",
+			"weight": 0
+		},
+		{
+			"id": 22,
+			"descr": "🪢 **Lina sztygara**! Mocna, konopna, pamięta niejedną sztolnię - przyda się w Kopalni Ostatniej Lampy.",
+			"weight": 0
+		},
+		{
+			"id": 25,
+			"descr": "✨ **Nieuchwytny pył**! Szczypta czegoś, co nie chce dać się złapać. Nosisz go przy sobie - sam wie, kiedy się przydać.",
+			"weight": 0
 		}]
 }

@@ -52,8 +52,8 @@ import discord
 from ..core import challenge, fightlog, io, timing, ui
 from ..core.challenge import Outcome
 from ..settings import ASSETS_DIR, CONFIG_DIR, says_command
-from . import (achievements, boss_cycle, bossvariants, database, expsum, fight_types, general, modifiers,
-               patrons, shortcuts, xpsteal)
+from . import (achievements, boss_cycle, bossvariants, database, expsum, fight_types, general, items,
+               modifiers, patrons, shortcuts, xpsteal)
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -587,8 +587,10 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
     """Hand one loot item to ``hunter``; False when there was nothing to give.
 
     (A pet that cannot level up any more, a player without room for another
-    egg...).  Items without a mechanic of their own are text only - the owner
-    hands them out from the log channel.
+    egg...).  The new items (ids 16-25, ``features/items.py``) go to the item
+    store (:func:`items.grant_drop`; False only while the store is not there).
+    Items without a mechanic of their own are text only - the owner hands them
+    out from the log channel.
 
     ``cosmetic_rerolls`` (the drop of a special boss, see :func:`rand_loot`)
     concerns only an egg: it is handed on to ``pets.assign_pet``.  Without it
@@ -630,6 +632,8 @@ async def _grant_loot(scene: "Scene", hunter: Any, loot: dict[str, Any], *,
     if loot_id == xpsteal.LOOT_ID:
         # (A right that cannot be stored is reported to the owner with the !DajKradziez line.)
         return await xpsteal.grant_drop(bot, hunter, xpsteal.amount_from_description(loot["descr"]))
+    if items.by_loot_id(loot_id) is not None:
+        return await items.grant_drop(bot, hunter, loot_id)
     return True
 
 
@@ -660,6 +664,8 @@ async def _drop(scene: "Scene", hunter: Any, loot: dict[str, Any], *, bonus: boo
         line += xpsteal.COMMAND_HINT + "\n"
     if loot["id"] == LOOT_SKILL_GEM and not bonus:
         line += SKILL_GEM_HINT + "\n"
+    if items.by_loot_id(loot["id"]) is not None and not bonus:
+        line += items.DROP_HINT + "\n"
     return line
 
 
@@ -687,6 +693,12 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
     (``pets.assign_pet``).  What drops, and how often, is not changed by it.
     Only the two boss fights pass it: the duel, the tower and the admin's
     ``!loot`` roll as always.
+
+    Where the drop comes from (``items.LOOT_SOURCE``, set by the caller's
+    context: a summoned boss, a duel, a tower floor; by default a scheduled
+    boss) decides which rows may drop (a row's optional ``"sources"``), and a
+    row with ``"boost": false`` is not raised by ``boost_percent``.  A row whose
+    weight is not above 0 is skipped without a draw (``items.loot_weight``).
     """
     bot = scene.bot
     boost = int(boost_percent)
@@ -714,8 +726,11 @@ async def rand_loot(scene: "Scene", rarity: int, hunter: Any, boost_percent: flo
             pet_changed = True
         return line
 
+    source = items.current_source(items.SOURCE_BOSS)
     for loot in _loot_table(int(rarity)):
-        weight = (boost / 100 + 1) * loot["weight"]
+        weight = items.loot_weight(loot, boost, source)
+        if weight <= 0:
+            continue  # (not from here, or weight 0: no die is rolled, the draws after it stay the same)
         if weight > 100:
             drop_message += await drop(loot, False)
             if random.random() * 100 <= weight - 100:
@@ -1283,7 +1298,8 @@ async def duel_fight(scene: "Scene", participants: Sequence[Any], ban: bool = Tr
                        scene.send("**" + str(fighter) + "** wygrał walkę z **" + str(loser) + "**."))
         await _guarded(bot, "punkty zwycięzcy pojedynku",
                        database.update_ranking_table(bot, fighter.id, DUEL_RARITY, 0))
-        await _guarded(bot, "łup zwycięzcy pojedynku", rand_loot(scene, DUEL_RARITY, fighter, pet["DROP_PERC"]))
+        with items.loot_source(items.SOURCE_DUEL):  # (the duel event and the tournament: features/items.py)
+            await _guarded(bot, "łup zwycięzcy pojedynku", rand_loot(scene, DUEL_RARITY, fighter, pet["DROP_PERC"]))
         await _guarded(bot, "punkty przegranego pojedynku",
                        database.update_ranking_table(bot, loser.id, DUEL_RARITY, DUEL_LOSER_POINTS))
         if ban:

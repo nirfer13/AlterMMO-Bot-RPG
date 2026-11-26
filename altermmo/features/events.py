@@ -44,7 +44,7 @@ import discord
 
 from ..core import challenge, io, timing, ui
 from ..settings import ASSETS_DIR
-from . import boss, bossvariants, daily, database, modifiers, patrons
+from . import boss, bossvariants, daily, database, items, modifiers, patrons
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -853,7 +853,8 @@ async def spawn_duel(scene: "Scene") -> bool:
         if participants:
             challenger = participants[0]
             await database.update_ranking_table(bot, challenger.id, 2, 0)
-            await daily.rand_loot(scene, 2, challenger, 0)
+            with items.loot_source(items.SOURCE_DUEL):  # (a walkover is a duel's loot: features/items.py)
+                await daily.rand_loot(scene, 2, challenger, 0)
         await scene.send(MSG_DUEL_NOBODY)
         await _send_image(scene, "pvp", "0.png")
         return False
@@ -971,7 +972,8 @@ async def spawn_pvp_tournament(scene: "Scene") -> Any:
         await scene.send(MSG_TOURNAMENT_CANCELLED)
         return None
     if len(participants) == 1:
-        await daily.rand_loot(scene, 2, participants[0], 0)
+        with items.loot_source(items.SOURCE_DUEL):  # (the lone player's loot is a duel's: features/items.py)
+            await daily.rand_loot(scene, 2, participants[0], 0)
 
     random.shuffle(participants)
     await scene.send(MSG_TOURNAMENT_CLOSED.format(players=', '.join(user.mention for user in participants)))

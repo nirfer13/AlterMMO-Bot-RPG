@@ -27,6 +27,11 @@ What happens when the bot is busy is decided in one place by
 Where commands work (owner's decision): gameplay commands only on the boss
 channel (``boss_channel_only``), display-only commands on any channel of the
 server, nothing at all in private messages (global check in ``AlterBot``).
+
+Owner's rule: nothing may post into a running fight or make it stutter.  While
+a typed fight is on a channel (``challenge.fight_on``) the busy notice is not
+posted there (:func:`notify_busy`), and every new typed command carries
+:func:`not_during_fight` - it says nothing at all then.
 """
 
 from __future__ import annotations
@@ -35,7 +40,7 @@ import time
 
 from discord.ext import commands
 
-from . import io
+from . import challenge, io
 
 BUSY_NOTICE = ("Trwa teraz inne wydarzenie – spróbuj ponownie za chwilę "
                "<:Bedge:970576892874854400>")
@@ -83,7 +88,15 @@ def note_busy_notice(channel_id: int) -> None:
 
 
 async def notify_busy(ctx: commands.Context) -> None:
-    """Tell the user the bot is busy (rate limited per channel, never raises)."""
+    """Tell the user the bot is busy (rate limited per channel, never raises).
+
+    Silent while a typed fight is on the channel (``challenge.fight_on``): a
+    notice between the fight's prompts is exactly the stutter the owner does
+    not want (and it would use up Discord's budget of messages on the channel).
+    The rate limit is not charged then.
+    """
+    if challenge.fight_on(getattr(ctx, "channel", None)):
+        return
     if not busy_notice_due(ctx.channel.id):
         return
     try:
@@ -114,6 +127,22 @@ def unless_busy(*, read_only: bool = False, stable: bool = False):
         if policy != "silent":
             await notify_busy(ctx)
         raise SilentCheckFailure(f"busy with {bot.state.busy_owner}")
+
+    return commands.check(predicate)
+
+
+def not_during_fight():
+    """Say nothing and do nothing while a typed fight is on the command's channel (``challenge.fight_on``).
+
+    For every new typed command (owner's rule: nothing may post into a running
+    fight).  A boss fight holds no busy flag, so :func:`unless_busy` alone lets
+    such a command answer between the fight's prompts.
+    """
+
+    async def predicate(ctx: commands.Context) -> bool:
+        if challenge.fight_on(ctx.channel):
+            raise SilentCheckFailure("a typed fight is on the channel")
+        return True
 
     return commands.check(predicate)
 

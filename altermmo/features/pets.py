@@ -127,7 +127,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Iterator, NamedTuple
 import asyncpg
 import discord
 
-from ..core import clock, io, timing, ui, waiting
+from ..core import challenge, clock, io, timing, ui, waiting
 from ..settings import ASSETS_DIR, COMMAND_PREFIX
 from . import achievements, bossdetect, modifiers, patrons, petcards
 
@@ -2045,16 +2045,26 @@ async def upgrade_pouch_in(con: Any, player_id: int, *, upgrades: bool, big: boo
     return ""
 
 
-# -- the summoning scrolls (a reward of the companion missions, features/missions.py) ----------
+# -- the summoning scrolls (the companion missions, the drops: features/missions.py, features/items.py) --
+#
+# No cap (owner, 2026-11-26: "no caps anywhere"): a player may hold any number of them.  The
+# missions' ``summon_cap`` is an ignored key since then (features/missions.py).
 
-async def add_summon_scroll_in(con: Any, player_id: int, *, cap: int) -> int:
-    """One more Zwój przywołania, inside the caller's transaction; the new count, 0 at ``cap`` / without a row.
+async def add_summon_scroll_in(con: Any, player_id: int, number: int = 1) -> int:
+    """``number`` more Zwoje przywołania, inside the caller's transaction; the new count.
 
-    Needs :func:`mission_columns_available` (the caller checks it).
+    The caller holds the player's lock (:func:`_lock_player`); a player without
+    a ``PETOWNER`` row gets one (a drop can bring a scroll to somebody who has
+    never had a pet).  Needs :func:`mission_columns_available` (the caller
+    checks it).
     """
-    count = await con.fetchval(
-        """UPDATE PETOWNER SET SUMMON_SCROLLS = SUMMON_SCROLLS + 1
-           WHERE PLAYER_ID = $1 AND SUMMON_SCROLLS < $2 RETURNING SUMMON_SCROLLS""", player_id, int(cap))
+    number = max(int(number), 0)
+    sql = """UPDATE PETOWNER SET SUMMON_SCROLLS = SUMMON_SCROLLS + $2
+             WHERE PLAYER_ID = $1 RETURNING SUMMON_SCROLLS"""
+    count = await con.fetchval(sql, player_id, number)
+    if count is None:
+        await _insert_owner(con, player_id, 0, False, 0, 0, 0, 0, 0)
+        count = await con.fetchval(sql, player_id, number)
     return _int(count)
 
 
@@ -2083,32 +2093,48 @@ async def take_summon_scroll(bot: "AlterBot", player_id: Any) -> int | None:
 async def return_summon_scroll(bot: "AlterBot", player_id: Any) -> None:
     """Give back the scroll :func:`take_summon_scroll` took (the summon did not happen).
 
-    Not cut at a cap: the player had it a moment ago.  Raises when the
+    (There is no cap to mind: the player had it a moment ago.)  Raises when the
     database fails (the caller tells the owner).
     """
     await bot.db.execute("UPDATE PETOWNER SET SUMMON_SCROLLS = SUMMON_SCROLLS + 1 WHERE PLAYER_ID = $1",
                          _pid(player_id))
 
 
-async def give_summon_scrolls(bot: "AlterBot", player_id: Any, number: int, cap: int) -> int:
-    """The owner's ``!DajZwojPrzywolania``: add ``number`` scrolls, up to ``cap``; the new count.
+async def give_summon_scrolls(bot: "AlterBot", player_id: Any, number: int) -> int:
+    """Add ``number`` Zwoje przywołania (a drop, the owner's commands); the new count.
 
-    The player's row is created when he has none.  Needs
-    :func:`mission_columns_available` (the caller checks it).
+    No cap; the player's row is created when he has none.  A negative
+    ``number`` (``!DajZwojPrzywolania`` / ``!DajPrzedmiot`` with a minus) takes
+    scrolls back, never below 0 (and makes no row).  In one transaction under
+    the player's lock, never retried.  Needs :func:`mission_columns_available`
+    (the caller checks it).
     """
-    player_id, number, cap = _pid(player_id), max(int(number), 0), max(int(cap), 0)
+    player_id, number = _pid(player_id), int(number)
     async with bot.db.transaction() as con:
         await _lock_player(con, player_id)
-        count = await con.fetchval(
-            """UPDATE PETOWNER SET SUMMON_SCROLLS = GREATEST(LEAST(SUMMON_SCROLLS + $2, $3), SUMMON_SCROLLS)
-               WHERE PLAYER_ID = $1 RETURNING SUMMON_SCROLLS""", player_id, number, cap)
-        if count is None:
-            await _insert_owner(con, player_id, 0, False, 0, 0, 0, 0, 0)
+        if number >= 0:
+            count = await add_summon_scroll_in(con, player_id, number)
+        else:
             count = await con.fetchval(
-                "UPDATE PETOWNER SET SUMMON_SCROLLS = $2 WHERE PLAYER_ID = $1 RETURNING SUMMON_SCROLLS",
-                player_id, min(number, cap))
-    log.info("Player %s has %s summoning scroll(s) now.", player_id, _int(count))
+                """UPDATE PETOWNER SET SUMMON_SCROLLS = GREATEST(SUMMON_SCROLLS + $2, 0)
+                   WHERE PLAYER_ID = $1 RETURNING SUMMON_SCROLLS""", player_id, number)
+    log.info("Player %s has %s summoning scroll(s) now (%+d).", player_id, _int(count), number)
     return _int(count)
+
+
+async def owner_counters(bot: "AlterBot", player_id: Any) -> dict[str, int]:
+    """The player's item counters of ``PETOWNER`` (``!przedmioty``, features/items.py); zeros without a row.
+
+    Keys: ``reroll_scroll``, ``reroll_scroll_shard``, ``rebirth_stones``,
+    ``mirrors`` and - when the column is there (:func:`mission_columns_available`)
+    - ``summon_scrolls``.  Read-only: the shards are not turned into scrolls
+    here (``!towarzysz`` does that).
+    """
+    columns = ["REROLL_SCROLL", "REROLL_SCROLL_SHARD", "REBIRTH_STONES", "MIRRORS"]
+    if await mission_columns_available(bot):
+        columns.append("SUMMON_SCROLLS")
+    owner = await _owner(bot.db, _pid(player_id), ", ".join(columns))
+    return {column.lower(): (_int(owner[column.lower()]) if owner is not None else 0) for column in columns}
 
 
 #: The row lock every change of a pet takes (as ``_active_pet(lock=True)``), but naming its
@@ -2509,9 +2535,17 @@ async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, message
     answered with :data:`MSG_OTHER_PET`, and :data:`AWAY` (the pet is on a
     companion mission; ``check`` returns ``(AWAY, Away)``, see
     :func:`_away_check`) with :data:`MSG_PET_AWAY` - shared by every caller.
+
+    Nothing at all happens while a typed fight is on the channel
+    (``challenge.fight_on``; owner's rule: nothing may post into a running
+    fight) - the typed ``!oswiecenie`` / ``!odrodzenie`` / ``!transformacja``
+    then stay silent, as the buttons under the pet do.
     """
     bot = scene.bot
     player_id = _pid(player)
+    if challenge.fight_on(getattr(scene, "channel", None)):
+        log.info("Pet change of %s asked during a typed fight: nothing posted, nothing changed.", player_id)
+        return False
     messages = {"other_pet": MSG_OTHER_PET, **messages}
 
     def refusal(status: str, data: Any) -> str:

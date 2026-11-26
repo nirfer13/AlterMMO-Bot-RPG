@@ -59,7 +59,7 @@ import discord
 from ..core import clock, guards, io, ui
 from ..core.scene import Scene
 from ..core.state import BossInfo, BossPhase, EventType
-from . import bossvariants
+from . import bossvariants, items
 from .fight_types import FightInterrupted, FightResult
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -106,8 +106,15 @@ LEGENDARY_HOURS = range(16, 23)
 _KEY_ENABLED = "boss_spawning_enabled"
 _KEY_QUIET_UNTIL = "boss_quiet_until"
 #: Rarity of a summoned (ritual / skill gem) boss that is on the channel; kept
-#: so that a restart of the bot does not make that boss vanish.
+#: so that a restart of the bot does not make that boss vanish.  Always an int (or
+#: None): ``_restore`` - and the code before 2026-11-26, should it run again - reads it so.
 _KEY_SUMMONED = "summoned_boss_rarity"
+#: ... and how it came and when (``{"origin": "scroll", "at": "<iso time>"}``): a key of its own,
+#: so that the one above stays a plain int.  Written and cleared with it (``_remember_summoned``).
+_KEY_SUMMONED_INFO = "summoned_boss_info"
+#: How a summoned boss may have come (``BossInfo.origin``): '' = not said (the default of
+#: :meth:`BossCycle.summon`), the Zwój przywołania, the summoning gem, the ritual.
+SUMMON_ORIGINS: tuple[str, ...] = ("", "scroll", "gem", "ritual")
 #: ``runtime.json``: a fight was decided and its post-fight reset has not run yet -
 #: ``{"losers": [ids to ban]}``; see ``BossCycle.mark_decided`` and ``_finish_after_restart``.
 _KEY_PENDING_RESET = "boss_reset_pending"
@@ -378,13 +385,32 @@ class BossCycle:
         self.bot.store.runtime_set(_KEY_QUIET_UNTIL, None)
         self._remember_summoned(None)
 
-    def _remember_summoned(self, rarity: int | None) -> None:
-        """Note (or forget) the summoned boss standing on the channel.  Never raises."""
+    def _remember_summoned(self, rarity: int | None, *, origin: str = "", at: datetime | None = None) -> None:
+        """Note (or forget, ``None``) the summoned boss standing on the channel.  Never raises.
+
+        The rarity goes under :data:`_KEY_SUMMONED` (an int, as always), its
+        origin and the moment it came under :data:`_KEY_SUMMONED_INFO` - both
+        are cleared together, so every path that forgets the boss forgets both.
+        """
+        info = None if rarity is None else {"origin": origin if origin in SUMMON_ORIGINS else "",
+                                            "at": (at or clock.utcnow()).isoformat()}
         try:
             if self.bot.store.runtime_get(_KEY_SUMMONED) != rarity:
                 self.bot.store.runtime_set(_KEY_SUMMONED, rarity)
+            if self.bot.store.runtime_get(_KEY_SUMMONED_INFO) != info:
+                self.bot.store.runtime_set(_KEY_SUMMONED_INFO, info)
         except OSError:
             log.exception("Could not persist the summoned boss (%s).", rarity)
+
+    def _remembered_origin(self) -> str:
+        """The origin of the summoned boss kept in ``runtime.json`` ('' when none or not readable).  Never raises."""
+        try:
+            info = self.bot.store.runtime_get(_KEY_SUMMONED_INFO)
+        except OSError:
+            log.exception("Could not read how the summoned boss came.")
+            return ""
+        origin = info.get("origin") if isinstance(info, dict) else None
+        return origin if isinstance(origin, str) and origin in SUMMON_ORIGINS else ""
 
     def seconds_to_arrival(self) -> float | None:
         return clock.seconds_until(self.arrives_at) if self.arrives_at is not None else None
@@ -577,7 +603,7 @@ class BossCycle:
         if summoned is not None:
             back = False
             try:
-                back = await self.summon(bot.boss_scene(), int(summoned))
+                back = await self.summon(bot.boss_scene(), int(summoned), origin=self._remembered_origin())
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - the regular schedule matters more
@@ -891,7 +917,8 @@ class BossCycle:
         return state.busy or (state.event_alive and state.event_type not in _PASSIVE_EVENTS)
 
     async def summon(self, scene: Scene, rarity: int, *, show_image: bool = True,
-                     is_player_boss: bool = False, player_boss: Any = None, variant: str = "") -> bool:
+                     is_player_boss: bool = False, player_boss: Any = None, variant: str = "",
+                     origin: str = "") -> bool:
         """Put an extra boss on the channel right now (skill gem / ritual).
 
         The regular schedule is only paused: when the summoned boss is dealt
@@ -905,6 +932,11 @@ class BossCycle:
         (ritual) and passes ``is_player_boss`` / ``player_boss`` itself - and
         ``variant``, the special variant it showed the boss as ('' = ordinary;
         with ``show_image=True`` the picture posted here decides).
+
+        ``origin`` (:data:`SUMMON_ORIGINS`): how the boss came - the Zwój
+        przywołania passes ``"scroll"``, the summoning gem ``"gem"``, the ritual
+        ``"ritual"``; it is kept in ``BossInfo.origin`` and in ``runtime.json``
+        (a restart brings it back with it).  '' (the default) says nothing.
         """
         bot = self.bot
         state = bot.state
@@ -930,9 +962,10 @@ class BossCycle:
         self._resume_phase = state.boss_phase
         self._summoned_at = clock.utcnow()
         self._encounters += 1  # a new boss: notices about the previous one are out of date
+        origin = origin if origin in SUMMON_ORIGINS else ""
         state.boss = BossInfo(rarity=int(rarity), is_player_boss=is_player_boss, player_boss=player_boss,
-                              variant=variant if isinstance(variant, str) else "")
-        self._remember_summoned(int(rarity))
+                              variant=variant if isinstance(variant, str) else "", origin=origin)
+        self._remember_summoned(int(rarity), origin=origin, at=self._summoned_at)
         await state.set_boss_phase(BossPhase.VISIBLE)
         return True
 
@@ -1030,6 +1063,22 @@ class BossCycle:
             await ui.retire(message)
 
     async def _encounter(self, scene: Scene, info: BossInfo) -> FightResult:
+        """The fight with the boss ``info`` (:meth:`_fight`), with the loot of a summoned boss when it is one.
+
+        A summoned boss - it has an origin, or the schedule waits behind it
+        (``_resume_phase``: also a boss of the code before, brought back after a
+        restart without its origin) - draws its loot as ``summoned``
+        (``items.LOOT_SOURCE``): some rows of the loot tables never drop from a
+        summoned boss (a Zwój przywołania cannot bring the next one).  Set here,
+        so that no signature of the fights changed.
+        """
+        summoned = bool(getattr(info, "origin", "")) or self._resume_phase is not None
+        if not summoned:
+            return await self._fight(scene, info)
+        with items.loot_source(items.SOURCE_SUMMONED):
+            return await self._fight(scene, info)
+
+    async def _fight(self, scene: Scene, info: BossInfo) -> FightResult:
         boss = self._boss
         state = self.bot.state
         # A special boss (features/bossvariants.py) tells the fight which variant it is: the

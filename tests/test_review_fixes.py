@@ -205,6 +205,21 @@ def test_job_markers_of_a_bot_that_was_not_running_are_dropped(game):
     assert len(bot._startup_notes) == 1 and "NIE zostaną nadrobione" in bot._startup_notes[0]
 
 
+def test_a_summoned_boss_of_a_bot_that_was_not_running_is_dropped_with_its_origin(game):
+    import os
+    import time
+
+    bot = game.bot
+    bot.store.runtime.save({"summoned_boss_rarity": 4, "boss_spawning_enabled": True,
+                            "summoned_boss_info": {"origin": "scroll", "at": "2026-11-20T10:00:00+00:00"}})
+    bot._review_saved_state()                          # written a moment ago: the boss comes back
+    assert bot.store.runtime_get("summoned_boss_info") == {"origin": "scroll", "at": "2026-11-20T10:00:00+00:00"}
+    three_days_ago = time.time() - 3 * 86400
+    os.utime(bot.store.runtime.path, (three_days_ago, three_days_ago))
+    bot._review_saved_state()
+    assert bot.store.runtime.load() == {"boss_spawning_enabled": True}
+
+
 def test_owner_is_told_when_spawning_is_switched_off(game):
     bot = game.bot
     bot.store.runtime_set("boss_spawning_enabled", False)

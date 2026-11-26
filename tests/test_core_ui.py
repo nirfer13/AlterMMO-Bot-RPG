@@ -8,6 +8,7 @@ import time
 from types import SimpleNamespace
 
 import discord
+import pytest
 
 from altermmo.core import challenge, guards, ui
 
@@ -284,6 +285,35 @@ async def _start_round(game, player) -> asyncio.Future:
         await asyncio.sleep(0)
     assert challenge.fight_on(game.channel)
     return task
+
+
+async def test_no_busy_notice_and_no_new_command_during_a_typed_fight(game):
+    """(Items, 2026-11-26) owner's rule: nothing posts into a running fight - the typed commands' busy notice
+    neither (it is not even charged to the rate limit), and ``guards.not_during_fight`` says nothing at all."""
+    ala = game.add_member("Ala")
+    typed = SimpleNamespace(channel=game.channel)
+    ctx = SimpleNamespace(channel=game.channel)
+    predicate = _predicate_of(guards.not_during_fight())
+    round_task = await _start_round(game, ala)
+    await guards.notify_busy(typed)
+    with pytest.raises(guards.SilentCheckFailure):
+        await predicate(ctx)
+    assert await predicate(SimpleNamespace(channel=game.notice_channel)) is True   # another channel: free
+    game.say(ala, "blok")
+    await round_task
+    assert not game.channel.contains(guards.BUSY_NOTICE)
+    assert await predicate(ctx) is True                                      # the fight is over
+    await guards.notify_busy(typed)                                          # ... and the notice was not used up
+    assert game.channel.messages[-1].content == guards.BUSY_NOTICE
+
+
+def _predicate_of(decorator):
+    """The predicate a ``commands.check`` decorator adds to a command."""
+    async def command():
+        pass
+
+    decorator(command)
+    return command.__commands_checks__[-1]
 
 
 async def test_during_a_typed_fight_only_real_content_is_posted(game, tmp_path):

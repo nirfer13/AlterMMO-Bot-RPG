@@ -69,6 +69,11 @@ class BossInfo:
     #: Id of the special variant the boss was shown as (``features/bossvariants.py``); '' for an
     #: ordinary boss.  Only in memory: a boss shown again after a restart is rolled anew.
     variant: str = ""
+    #: How a summoned boss came (``features/boss_cycle.py``, ``SUMMON_ORIGINS``): ``"scroll"`` (a Zwój
+    #: przywołania), ``"gem"`` (the summoning gem), ``"ritual"``; '' for the scheduled boss (and a
+    #: summon that named none).  Kept in ``runtime.json`` with the summoned boss, so that a restart
+    #: brings it back with its origin (the loot of a summoned boss differs, ``features/items.py``).
+    origin: str = ""
 
 
 class GameState:

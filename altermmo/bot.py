@@ -79,6 +79,7 @@ EXTENSIONS: tuple[str, ...] = (
     "altermmo.cogs.achievements",
     "altermmo.cogs.album",
     "altermmo.cogs.missions",
+    "altermmo.cogs.items",
     "altermmo.cogs.collector",
     "altermmo.cogs.xpsteal",
     "altermmo.cogs.twitch",
@@ -228,7 +229,9 @@ MSG_DATABASE_DOWN_AT_START = (
     "odrzucane jest porzucenie towarzysza z rzadką ramką albo częściową folią Holo; "
     "tabelę PET_MISSIONS (zlecenia towarzyszy) bot utworzy sam przy pierwszym otwarciu tablicy zleceń (do tego "
     "czasu nikt nie jest na zleceniu), a bez kolumn BIG_POUCH / POUCH_PET_ID2 / SUMMON_SCROLLS tabeli PETOWNER "
-    "Duża sakwa i Zwoje przywołania są wyłączone. "
+    "Duża sakwa i Zwoje przywołania są wyłączone; tabelę PLAYER_ITEMS (przedmioty graczy) bot utworzy sam, gdy "
+    "będzie jej potrzebował (do tego czasu nowe przedmioty nie wypadają z łupów, a **!przedmioty** ich nie "
+    "pokazuje). "
     "Reszta gry działa normalnie.")
 #: Start-up note: the library that composes the pet cards is missing on this machine.
 MSG_NO_PILLOW = (
@@ -457,8 +460,11 @@ class AlterBot(commands.Bot):
             idle_for = 0.0  # no runtime file yet: a first start, nothing to distrust
         if idle_for > STALE_STATE_AFTER:
             data = runtime.load()
-            if data.pop("summoned_boss_rarity", None) is not None:
-                runtime.save(data)  # a summoned boss from days ago is not brought back
+            # A summoned boss from days ago is not brought back (its rarity and how it came,
+            # see boss_cycle._KEY_SUMMONED / _KEY_SUMMONED_INFO).
+            summoned = data.pop("summoned_boss_rarity", None) is not None
+            if data.pop("summoned_boss_info", None) is not None or summoned:
+                runtime.save(data)
             stale = [key for key in data if key.startswith("job_last_run:")]
             if stale:
                 for key in stale:

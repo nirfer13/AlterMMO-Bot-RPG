@@ -15,7 +15,8 @@ looks for a summon interrupted by a crash (the owner is told; nothing is given
 back by itself).  For the owner's support (not in the help):
 ``!ZakonczZlecenie @gracz`` brings the player's pet back now (its mission is
 paid at the next look), ``!DajZwojPrzywolania @gracz [n]`` gives scrolls back
-by hand, up to the cap.
+by hand (no cap since 2026-11-26; a negative ``n`` takes them, never below 0 -
+the same as ``!DajPrzedmiot @gracz zwój przywołania n``).
 """
 
 from __future__ import annotations
@@ -29,9 +30,8 @@ from ..features import missions, pets
 
 MSG_ENDED = "Zlecenie gracza <@{player_id}> zakończone - towarzysz już wrócił (rozliczy się przy otwarciu tablicy)."
 MSG_NOTHING_AWAY = "Gracz <@{player_id}> nie ma towarzysza na zleceniu."
-MSG_GIVEN = "Gracz <@{player_id}> ma teraz Zwoje przywołania: {count} (najwyżej {cap})."
+MSG_GIVEN = "Gracz <@{player_id}> ma teraz Zwoje przywołania: {count}."
 MSG_NO_COLUMNS = "Zwoje przywołania są wyłączone: baza danych nie ma ich kolumny (SUMMON_SCROLLS)."
-MSG_CONFIG_BROKEN = "Plik config/missionsConfig.json jest błędny: `{error}`"
 
 
 class MissionsCog(commands.Cog, name="Zlecenia"):
@@ -72,13 +72,8 @@ class MissionsCog(commands.Cog, name="Zlecenia"):
         if not await pets.mission_columns_available(self.bot, refresh=True):
             await io.send(ctx.channel, MSG_NO_COLUMNS)
             return
-        try:
-            cap = missions.load_config().summon_cap
-        except missions.ConfigError as exc:
-            await io.send(ctx.channel, MSG_CONFIG_BROKEN.format(error=exc))
-            return
-        count = await pets.give_summon_scrolls(self.bot, member, number, cap)
-        await io.send(ctx.channel, MSG_GIVEN.format(player_id=member.id, count=count, cap=cap),
+        count = await pets.give_summon_scrolls(self.bot, member, number)
+        await io.send(ctx.channel, MSG_GIVEN.format(player_id=member.id, count=count),
                       allowed_mentions=discord.AllowedMentions.none())
 
 

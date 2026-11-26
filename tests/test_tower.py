@@ -389,6 +389,23 @@ async def test_tower_loot_never_gets_the_bonus_of_a_special_boss(game, skills, s
     assert seen == [(0, hunter.id, {})]
 
 
+async def test_tower_loot_is_drawn_as_the_towers(game, skills, monkeypatch):
+    """(Items, 2026-11-26) a floor's loot comes from ``"tower"``: some rows of the boss tables never drop there."""
+    from altermmo.features import items
+
+    sources: list = []
+
+    async def loot(scene, rarity, hunter, boost, **extra):
+        sources.append(items.LOOT_SOURCE.get())
+        return ""
+
+    monkeypatch.setattr(boss, "rand_loot", loot)
+    hunter = game.add_member("Ala")
+    game.auto_answer(hunter)
+    assert await tower.tower_fight(game.scene(hunter), 1) is True
+    assert sources == ["tower"] and items.LOOT_SOURCE.get() is None
+
+
 async def test_mistake_loses_the_floor(game, skills, drops):
     hunter = game.add_member("Ala")
     game.auto_answer(hunter, wrong_on_round=2)

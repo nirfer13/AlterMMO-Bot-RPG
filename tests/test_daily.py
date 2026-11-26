@@ -19,7 +19,7 @@ from altermmo.core import challenge, guards
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossPhase
-from altermmo.features import achievements, daily, database, modifiers, patrons, pets
+from altermmo.features import achievements, daily, database, items, modifiers, patrons, pets
 
 from fakes import FakeChannel, FakeMember, FakeMessage, requested_word
 
@@ -182,10 +182,13 @@ def test_words_and_real_loot_config(monkeypatch):
     assert len(daily.MOB_ACTIONS) == 15
     assert all(requested_word(prompt) == word for word, prompt in daily.MOB_ACTIONS)
     monkeypatch.undo()                            # the real config/mobLootConfig.json
-    known = {1, 9, 10, 11, 12, 13, 14}
+    # The older items, then the new ones of features/items.py - shipped with weight 0 (deploy safety: the
+    # running bot re-reads the file), so >= 0; tests/test_items.py checks their place and their keys.
+    known = {1, 9, 10, 11, 12, 13, 14, *items.BY_LOOT_ID}
     for rarity in (0, 1, 2, 3):
         table = daily._loot_table(rarity)
-        assert table and all(item["id"] in known and item["weight"] > 0 and item["descr"] for item in table)
+        assert table and all(item["id"] in known and item["weight"] >= 0 and item["descr"] for item in table)
+        assert all(item["weight"] > 0 for item in table if item["id"] not in items.BY_LOOT_ID)
     assert daily._loot_table(3) == daily._loot_table(2)
 
 
@@ -356,6 +359,52 @@ async def test_loot_weights_boost_and_bonus(game_db, loot, monkeypatch):
                        + "👉 " + EGG["descr"] + "\n")
     assert (await owner_row(bot, hunter.id))["reroll_scroll_shard"] == 2
     assert await bot.db.fetchval("SELECT count(*) FROM PETS") == 1
+
+
+async def test_loot_rows_drop_only_from_their_sources_and_weight_0_never(game, loot, monkeypatch):
+    """(Items, 2026-11-26) a row's ``"sources"`` and ``"boost": false``; no die is rolled for a row that
+    cannot drop, so the draws of the other rows stay what they were."""
+    rolls: list[float] = []
+    monkeypatch.setattr(random, "random", lambda: rolls.append(0.0) or 0.0)    # every row that is rolled drops
+    hunter = game.add_member("Ala")
+    loot(Epic=[{**TEXT_ONLY, "descr": "Wszędzie"}, {**TEXT_ONLY, "descr": "Zero", "weight": 0},
+               {**TEXT_ONLY, "descr": "Świat", "sources": ["world"]},
+               {**TEXT_ONLY, "descr": "Pojedynek", "sources": ["duel", "boss"]},
+               {**TEXT_ONLY, "descr": "Bez wzmocnienia", "weight": 60, "boost": False}])
+    assert await daily.rand_loot(game.scene(), 2, hunter, 100) == (
+        "👉 Wszędzie\n👉 Wszędzie (Bonus)\n👉 Świat\n👉 Świat (Bonus)\n👉 Bez wzmocnienia\n")
+    assert len(rolls) == 3                                     # two bonus rolls and the 60 % (no bonus: 60, not 120)
+    rolls.clear()
+    with items.loot_source(items.SOURCE_DUEL):                 # a walkover, a tournament's lone player
+        assert await daily.rand_loot(game.scene(), 2, hunter, 0) == "👉 Wszędzie\n👉 Pojedynek\n👉 Bez wzmocnienia\n"
+    assert len(rolls) == 3                                     # "Zero" and "Świat" (not from a duel): no die
+    assert items.LOOT_SOURCE.get() is None
+
+
+async def test_a_new_item_is_granted_by_the_items_module_and_hinted(game, loot, monkeypatch):
+    """Ids 16-25 go to ``items.grant_drop`` (its "no" hides the line); a reserved id stays a text-only drop."""
+    given: list = []
+    answer = [True]
+
+    async def grant_drop(bot, hunter, loot_id):
+        given.append((hunter.id, loot_id))
+        return answer[0]
+
+    monkeypatch.setattr(items, "grant_drop", grant_drop)
+    hunter = game.add_member("Ala")
+    rope = {"id": 22, "descr": "🪢 **Lina sztygara**!", "weight": 100}
+    loot(Rare=[rope, {"id": 21, "descr": "List gończy", "weight": 100}])
+    assert await daily.rand_loot(game.scene(), 1, hunter, 0) == (
+        f"👉 🪢 **Lina sztygara**!\n{items.DROP_HINT}\n👉 List gończy\n")
+    assert given == [(hunter.id, 22)]
+    answer[0] = False                                          # the store is not there: no line
+    assert await daily.rand_loot(game.scene(), 1, hunter, 0) == "👉 List gończy\n"
+    monkeypatch.setattr(random, "random", lambda: 0.0)         # a bonus copy: granted, no second hint
+    answer[0] = True
+    loot(Rare=[{**rope, "weight": 60}])
+    assert await daily.rand_loot(game.scene(), 1, hunter, 100) == (
+        f"👉 🪢 **Lina sztygara**!\n{items.DROP_HINT}\n👉 🪢 **Lina sztygara**! (Bonus)\n")
+    assert given[-2:] == [(hunter.id, 22), (hunter.id, 22)]
 
 
 async def test_loot_item_that_fails_does_not_cost_the_others(game_db, loot, monkeypatch):

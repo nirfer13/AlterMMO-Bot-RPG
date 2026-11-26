@@ -62,6 +62,7 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
 - !wybierzklejnot numer - Zmienia aktywny klejnot na wybrany z listy !klejnoty. Skrót !ws.
 - !pokazskill - Prezentuje aktywny klejnot umiejętności. Skrót !pu.
 - !skill - Używa aktywnego klejnotu umiejętności. Skrót !uu."""),
+    ("🎒 Przedmioty", """- !przedmioty - Wszystko, co nosisz w sakwie, także bez towarzysza. Skrót !eq."""),
     ("👑 Rzeźnik Potworów", """Komendy dla <@&983798433590673448>:
 - !flex - Pokaż innym jakim jesteś koxem.
 - !kolor kolor_hex - Zmienia kolor rangi <@&983798433590673448>, np. !kolor 00FFFF.

@@ -1025,7 +1025,7 @@ async def skill_summon_boss(scene: "Scene") -> bool:
 
     summoned = False
     try:
-        summoned = bool(await bot.boss_cycle.summon(scene, rarity))
+        summoned = bool(await bot.boss_cycle.summon(scene, rarity, origin="gem"))
     finally:
         if not summoned and scene.author is not None:
             bot.store.skill_weekly_cd.remove([scene.author.id])

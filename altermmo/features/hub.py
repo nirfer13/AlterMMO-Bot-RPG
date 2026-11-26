@@ -35,8 +35,9 @@ Two kinds of buttons:
   but with the gate of a display button (:func:`display_gate`) - it only
   shows the board; what changes the game (sending a pet, a new board, the
   recall) is gated by the board's own buttons.
-* **display** - "Towarzysz", "Stajnia", "Klejnoty", "Rankingi", "Osiągnięcia",
-  "Album", "Pomoc" show exactly what ``!towarzysz``, ``!stajnia``, ``!klejnoty``,
+* **display** - "Towarzysz", "Stajnia", "Klejnoty", "Przedmioty", "Rankingi", "Osiągnięcia",
+  "Album", "Pomoc" show exactly what ``!towarzysz``, ``!stajnia``, ``!klejnoty``, ``!przedmioty``
+  (2026-11-26, features/items.py: also for a player without a pet),
   the ranking commands (the fourth, ``!rankingalbumow``, only for a supporter - a member
   who does not support gets the three open ones), ``!osiagniecia``, ``!album`` and ``!pomoc`` show
   (:func:`display_gate` is also the gate of the album's own buttons): on the
@@ -93,6 +94,8 @@ TOWER_ID = BUTTON_PREFIX + "tower"
 PET_ID = BUTTON_PREFIX + "pet"
 STABLE_ID = BUTTON_PREFIX + "stable"
 GEMS_ID = BUTTON_PREFIX + "gems"
+#: The player items (2026-11-26, ``!przedmioty``); permanent like the others - it must never change.
+ITEMS_ID = BUTTON_PREFIX + "items"
 RANKINGS_ID = BUTTON_PREFIX + "rankings"
 ACHIEVEMENTS_ID = BUTTON_PREFIX + "achievements"
 ALBUM_ID = BUTTON_PREFIX + "album"
@@ -113,6 +116,8 @@ PANEL_GAME_TEXT = (
     "wysłaniem, a im trudniejsze i dłuższe zlecenie, tym lepszy łup.\n"
     "🐾 **Towarzysz**, 🐴 **Stajnia**, 💎 **Klejnoty** - podejrzyj swojego towarzysza, stajnię "
     "i klejnoty umiejętności.\n"
+    "🎒 **Przedmioty** - wszystko, co nosisz w sakwie, w jednym miejscu (także zanim zdobędziesz "
+    "towarzysza).\n"
     "🏆 **Rankingi** - sezonowy ranking łowców, Wieża Śmierci, najbardziej utalentowani towarzysze "
     "i ranking kolekcji albumów (dla wspierających).\n"
     "🏅 **Osiągnięcia** - Twoje kolekcjonerskie osiągnięcia (dla wspierających).\n"
@@ -261,6 +266,11 @@ class HubView(ui.GameView):
                        custom_id=GEMS_ID)
     async def gems(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await show_display(interaction, show_gems)
+
+    @discord.ui.button(label="Przedmioty", emoji="🎒", style=discord.ButtonStyle.secondary, row=1,
+                       custom_id=ITEMS_ID)
+    async def items(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await show_display(interaction, show_items)
 
     @discord.ui.button(label="Rankingi", emoji="🏆", style=discord.ButtonStyle.secondary, row=2,
                        custom_id=RANKINGS_ID)
@@ -639,6 +649,12 @@ async def show_gems(scene: "Scene") -> Any:
     from . import skills
 
     return await skills.show_skills(scene)
+
+
+async def show_items(scene: "Scene") -> Any:
+    from . import items
+
+    return await items.show_items(scene)
 
 
 async def show_rankings(scene: "Scene") -> None:
