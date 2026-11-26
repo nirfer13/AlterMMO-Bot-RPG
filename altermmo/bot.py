@@ -363,6 +363,8 @@ class AlterBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         self.net.attach(self)
+        # Every fight round by round, with the times of the answers, for the owner's analyses.
+        fightlog.configure_archive(self.settings.log_dir / "fights")
         self.supervisor.on_crash = self._report_loop_crash
         scheduler.failure_hook = self._report_job_failure
         legacy_dirs = [PROJECT_ROOT]

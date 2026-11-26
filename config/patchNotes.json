@@ -189,5 +189,13 @@
             "Towarzysz na zleceniu wraca po kilku godzinach, a z najdalszych dopiero po dobie. Do tego czasu nie walczy u Twojego boku, nie wyczuwa bossów, nie trenuje i nie da się go przenieść ani zmienić - wysłanie towarzysza, który jest przy Tobie, ma swoją cenę. Postęp sprawdzisz tym samym przyciskiem, a o powrocie dowiesz się na kanale bossa.",
             "Trudniejsze i dłuższe zlecenia kryją lepsze łupy: zwoje, jajka, a czasem coś, czego nie sprzeda żaden kupiec. Sakwa na jajko może tam urosnąć, a najodważniejsi przyniosą Zwój przywołania - **!przywolaj** sprowadza wtedy na kanał potężnego bossa."
         ]
+    },
+    {
+        "id": 19,
+        "date": "2026-11-26",
+        "title": "Dokładniejszy zapis walk",
+        "changes": [
+            "Bot zapisuje teraz przebieg każdej walki na dłużej i dokładniej, także to, kiedy Twoja odpowiedź dotarła do Discorda. Sporne przegrane, np. przez lag, da się więc sprawdzić nawet po kilku dniach. W samych walkach nic się nie zmienia."
+        ]
     }
 ]

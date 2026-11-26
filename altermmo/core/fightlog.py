@@ -17,7 +17,20 @@ What is kept (in memory only, see the bounds below):
   :data:`LATE_WATCH` s (:func:`heard`), or until that player is asked the
   next word, and records by how much it missed - or that nothing came;
 * how the fight ended, and - for the owner who reads ``logs/altermmo.log`` -
-  one INFO line per lost fight plus one per late answer.
+  one INFO line per lost fight plus one per late answer;
+* **when every answer reached Discord and the bot** (:class:`Arrival`,
+  owner, 2026-11-26: "Zrób 2 i zapisuj dane z 1 testowo"): the time the
+  player's own app put into the message's ``nonce`` when Enter was pressed
+  (the official apps use a snowflake of their clock), Discord's timestamp and
+  the moment the bot got it.  Nonce -> Discord is the trip from the player's
+  device to Discord plus the constant offset of that device's clock, so only
+  its excess over the same player's best says something (a lag on the way
+  up); nothing decides by it yet - it is collected to be analysed;
+* **the archive** (:func:`configure_archive`): every fight, once it ended
+  and its late answers are in, is written as one JSON line to
+  ``logs/fights/fights-YYYY-MM-DD.jsonl`` by a background thread (a fight
+  never waits for the disk), kept :data:`ARCHIVE_KEEP_DAYS` days -
+  ``tools/fight_lag_report.py`` reads it.
 
 Rules the code keeps:
 
@@ -43,13 +56,17 @@ from __future__ import annotations
 import asyncio
 import enum
 import functools
+import json
 import logging
+import queue
 import re
+import threading
 import time
 import unicodedata
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable, Coroutine, Iterable, TypeVar
 
 from ..settings import is_command_text
@@ -71,6 +88,17 @@ MAX_ROUNDS = 80
 #: What a player typed / the prompt: only this many characters are kept.
 TEXT_LIMIT = 60
 PROMPT_LIMIT = 160
+
+#: Days the archive files are kept (the owner analyses a week or more at a time).
+ARCHIVE_KEEP_DAYS = 60
+#: The archive file of one UTC day: ``fights-2026-11-26.jsonl``.
+ARCHIVE_PREFIX, ARCHIVE_SUFFIX = "fights-", ".jsonl"
+#: Version of the archive's records (a reader can tell old lines from new ones).
+ARCHIVE_VERSION = 1
+#: Discord's epoch (2015-01-01 UTC) in milliseconds: a snowflake holds the ms since then.
+DISCORD_EPOCH_MS = 1_420_070_400_000
+#: A nonce whose time is further than this from Discord's timestamp is not a time (seconds).
+NONCE_SANE = 24 * 3600.0
 
 #: Kinds of fights (:attr:`Fight.kind`); ``detail`` is the rarity or the floor.
 KIND_BOSS = "boss"
@@ -118,6 +146,71 @@ class End(enum.Enum):
 
 
 @dataclass
+class Arrival:
+    """When a player's message was sent, created and received (see the module's docstring).
+
+    ``nonce_at`` - the clock of the player's device when the message was sent
+    (decoded from the nonce the app attached; None when there is none or it
+    is not a time: other clients, bots, an app that changed its format).
+    ``created_at`` - Discord's timestamp.  ``received_at`` - the bot's clock
+    when the message was handled.  The two differences include the offsets of
+    the clocks involved: compare each only with others of the same player.
+    """
+
+    message_id: int
+    created_at: datetime | None
+    received_at: datetime
+    nonce: str | None = None
+    nonce_at: datetime | None = None
+
+    @property
+    def upload(self) -> float | None:
+        """Seconds from the player's Enter (by the device's clock) to Discord's timestamp."""
+        if self.nonce_at is None or self.created_at is None:
+            return None
+        return (self.created_at - self.nonce_at).total_seconds()
+
+    @property
+    def delivery(self) -> float | None:
+        """Seconds from Discord's timestamp to the bot handling the message (by the bot's clock)."""
+        return None if self.created_at is None else (self.received_at - self.created_at).total_seconds()
+
+
+def nonce_time(nonce: Any, created_at: datetime | None) -> datetime | None:
+    """The moment a snowflake nonce stands for, if it is one close to ``created_at``.  Never raises."""
+    try:
+        if isinstance(nonce, bool) or nonce is None:
+            return None
+        text = str(nonce).strip()
+        if not text.isdigit() or len(text) > 20:
+            return None
+        value = int(text)
+        if value <= 0:
+            return None
+        moment = datetime.fromtimestamp(((value >> 22) + DISCORD_EPOCH_MS) / 1000, tz=timezone.utc)
+        if created_at is not None and abs((created_at - moment).total_seconds()) > NONCE_SANE:
+            return None
+        return moment
+    except (ValueError, OverflowError, OSError, TypeError):
+        return None
+
+
+def arrival_of(message: Any, received_at: datetime | None = None) -> Arrival | None:
+    """The :class:`Arrival` of ``message``, now.  Never raises (None when it cannot be told)."""
+    try:
+        received = received_at or datetime.now(timezone.utc)
+        created = getattr(message, "created_at", None)
+        created = created if isinstance(created, datetime) else None
+        raw = getattr(message, "nonce", None)
+        nonce = None if raw is None else clip(raw, 40)
+        return Arrival(message_id=int(getattr(message, "id", 0) or 0), created_at=created,
+                       received_at=received, nonce=nonce, nonce_at=nonce_time(raw, created))
+    except Exception:  # noqa: BLE001 - a by-product, see _never_raises
+        log.exception("Fight journal: reading the arrival of a message failed.")
+        return None
+
+
+@dataclass
 class Late:
     """The first message of the asked player after the time of a round was up."""
 
@@ -126,6 +219,7 @@ class Late:
     text: str
     #: True when it arrived while the round was still listening (inside the grace window).
     in_grace: bool = False
+    arrival: Arrival | None = None
 
 
 @dataclass
@@ -167,6 +261,10 @@ class Round:
     stale_of: int | None = None
     prompt_id: int = 0
     prompt_at: datetime | None = None
+    #: The bot's clock when sending the prompt returned, minus Discord's timestamp of it (seconds).
+    prompt_lag: float | None = None
+    #: The arrival of the answer given in time (the late one is in :attr:`late`).
+    arrival: Arrival | None = None
 
     @property
     def over(self) -> float | None:
@@ -197,6 +295,8 @@ class Fight:
     #: A complaint about this fight was answered (:mod:`altermmo.features.fightreport`).
     answered: bool = False
     owner_told: bool = False
+    #: Handed to the archive (:func:`_archive`); at most once.
+    archived: bool = False
 
     def has(self, player_id: int) -> bool:
         return any(fighter_id == player_id for fighter_id, _ in self.fighters)
@@ -303,7 +403,9 @@ def begin(channel: Any, kind: str, fighters: Iterable[Any], *, detail: Any = Non
     global _serial
     channel_id = int(channel.id)
     _prune()
-    _open.pop(channel_id, None)
+    unended = _open.pop(channel_id, None)
+    if unended is not None:
+        _archive(unended)  # (as it is: without an end)
     _serial += 1
     fight = Fight(kind=kind, channel_id=channel_id, fighters=[_ident(fighter) for fighter in fighters],
                   detail=detail, serial=_serial)
@@ -362,6 +464,7 @@ def lost(channel: Any, *, timed_out: bool | None = None) -> Fight | None:
     else:
         fight.reason = "timeout" if timed_out else "mistake" if timed_out is not None else ""
     log.info("%s", lost_line(fight))
+    _settle(fight)
     return fight
 
 
@@ -373,6 +476,7 @@ def won(channel: Any, *, winner: Any = None, loser: Any = None) -> Fight | None:
         return None
     if loser is None:
         fight.winners = tuple(player_id for player_id, _ in fight.fighters)
+        _settle(fight)
         return fight
     loser_id = _ident(loser)[0]
     fight.losers = (loser_id,)
@@ -383,13 +487,17 @@ def won(channel: Any, *, winner: Any = None, loser: Any = None) -> Fight | None:
                            if entry.outcome in (Outcome.TIMEOUT, Outcome.WRONG_WORD)), None)
     fight.reason = "duel"
     log.info("%s", lost_line(fight))
+    _settle(fight)
     return fight
 
 
 @_never_raises()
 def draw(channel: Any) -> Fight | None:
     """The fight on ``channel`` ended without a winner or a loser."""
-    return _close(channel, End.DRAW)
+    fight = _close(channel, End.DRAW)
+    if fight is not None:
+        _settle(fight)
+    return fight
 
 
 @_never_raises()
@@ -399,6 +507,7 @@ def interrupted(channel: Any, reason: str = "") -> Fight | None:
     if fight is not None:
         log.info("Fight interrupted: %s | %s | %s", kind_text(fight), fighters_text(fight),
                  reason or "technical reasons")
+        _settle(fight)
     return fight
 
 
@@ -473,6 +582,8 @@ class RoundEntry(_NoRound):
         entry.prompt_id = int(prompt.id)
         entry.prompt_at = prompt.created_at
         entry.latency, entry.grace, entry.send_time = float(latency), float(grace), float(send_time)
+        if isinstance(prompt.created_at, datetime):
+            entry.prompt_lag = (datetime.now(timezone.utc) - prompt.created_at).total_seconds()
         for player_id in self.targets:
             watch = _watches.get((self.channel_id, player_id))
             if watch is not None:
@@ -484,7 +595,8 @@ class RoundEntry(_NoRound):
         entry = self.entry
         author_id = int(message.author.id)
         if author_id in self.targets and entry.late is None:
-            entry.late = Late(after=float(elapsed), text=clip(message.content), in_grace=True)
+            entry.late = Late(after=float(elapsed), text=clip(message.content), in_grace=True,
+                              arrival=arrival_of(message))
             entry.late_state = LateState.FOUND
 
     @_never_raises()
@@ -513,6 +625,7 @@ class RoundEntry(_NoRound):
         entry.elapsed = float(elapsed)
         entry.typed = clip(message.content)
         entry.typed_by_id, entry.typed_by_name = author_id, author_name
+        entry.arrival = arrival_of(message)
         entry.disturbed = bool(net is not None and since is not None and net.disrupted_since(since))
         if entry.asked_id is not None and author_id != entry.asked_id:
             entry.outcome = Outcome.WRONG_PLAYER
@@ -537,7 +650,7 @@ class RoundEntry(_NoRound):
                 or text != previous.word):
             return
         previous.late = Late(after=(message.created_at - previous.prompt_at).total_seconds(),
-                             text=clip(message.content))
+                             text=clip(message.content), arrival=arrival_of(message))
         previous.late_state = LateState.FOUND
         entry.stale_of = previous.number
         log.info("%s", late_line(self.fight, previous))
@@ -637,6 +750,7 @@ def _end_watch(watch: _Watch, state: LateState, late: Late | None = None) -> Non
         entry.watch_disturbed = bool(watch.net.disrupted_since(watch.started))
     if state is not LateState.STOPPED:
         log.info("%s", late_line(watch.fight, entry))
+    _settle(watch.fight)  # (an ended fight waited for this answer to be archived)
 
 
 def _expire(watch: _Watch) -> None:
@@ -670,7 +784,7 @@ def heard(message: Any) -> None:
         if is_command_text(text) or is_lag_complaint(text):
             return
         after = (message.created_at - watch.entry.prompt_at).total_seconds()
-        _end_watch(watch, LateState.FOUND, Late(after=after, text=clip(text)))
+        _end_watch(watch, LateState.FOUND, Late(after=after, text=clip(text), arrival=arrival_of(message)))
     except Exception:  # noqa: BLE001 - see the docstring
         log.exception("Fight journal: looking at a message failed.")
 
@@ -766,6 +880,49 @@ def _health_text(fight: Fight, entry: Round) -> str:
             f"{len(fight.disrupted_rounds())} disrupted round(s)")
 
 
+def arrivals_of(fight: Fight, player_id: int | None) -> list[Arrival]:
+    """Every recorded arrival of ``player_id``'s messages in the fight (answers in time and late ones)."""
+    found: list[Arrival] = []
+    for entry in fight.rounds:
+        if entry.arrival is not None and entry.typed_by_id == player_id:
+            found.append(entry.arrival)
+        if entry.late is not None and entry.late.arrival is not None and entry.asked_id == player_id:
+            found.append(entry.late.arrival)
+    return found
+
+
+def answer_arrival(entry: Round) -> Arrival | None:
+    """The arrival of what decided ``entry``: the answer in time, else the late one."""
+    if entry.arrival is not None:
+        return entry.arrival
+    return entry.late.arrival if entry.late is not None else None
+
+
+def arrival_text(fight: Fight, entry: Round) -> str:
+    """The times of the answer of ``entry`` (" | ..." for a log line; '' when it had no answer).
+
+    "send +0.31 s (+0.12 s over this fight's best of 7)" - nonce -> Discord;
+    only the excess means something (the device's clock offset is in both).
+    A message without a nonce adds nothing to the line (the archive has it).
+    """
+    arrival = answer_arrival(entry)
+    if arrival is None or arrival.nonce is None:
+        return ""
+    parts = []
+    upload = arrival.upload
+    if upload is None:
+        parts.append(f"no client send time (nonce {arrival.nonce!r} is not a time)")
+    else:
+        player_id = entry.typed_by_id if entry.arrival is arrival else entry.asked_id
+        uploads = [item.upload for item in arrivals_of(fight, player_id) if item.upload is not None]
+        best = min(uploads) if uploads else upload
+        parts.append(f"client send {upload:+.2f} s ({upload - best:+.2f} s over this fight's best of "
+                     f"{len(uploads)})")
+    if arrival.delivery is not None:
+        parts.append(f"Discord->bot {arrival.delivery:.2f} s")
+    return " | " + ", ".join(parts)
+
+
 def lost_line(fight: Fight) -> str:
     """The one INFO line of a lost fight (the owner analyses fights from the log file)."""
     entry = fight.decisive
@@ -779,18 +936,42 @@ def lost_line(fight: Fight) -> str:
         if entry is None:
             return f"Fight lost: duel | {who} | {tally}; no failed round"
         return (f"Fight lost: duel | {who} | {tally}; last failed {_round_text(fight, entry)}: "
-                f"{_outcome_text(entry)} | {_health_text(fight, entry)}")
+                f"{_outcome_text(entry)} | {_health_text(fight, entry)}{arrival_text(fight, entry)}")
     if entry is None:
         return (f"Fight lost: {kind_text(fight)} | {fighters_text(fight)} | no round recorded "
                 f"({fight.reason or 'unknown reason'})")
     return (f"Fight lost: {kind_text(fight)} | {fighters_text(fight)} | {_round_text(fight, entry)}: "
-            f"{_outcome_text(entry)} | {_health_text(fight, entry)}")
+            f"{_outcome_text(entry)} | {_health_text(fight, entry)}{arrival_text(fight, entry)}")
 
 
 def late_line(fight: Fight, entry: Round) -> str:
     """The INFO line written when the watch of a timed-out round ends."""
     return (f"Late answer: {kind_text(fight)} | {entry.asked_name or fighters_text(fight)} "
-            f"({entry.asked_id}) | {_round_text(fight, entry)}: {_late_text(entry)}")
+            f"({entry.asked_id}) | {_round_text(fight, entry)}: {_late_text(entry)}{arrival_text(fight, entry)}")
+
+
+def summary_line(fight: Fight) -> str:
+    """The INFO line of an archived fight: how it ended and how its answers travelled."""
+    asked = [entry for entry in fight.rounds if entry.outcome not in (None, Outcome.PET_ATTACK)]
+    arrivals = [(entry, answer_arrival(entry)) for entry in asked]
+    answered = [(entry, arrival) for entry, arrival in arrivals if arrival is not None]
+    timed = [(entry, arrival) for entry, arrival in answered if arrival.upload is not None]
+    end = fight.end.value if fight.end is not None else "never ended"
+    text = (f"Fight archived: {kind_text(fight)} | {fighters_text(fight)} | {end}, {len(asked)} round(s), "
+            f"client send time in {len(timed)}/{len(answered)} answer(s)")
+    worst: tuple[float, Round] | None = None
+    for entry, arrival in timed:
+        player_id = entry.typed_by_id if entry.arrival is arrival else entry.asked_id
+        best = min(item.upload for item in arrivals_of(fight, player_id) if item.upload is not None)
+        excess = arrival.upload - best  # type: ignore[operator]
+        if worst is None or excess > worst[0]:
+            worst = (excess, entry)
+    if worst is not None:
+        text += f", slowest send {worst[0]:+.2f} s over the player's best (round {worst[1].number})"
+    deliveries = [arrival.delivery for _, arrival in answered if arrival.delivery is not None]
+    if deliveries:
+        text += f", Discord->bot at most {max(deliveries):.2f} s"
+    return text
 
 
 # -- "lag" ----------------------------------------------------------------------------------
@@ -835,6 +1016,177 @@ def is_lag_complaint(text: Any) -> bool:
     return any(_LAG.fullmatch(word) for word in _WORDS.findall(folded))
 
 
+# -- the archive ------------------------------------------------------------------------------
+
+def _iso(moment: datetime | None) -> str | None:
+    return None if moment is None else moment.astimezone(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _seconds(value: float | None) -> float | None:
+    return None if value is None else round(float(value), 3)
+
+
+def arrival_record(arrival: Arrival | None) -> dict[str, Any] | None:
+    if arrival is None:
+        return None
+    return {"message_id": arrival.message_id, "created_at": _iso(arrival.created_at),
+            "received_at": _iso(arrival.received_at), "nonce": arrival.nonce,
+            "nonce_at": _iso(arrival.nonce_at), "upload": _seconds(arrival.upload),
+            "delivery": _seconds(arrival.delivery)}
+
+
+def round_record(entry: Round) -> dict[str, Any]:
+    late = entry.late
+    return {
+        "number": entry.number, "asked_id": entry.asked_id, "asked_name": entry.asked_name,
+        "word": entry.word, "limit": _seconds(entry.limit),
+        "outcome": entry.outcome.value if entry.outcome is not None else None,
+        "elapsed": _seconds(entry.elapsed), "typed": entry.typed, "typed_by_id": entry.typed_by_id,
+        "saved": entry.saved, "stale_of": entry.stale_of,
+        "prompt_id": entry.prompt_id or None, "prompt_at": _iso(entry.prompt_at),
+        "prompt_lag": _seconds(entry.prompt_lag), "send_time": _seconds(entry.send_time),
+        "latency": _seconds(entry.latency), "grace": _seconds(entry.grace),
+        "disturbed": entry.disturbed, "stall": _seconds(entry.stall),
+        "arrival": arrival_record(entry.arrival),
+        "late": None if late is None else {
+            "after": _seconds(late.after), "over": _seconds(late.after - entry.limit), "text": late.text,
+            "in_grace": late.in_grace, "arrival": arrival_record(late.arrival)},
+        "late_state": entry.late_state.value, "watched": _seconds(entry.watched),
+        "watch_disturbed": entry.watch_disturbed,
+    }
+
+
+def fight_record(fight: Fight) -> dict[str, Any]:
+    """One line of the archive: the whole fight, round by round (plain JSON values)."""
+    duration = None if fight.ended is None else fight.ended - fight.started
+    detail = fight.detail if isinstance(fight.detail, (int, float, str, type(None))) else str(fight.detail)
+    return {
+        "v": ARCHIVE_VERSION, "serial": fight.serial, "kind": fight.kind, "detail": detail,
+        "channel_id": fight.channel_id, "started_at": _iso(fight.started_at),
+        "duration": _seconds(duration), "end": fight.end.value if fight.end is not None else None,
+        "reason": fight.reason,
+        "fighters": [{"id": player_id, "name": name} for player_id, name in fight.fighters],
+        "winners": list(fight.winners), "losers": list(fight.losers),
+        "decisive_round": fight.decisive.number if fight.decisive is not None else None,
+        "rounds": [round_record(entry) for entry in fight.rounds],
+    }
+
+
+class _Writer:
+    """The archive's thread: appends the lines it is handed to the file of their day.
+
+    The event loop only puts a ready line on a queue (never blocks); a full
+    disk or a locked file costs the line and one ERROR, never a fight.
+    """
+
+    def __init__(self, directory: Path, keep_days: int) -> None:
+        self.directory = directory
+        self.keep_days = keep_days
+        self.queue: queue.SimpleQueue = queue.SimpleQueue()
+        self.pruned_on: str | None = None
+        self.thread = threading.Thread(target=self._run, name="fight-archive", daemon=True)
+        self.thread.start()
+
+    def put(self, day: str, line: str) -> None:
+        self.queue.put((day, line))
+
+    def flush(self, timeout: float = 5.0) -> bool:
+        """Block until every line handed in so far is written (False on timeout)."""
+        done = threading.Event()
+        self.queue.put(done)
+        return done.wait(timeout)
+
+    def close(self, timeout: float = 5.0) -> None:
+        self.queue.put(None)
+        self.thread.join(timeout)
+
+    def _run(self) -> None:
+        while True:
+            item = self.queue.get()
+            if item is None:
+                return
+            if isinstance(item, threading.Event):
+                item.set()
+                continue
+            day, line = item
+            try:
+                self.directory.mkdir(parents=True, exist_ok=True)
+                with open(self.directory / f"{ARCHIVE_PREFIX}{day}{ARCHIVE_SUFFIX}", "a", encoding="utf-8",
+                          newline="\n") as file:
+                    file.write(line + "\n")
+            except Exception:  # noqa: BLE001 - the archive is a by-product
+                log.exception("Fight archive: writing a fight to %s failed.", self.directory)
+            if self.pruned_on != day:
+                self.pruned_on = day
+                self.prune(day)
+
+    def prune(self, today: str) -> None:
+        """Delete the day files older than :attr:`keep_days` (by the date in their names)."""
+        try:
+            limit = (datetime.fromisoformat(today) - timedelta(days=self.keep_days)).date().isoformat()
+            for path in self.directory.glob(f"{ARCHIVE_PREFIX}*{ARCHIVE_SUFFIX}"):
+                day = path.name[len(ARCHIVE_PREFIX):-len(ARCHIVE_SUFFIX)]
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) and day < limit:
+                    path.unlink()
+                    log.info("Fight archive: %s deleted (older than %s days).", path.name, self.keep_days)
+        except Exception:  # noqa: BLE001
+            log.exception("Fight archive: deleting old files failed.")
+
+
+_writer: _Writer | None = None
+
+
+def configure_archive(directory: Path | None, *, keep_days: int = ARCHIVE_KEEP_DAYS) -> None:
+    """Archive every fight from now on into ``directory`` (None: stop archiving).  Never raises."""
+    global _writer
+    try:
+        if _writer is not None:
+            if directory is not None and Path(directory) == _writer.directory:
+                _writer.keep_days = keep_days
+                return
+            _writer.close()
+            _writer = None
+        if directory is not None:
+            _writer = _Writer(Path(directory), keep_days)
+            log.info("Fight archive: every fight is written to %s (kept %s days).", directory, keep_days)
+    except Exception:  # noqa: BLE001
+        log.exception("Fight archive: could not be set up; fights are kept in memory only.")
+
+
+def archive_directory() -> Path | None:
+    return None if _writer is None else _writer.directory
+
+
+def flush_archive(timeout: float = 5.0) -> bool:
+    """Block until the archive has written everything handed to it (tests, shutdown)."""
+    return True if _writer is None else _writer.flush(timeout)
+
+
+def _settle(fight: Fight) -> None:
+    """Archive ``fight`` if it has ended and no late answer of it is still awaited.  Never raises."""
+    try:
+        if fight.end is None or fight.archived:
+            return
+        if any(watch.fight is fight for watch in _watches.values()):
+            return  # (the watch's end settles it again)
+        _archive(fight)
+    except Exception:  # noqa: BLE001
+        log.exception("Fight archive: settling a fight failed (the fight is not affected).")
+
+
+def _archive(fight: Fight) -> None:
+    """Hand ``fight`` to the archive (once).  Never raises, never waits for the disk."""
+    try:
+        if _writer is None or fight.archived:
+            return
+        fight.archived = True
+        line = json.dumps(fight_record(fight), ensure_ascii=False, separators=(",", ":"))
+        _writer.put(fight.started_at.astimezone(timezone.utc).date().isoformat(), line)
+        log.info("%s", summary_line(fight))
+    except Exception:  # noqa: BLE001
+        log.exception("Fight archive: archiving a fight failed (the fight is not affected).")
+
+
 # -- background work that must not leak ------------------------------------------------------
 
 def spawn(coroutine: Coroutine[Any, Any, Any], *, name: str | None = None) -> asyncio.Task | None:
@@ -871,19 +1223,32 @@ def _stop_watches() -> None:
 
 
 async def stop() -> None:
-    """Shutdown: end every watch and cancel every background task.  Never raises."""
+    """Shutdown: end every watch and cancel every background task.  Never raises.
+
+    The fights still running are archived as they are (without an end) and
+    the archive writes out what it holds.
+    """
     _stop_watches()
+    for fight in list(_open.values()):
+        _archive(fight)
     tasks = [task for task in _tasks if not task.done()]
     for task in tasks:
         task.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     _tasks.clear()
+    if _writer is not None:
+        try:
+            if not await asyncio.to_thread(_writer.flush, 5.0):
+                log.warning("Fight archive: not everything was written before the shutdown.")
+        except Exception:  # noqa: BLE001
+            log.exception("Fight archive: flushing at shutdown failed.")
 
 
 def reset() -> None:
-    """Forget everything (tests; no event loop needed)."""
+    """Forget everything (tests; no event loop needed).  The archive is switched off."""
     global _serial
+    configure_archive(None)
     _stop_watches()
     for task in list(_tasks):
         try:
