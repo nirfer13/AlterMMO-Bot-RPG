@@ -429,7 +429,9 @@ async def test_an_album_lacking_one_later_column_still_reads_the_other(cogs, mis
 
 
 def test_the_later_columns_are_tried_most_first():
-    assert [album_column for album_column, _ in album.LATER_COLUMNS] == ["FRAME", "HOLO_PARTIAL"]
+    # Only the card's ornaments count for the value: the later stat columns (the aura, "Zaradność",
+    # 2026-11-26) are never read by the ranking.
+    assert [album_column for album_column, _ in album.LATER_COSMETIC_COLUMNS] == ["FRAME", "HOLO_PARTIAL"]
     assert albumrank._later_choices() == [("FRAME", "HOLO_PARTIAL"), ("FRAME",), ("HOLO_PARTIAL",), ()]
 
 

@@ -33,7 +33,9 @@ rolled keeps its snapshot):
   rounded half up and cut to ``min..max``; ``fit`` is the mean of
   ``min(1, stat / target)`` over the mission's needs (the boss detection
   counts 0 or 1) - exact, with :class:`fractions.Fraction`
-  (:func:`chance_of`);
+  (:func:`chance_of`); the pet's "Zaradność w zleceniach" (``PETS.MISSION_PERC``,
+  a talent stat since 2026-11-26) is added after that cut, up to
+  :data:`MAX_CHANCE`;
 * the outcome and the whole list of rewards are drawn ONCE, at the send, in
   the send's transaction (:func:`roll_outcome`), and paid at the claim in ONE
   transaction with the status flip (:func:`claim`, :func:`_grant`) - a crash
@@ -101,7 +103,7 @@ from ..core import challenge, clock, io, ui
 from ..core.db import DatabaseUnavailable
 from ..core.state import BossPhase, EventType
 from ..settings import ASSETS_DIR, CONFIG_DIR
-from . import daily, pets, shortcuts
+from . import auras, daily, pets, shortcuts
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -168,6 +170,8 @@ DETECTION = "DETECTION"
 STATS: tuple[str, ...] = (*NUMERIC_STATS, DETECTION)
 #: The talent the chance counts at most (an enlightened pet reaches 9).
 MAX_TALENT = 9
+#: The most a chance can be once "Zaradność w zleceniach" is added (:func:`chance_of`): never certain.
+MAX_CHANCE = 98
 
 #: Every kind of reward, in the order :func:`draw_rewards` draws them (and a result lists them).
 REWARD_KINDS: tuple[str, ...] = ("scrolls", "shards", "egg", "rare_egg", "great_egg", "level", "stone", "mirror",
@@ -622,17 +626,36 @@ def fit_of(offer: Mapping[str, Any], pet: Any) -> Fraction:
     return sum((_part(stat, target, pet) for stat, target in needs), Fraction(0)) / len(needs)
 
 
+def resourcefulness_of(pet: Any) -> int:
+    """The pet's "Zaradność w zleceniach" (``MISSION_PERC``) in whole percent; 0 without it (or the column)."""
+    value = _value(pet, pets.MISSION_PERC_COLUMN)
+    try:
+        return max(math.floor(_exact(value)), 0) if value is not None else 0
+    except (TypeError, ValueError, ArithmeticError):
+        return 0
+
+
 def chance_of(offer: Mapping[str, Any], pet: Any) -> int:
     """The whole percent of success of ``pet`` (a ``PETS`` row: lower-case keys) on ``offer`` (a snapshot).
 
     ``floor(base + talent * min(PET_SKILLS, 9) + span * fit + 1/2)``, cut to
     ``min .. max`` - computed with fractions, so no float decides a percent.
     A NULL stat or talent counts as 0, a NULL detection as none.
+
+    Then the pet's "Zaradność w zleceniach" (owner, 2026-11-26) is added AFTER
+    that cut: ``min(MAX_CHANCE, cut + MISSION_PERC)`` - it always helps (it is
+    not part of ``fit`` and no mission needs it), but :data:`MAX_CHANCE` is the
+    absolute ceiling: a mission is never certain.  A pet without it keeps the
+    cut as it is.
     """
     talent = min(max(pets._int(_value(pet, "pet_skills")), 0), MAX_TALENT)
     raw = (_exact(offer["base"]) + _exact(offer["talent"]) * talent + _exact(offer["span"]) * fit_of(offer, pet)
            + Fraction(1, 2))
-    return max(int(offer["min"]), min(int(offer["max"]), math.floor(raw)))
+    cut = max(int(offer["min"]), min(int(offer["max"]), math.floor(raw)))
+    bonus = resourcefulness_of(pet)
+    if bonus <= 0:
+        return cut
+    return max(cut, min(MAX_CHANCE, cut + bonus))
 
 
 def _paid(expected: Fraction) -> int:
@@ -1064,11 +1087,14 @@ async def _grant(con: Any, bot: "AlterBot", member: Any, player_id: int, row: An
         else:
             compensate(index, kind, kind="egg", **{"class": kind})
     for index, _reward in each("level"):
+        grown: list[auras.Change] = []
         done = await pets.level_mission_pet_in(con, player_id, row["pet_id"], upgrades=upgrades, big=big,
-                                               species=str(pet.get("type")))
+                                               species=str(pet.get("type")), aura_out=grown)
         if done is not None:
             granted.level, new = done
             lines[index] = {"kind": "level", "name": pets._called(granted.level), "new": new}
+            for change in grown:  # (its aura grew: the result says so under the level - stored as data)
+                lines[index].update(aura=change.stat, aura_perc=change.value)
         else:
             compensate(index, "level", kind="level", name=str(pet.get("name") or pets.DEFAULT_NAME))
     for index, reward in each(*_ITEMS):
@@ -1473,6 +1499,8 @@ MSG_PICK_PET = "{pet} ({where})"
 MSG_PICK_TALENT = "📈 Talent: {talent}/9"
 MSG_PICK_NEED = "{mark} {emoji} {label}: {value}/{target}%"
 MSG_PICK_DETECTION = "{mark} 🔮 Wyczuwanie bossa: {answer}"
+#: The pet's "Zaradność w zleceniach" (only when it has some): added to the chance after its cut.
+MSG_PICK_RESOURCEFUL = "🧭 Zaradność w zleceniach: +{value} %"
 MSG_PICK_CHANCE = "🎯 **Szansa powodzenia: {chance}%**"
 #: How well the pet meets a need: all of it, some of it, nothing.
 MARK_FULL, MARK_PART, MARK_NONE = "✅", "🟨", "❌"
@@ -1722,7 +1750,11 @@ def result_line(entry: Mapping[str, Any]) -> str | None:
         name = str(entry.get("name") or pets.DEFAULT_NAME)
         if comp is not None:
             return MSG_GOT_LEVEL_COMP.format(name=name, comp=_comp_text(comp))
-        return MSG_GOT_LEVEL.format(name=name, new=pets._int(entry.get("new")))
+        line = MSG_GOT_LEVEL.format(name=name, new=pets._int(entry.get("new")))
+        if entry.get("aura"):  # its aura grew with the level (2026-11-26): the note under the line
+            grew = auras.note(auras.Change(auras.GREW, str(entry["aura"]), pets._int(entry.get("aura_perc"))))
+            line += f"\n{grew}" if grew else ""
+        return line
     if kind == "stone":
         return MSG_GOT_STONE
     if kind == "mirror":
@@ -1865,6 +1897,8 @@ def pick_embed(offer: Mapping[str, Any], config: Config | None, pet: pets.Missio
             lines.append(MSG_PICK_NEED.format(mark=mark, emoji=look_emoji, label=NEED_LABELS.get(stat, stat),
                                               value=_figure(pets._num(_value(pet.row, stat.lower()))),
                                               target=_figure(target)))
+    if (resourceful := resourcefulness_of(pet.row)) > 0:
+        lines.append(MSG_PICK_RESOURCEFUL.format(value=resourceful))
     lines.append(MSG_PICK_CHANCE.format(chance=chance))
     lines.append("")
     lines.append(MSG_WARN_ACTIVE.format(hours=hours) if pet.place <= 0

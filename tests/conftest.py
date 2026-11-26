@@ -105,6 +105,49 @@ def _ordinary_bosses(monkeypatch, tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _no_auras(monkeypatch, tmp_path_factory):
+    """No pet hatches with an aura unless a test asks for one (features/auras.py).
+
+    The shipped ``config/auraConfig.json`` will give an aura now and then once
+    the owner turns the chance on - by chance, which would change the notes,
+    the stats and the random draws of every test that hatches an egg.  Every
+    test starts with a config whose chance is 0 (no draw is made at all); a
+    test of the auras writes its own (``aura_config`` below).
+    """
+    from altermmo.features import auras
+
+    config_dir = tmp_path_factory.getbasetemp() / "no-auras"
+    if not config_dir.is_dir():
+        config_dir.mkdir()
+        (config_dir / auras.CONFIG_FILE).write_text('{"chance_per_10000": 0}', encoding="utf-8")
+    monkeypatch.setattr(auras, "CONFIG_DIR", config_dir)
+
+
+@pytest.fixture
+def aura_config(monkeypatch, tmp_path):
+    """``aura_config(chance_per_10000=..., kinds=...)`` writes an ``auraConfig.json`` of the test's own.
+
+    Points ``auras.CONFIG_DIR`` at a folder of the test (``kinds`` left out:
+    the file has none, so the owner's weights apply) and returns the loaded
+    config - the numbers a test relies on are its own, never the shipped file's.
+    """
+    import json
+
+    from altermmo.features import auras
+
+    folder = tmp_path / "auras"
+    folder.mkdir()
+    monkeypatch.setattr(auras, "CONFIG_DIR", folder)
+
+    def write(chance_per_10000=10000, **changes):
+        (folder / auras.CONFIG_FILE).write_text(
+            json.dumps({"chance_per_10000": chance_per_10000, **changes}, ensure_ascii=False), encoding="utf-8")
+        return auras.load()
+
+    return write
+
+
+@pytest.fixture(autouse=True)
 def _no_dust_without_a_database(monkeypatch):
     """A bot without a database (the ``game`` fixture) carries no Nieuchwytny pył into a fight.
 

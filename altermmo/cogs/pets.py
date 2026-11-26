@@ -25,7 +25,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from ..core import guards, io, ui
+from ..core import challenge, guards, io, ui
 from ..core.scene import Scene
 from ..features import bossdetect, patrons, petcards, pets
 
@@ -249,8 +249,13 @@ class PetsCog(commands.Cog, name="Pets"):
     @commands.command(name="PetLvlUp", brief="Level up pet of the player id.")
     @guards.owner_or_admin()
     async def level_up_pet(self, ctx: commands.Context, player_id: int) -> None:
-        done = await pets.level_up_pet(Scene.from_ctx(ctx), player_id)
+        # The aura's note of this level (an egg that hatched with one, an aura that grew) is said here,
+        # like under a drop - but never into a running fight (owner's rule).
+        notes: list[str] = []
+        done = await pets.level_up_pet(Scene.from_ctx(ctx), player_id, aura_note=notes)
         await io.safe_react(ctx.message, "✅" if done else "❌")
+        if notes and not challenge.fight_on(ctx.channel):
+            await io.send(ctx.channel, "\n".join(notes), allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command(name="AddScroll")
     @guards.owner_or_admin()

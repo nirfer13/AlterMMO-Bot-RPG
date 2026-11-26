@@ -143,16 +143,26 @@ BASE_COLUMNS: tuple[tuple[str, str], ...] = (
 )
 #: Columns of ``PETS`` that came after the album's table was first made (each one needs a
 #: default: it is also added to an existing table, see :data:`NEW_COLUMNS`): the frame result
-#: and the partial Holo of 2026-11-21 (definitions as in ``pets.NEW_COLUMNS``).
-LATER_COLUMNS: tuple[tuple[str, str], ...] = (
+#: and the partial Holo of 2026-11-21 (definitions as in ``pets.NEW_COLUMNS``) - the card's
+#: ornaments, which the collection's value counts (``albumrank``) ...
+LATER_COSMETIC_COLUMNS: tuple[tuple[str, str], ...] = (
     ("FRAME", "VARCHAR(16) NOT NULL DEFAULT ''"),
     ("HOLO_PARTIAL", "BOOLEAN NOT NULL DEFAULT FALSE"),
 )
+#: ... and the aura and "Zaradność w zleceniach" of 2026-11-26: copied like every stat, inert in
+#: the album (a sacrificed pet's aura helps nobody).
+LATER_STAT_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("AURA", "VARCHAR(16) NOT NULL DEFAULT ''"),
+    ("AURA_PERC", "NUMERIC NOT NULL DEFAULT 0"),
+    ("MISSION_PERC", "NUMERIC NOT NULL DEFAULT 0"),
+)
+LATER_COLUMNS: tuple[tuple[str, str], ...] = LATER_COSMETIC_COLUMNS + LATER_STAT_COLUMNS
 #: The defaults of :data:`LATER_COLUMNS`.  When such a column could not be added to an existing
 #: album (start-up, ``schema.add_new_columns``), :func:`keep` leaves it out for a pet whose value
-#: IS the default (nothing is lost); a pet that really has a frame / partial Holo is not kept -
-#: the sacrifice is refused (:class:`NotSaved`) rather than the entry losing its ornament.
-LATER_DEFAULTS: dict[str, Any] = {"FRAME": "", "HOLO_PARTIAL": False}
+#: IS the default (nothing is lost); a pet that really has a frame / partial Holo / an aura /
+#: "Zaradność" is not kept - the sacrifice is refused (:class:`NotSaved`) rather than the entry
+#: losing what the pet had.
+LATER_DEFAULTS: dict[str, Any] = {"FRAME": "", "HOLO_PARTIAL": False, "AURA": "", "AURA_PERC": 0, "MISSION_PERC": 0}
 #: Every copied column (:func:`keep` copies those the pet's row has).
 SNAPSHOT_COLUMNS: tuple[tuple[str, str], ...] = BASE_COLUMNS + LATER_COLUMNS
 
@@ -174,6 +184,9 @@ NEW_COLUMNS: tuple[tuple[str, str, str], ...] = tuple(
 _SQL_ENTRIES = f"SELECT * FROM {TABLE} WHERE PLAYER_ID = $1 ORDER BY ENTRY_ID"
 _SQL_ENTRY = f"SELECT * FROM {TABLE} WHERE ENTRY_ID = $1 AND PLAYER_ID = $2"
 _SQL_REMOVE = f"DELETE FROM {TABLE} WHERE ENTRY_ID = $1 AND PLAYER_ID = $2 RETURNING ENTRY_ID"
+#: The columns the album's table really has (:func:`keep`, after a refused later column).
+_SQL_ALBUM_COLUMNS = f"""SELECT attname::text FROM pg_attribute
+                         WHERE attrelid = to_regclass('{TABLE.lower()}') AND attnum > 0 AND NOT attisdropped"""
 _SQL_SLOTS = f"SELECT DISTINCT TYPE, PET_LVL FROM {TABLE} WHERE PLAYER_ID = $1"
 #: The player's entries of ONE species (the note at an egg drop, :func:`note_new_egg`).
 _SQL_OF_SPECIES = f"SELECT * FROM {TABLE} WHERE PLAYER_ID = $1 AND TYPE = $2 ORDER BY ENTRY_ID"
@@ -288,7 +301,8 @@ async def keep(con: Any, player_id: int, pet: Any) -> int:
     A row the database refuses raises :class:`NotSaved` - the caller's
     transaction is then rolled back and the pet stays where it was.  An album
     made before :data:`LATER_COLUMNS` that could not get them yet still keeps
-    a pet that has only their defaults (see :data:`LATER_DEFAULTS`).  A table
+    a pet that has only their defaults in the columns it lacks (see
+    :data:`LATER_DEFAULTS`; the columns it has are copied as always).  A table
     that is not there at all (the database did not answer at the first start,
     so ``schema.create_new_tables`` did not run) is made here, in the same
     transaction (:data:`SCHEMA`, ``IF NOT EXISTS``) - otherwise no supporter
@@ -307,15 +321,22 @@ async def keep(con: Any, player_id: int, pet: Any) -> int:
                     await con.execute(statement)
             entry_id = await _insert(con, player_id, pet, columns)
     except asyncpg.UndefinedColumnError as exc:
+        # Only the later columns the table really lacks are left out (since 2026-11-26 an album can have the
+        # frames but not the aura's columns: a pet with a rare frame must still be kept there).
         later = {column for column, _ in LATER_COLUMNS}
-        richer = [column for column in columns
-                  if column in later and pet[column.lower()] != LATER_DEFAULTS.get(column)]
-        if richer:
+        try:
+            has = {str(row[0]).lower() for row in await con.fetch(_SQL_ALBUM_COLUMNS)}
+        except asyncpg.PostgresError as again:
+            raise NotSaved(f"{type(again).__name__}: {again}") from again
+        lacking = [column for column in columns if column.lower() not in has]
+        richer = [column for column in lacking
+                  if column not in later or pet[column.lower()] != LATER_DEFAULTS.get(column)]
+        if richer or not lacking:
             raise NotSaved(f"{type(exc).__name__}: {exc}") from exc
         log.warning("PET_ALBUM lacks a later column (%s); pet %s kept without the default values of %s.",
-                    exc, pet["pet_id"], ", ".join(column for column in columns if column in later))
+                    exc, pet["pet_id"], ", ".join(lacking))
         try:
-            entry_id = await _insert(con, player_id, pet, [column for column in columns if column not in later])
+            entry_id = await _insert(con, player_id, pet, [column for column in columns if column not in lacking])
         except asyncpg.PostgresError as again:
             raise NotSaved(f"{type(again).__name__}: {again}") from again
     except asyncpg.PostgresError as exc:

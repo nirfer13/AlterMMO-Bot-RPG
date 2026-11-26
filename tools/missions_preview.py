@@ -114,7 +114,8 @@ def _pet(pet_id: int, name: str, species: str, level: int, talent: int, *, varia
     row = {"pet_id": pet_id, "pet_name": name, "pet_lvl": level, "type": species, "pet_skills": talent,
            "quality": quality, "variant": variant, "shiny": shiny, "ultra_shiny": ultra, "mythic": mythic,
            "detection": detection, "seal": "", "holo": False, "frame": "", "holo_partial": False}
-    for column in ("crit_perc", "replace_perc", "def_perc", "drop_perc", "lowhp_perc", "slow_perc", "init_perc"):
+    for column in ("crit_perc", "replace_perc", "def_perc", "drop_perc", "lowhp_perc", "slow_perc", "init_perc",
+                   "mission_perc"):
         row[column] = stats.get(column, 0)
     return row
 
@@ -125,7 +126,7 @@ PETS_ROWS: dict[int, dict[str, Any]] = {
     P_ISKRA: _pet(P_ISKRA, "Iskra", "Dragon", 2, 4, variant="1", shiny=True, slow_perc=18, drop_perc=7,
                   replace_perc=6, detection=True),
     P_FENIKS: _pet(P_FENIKS, pets.DEFAULT_NAME, "Phoenix", 3, 8, variant="2", ultra=True, replace_perc=21,
-                   def_perc=24, crit_perc=12, lowhp_perc=10),
+                   def_perc=24, crit_perc=12, lowhp_perc=10, mission_perc=6),
     P_JAJO: _pet(P_JAJO, pets.DEFAULT_NAME, "Sheep", 0, 0, variant="2"),
     P_BUREK: _pet(P_BUREK, "Burek", "Dog", 1, 1, crit_perc=3, def_perc=2),
     P_EGG1: _pet(P_EGG1, pets.DEFAULT_NAME, "Unicorn", 0, 0, variant="1"),

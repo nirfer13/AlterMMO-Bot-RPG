@@ -25,7 +25,7 @@ PATRON = patrons.PATRON_ROLES[0]
 ASK = "albo wpisz **!potwierdzam**."
 ALONE = "Niestety jesteś sam jak palec na tym świecie"
 PEPOG = "<:PepoG:790963160528977980>"
-ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN = pets.SKILL_EMOTES
+ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT = pets.SKILL_EMOTES
 ACCEPT = pets.ACCEPT_EMOTE
 
 OWNER_DEFAULTS = dict(pet_owned=True, reroll_scroll=0, reroll_scroll_shard=0, rebirth_stones=0, mirrors=0,
@@ -182,9 +182,11 @@ def test_pet_types_and_pools_are_the_legacy_ones():
     assert [t.value for t in pets.TRANSFORM_TYPES] == [
         "Bear", "Boar", "Cat", "Rabbit", "Sheep", "Dragon", "Phoenix", "Unicorn", "Snake", "AnimeGirl",
         "Elemental", "Monkey", "Dog", "Eagle", "Guinea", "Skeleton", "Ghost"]
+    # "Zaradność w zleceniach" (2026-11-26) came last: the legacy stats keep their places.
     assert pets.SKILL_POOL == ("CRIT_PERC", "REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC",
-                               "SLOW_PERC", "DETECTION")
-    assert pets.SKILL_EMOTES == tuple(f"{n}️⃣" for n in range(1, 8)) and ACCEPT == "✅"
+                               "SLOW_PERC", "DETECTION", "MISSION_PERC")
+    assert pets.SKILL_LABELS[-1] == "Zaradność w zleceniach" and len(pets.SKILL_LABELS) == len(pets.SKILL_POOL)
+    assert pets.SKILL_EMOTES == tuple(f"{n}️⃣" for n in range(1, 9)) and ACCEPT == "✅"
     assert set(pets.POLISH_TYPES) == {member.value for member in PetType}
 
 
@@ -234,21 +236,22 @@ def test_only_patrons_find_premium_eggs(monkeypatch):
     assert pools == [list(pets.STANDARD_EGGS)] * 2
 
 
-@pytest.mark.parametrize("flags, crit, slow", [
-    (dict(mythic=True, ultra_shiny=True, shiny=True), (8, 12), (11, 16)),
-    (dict(mythic=False, ultra_shiny=True, shiny=True), (6, 11), (9, 15)),
-    (dict(mythic=False, ultra_shiny=False, shiny=True), (5, 8), (8, 12)),
-    (dict(mythic=False, ultra_shiny=None, shiny=None), (3, 5), (5, 8)),
+@pytest.mark.parametrize("flags, crit, slow, mission", [
+    (dict(mythic=True, ultra_shiny=True, shiny=True), (8, 12), (11, 16), (4, 6)),
+    (dict(mythic=False, ultra_shiny=True, shiny=True), (6, 11), (9, 15), (3, 5)),
+    (dict(mythic=False, ultra_shiny=False, shiny=True), (5, 8), (8, 12), (3, 4)),
+    (dict(mythic=False, ultra_shiny=None, shiny=None), (3, 5), (5, 8), (2, 3)),
 ])
-def test_talent_point_values_depend_on_the_rarity(monkeypatch, flags, crit, slow):
-    pools, ranges = rig(monkeypatch, choices=["CRIT_PERC", "SLOW_PERC", "DETECTION"])
+def test_talent_point_values_depend_on_the_rarity(monkeypatch, flags, crit, slow, mission):
+    """"Zaradność w zleceniach" (owner, 2026-11-26): ordinary 2-3, Shiny 3-4, Ultra Shiny 3-5, mythic 4-6."""
+    pools, ranges = rig(monkeypatch, choices=["CRIT_PERC", "SLOW_PERC", "DETECTION", "MISSION_PERC"])
     stats = dict.fromkeys(pets.SKILL_POOL, 0)
     stats["DETECTION"] = False
-    for _ in range(3):
+    for _ in range(4):
         pets._roll_skill(stats, pets.SKILL_POOL, flags)
-    assert ranges == [crit, slow]                       # detection is learnt, not rolled
+    assert ranges == [crit, slow, mission]              # detection is learnt, not rolled
     assert stats == {"CRIT_PERC": crit[1], "REPLACE_PERC": 0, "DEF_PERC": 0, "DROP_PERC": 0,
-                     "LOWHP_PERC": 0, "SLOW_PERC": slow[1], "DETECTION": True}
+                     "LOWHP_PERC": 0, "SLOW_PERC": slow[1], "DETECTION": True, "MISSION_PERC": mission[1]}
 
 
 def test_known_detection_and_capped_slow_are_never_drawn(monkeypatch):
@@ -257,12 +260,36 @@ def test_known_detection_and_capped_slow_are_never_drawn(monkeypatch):
     stats = dict.fromkeys(pets.SKILL_POOL, 0)
     stats.update(DETECTION=True, SLOW_PERC=80)
     assert pets._roll_skill(stats, pets.SKILL_POOL, plain) == "CRIT_PERC"
-    assert pools == [["CRIT_PERC", "REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC"]]
+    assert pools == [["CRIT_PERC", "REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "MISSION_PERC"]]
     stats["SLOW_PERC"] = 79
     pets._roll_skill(stats, pets.SKILL_POOL, plain)
     assert "SLOW_PERC" in pools[-1] and "DETECTION" not in pools[-1]
     # Nothing left to learn: the legacy loop would have spun for ever.
     assert pets._roll_skill(stats | {"SLOW_PERC": 80}, ["SLOW_PERC", "DETECTION"], plain) is None
+
+
+def test_resourcefulness_has_a_soft_cap_like_the_slow(monkeypatch):
+    """No more points into "Zaradność w zleceniach" from 30 on; the last point below it may overshoot."""
+    pools, ranges = rig(monkeypatch, choices=["MISSION_PERC", "MISSION_PERC"])
+    plain = dict(mythic=False, ultra_shiny=False, shiny=False)
+    stats = dict.fromkeys(pets.SKILL_POOL, 0) | {"DETECTION": False, "MISSION_PERC": 29}
+    assert pets._roll_skill(stats, pets.SKILL_POOL, plain) == "MISSION_PERC"
+    assert stats["MISSION_PERC"] == 32 and ranges == [(2, 3)]                 # 29 + 3: over the cap, as the slow
+    assert pets._roll_skill(stats, pets.SKILL_POOL, plain) == "CRIT_PERC"     # 32: never offered again
+    assert "MISSION_PERC" not in pools[-1] and pets.MISSION_CAP == 30
+    assert pets._roll_skill(stats | {"MISSION_PERC": 30}, ["MISSION_PERC"], plain) is None
+
+
+def test_a_table_without_the_resourcefulness_column_gets_no_point_into_it(monkeypatch):
+    """The old PETS (the start-up could not add MISSION_PERC): the stat is not in the row's stats, never drawn."""
+    pools, _ = rig(monkeypatch, choices=["MISSION_PERC"])
+    old_row = {**{name.lower(): 0 for name in pets.SKILL_POOL[:6]}, "detection": False,
+               "mythic": False, "ultra_shiny": False, "shiny": False}
+    stats = pets._stats_of(old_row)
+    assert "MISSION_PERC" not in stats and "MISSION_PERC" not in pets._blank_stats(old_row)
+    assert pets._roll_skill(stats, pets.SKILL_POOL, old_row) == "CRIT_PERC"
+    assert pools == [["CRIT_PERC", "REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "SLOW_PERC", "DETECTION"]]
+    assert pets._stats_of(old_row | {"mission_perc": Decimal(7)})["MISSION_PERC"] == 7
 
 
 # -- schema ---------------------------------------------------------------------------
@@ -309,7 +336,9 @@ async def test_schema_is_exactly_the_production_one(game_db):
         ("drop_perc", "numeric"), ("lowhp_perc", "numeric"), ("slow_perc", "numeric"),
         ("init_perc", "numeric"), ("detection", "boolean"), ("ultra_shiny", "boolean"), ("mythic", "boolean"),
         ("seal", "numeric"), ("holo", "boolean"),                 # new in v2: the pet cosmetics
-        ("frame", text), ("holo_partial", "boolean")]             # ... and the frames of 2026-11-21
+        ("frame", text), ("holo_partial", "boolean"),             # ... and the frames of 2026-11-21
+        ("aura", text), ("aura_perc", "numeric"),                 # ... the aura and "Zaradność w zleceniach"
+        ("mission_perc", "numeric")]                              #     of 2026-11-26
     by_name = {row["column_name"]: row for row in rows}
     assert all(by_name[name]["character_maximum_length"] == 255 for name in ("pet_name", "quality", "type", "variant"))
     assert by_name["mythic"]["is_nullable"] == "NO" and by_name["mythic"]["column_default"] == "false"
@@ -317,8 +346,11 @@ async def test_schema_is_exactly_the_production_one(game_db):
     assert by_name["frame"]["character_maximum_length"] == 16
     assert by_name["frame"]["column_default"] == "''::character varying"
     assert by_name["holo_partial"]["column_default"] == "false"
+    assert by_name["aura"]["character_maximum_length"] == 16
+    assert by_name["aura"]["column_default"] == "''::character varying"
+    assert by_name["aura_perc"]["column_default"] == "0" and by_name["mission_perc"]["column_default"] == "0"
     assert [name for name, row in by_name.items() if row["is_nullable"] == "NO"] == [
-        "mythic", "seal", "holo", "frame", "holo_partial"]
+        "mythic", "seal", "holo", "frame", "holo_partial", "aura", "aura_perc", "mission_perc"]
 
     for table in ("petowner", "pets"):  # neither table has a primary key or any other index
         assert await db.fetchval("SELECT COUNT(*) FROM pg_index WHERE indrelid = $1::regclass", table) == 0
@@ -365,7 +397,8 @@ async def test_first_egg_creates_the_owner_row(game_db, monkeypatch):
         "pet_id": 1, "pet_name": "Towarzysz", "pet_lvl": 0, "pet_skills": 0, "quality": "Standard",
         "shiny": True, "type": "Sheep", "variant": "7", "crit_perc": 0, "replace_perc": 0, "def_perc": 0,
         "drop_perc": 0, "lowhp_perc": 0, "slow_perc": 0, "init_perc": 0, "detection": False,
-        "ultra_shiny": False, "mythic": False, "seal": 0, "holo": False, "frame": "", "holo_partial": False}
+        "ultra_shiny": False, "mythic": False, "seal": 0, "holo": False, "frame": "", "holo_partial": False,
+        "aura": "", "aura_perc": 0, "mission_perc": 0}
     # A second egg is refused and nothing is generated for it.
     assert await pets.assign_pet(game_db.scene(), player) is False
     assert await count(db, "PETS") == 1 and await count(db, "PETOWNER") == 1
@@ -706,7 +739,7 @@ async def reroll_setup(game, *, scrolls: int = 2, **pet):
 
 async def test_reroll_spends_a_scroll_and_redistributes_the_talent(game_db, monkeypatch):
     db = game_db.bot.db
-    player = await reroll_setup(game_db)
+    player = await reroll_setup(game_db, mission_perc=12)
     pools, ranges = rig(monkeypatch, choices=["CRIT_PERC", "DETECTION", "SLOW_PERC", "SLOW_PERC"])
     confirms(game_db, player, "$POTWIERDZAM")
     assert await pets.reroll_pet(game_db.scene(player), player) is True
@@ -717,10 +750,10 @@ async def test_reroll_spends_a_scroll_and_redistributes_the_talent(game_db, monk
     row = await pet_row(db, 5)
     assert {name: row[name.lower()] for name in pets.SKILL_POOL} == {
         "CRIT_PERC": 5, "REPLACE_PERC": 0, "DEF_PERC": 0, "DROP_PERC": 0, "LOWHP_PERC": 0, "SLOW_PERC": 16,
-        "DETECTION": True}
+        "DETECTION": True, "MISSION_PERC": 0}                         # "Zaradność" reset like the others
     assert (row["pet_skills"], row["pet_lvl"], row["variant"], row["init_perc"]) == (4, 2, "1", 9)
     assert ranges == [(3, 5), (5, 8), (5, 8)]
-    assert [len(pool) for pool in pools] == [7, 7, 6, 6] and "DETECTION" not in pools[2]
+    assert [len(pool) for pool in pools] == [8, 8, 7, 7] and "DETECTION" not in pools[2]
     assert (await owner_row(db, player.id))["reroll_scroll"] == 1
     answer = next(m for m in game_db.channel.messages if m.content == "$POTWIERDZAM")
     assert answer.reactions == [PEPOG]
@@ -828,7 +861,7 @@ async def test_reroll_leaving_stats_out_costs_ten_scrolls_each(game_db, monkeypa
     confirms(game_db, player)
     assert await pets.reroll_pet(game_db.scene(player), player, [0, 5]) is True
     assert all(pool[:1] != ["CRIT_PERC"] and "CRIT_PERC" not in pool and "SLOW_PERC" not in pool for pool in pools)
-    assert pools[0] == ["REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "DETECTION"]
+    assert pools[0] == ["REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "DETECTION", "MISSION_PERC"]
     row = await pet_row(db, 5)
     assert (row["crit_perc"], row["slow_perc"], row["drop_perc"], row["detection"]) == (0, 0, 5, True)
     assert row["replace_perc"] == 20                                    # 1 scripted + 3 defaults (first of pool)
@@ -863,8 +896,9 @@ async def test_advanced_reroll_menu(game_db, monkeypatch):
     select = menu.button("pet:skip")
     assert [option.label for option in select.options] == [
         "Szansa na krytyczne uderzenie", "Szansa na zastąpienie ataku", "Szansa na zablokowanie ataku",
-        "Rzadszy drop", "Zmniejszenie życia przeciwnika", "Spowolnienie przeciwnika", "Wyczuwanie bossa"]
-    assert [str(option.emoji) for option in select.options] == [ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN]
+        "Rzadszy drop", "Zmniejszenie życia przeciwnika", "Spowolnienie przeciwnika", "Wyczuwanie bossa",
+        "Zaradność w zleceniach"]
+    assert [str(option.emoji) for option in select.options] == [ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT]
     assert (select.min_values, select.max_values) == (0, 3)
 
     # Strangers cannot use it - told so on the channel, addressed to them; the menu is untouched.
@@ -879,17 +913,34 @@ async def test_advanced_reroll_menu(game_db, monkeypatch):
     await choose(game_db, menu, player, 6, 0)
     await until(lambda: "koszt: **20 zwojów**" in menu.content)
     assert "Pominięte: **Szansa na krytyczne uderzenie**, **Wyczuwanie bossa** - koszt" in menu.content
-    assert [option.default for option in menu.button("pet:skip").options] == [True] + [False] * 5 + [True]
+    assert [option.default for option in menu.button("pet:skip").options] == [True] + [False] * 5 + [True, False]
     await game_db.click(menu, player, "pet:skip-accept")
     assert await asyncio.wait_for(task, 5) is True
     assert menu.view is None and "koszt: **20 zwojów**" in menu.content            # the list is gone
 
     assert game_db.channel.contains("Zobaczmy...")
-    assert pools and all(pool == ["REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "SLOW_PERC"]
+    assert pools and all(pool == ["REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "SLOW_PERC", "MISSION_PERC"]
                          for pool in pools)
     assert (await owner_row(db, player.id))["reroll_scroll"] == 10            # two stats left out: 20 scrolls
     row = await pet_row(db, 5)
     assert (row["crit_perc"], row["detection"], row["replace_perc"]) == (0, False, 20)
+
+
+async def test_advanced_reroll_can_leave_out_the_resourcefulness(game_db, monkeypatch):
+    """"Zaradność w zleceniach" is the 8th entry of the list: left out like any other stat (10 scrolls)."""
+    db = game_db.bot.db
+    player = await reroll_setup(game_db, scrolls=12, mission_perc=9)
+    pools, _ = rig(monkeypatch, choices=["MISSION_PERC"] * 4)
+    confirms(game_db, player)
+    task, menu = await open_menu(game_db, player)
+    await choose(game_db, menu, player, 7)
+    await until(lambda: "Pominięte: **Zaradność w zleceniach** - koszt: **10 zwojów**" in menu.content)
+    await game_db.click(menu, player, "pet:skip-accept")
+    assert await asyncio.wait_for(task, 5) is True
+    assert pools and all("MISSION_PERC" not in pool for pool in pools)
+    row = await pet_row(db, 5)
+    assert row["mission_perc"] == 0 and row["crit_perc"] == 20         # reset, and no point went back into it
+    assert (await owner_row(db, player.id))["reroll_scroll"] == 2
 
 
 async def test_advanced_reroll_without_a_choice_is_an_ordinary_reroll(game_db, monkeypatch):

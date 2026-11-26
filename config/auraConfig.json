@@ -1,0 +1,9 @@
+{
+    "chance_per_10000": 0,
+    "kinds": {
+        "mroz": 35,
+        "furia": 30,
+        "szczescie": 25,
+        "opieka": 10
+    }
+}

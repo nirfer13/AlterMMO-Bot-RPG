@@ -104,7 +104,7 @@ from ..core import challenge, io, timing, ui
 from ..core.scene import Scene
 from ..core.state import BossPhase, EventType
 from ..settings import CONFIG_DIR
-from . import album, events, expsum, items, patrons, pets
+from . import album, auras, events, expsum, items, patrons, pets
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -833,6 +833,7 @@ def granted_lines(granted: dict[str, Any] | None) -> list[str]:
     level = granted.get("level")
     if isinstance(level, dict):
         lines.append(MSG_GOT_LEVEL.format(name=level.get("name", ""), old=level.get("old", 0), new=level.get("new", 0)))
+        lines.extend(str(note) for note in level.get("notes") or () if note)  # the aura's note of that level
     elif level == "max":
         lines.append(MSG_GOT_NO_LEVEL_MAX)
     elif level == "none":
@@ -1536,10 +1537,11 @@ async def _leave(mine: Mine, expedition: Expedition, interaction: Any, *, notice
     if chamber.pet_level:
         try:
             before = await pets._active_pet(bot.db, player_id)
-            if await pets.level_up_pet(scene, player_id):
+            aura_notes: list[str] = []  # (the egg hatched with an aura / the aura grew: said on the loot's page)
+            if await pets.level_up_pet(scene, player_id, aura_note=aura_notes):
                 level = pets._int(before["pet_lvl"]) if before is not None else 0
                 granted["level"] = {"name": _pet_name(before) if before is not None else pets.DEFAULT_NAME,
-                                    "old": level, "new": level + 1}
+                                    "old": level, "new": level + 1, **({"notes": aura_notes} if aura_notes else {})}
             elif before is None:
                 granted["level"] = "none"
             else:  # (a pet on a companion mission does not grow either)
@@ -1655,11 +1657,14 @@ async def _ask_swap(mine: Mine, member: Any) -> tuple[int, int, str] | None:
         return None
     place, pet_id, row = found
     name = pets._pet_line(row) if row is not None else PET_WITHOUT_DATA.format(pet_id=pet_id)
+    # A pet with an aura: both questions say that it is lost with the pet (an album copy is only a picture).
+    warning = auras.sacrifice_warning(row) if row is not None else ""
     for question in (MSG_SWAP_FIRST, MSG_SWAP_SECOND):
         if not _may_ask(mine):
             return None
         kept = KEPT_PET if patrons.check_if_patron(member) else ""
-        if not await _confirm(mine, member, question.format(player_id=player_id, place=place, pet=name, kept=kept)):
+        text = question.format(player_id=player_id, place=place, pet=name, kept=kept) + (warning + " " if warning else "")
+        if not await _confirm(mine, member, text):
             return None
     return place, pet_id, name
 

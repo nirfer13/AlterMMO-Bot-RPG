@@ -445,12 +445,13 @@ class Ranking:
 def _later_choices() -> list[tuple[str, ...]]:
     """The later columns to read, most first: all of them, then every set without one, ... none.
 
-    An album made before :data:`album.LATER_COLUMNS` may lack ONE of them only (one could be
+    An album made before :data:`album.LATER_COSMETIC_COLUMNS` may lack ONE of them only (one could be
     added at start-up, the other not): the ranking must then still read the other one - the
     album's overview scores the viewer's own rows (``SELECT *``) with every column the table has,
     and the value beside his place would otherwise disagree with the place.
     """
-    names = tuple(column for column, _ in album.LATER_COLUMNS)
+    # (Only the card's ornaments: the later stat columns - the aura, "Zaradność" - are worth nothing here.)
+    names = tuple(column for column, _ in album.LATER_COSMETIC_COLUMNS)
     return [choice for size in range(len(names), -1, -1) for choice in itertools.combinations(names, size)]
 
 

@@ -366,6 +366,43 @@ def test_the_reachable_range_of_the_chance():
         assert missions.chance_of(offer, pet(pet_skills=3)) == worst
 
 
+@pytest.mark.parametrize("tier, stats, resourceful, chance", [
+    # after the cut: zwykłe at its max 95 + 6 -> 98 (the ceiling: a mission is never certain)
+    (0, dict(pet_skills=9, crit_perc=99), 6, 98),
+    (0, dict(pet_skills=9, crit_perc=99), 2, 97),
+    # rzadkie: worst 20 + 12; epickie at its min 3 + 30 (the soft cap's neighbourhood)
+    (1, dict(pet_skills=3), 12, 32),
+    (2, dict(pet_skills=0), 30, 33),
+    # nothing, NULL, a negative value and the old table (no column) change nothing; a fraction counts whole
+    (1, dict(pet_skills=3), 0, 20),
+    (1, dict(pet_skills=3), None, 20),
+    (1, dict(pet_skills=3), Decimal(-4), 20),
+    (1, dict(pet_skills=3), Decimal("4.9"), 24),
+])
+def test_resourcefulness_is_added_after_the_cut_up_to_98(tier, stats, resourceful, chance):
+    """"Zaradność w zleceniach" (owner, 2026-11-26): ``min(98, cut + MISSION_PERC)`` - not part of ``fit``."""
+    tier_config = config().tier(tier)
+    offer = {"needs": [["CRIT_PERC", 1]], "base": tier_config.base, "talent": tier_config.talent,
+             "span": tier_config.span, "min": tier_config.min, "max": tier_config.max}
+    assert missions.MAX_CHANCE == 98
+    assert missions.chance_of(offer, pet(**stats, mission_perc=resourceful)) == chance
+    assert missions.chance_of(offer, pet(**stats)) == missions.chance_of(offer, pet(**stats, mission_perc=0))
+    # It never lowers a chance: a tier whose max were above the ceiling keeps its cut.
+    above = {**offer, "base": 200, "min": 99, "max": 99}
+    assert missions.chance_of(above, pet(**stats, mission_perc=resourceful)) == 99
+
+
+def test_the_pick_shows_the_resourcefulness_of_the_chosen_pet():
+    offer = offer_of("karawana")
+    row = {"pet_id": 6, "pet_name": "Mruczek", "pet_lvl": 3, "type": "Dog", "pet_skills": 5, "def_perc": 20,
+           "slow_perc": 30, "detection": False, "mission_perc": 6}
+    shown = missions.pick_embed(offer, config(), pets.MissionPet("2:6", 2, row), missions.chance_of(offer, row))
+    text = shown.embed.description
+    assert "🧭 Zaradność w zleceniach: +6 %\n🎯 **Szansa powodzenia: " in text
+    plain = missions.pick_embed(offer, config(), pets.MissionPet("2:6", 2, {**row, "mission_perc": 0}), 50)
+    assert "Zaradność" not in plain.embed.description
+
+
 _GAINS = {"mythic": ((8, 12), (11, 16)), "ultra": ((6, 11), (9, 15)), "shiny": ((5, 8), (8, 12)),
           "ordinary": ((3, 5), (5, 8))}
 
@@ -997,6 +1034,27 @@ async def test_the_level_goes_to_the_mission_pet_wherever_it_is(game_db, monkeyp
     assert (await pet_row(db, 6))["pet_skills"] in (4, 5)
     assert noted == [(supporter, 6, 3)] and claimed.notes == ["Album: Mruczek"]
     assert await result_of(db, mission_id) == {"lines": claimed.granted.lines, "notes": ["Album: Mruczek"]}
+
+
+async def test_a_mission_level_can_grow_the_pets_aura_and_the_result_says_so(game_db, monkeypatch):
+    """The aura grows with the level (50%, items_decisions.md §8); the line keeps it as data, the result says it."""
+    db = game_db.bot.db
+    ala = game_db.add_member("Ala")
+    await add_owner(db, ala.id, 5, pet_id_alt3=6)
+    await add_pet(db, 5, pet_name="Burek", pet_lvl=1)
+    await add_pet(db, 6, pet_name="Mruczek", pet_lvl=2, pet_skills=3, type="Dog", aura="CRIT_PERC", aura_perc=2)
+    real = random.randrange
+    monkeypatch.setattr(random, "randrange", lambda stop, *args: 0 if stop == 2 and not args else real(stop, *args))
+    mission_id = await mission_row(db, ala.id, 6, [{"kind": "level"}], place=3, pet_type="Dog", name="Mruczek")
+    claimed = await missions.claim(game_db.scene(ala), ala.id, mission_id, announce=False, shown=True)
+    assert claimed.granted.lines == [{"kind": "level", "name": "Mruczek", "new": 3, "aura": "CRIT_PERC",
+                                      "aura_perc": 3}]
+    row = await pet_row(db, 6)
+    assert (row["pet_lvl"], row["aura"], row["aura_perc"]) == (3, "CRIT_PERC", 3)
+    stored = await db.fetchrow("SELECT * FROM PET_MISSIONS WHERE MISSION_ID = $1", mission_id)
+    text = missions.result_embed(ala.id, stored, config()).embed.description
+    assert ("⬆️ **Mruczek** awansuje na poziom 3!\n🌟 **Aura Furii** Twojego towarzysza przybrała na sile (+3 %)!"
+            in text)
 
 
 @pytest.mark.parametrize("change", ["gone", "species", "pouch", "max"])

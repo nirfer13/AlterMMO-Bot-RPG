@@ -20,7 +20,9 @@ with the legacy bot - neither has a primary key):
               looks and the seven stats used by the fights - and, new in v2,
               the cosmetics ``SEAL`` (0-3), ``HOLO`` (full Holo), ``FRAME``
               (the frame result, '' = the base of the class) and
-              ``HOLO_PARTIAL`` (partial Holo) - see below.
+              ``HOLO_PARTIAL`` (partial Holo) - see below - and, new on 2026-11-26,
+              the aura a pet hatched with (``AURA`` / ``AURA_PERC``, see below)
+              and the talent stat ``MISSION_PERC`` ("Zaradność w zleceniach").
 
 Differences from the legacy code (the game rules themselves are unchanged):
 
@@ -105,6 +107,28 @@ bonus (:func:`get_pet_skills`), detects no boss, does not grow, cannot be
 rerolled, enlightened, transformed, named, sacrificed, moved or given away;
 it still counts as the player's (achievements, the album, the stable).  An
 egg that comes meanwhile goes to the pouch, as for any pet at his side.
+
+Aura towarzysza and Zaradność w zleceniach (owner, 2026-11-26, ``items_decisions.md`` §8):
+
+* the rules of the aura are :mod:`altermmo.features.auras`; this module rolls
+  it when an egg hatches and grows it at a later level (:func:`_grow_in`,
+  every level path: drops, the mine, ``!PetLvlUp``, a mission's level), keeps
+  it in ``PETS.AURA`` (the stat's key, '' = none) / ``AURA_PERC`` (written by
+  their own UPDATE: :data:`_SQL_SAVE_PET` - what a reroll, an enlightenment
+  and growing save - never touches them), adds the auras of all the player's
+  hatched pets to the fight stats (:func:`get_pet_skills`, also without an
+  active pet or with one on a mission), shows them (``!towarzysz``,
+  ``!stajnia``, the notes of a level) and warns before such a pet is
+  sacrificed.  :func:`reassign_pet` moves a pet (and with it its aura) away
+  from whoever had it, so it never counts for two players;
+* ``MISSION_PERC`` is one more stat of :data:`SKILL_POOL` (talent points,
+  ``!oswiecenie``, the Pióro, rerolls, ``!mocneodrodzenie`` can leave it out),
+  soft-capped at :data:`MISSION_CAP` like the slow; only the companion
+  missions read it (``missions.chance_of``);
+* the columns are added at start-up like the cosmetic ones
+  (:data:`NEW_COLUMNS`); until they are there nothing is rolled or added
+  (:func:`aura_columns_available`, a row without the keys) and no point goes to
+  ``MISSION_PERC``.
 """
 
 from __future__ import annotations
@@ -129,7 +153,7 @@ import discord
 
 from ..core import challenge, clock, io, timing, ui, waiting
 from ..settings import ASSETS_DIR, COMMAND_PREFIX
-from . import achievements, bossdetect, items, modifiers, patrons, petcards
+from . import achievements, auras, bossdetect, items, modifiers, patrons, petcards
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -213,7 +237,10 @@ SCHEMA: tuple[str, ...] = (
            SEAL NUMERIC NOT NULL DEFAULT 0,
            HOLO BOOLEAN NOT NULL DEFAULT FALSE,
            FRAME VARCHAR(16) NOT NULL DEFAULT '',
-           HOLO_PARTIAL BOOLEAN NOT NULL DEFAULT FALSE
+           HOLO_PARTIAL BOOLEAN NOT NULL DEFAULT FALSE,
+           AURA VARCHAR(16) NOT NULL DEFAULT '',
+           AURA_PERC NUMERIC NOT NULL DEFAULT 0,
+           MISSION_PERC NUMERIC NOT NULL DEFAULT 0
        )""",
 )
 
@@ -237,6 +264,11 @@ NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("petowner", "big_pouch", "BOOLEAN NOT NULL DEFAULT FALSE"),
     ("petowner", "pouch_pet_id2", "NUMERIC NOT NULL DEFAULT 0"),
     ("petowner", "summon_scrolls", "NUMERIC NOT NULL DEFAULT 0"),
+    # Aura towarzysza and Zaradność w zleceniach (2026-11-26): the aura a pet hatched with ('' = none,
+    # else the stat's key) and its value, the companion missions' talent stat.
+    ("pets", "aura", "VARCHAR(16) NOT NULL DEFAULT ''"),
+    ("pets", "aura_perc", "NUMERIC NOT NULL DEFAULT 0"),
+    ("pets", "mission_perc", "NUMERIC NOT NULL DEFAULT 0"),
 )
 #: The columns of ``PETOWNER`` the merchant's stable places and egg pouch need (all there, or
 #: those goods are off and the stable keeps its four places: :func:`upgrades_available`).
@@ -253,6 +285,12 @@ COSMETIC_COLUMNS: tuple[str, ...] = ("seal", "holo")
 #: The columns of the frames and the partial Holo (:func:`frames_available`: these AND the
 #: COSMETIC_COLUMNS are there).  Without them the old cosmetics keep working.
 FRAME_COLUMNS: tuple[str, ...] = ("frame", "holo_partial")
+#: The aura's columns of ``PETS`` (:func:`aura_columns_available`; without them nothing is rolled, shown
+#: or added to a fight).
+AURA_COLUMNS: tuple[str, ...] = ("aura", "aura_perc")
+#: The column of "Zaradność w zleceniach" (read through the row's keys: a ``PETS`` row without it gets
+#: no point into it, see :func:`_stats_of`).
+MISSION_PERC_COLUMN = "mission_perc"
 
 # -- game rules -----------------------------------------------------------------------
 
@@ -332,15 +370,25 @@ def _frame_table(tier: str) -> tuple[tuple[int, str], ...]:
 FRAME_ROLL_BELOW: dict[str, tuple[tuple[int, str], ...]] = {tier: _frame_table(tier) for tier in petcards.POOLS}
 
 #: Stats a talent point can go to; the order is the order of the ``!mocneodrodzenie`` menu.
+#: ``MISSION_PERC`` ("Zaradność w zleceniach", 2026-11-26) came last, so the legacy stats keep their
+#: places (the menu's numbers, the draws of :func:`_roll_skill` over the first ones).
 SKILL_POOL: tuple[str, ...] = (
-    "CRIT_PERC", "REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "SLOW_PERC", "DETECTION")
+    "CRIT_PERC", "REPLACE_PERC", "DEF_PERC", "DROP_PERC", "LOWHP_PERC", "SLOW_PERC", "DETECTION", "MISSION_PERC")
+#: The stats :data:`_SQL_SAVE_PET` saves (the legacy seven; ``MISSION_PERC`` has its own column, see
+#: :func:`_save_pet`).
+_SAVED_STATS: tuple[str, ...] = SKILL_POOL[:7]
 #: A pet that slows this much cannot get more slow.
 SLOW_CAP = 80
+#: A pet this "zaradny" gets no more points into ``MISSION_PERC`` (a soft cap like :data:`SLOW_CAP`:
+#: the last point may overshoot it).  ``missions.chance_of`` adds the value after its own cut.
+MISSION_CAP = 30
 #: Points one talent adds, as (mythic, ultra shiny, shiny, ordinary) ``randint`` ranges.
 #: INIT_PERC is kept from the legacy table although no pool contains it.
 _GAINS: dict[str, tuple[tuple[int, int], ...]] = {
     "INIT_PERC": ((8, 14), (6, 13), (5, 10), (5, 8)),
     "SLOW_PERC": ((11, 16), (9, 15), (8, 12), (5, 8)),
+    # The owner's numbers of 2026-11-26 (percentage points of the mission's chance).
+    "MISSION_PERC": ((4, 6), (3, 5), (3, 4), (2, 3)),
 }
 _DEFAULT_GAINS: tuple[tuple[int, int], ...] = ((8, 12), (6, 11), (5, 8), (3, 5))
 
@@ -378,12 +426,13 @@ STABLE_BASE_PLACES = 4
 STABLE_MAX_PLACES = 10
 _STABLE_SLOTS: dict[int, str] = {place: f"PET_ID_ALT{place}" for place in range(1, STABLE_MAX_PLACES + 1)}
 
-#: ``!mocneodrodzenie``: 1️⃣ .. 7️⃣ (one per entry of SKILL_POOL), shown in the list.
-SKILL_EMOTES: tuple[str, ...] = tuple(f"{digit}️⃣" for digit in range(1, 8))
+#: ``!mocneodrodzenie``: 1️⃣ .. 8️⃣ (one per entry of SKILL_POOL), shown in the list.
+SKILL_EMOTES: tuple[str, ...] = tuple(f"{digit}️⃣" for digit in range(1, len(SKILL_POOL) + 1))
 #: What the entries of SKILL_POOL are called in the ``!mocneodrodzenie`` list.
 SKILL_LABELS: tuple[str, ...] = (
     "Szansa na krytyczne uderzenie", "Szansa na zastąpienie ataku", "Szansa na zablokowanie ataku",
-    "Rzadszy drop", "Zmniejszenie życia przeciwnika", "Spowolnienie przeciwnika", "Wyczuwanie bossa")
+    "Rzadszy drop", "Zmniejszenie życia przeciwnika", "Spowolnienie przeciwnika", "Wyczuwanie bossa",
+    "Zaradność w zleceniach")
 #: At most this many stats can be left out of a reroll (10 scrolls each).
 MAX_SKIPPED = 3
 ACCEPT_EMOTE = "✅"
@@ -448,6 +497,8 @@ FOIL_WORDS: dict[int, str] = {petcards.FOIL_FULL: "Holo", petcards.FOIL_PARTIAL:
 #: In the statistics of a pet whose ornaments (a rarer frame, the seal, the foil) are hidden
 #: because its owner does not support now - one line, whichever of them the pet has.
 MSG_COSMETICS_HIDDEN = "*Ozdoby karty (wyjątkowa ramka, pieczęć, folia Holo) widać tylko u wspierających.*"
+#: The statistics' name of ``MISSION_PERC`` (owner's name, 2026-11-26): "Zaradność w zleceniach: 6 %".
+MSG_MISSION_PERC_LABEL = "Zaradność w zleceniach"
 RANKING_IMAGE = ("https://www.altermmo.pl/wp-content/uploads/alter0000_Adventurer_with_a_small_dragon_"
                  "pet._Fantasy._Pixel_ar_fac9f513-e338-4727-af61-32b79dbfa7e3.png")
 _OK = "ok"
@@ -512,10 +563,33 @@ def _talent(skills: int) -> str:
     return TALENTS[skills] if 0 <= skills < len(TALENTS) else TALENTS[-1]
 
 
+def _has_column(row: Any, column: str) -> bool:
+    """Whether a ``PETS`` row (a record or a mapping) has ``column`` - the old table lacks the newest ones."""
+    try:
+        row[column]
+    except (KeyError, IndexError, TypeError):
+        return False
+    return True
+
+
 def _stats_of(pet: Any) -> dict[str, Any]:
-    """The stats of a ``PETS`` row a talent point can change."""
-    stats: dict[str, Any] = {name: _num(pet[name.lower()]) for name in SKILL_POOL}
+    """The stats of a ``PETS`` row a talent point can change.
+
+    ``MISSION_PERC`` only when the row has its column: a table the start-up
+    could not give it to gets no point into it (:func:`_roll_skill` draws only
+    over the stats it is given, :func:`_save_pet` saves only those).
+    """
+    stats: dict[str, Any] = {name: _num(pet[name.lower()]) for name in _SAVED_STATS}
     stats["DETECTION"] = bool(pet["detection"])
+    if _has_column(pet, MISSION_PERC_COLUMN):
+        stats["MISSION_PERC"] = _num(pet[MISSION_PERC_COLUMN])
+    return stats
+
+
+def _blank_stats(pet: Any) -> dict[str, Any]:
+    """The stats of a reroll before its points are spent again: every one 0 (the same keys as :func:`_stats_of`)."""
+    stats: dict[str, Any] = dict.fromkeys(_stats_of(pet), 0)
+    stats["DETECTION"] = False
     return stats
 
 
@@ -659,13 +733,18 @@ def _slot_column(slot: Any, places: int = STABLE_BASE_PLACES) -> str | None:
 def _roll_skill(stats: dict[str, Any], pool: Sequence[str], pet: Any) -> str | None:
     """Spend one talent point on a random stat of ``pool``; returns the stat.
 
-    Detection can be learnt once and slow stops at :data:`SLOW_CAP`.  The legacy
-    code drew again when it hit such a stat; drawing from what is still possible
-    gives the same odds without a loop that could spin for ever.
+    Detection can be learnt once, slow stops at :data:`SLOW_CAP` and "Zaradność
+    w zleceniach" at :data:`MISSION_CAP`.  The legacy code drew again when it
+    hit such a stat; drawing from what is still possible gives the same odds
+    without a loop that could spin for ever.  A stat of ``pool`` that is not in
+    ``stats`` (``MISSION_PERC`` of a table without its column, see
+    :func:`_stats_of`) is never drawn.
     """
     eligible = [name for name in pool
-                if not (name == "DETECTION" and stats["DETECTION"])
-                and not (name == "SLOW_PERC" and stats["SLOW_PERC"] >= SLOW_CAP)]
+                if name in stats
+                and not (name == "DETECTION" and stats["DETECTION"])
+                and not (name == "SLOW_PERC" and stats["SLOW_PERC"] >= SLOW_CAP)
+                and not (name == "MISSION_PERC" and stats["MISSION_PERC"] >= MISSION_CAP)]
     if not eligible:
         return None
     name = random.choice(eligible)
@@ -693,6 +772,15 @@ _SQL_SAVE_PET = """UPDATE PETS SET PET_LVL = $2, PET_SKILLS = $3, VARIANT = $4,
                        CRIT_PERC = $5, REPLACE_PERC = $6, DEF_PERC = $7, DROP_PERC = $8,
                        LOWHP_PERC = $9, SLOW_PERC = $10, DETECTION = $11
                    WHERE PET_ID = $1"""
+#: ... and "Zaradność w zleceniach" of a row that has its column, in the same statement (:func:`_save_pet`).
+#: The aura is in neither: only :data:`_SQL_SAVE_AURA` writes it - a reroll or an enlightenment never
+#: touches it.
+_SQL_SAVE_PET_MISSION = """UPDATE PETS SET PET_LVL = $2, PET_SKILLS = $3, VARIANT = $4,
+                               CRIT_PERC = $5, REPLACE_PERC = $6, DEF_PERC = $7, DROP_PERC = $8,
+                               LOWHP_PERC = $9, SLOW_PERC = $10, DETECTION = $11, MISSION_PERC = $12
+                           WHERE PET_ID = $1"""
+#: The aura a pet hatched with / its growth (:func:`_grow_in`, in the level's transaction).
+_SQL_SAVE_AURA = "UPDATE PETS SET AURA = $2, AURA_PERC = $3 WHERE PET_ID = $1"
 
 
 #: Which of the given columns the table the bot reads as ``PETS`` has.
@@ -755,6 +843,27 @@ async def frames_available(bot: "AlterBot", *, refresh: bool = False) -> bool:
     if known is None or (refresh and not known):
         await _look_for_columns(bot)
         known = bot._pet_frames  # type: ignore[attr-defined]
+    return bool(known)
+
+
+async def aura_columns_available(bot: "AlterBot", *, refresh: bool = False) -> bool:
+    """Whether ``PETS`` has the aura's columns (:data:`AURA_COLUMNS`).
+
+    Added at start-up like the cosmetic columns (``schema.add_new_columns``);
+    without them no aura is rolled (:func:`_grow_in` asks the row's keys), none
+    is shown and none is added to a fight - and no statement that names them
+    is ever sent (a failed statement would abort a transaction).  Looked up
+    once per run and remembered on the bot (``bot._pet_auras``) like
+    :func:`cosmetics_available`; ``refresh=True`` looks again after a "no".
+    """
+    known = getattr(bot, "_pet_auras", None)
+    if known is None or (refresh and not known):
+        present = {str(row[0]) for row in await bot.db.fetch(_SQL_PRESENT_COLUMNS, list(AURA_COLUMNS))}
+        known = present.issuperset(AURA_COLUMNS)
+        if not known:
+            log.warning("PETS has no %s column(s): no pet hatches with an aura, and none is added to a fight.",
+                        " / ".join(column.upper() for column in AURA_COLUMNS if column not in present))
+        bot._pet_auras = known  # type: ignore[attr-defined]
     return bool(known)
 
 
@@ -1194,12 +1303,18 @@ async def mission_pet_in(con: Any, bot: "AlterBot", player_id: int, key: str) ->
 
 async def _save_pet(con: Any, pet: Any, stats: dict[str, Any], *, level: int | None = None,
                     skills: int | None = None, variant: int | None = None) -> None:
+    """Save what a level, a reroll or an enlightenment changed (never the cosmetics, never the aura).
+
+    ``MISSION_PERC`` is saved when ``stats`` has it (:func:`_stats_of`: the row
+    has the column) - in the same statement.
+    """
+    mission = "MISSION_PERC" in stats
     await con.execute(
-        _SQL_SAVE_PET, pet["pet_id"],
+        _SQL_SAVE_PET_MISSION if mission else _SQL_SAVE_PET, pet["pet_id"],
         _int(pet["pet_lvl"]) if level is None else level,
         _int(pet["pet_skills"]) if skills is None else skills,
         pet["variant"] if variant is None else str(variant),
-        *(stats[name] for name in SKILL_POOL))
+        *(stats[name] for name in _SAVED_STATS), *((stats["MISSION_PERC"],) if mission else ()))
 
 
 async def _insert_owner(con: Any, player_id: int, pet_id: int, pet_owned: bool, reroll_scroll: int,
@@ -1372,12 +1487,16 @@ def _pet_embed(player_id: int, pet: Any, items: Any, *, cosmetics: bool = True,
                               ("lowhp_perc", "Zmniejszenie życia przeciwnika"),
                               ("slow_perc", "Spowolnienie przeciwnika"),
                               ("drop_perc", "Rzadszy drop o"),
-                              ("init_perc", "Szansa na inicjację bossa")):
-            value = _num(pet[column])
+                              ("init_perc", "Szansa na inicjację bossa"),
+                              (MISSION_PERC_COLUMN, MSG_MISSION_PERC_LABEL)):
+            value = _num(pet[column]) if _has_column(pet, column) else 0
             if value > 0:
                 skill_desc += f"{label}: {value} %\n"
         if pet["detection"] is True:
             skill_desc += "Wyczuwanie bossa: Tak\n"
+        # The aura (2026-11-26) helps from wherever the pet is - the line says so.
+        if aura_line := auras.shown_line(pet):
+            skill_desc += aura_line + "\n"
         description = ("Oto Twój towarzysz, <@" + str(player_id) + ">.\n\n" + skill_desc
                        + scroll_desc + add_desc)
 
@@ -2266,10 +2385,13 @@ async def reassign_pet(bot: "AlterBot", pet_id: Any, player_id: Any) -> bool:
     """Give an existing pet to a player without an active pet; True when it was done.
 
     The pet comes as it is - with its frame, seal and foil: they belong to the
-    specimen, not to its owner, so nothing is rolled here.  A pet on a
-    companion mission is not reassigned (False, as for every refusal).
+    specimen, not to its owner, so nothing is rolled here - and with its aura.
+    A pet on a companion mission is not reassigned (False, as for every
+    refusal).  The pet is taken from every other player's ``PETOWNER`` row
+    (his side, stable places, pouch): the old owner no longer has it.
     """
     pet_id, player_id = int(pet_id), _pid(player_id)
+    upgrades, big = await _owner_shape(bot)
     async with bot.db.transaction() as con:
         await _lock_player(con, player_id)
         if await _pet(con, pet_id, lock=True) is None:
@@ -2286,6 +2408,17 @@ async def reassign_pet(bot: "AlterBot", pet_id: Any, player_id: Any) -> bool:
             return False
         else:
             await con.execute("UPDATE PETOWNER SET PET_ID = $2 WHERE PLAYER_ID = $1", player_id, pet_id)
+        # It MOVES: whoever had it (at his side, in the stable, in the pouch) has it no more - a pet,
+        # and its aura (2026-11-26: every pet a player owns adds its aura), never counts for two players.
+        places = [column for column in _owner_columns(upgrades, big).split(", ")
+                  if column == "PET_ID" or column.startswith(("PET_ID_ALT", "POUCH_PET_ID"))]
+        moved_from = await con.fetch(
+            "UPDATE PETOWNER SET "
+            + ", ".join(f"{column} = CASE WHEN {column} = $2::numeric THEN 0 ELSE {column} END" for column in places)
+            + f" WHERE PLAYER_ID <> $1 AND $2::numeric IN ({', '.join(places)}) RETURNING PLAYER_ID",
+            player_id, pet_id)
+    if moved_from:
+        log.info("Pet %s was taken from player(s) %s.", pet_id, ", ".join(str(_int(row[0])) for row in moved_from))
     log.info("Pet %s reassigned to player %s.", pet_id, player_id)
     return True
 
@@ -2377,12 +2510,20 @@ async def assign_mirror(scene: "Scene", number: Any, player_id: Any) -> bool:
 
 # -- growing --------------------------------------------------------------------------
 
-async def level_up_pet(scene: "Scene", player_id: Any, *, album_note: list[str] | None = None) -> bool:
+async def level_up_pet(scene: "Scene", player_id: Any, *, album_note: list[str] | None = None,
+                       aura_note: list[str] | None = None) -> bool:
     """Level up the player's pet (an egg hatches); False without a pet or at the top level.
 
     ``album_note`` (a drop: ``boss.rand_loot`` / ``daily.rand_loot``; ``player_id`` is then the
     member): a supporter's album note about the pet at its new stage is added to the list for
     the drop's embed (owner, 2026-11-24; ``album.note_level_up``).  Never at the cost of the level.
+
+    The aura (``auras``, 2026-11-26): the note of an egg that hatched with an
+    aura, or of an aura that grew, goes into ``aura_note`` (the mine and the
+    owner's ``!PetLvlUp`` show it themselves) - or, without that list, into
+    ``album_note`` (the drop's embed; for every player, not only supporters),
+    before the album's note.  The aura's config is read BEFORE the
+    transaction (:func:`auras.load` never raises): a broken file costs no level.
 
     A pet on a companion mission does not grow: False (a drop leaves its level
     line out).  The lock comes first and "away" is asked in a statement of its
@@ -2391,6 +2532,8 @@ async def level_up_pet(scene: "Scene", player_id: Any, *, album_note: list[str] 
     """
     player = player_id
     player_id = _pid(player_id)
+    config = auras.load()
+    changes: list[auras.Change] = []
     async with scene.bot.db.transaction() as con:
         pet = await _active_pet(con, player_id, lock=True)
         if pet is None or _int(pet["pet_lvl"]) >= MAX_LEVEL:
@@ -2398,19 +2541,31 @@ async def level_up_pet(scene: "Scene", player_id: Any, *, album_note: list[str] 
         if await away_until(scene.bot, con, pet["pet_id"]):
             log.info("Pet %s of player %s is on a mission; no level.", pet["pet_id"], player_id)
             return False
-        level, add_skill = await _grow_in(con, pet)
+        level, add_skill = await _grow_in(con, pet, aura_config=config, aura_out=changes)
     log.info("Pet %s of player %s reached level %s (+%s talent).", pet["pet_id"], player_id, level, add_skill)
+    into = aura_note if aura_note is not None else album_note
+    if into is not None:
+        into.extend(note for note in map(auras.note, changes) if note)
     if album_note is not None:
         await _level_note(scene, player, player_id, album_note)
     return True
 
 
-async def _grow_in(con: Any, pet: Any) -> tuple[int, int]:
+async def _grow_in(con: Any, pet: Any, *, aura_config: auras.Config = auras.NO_AURAS,
+                   aura_out: list[auras.Change] | None = None) -> tuple[int, int]:
     """One level for the (locked, below :data:`MAX_LEVEL`) pet ``pet``: ``(new level, talent added)``.
 
     The rule of every level-up: 2 talent points for a mythic pet, else 1-2,
     each spent by :func:`_roll_skill`; an egg that hatches keeps one of the two
     looks of a hatched pet.
+
+    Then - after those draws, so they stay what they were - the aura
+    (:mod:`altermmo.features.auras`): an egg that hatches gets the roll of
+    ``aura_config`` (read by the caller before its transaction; the default
+    rolls nothing), a pet with an aura the growth roll of a later level.  What
+    happened is appended to ``aura_out``; it is written by its own UPDATE
+    (:data:`_SQL_SAVE_AURA`) in the same transaction.  A row without the
+    aura's columns (the old table) has nothing rolled and nothing drawn.
     """
     level = _int(pet["pet_lvl"])
     variant = _int(pet["variant"])
@@ -2421,11 +2576,24 @@ async def _grow_in(con: Any, pet: Any) -> tuple[int, int]:
     for _ in range(add_skill):
         _roll_skill(stats, SKILL_POOL, pet)
     await _save_pet(con, pet, stats, level=level + 1, skills=_int(pet["pet_skills"]) + add_skill, variant=variant)
+    if all(_has_column(pet, column) for column in AURA_COLUMNS):
+        change = None
+        if level == 0:
+            rolled = auras.roll(aura_config)
+            change = auras.Change(auras.HATCHED, *rolled) if rolled is not None else None
+        elif (aura := auras.aura_of(pet)) is not None:
+            grown = auras.grow(aura[0].stat, aura[1])
+            change = auras.Change(auras.GREW, aura[0].stat, grown) if grown is not None else None
+        if change is not None:
+            await con.execute(_SQL_SAVE_AURA, pet["pet_id"], change.stat, change.value)
+            log.info("Pet %s: aura %s %s (%s).", pet["pet_id"], change.stat, change.value, change.event)
+            if aura_out is not None:
+                aura_out.append(change)
     return level + 1, add_skill
 
 
 async def level_mission_pet_in(con: Any, player_id: int, pet_id: Any, *, upgrades: bool, big: bool = False,
-                               species: str) -> tuple[Any, int] | None:
+                               species: str, aura_out: list[auras.Change] | None = None) -> tuple[Any, int] | None:
     """The companion missions' level for the pet that went: ``(its PETS row after, new level)`` or None.
 
     Inside the caller's transaction (he holds the player's lock).  The pet must
@@ -2434,7 +2602,8 @@ async def level_mission_pet_in(con: Any, player_id: int, pet_id: Any, *, upgrade
     ``TYPE`` it had when it was sent: ``_insert_egg`` reuses the highest
     ``PET_ID``, so a pet sacrificed after its return may have left its id to a
     new one).  Otherwise None: the caller compensates.  The growth is the one
-    of :func:`level_up_pet` (:func:`_grow_in`).
+    of :func:`level_up_pet` (:func:`_grow_in`) - a hatched pet, so its aura can
+    only grow (``aura_out``), never be rolled: no config is needed.
     """
     pet_id = _int(pet_id)
     if pet_id <= 0:
@@ -2448,7 +2617,7 @@ async def level_mission_pet_in(con: Any, player_id: int, pet_id: Any, *, upgrade
     pet = await _pet(con, pet_id, lock=True)
     if pet is None or not 1 <= _int(pet["pet_lvl"]) < MAX_LEVEL or str(pet["type"]) != str(species):
         return None
-    level, add_skill = await _grow_in(con, pet)
+    level, add_skill = await _grow_in(con, pet, aura_out=aura_out)
     log.info("Pet %s of player %s reached level %s on a mission (+%s talent).", pet_id, player_id, level, add_skill)
     return await _pet(con, pet_id), level
 
@@ -2468,19 +2637,65 @@ async def _level_note(scene: "Scene", player: Any, player_id: int, into: list[st
 
 
 async def get_pet_skills(bot: "AlterBot", player_id: Any) -> dict[str, Any]:
-    """Stats of the player's active pet for a fight (zeros when he has none).
+    """Stats of the player's active pet for a fight, with the auras of all his pets (zeros when he has none).
 
     Always returns every key of :data:`NO_PET_SKILLS` with plain ``int`` /
     ``float`` values (``DETECTION`` is a bool).  A pet on a companion mission
     is not at his side: zeros (:func:`_present_pet`) - in every fight, the
     hunt, the tower and the drop boost alike.
+
+    The auras (owner, 2026-11-26) are added on top, whatever is at his side -
+    also nothing, an egg or a pet on a mission (:func:`aura_bonus`): own stat
+    plus the sum of the auras, no other limit.  At most two more small reads,
+    once per fighter before a fight (never inside a round).
     """
+    player_id = _pid(player_id)
     skills = dict(NO_PET_SKILLS)
-    pet = await _present_pet(bot, bot.db, _pid(player_id))
+    pet = await _present_pet(bot, bot.db, player_id)
     if pet is not None:
         for name in skills:
             skills[name] = bool(pet["detection"]) if name == "DETECTION" else _num(pet[name.lower()])
+    for stat, value in (await aura_bonus(bot, player_id)).items():
+        if stat in skills:
+            skills[stat] += value
     return skills
+
+
+#: The auras of a player's pets (``$1``: their ids); the hatched ones only.  Read-only.
+_SQL_AURAS = """SELECT PET_ID, PET_LVL, AURA, AURA_PERC FROM PETS
+                WHERE PET_ID = ANY($1::numeric[]) AND PET_LVL >= 1 AND AURA <> ''"""
+
+
+async def aura_bonus(bot: "AlterBot", player_id: Any) -> dict[str, int]:
+    """``{stat: the sum of the auras}`` of every HATCHED pet the player owns (``auras.totals``).
+
+    The pet at his side, his stable places and a pet on a mission alike (an
+    aura "działa zawsze"); an egg - also one in the pouch - has none.  Each pet
+    counts once, each pet's aura at most its kind's maximum; nothing else
+    limits the sum.  Two small reads (his ``PETOWNER`` row, the auras of those
+    pets).  Without the columns (:func:`aura_columns_available`) nothing is
+    read: ``{}``.  A read that fails gives ``{}`` and a log line - a fight is
+    never stopped by an aura.
+    """
+    player_id = _pid(player_id)
+    try:
+        if not await aura_columns_available(bot):
+            return {}
+        owner = await _owner(bot.db, player_id, _owner_columns(*await _owner_shape(bot)))
+        if owner is None:
+            return {}
+        ids = [_int(owner["pet_id"]),
+               *(_int(owner[_STABLE_SLOTS[place].lower()]) for place in range(1, _places_of(owner) + 1))]
+        wanted = sorted({pet_id for pet_id in ids if pet_id > 0})
+        if not wanted:
+            return {}
+        return auras.totals(await bot.db.fetch(_SQL_AURAS, wanted))
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the aura is a bonus: the fight goes on without it
+        log.warning("Player %s: the auras could not be read (%s: %s); none this time.",
+                    player_id, type(exc).__name__, exc)
+        return {}
 
 
 # -- changes the player has to confirm ------------------------------------------------
@@ -2632,8 +2847,9 @@ async def reroll_pet(scene: "Scene", player: Any, remove_list: Sequence[int] = (
         return (_OK, pet) if pet is not None else ("no_data", None)
 
     async def apply(con: Any, pet: Any) -> None:
-        stats: dict[str, Any] = dict.fromkeys(SKILL_POOL, 0)
-        stats["DETECTION"] = False
+        # Every stat back to 0 ("Zaradność w zleceniach" too, when the table has it) and the same number
+        # of points drawn again over the pool; the aura is not a stat of the pool - it stays.
+        stats = _blank_stats(pet)
         for _ in range(_int(pet["pet_skills"])):
             if _roll_skill(stats, pool, pet) is None:
                 break
@@ -2961,10 +3177,12 @@ async def discard_pet(scene: "Scene", *, expected_pet: int | None = None) -> boo
             await scene.send(_away_message(player_id, away[1].name, away[1].until))
             return False
         ready = await missions_table_ready(bot)
+        # An aura pet: the question says what is lost (the album's copy is only a picture).
+        warning = auras.sacrifice_warning(await _pet(bot.db, _int(owner["pet_id"])))
         answer = await _confirm(
             scene, player,
             "Czy jesteś pewien, że chcesz porzucić swojego towarzysza <@" + str(player_id)
-            + ">? <:MonkaS:882181709100097587> "
+            + ">? <:MonkaS:882181709100097587> " + (warning + " " if warning else "")
             + (album.MSG_DISCARD_KEPT if patrons.check_if_patron(player) else "") + CONFIRM_HINT)
         if not answer:
             await scene.send("*Twój towarzysz oddycha z ulgą...*")
@@ -3347,6 +3565,11 @@ STABLE_NO_DATA = "*brak danych w tabeli PETS*"
 POUCH_OPTION = "pouch"
 
 
+async def _brief_columns(bot: "AlterBot") -> str:
+    """The ``PETS`` columns a stable's line (or the mine's swap) reads: the brief, and the aura when it is there."""
+    return "PET_ID, PET_NAME, PET_LVL, TYPE" + (", AURA, AURA_PERC" if await aura_columns_available(bot) else "")
+
+
 def _pet_brief(pet: Any) -> str:
     """``Mruczek · Kot · poziom 2`` / ``Towarzysz · jajko`` - plain text (a menu shows no markdown)."""
     level = _int(pet["pet_lvl"])
@@ -3386,9 +3609,12 @@ async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, 
     pets_by_id: dict[int, Any] = {}
     if wanted:
         rows = await bot.db.fetch(
-            "SELECT PET_ID, PET_NAME, PET_LVL, TYPE FROM PETS WHERE PET_ID = ANY($1::numeric[])", wanted)
+            f"SELECT {await _brief_columns(bot)} FROM PETS WHERE PET_ID = ANY($1::numeric[])", wanted)
         for row in rows:
             pets_by_id.setdefault(_int(row["pet_id"]), row)
+    # The auras of all his hatched pets, summed per stat (what get_pet_skills adds to his fights).
+    aura_header = auras.stable_header(auras.totals(
+        pets_by_id[pet_id] for pet_id in dict.fromkeys(pet_ids) if pet_id in pets_by_id))
 
     # Short blocks instead of "label: value" sentences: the pet at the player's side, the
     # places of the stable (an empty place says so in italics) and the egg pouch.
@@ -3403,9 +3629,9 @@ async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, 
             if pet is None:
                 line = STABLE_NO_DATA
             elif pet_id == away_pet:  # on a mission: it stays where it is
-                line = _pet_line(pet) + away_line
+                line = _pet_line(pet) + auras.stable_mark(pet) + away_line
             else:
-                line = _pet_line(pet)
+                line = _pet_line(pet) + auras.stable_mark(pet)
                 if index > 0 and not side_away:  # "slot:pet": a stale list cannot take out another pet
                     options.append(ui.Option(f"{index}:{pet_id}", _pet_brief(pet)[:100],
                                              f"Miejsce w stajni {index}", emoji="🐾"))
@@ -3428,6 +3654,7 @@ async def _stable_view(bot: "AlterBot", player_id: int) -> tuple[discord.Embed, 
     embed = discord.Embed(
         title="Stajnia",
         description=("Oto Twoja stajnia, <@" + str(player_id) + "> <:peepoBlush:984769061340737586>\n\n"
+                     + (f"{aura_header}\n\n" if aura_header else "")
                      + f"{STABLE_ACTIVE}\n{active}\n\n{STABLE_PLACES}\n" + "\n".join(lines) + pouch_block
                      + (f"\n\n{STABLE_SIDE_AWAY}" if side_away else "")),
         color=0x34cceb,
@@ -3515,7 +3742,8 @@ class EggPlaces(NamedTuple):
     #: His occupied stable places as ``(place, PET_ID, the pet's row or None without data)`` - without
     #: the places whose pet is on a companion mission (:attr:`away`): a swap must never offer one.
     occupied: tuple[tuple[int, int, Any], ...]
-    #: The pet at his side (``PET_ID`` / ``PET_NAME`` / ``PET_LVL`` / ``TYPE``), or None - also when it
+    #: The pet at his side (``PET_ID`` / ``PET_NAME`` / ``PET_LVL`` / ``TYPE``, and ``AURA`` / ``AURA_PERC``
+    #: when ``PETS`` has them - the rows of :attr:`occupied` too: a swap warns about an aura), or None - also when it
     #: is on a mission (:attr:`active_away`), so the texts can name it.
     active_pet: Any = None
     #: The pet at his side is on a companion mission (it gets no level, it cannot be moved).
@@ -3542,7 +3770,7 @@ async def egg_places(bot: "AlterBot", player_id: Any) -> EggPlaces:
     rows: dict[int, Any] = {}
     if wanted:
         for row in await bot.db.fetch(
-                "SELECT PET_ID, PET_NAME, PET_LVL, TYPE FROM PETS WHERE PET_ID = ANY($1::numeric[])", wanted):
+                f"SELECT {await _brief_columns(bot)} FROM PETS WHERE PET_ID = ANY($1::numeric[])", wanted):
             rows.setdefault(_int(row["pet_id"]), row)
     away = await _away_among(bot, bot.db, wanted)
     return EggPlaces(

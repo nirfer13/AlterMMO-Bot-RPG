@@ -22,7 +22,7 @@ from altermmo.cogs.ui import UiCog
 from altermmo.core import timing, ui
 from altermmo.core.state import BossPhase, EventType
 from altermmo.core.db import DatabaseUnavailable
-from altermmo.features import boss_cycle, dungeon, expsum, items, modifiers, patchnotes, patrons, pets, shortcuts
+from altermmo.features import auras, boss_cycle, dungeon, expsum, items, modifiers, patchnotes, patrons, pets, shortcuts
 from altermmo.features import events as events_feature
 
 from fakes import FakeInteraction
@@ -1114,6 +1114,46 @@ async def test_the_treasury_level_goes_to_the_pet_at_the_players_side(game_db, l
     assert int(await db.fetchval("SELECT PET_LVL FROM PETS WHERE PET_ID = 4")) == 1   # a stabled pet gets nothing
     for player in (ala, ela, ula):
         assert xp_of(game, player) == 1000 and await scrolls_of(db, player.id) == 16
+
+
+async def test_an_egg_that_hatches_in_the_treasury_with_an_aura_is_announced_on_the_loots_page(
+        game_db, luck, aura_config):
+    """The aura's hatching note rides in the stored ``granted`` (items_decisions.md §8: every level path)."""
+    game, db = game_db, game_db.bot.db
+    aura_config(10000, kinds={"szczescie": 1})
+    ela = game.add_member("Ela")
+    await make_owner(db, ela.id, pet_id=3)
+    await make_pet(db, 3, level=0)
+    _mine, message = await go_down(game, ela, 7)
+    await game.click(message, ela, "deeper")
+    await game.click(message, ela, "claim")
+    note = "🌟 Z jajka wykluł się towarzysz otoczony **Aurą Szczęścia**!"
+    assert "poziom 0 → 1" in message.embeds[0].description and note in message.embeds[0].description
+    assert note in record_of(game, ela)["granted"]["level"]["notes"][0]
+    row = await db.fetchrow("SELECT PET_LVL, AURA, AURA_PERC FROM PETS WHERE PET_ID = 3")
+    assert (int(row["pet_lvl"]), row["aura"], int(row["aura_perc"])) == (1, "DROP_PERC", 3)
+
+
+async def test_the_swap_warns_that_the_stabled_pets_aura_is_lost(game_db, luck, no_modifier):
+    game, db = game_db, game_db.bot.db
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, pet_id=1, pet_id_alt1=2, pet_id_alt2=3, pet_id_alt3=4, pet_id_alt4=5)
+    for pet_id in range(1, 6):
+        await make_pet(db, pet_id, level=2, name=f"Pet{pet_id}")
+    await db.execute("UPDATE PETS SET AURA = 'SLOW_PERC', AURA_PERC = 5 WHERE PET_ID = 4")
+    _mine, message = await leave(game, ala, 4)
+    questions: list[str] = []
+    game.channel.send_hooks.append(lambda sent: questions.append(sent.content) if asks(sent) else None)
+    game.auto_click(ala, "pick", values=["3:4"])
+    game.auto_click(ala, "yes", times=2)
+    await game.click(message, ala, "egg-swap")
+    _menu, first, second = questions
+    warning = "Uwaga: ten towarzysz ma **Aurę Mrozu** - porzucając go, stracisz ją na zawsze."
+    assert warning in first and warning in second
+    assert await db.fetchval("SELECT COUNT(*) FROM PETS WHERE PET_ID = 4") == 0
+    # The rows of the places a swap offers carry the aura (none for a pet without one).
+    occupied = {place: row for place, _pet_id, row in (await pets.egg_places(game.bot, ala.id)).occupied}
+    assert occupied[1]["aura"] == "" and auras.sacrifice_warning(occupied[1]) == ""
 
 
 def test_a_pet_on_a_mission_gets_no_level_and_no_picture():

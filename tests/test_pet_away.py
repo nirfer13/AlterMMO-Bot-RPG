@@ -635,6 +635,9 @@ REVIEWED: dict[tuple[str, str], str] = {
     ("features/pets.py", "_SQL_ACTIVE_PET"): "the SQL of _active_pet",
     ("features/pets.py", "_SQL_PRESENT_PET"): "the SQL of _present_pet (formatted with sql_not_away)",
     ("features/pets.py", "_SQL_SAVE_PET"): "used by _save_pet; every caller asks away first",
+    ("features/pets.py", "_SQL_SAVE_PET_MISSION"): "used by _save_pet (with MISSION_PERC); every caller asks away first",
+    ("features/pets.py", "_SQL_SAVE_AURA"): ("used by _grow_in only: level_up_pet asks away first, a mission's "
+                                             "level is for the pet that came back"),
     ("features/pets.py", "_SQL_LOCK_ACTIVE_PET"): "the admin's !DajPieczec / !DajRamke: allowed (looks only)",
     ("features/pets.py", "_active_pet"): "the lock primitive itself; its callers ask away_until afterwards",
     ("features/pets.py", "new_record_petowners"): "counters, and a PET_ID only into an empty place",

@@ -147,13 +147,22 @@ def test_slot_of_reads_a_numeric_level():
 def test_the_table_is_declared_for_the_start_up_and_for_verify():
     assert "altermmo.features.album" in schema.SCHEMA_MODULES
     assert album.NEW_TABLES == album.SCHEMA and len(album.SCHEMA) == 2     # the table and its index
-    # Added later: the frame and the partial Holo of 2026-11-21, with the definitions of PETS.
+    # Added later: the frame and the partial Holo of 2026-11-21, then the aura and "Zaradność w zleceniach"
+    # of 2026-11-26 (inert in the album), with the definitions of PETS.
     assert album.LATER_COLUMNS == (("FRAME", "VARCHAR(16) NOT NULL DEFAULT ''"),
-                                   ("HOLO_PARTIAL", "BOOLEAN NOT NULL DEFAULT FALSE"))
+                                   ("HOLO_PARTIAL", "BOOLEAN NOT NULL DEFAULT FALSE"),
+                                   ("AURA", "VARCHAR(16) NOT NULL DEFAULT ''"),
+                                   ("AURA_PERC", "NUMERIC NOT NULL DEFAULT 0"),
+                                   ("MISSION_PERC", "NUMERIC NOT NULL DEFAULT 0"))
+    assert album.LATER_COSMETIC_COLUMNS == album.LATER_COLUMNS[:2]               # what the collection's value reads
     assert album.NEW_COLUMNS == (("pet_album", "frame", "VARCHAR(16) NOT NULL DEFAULT ''"),
-                                 ("pet_album", "holo_partial", "BOOLEAN NOT NULL DEFAULT FALSE"))
+                                 ("pet_album", "holo_partial", "BOOLEAN NOT NULL DEFAULT FALSE"),
+                                 ("pet_album", "aura", "VARCHAR(16) NOT NULL DEFAULT ''"),
+                                 ("pet_album", "aura_perc", "NUMERIC NOT NULL DEFAULT 0"),
+                                 ("pet_album", "mission_perc", "NUMERIC NOT NULL DEFAULT 0"))
+    later = ("frame", "holo_partial", "aura", "aura_perc", "mission_perc")
     assert {column: definition for _, column, definition in album.NEW_COLUMNS} == {
-        column: definition for table, column, definition in pets.NEW_COLUMNS if column in ("frame", "holo_partial")}
+        column: definition for table, column, definition in pets.NEW_COLUMNS if column in later}
     assert set(album.LATER_DEFAULTS) == {column for column, _ in album.LATER_COLUMNS}
     expected = schema.EXPECTED_COLUMNS["pet_album"]
     assert list(expected)[:3] == ["entry_id", "player_id", "added_at"]
@@ -275,12 +284,17 @@ async def test_a_table_the_start_up_could_not_make_is_made_by_the_first_keep(db)
 
 
 #: ``PET_ALBUM`` as the first version made it (2026-11-21, before FRAME / HOLO_PARTIAL).
-FIRST_ALBUM = album.SCHEMA[0].replace(
+#: The album of 2026-11-21 .. 26: the frames there, not yet the aura and "Zaradność w zleceniach".
+FRAMED_ALBUM = album.SCHEMA[0].replace(
+    ",\n           AURA VARCHAR(16) NOT NULL DEFAULT '',\n           AURA_PERC NUMERIC NOT NULL DEFAULT 0,"
+    "\n           MISSION_PERC NUMERIC NOT NULL DEFAULT 0", "")
+#: The album as it was first made (2026-11-20): no later column at all.
+FIRST_ALBUM = FRAMED_ALBUM.replace(
     ",\n           FRAME VARCHAR(16) NOT NULL DEFAULT '',\n           HOLO_PARTIAL BOOLEAN NOT NULL DEFAULT FALSE", "")
 
 
 async def first_album(db) -> None:
-    assert "FRAME" not in FIRST_ALBUM and "HOLO BOOLEAN" in FIRST_ALBUM
+    assert "FRAME" not in FIRST_ALBUM and "AURA" not in FIRST_ALBUM and "HOLO BOOLEAN" in FIRST_ALBUM
     await db.execute("DROP TABLE PET_ALBUM", idempotent=True)
     await db.execute(FIRST_ALBUM, idempotent=True)
 
@@ -288,11 +302,14 @@ async def first_album(db) -> None:
 async def test_an_album_made_before_the_frames_gets_their_columns_at_start_up(db):
     await first_album(db)
     old = await put(db, 1, "Cat", 2, seal=2, holo=True)                  # kept before: PETS had no FRAME yet
-    assert await schema.verify(db) == ["pet_album: brak kolumny frame", "pet_album: brak kolumny holo_partial"]
+    assert await schema.verify(db) == ["pet_album: brak kolumny frame", "pet_album: brak kolumny holo_partial",
+                                       "pet_album: brak kolumny aura", "pet_album: brak kolumny aura_perc",
+                                       "pet_album: brak kolumny mission_perc"]
     assert await schema.add_new_columns(db) == []
     (row,) = await album_rows(db)
     assert row["entry_id"] == old and (row["seal"], row["holo"], row["frame"], row["holo_partial"]) == (
         2, True, "", False)
+    assert (row["aura"], row["aura_perc"], row["mission_perc"]) == ("", 0, 0)
     assert await schema.verify(db) == []
 
 
@@ -320,6 +337,24 @@ async def test_an_album_without_the_frame_columns_keeps_what_it_can_and_refuses_
         with pytest.raises(album.NotSaved, match="UndefinedColumnError"):
             await put(db, 1, "Cat", 1, **rich)
     assert len(await album_rows(db)) == 1
+
+
+async def test_an_album_without_the_aura_columns_refuses_only_a_pet_that_has_one(db):
+    """The album of 2026-11-21 .. 26 whose AURA / AURA_PERC / MISSION_PERC could not be added: a pet with an
+    aura or with "Zaradność w zleceniach" is not kept (nothing may be lost), every other one is."""
+    await db.execute("DROP TABLE PET_ALBUM", idempotent=True)
+    await db.execute(FRAMED_ALBUM, idempotent=True)
+    plain = await put(db, 1, "Cat", 2, shiny=True, frame="S1-A", aura="", aura_perc=0, mission_perc=0)
+    (row,) = await album_rows(db)
+    assert row["entry_id"] == plain and row["frame"] == "S1-A" and "aura" not in row
+    for rich in (dict(aura="SLOW_PERC", aura_perc=3), dict(mission_perc=4)):
+        with pytest.raises(album.NotSaved, match="UndefinedColumnError"):
+            await put(db, 1, "Cat", 2, **rich)
+    assert len(await album_rows(db)) == 1
+    assert await schema.add_new_columns(db) == []                             # the next start adds them
+    kept = await put(db, 1, "Cat", 2, aura="SLOW_PERC", aura_perc=3, mission_perc=4)
+    entry = await album.entry(db, 1, kept)
+    assert (entry["aura"], entry["aura_perc"], entry["mission_perc"]) == ("SLOW_PERC", 3, 4)
 
 
 async def test_a_sacrifice_that_would_lose_the_frame_is_refused(game_db, sacrifices):

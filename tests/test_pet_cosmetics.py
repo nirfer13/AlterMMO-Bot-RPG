@@ -35,13 +35,20 @@ from altermmo.features.pets import PetType
 
 from fakes import FakeInteraction, FakeMember, FakeRole
 from test_pets import add_owner, add_pet, admin, confirms, count, last_embed, owner_row, patron, pet_row, rig, run
+from test_pets import sacrifices  # noqa: F401 - the sacrifice's boss modifier is recorded, not drawn
 from test_ui_pets import rename, show
 
 MIB = 1024 * 1024
 _FRAME_LINES = (",\n           FRAME VARCHAR(16) NOT NULL DEFAULT '',"
                 "\n           HOLO_PARTIAL BOOLEAN NOT NULL DEFAULT FALSE")
+_AURA_LINES = (",\n           AURA VARCHAR(16) NOT NULL DEFAULT '',"
+               "\n           AURA_PERC NUMERIC NOT NULL DEFAULT 0,"
+               "\n           MISSION_PERC NUMERIC NOT NULL DEFAULT 0")
+#: ``PETS`` as production had it from 2026-11-21 to 2026-11-26: every cosmetic column, without the aura and
+#: "Zaradność w zleceniach".
+V3_PETS = pets.SCHEMA[1].replace(_AURA_LINES, "")
 #: ``PETS`` as the v2 bot of 2026-11-20 made it: with SEAL / HOLO, without the frame columns.
-V2_PETS = pets.SCHEMA[1].replace(_FRAME_LINES, "")
+V2_PETS = V3_PETS.replace(_FRAME_LINES, "")
 #: ``PETS`` as the old bot's database has it: without any cosmetic column.
 OLD_PETS = V2_PETS.replace(
     ",\n           SEAL NUMERIC NOT NULL DEFAULT 0,\n           HOLO BOOLEAN NOT NULL DEFAULT FALSE", "")
@@ -133,6 +140,13 @@ async def v2_database(db) -> None:
     assert "SEAL" in V2_PETS and "HOLO BOOLEAN" in V2_PETS and "FRAME" not in V2_PETS and "HOLO_PARTIAL" not in V2_PETS
     await db.execute("DROP TABLE PETS", idempotent=True)
     await db.execute(V2_PETS, idempotent=True)
+
+
+async def v3_database(db) -> None:
+    """Give the test the ``PETS`` of 2026-11-21 .. 26: every cosmetic column, no aura / MISSION_PERC."""
+    assert "FRAME" in V3_PETS and "AURA" not in V3_PETS and "MISSION_PERC" not in V3_PETS
+    await db.execute("DROP TABLE PETS", idempotent=True)
+    await db.execute(V3_PETS, idempotent=True)
 
 
 async def everything(db, pet_id: int) -> tuple:
@@ -1139,15 +1153,19 @@ async def test_migration_adds_the_columns_to_the_old_table(db, monkeypatch):
     assert "seal" not in before and "holo" not in before and "frame" not in before
     # Only the cosmetic columns: every other table (ACHIEVEMENT_COUNTERS too) is made by create_all.
     assert await schema.verify(db) == ["pets: brak kolumny seal", "pets: brak kolumny holo",
-                                       "pets: brak kolumny frame", "pets: brak kolumny holo_partial"]
+                                       "pets: brak kolumny frame", "pets: brak kolumny holo_partial",
+                                       "pets: brak kolumny aura", "pets: brak kolumny aura_perc", "pets: brak kolumny mission_perc"]
 
     assert await schema.add_new_columns(db) == []
     columns = await pets_columns(db)
-    assert list(columns) == [*before, "seal", "holo", "frame", "holo_partial"]  # appended, nothing else touched
+    assert list(columns) == [*before, "seal", "holo", "frame", "holo_partial",
+                             "aura", "aura_perc", "mission_perc"]                # appended, nothing else touched
     assert {name: columns[name] for name in before} == before
     assert columns["seal"] == ("numeric", "NO", "0") and columns["holo"] == ("boolean", "NO", "false")
     assert columns["frame"] == ("character varying", "NO", "''::character varying")
     assert columns["holo_partial"] == ("boolean", "NO", "false")
+    assert columns["aura"] == ("character varying", "NO", "''::character varying")
+    assert columns["aura_perc"] == ("numeric", "NO", "0") and columns["mission_perc"] == ("numeric", "NO", "0")
     for pet_id in (5, 6):                                                      # the pets that were there
         assert await everything(db, pet_id) == (0, False, "", False)
     assert (await pet_row(db, 5))["shiny"] is True and await count(db, "PETS") == 2
@@ -1171,10 +1189,11 @@ async def test_migration_adds_the_frame_columns_to_the_v2_table(db):
     await add_pet(db, 5, pet_lvl=2, shiny=True, seal=3, holo=True)
     before = await pets_columns(db)
     assert "seal" in before and "frame" not in before
-    assert await schema.verify(db) == ["pets: brak kolumny frame", "pets: brak kolumny holo_partial"]
+    assert await schema.verify(db) == ["pets: brak kolumny frame", "pets: brak kolumny holo_partial", "pets: brak kolumny aura", "pets: brak kolumny aura_perc", "pets: brak kolumny mission_perc"]
     assert await schema.add_new_columns(db) == []
     columns = await pets_columns(db)
-    assert list(columns) == [*before, "frame", "holo_partial"] and {name: columns[name] for name in before} == before
+    assert list(columns) == [*before, "frame", "holo_partial", "aura", "aura_perc", "mission_perc"]
+    assert {name: columns[name] for name in before} == before
     assert await everything(db, 5) == (3, True, "", False)                     # the base frame of its class
     assert petcards.frame_of(await pet_row(db, 5)).id == "S0"
     assert await schema.verify(db) == []
@@ -1195,11 +1214,19 @@ async def test_migration_is_what_the_feature_modules_declare(db):
                                     ("petowner", "big_pouch", "BOOLEAN NOT NULL DEFAULT FALSE"),
                                     ("petowner", "pouch_pet_id2", "NUMERIC NOT NULL DEFAULT 0"),
                                     ("petowner", "summon_scrolls", "NUMERIC NOT NULL DEFAULT 0"),
+                                    # the aura and "Zaradność w zleceniach" (2026-11-26)
+                                    ("pets", "aura", "VARCHAR(16) NOT NULL DEFAULT ''"),
+                                    ("pets", "aura_perc", "NUMERIC NOT NULL DEFAULT 0"),
+                                    ("pets", "mission_perc", "NUMERIC NOT NULL DEFAULT 0"),
                                     ("pet_album", "frame", "VARCHAR(16) NOT NULL DEFAULT ''"),
-                                    ("pet_album", "holo_partial", "BOOLEAN NOT NULL DEFAULT FALSE")]
+                                    ("pet_album", "holo_partial", "BOOLEAN NOT NULL DEFAULT FALSE"),
+                                    ("pet_album", "aura", "VARCHAR(16) NOT NULL DEFAULT ''"),
+                                    ("pet_album", "aura_perc", "NUMERIC NOT NULL DEFAULT 0"),
+                                    ("pet_album", "mission_perc", "NUMERIC NOT NULL DEFAULT 0")]
     assert pets.COSMETIC_COLUMNS == ("seal", "holo") and pets.FRAME_COLUMNS == ("frame", "holo_partial")
-    assert [column for table, column, _ in pets.NEW_COLUMNS if table == "pets"] == [*pets.COSMETIC_COLUMNS,
-                                                                                   *pets.FRAME_COLUMNS]
+    assert pets.AURA_COLUMNS == ("aura", "aura_perc") and pets.MISSION_PERC_COLUMN == "mission_perc"
+    assert [column for table, column, _ in pets.NEW_COLUMNS if table == "pets"] == [
+        *pets.COSMETIC_COLUMNS, *pets.FRAME_COLUMNS, *pets.AURA_COLUMNS, pets.MISSION_PERC_COLUMN]
     assert [column for table, column, _ in pets.NEW_COLUMNS if table == "petowner"] == [*pets.UPGRADE_COLUMNS,
                                                                                        *pets.MISSION_COLUMNS]
     assert {column: schema.EXPECTED_COLUMNS["petowner"][column] for column in pets.MISSION_COLUMNS} == {
@@ -1208,6 +1235,8 @@ async def test_migration_is_what_the_feature_modules_declare(db):
     assert schema.EXPECTED_COLUMNS["pets"]["holo"] == "boolean"
     assert schema.EXPECTED_COLUMNS["pets"]["frame"] == "character varying"
     assert schema.EXPECTED_COLUMNS["pets"]["holo_partial"] == "boolean"
+    assert {column: schema.EXPECTED_COLUMNS["pets"][column] for column in ("aura", "aura_perc", "mission_perc")} == {
+        "aura": "character varying", "aura_perc": "numeric", "mission_perc": "numeric"}
     # The fresh table of pets.SCHEMA has every column NEW_COLUMNS would add, with the same definition.
     for table, column, definition in pets.NEW_COLUMNS:
         assert f"{column.upper()} {definition}" in pets.SCHEMA[0 if table == "petowner" else 1]
@@ -1227,7 +1256,8 @@ async def test_migration_gives_up_on_a_busy_table_instead_of_hanging(db, monkeyp
         problems = await schema.add_new_columns(db)
         assert time.monotonic() - started < 5
     assert len(problems) == 1
-    assert problems[0].startswith("pets (seal, holo, frame, holo_partial): LockNotAvailableError")
+    assert problems[0].startswith("pets (seal, holo, frame, holo_partial, aura, aura_perc, mission_perc): "
+                                  "LockNotAvailableError")
     assert "seal" not in await pets_columns(db) and await count(db, "PETS") == 1
     assert await schema.add_new_columns(db) == []                              # the next start: the table is free
     assert await cosmetics(db, 5) == (0, False)
@@ -1261,8 +1291,10 @@ async def test_start_up_adds_the_columns_or_tells_the_owner_once(game_db, monkey
         await bot.setup_hook()                                                 # starts all the same
     [note] = bot._startup_notes                                                # one note, saying what it means
     problem = note.removeprefix("Nie udało się dodać do bazy danych kolumn nowych w v2: ").split(". Kosmetyka")[0]
-    assert problem.startswith("pets (seal, holo, frame, holo_partial): LockNotAvailableError")
+    assert problem.startswith("pets (seal, holo, frame, holo_partial, aura, aura_perc, mission_perc): "
+                              "LockNotAvailableError")
     assert note == bot_module.MSG_NEW_COLUMNS_FAILED.format(problems=problem)
+    assert "aury towarzyszy i Zaradność w zleceniach też są wyłączone" in note           # (those came later)
     assert "Kosmetyka towarzyszy (pieczęcie, folia Holo) jest WYŁĄCZONA" in note
     assert "NOWE RAMKI" not in note and "album" not in note                    # the worst case says all of it
     assert "Baza danych różni się" not in note                                 # not the alarm for a broken database
@@ -1294,7 +1326,7 @@ async def test_start_up_note_when_only_the_frame_columns_are_missing(game_db, mo
         await bot.setup_hook()
     [note] = bot._startup_notes
     problem = note.removeprefix("Nie udało się dodać do bazy danych kolumn nowych w v2: ").split(". Pieczęcie")[0]
-    assert problem.startswith("pets (frame, holo_partial): LockNotAvailableError")
+    assert problem.startswith("pets (frame, holo_partial, aura, aura_perc, mission_perc): LockNotAvailableError")
     assert note == bot_module.MSG_FRAME_COLUMNS_FAILED.format(problems=problem)
     assert "Pieczęcie i pełna folia Holo działają normalnie" in note and "NOWE RAMKI" in note
     assert "Kosmetyka towarzyszy (pieczęcie, folia Holo) jest WYŁĄCZONA" not in note
@@ -1322,7 +1354,7 @@ async def test_start_up_note_when_only_the_album_lacks_its_columns(game_db, monk
         await bot.setup_hook()
     [note] = bot._startup_notes
     problem = note.removeprefix("Nie udało się dodać do bazy danych kolumn nowych w v2: ").split(". Kosmetyka")[0]
-    assert problem.startswith("pet_album (frame, holo_partial): LockNotAvailableError")
+    assert problem.startswith("pet_album (frame, holo_partial, aura, aura_perc, mission_perc): LockNotAvailableError")
     assert note == bot_module.MSG_ALBUM_COLUMNS_FAILED.format(problems=problem)
     assert "Kosmetyka towarzyszy działa normalnie" in note and "porzucenie jest ODRZUCANE" in note
     assert "WYŁĄCZONA" not in note and "Baza danych różni się" not in note
@@ -1331,6 +1363,44 @@ async def test_start_up_note_when_only_the_album_lacks_its_columns(game_db, monk
     bot._startup_notes = []                                                    # (told once connected)
     await bot.setup_hook()                                                     # the next start: added, nothing to say
     assert bot._startup_notes == [] and await schema.verify(db) == []
+
+
+async def test_migration_adds_the_aura_columns_to_todays_table(db):
+    """Production's PETS of 2026-11-21 .. 26 (every cosmetic column): the aura's and MISSION_PERC are added."""
+    await v3_database(db)
+    await add_pet(db, 5, pet_lvl=2, shiny=True, seal=3, holo=True, frame="S1-A")
+    before = await pets_columns(db)
+    assert await schema.verify(db) == ["pets: brak kolumny aura", "pets: brak kolumny aura_perc",
+                                       "pets: brak kolumny mission_perc"]
+    assert await schema.add_new_columns(db) == []
+    columns = await pets_columns(db)
+    assert list(columns) == [*before, "aura", "aura_perc", "mission_perc"]
+    assert {name: columns[name] for name in before} == before
+    row = await pet_row(db, 5)
+    assert (row["aura"], row["aura_perc"], row["mission_perc"]) == ("", 0, 0) and await everything(db, 5) == (
+        3, True, "S1-A", False)
+    assert await schema.verify(db) == []
+
+
+async def test_start_up_note_when_only_the_aura_columns_are_missing(game_db, monkeypatch):
+    """Today's production PETS whose AURA / AURA_PERC / MISSION_PERC cannot be added: only those are off."""
+    bot, db = game_db.bot, game_db.bot.db
+    monkeypatch.setattr(bot, "load_extension", lambda name: asyncio.sleep(0))
+    monkeypatch.setattr(type(db), "connect", lambda self: asyncio.sleep(0))
+    monkeypatch.setattr(schema, "NEW_COLUMN_LOCK_TIMEOUT", "200ms")
+    await v3_database(db)
+
+    async with db.transaction() as somebody:
+        await somebody.execute("LOCK TABLE PETS IN ACCESS SHARE MODE")
+        await bot.setup_hook()
+    [note] = bot._startup_notes
+    problem = note.removeprefix("Nie udało się dodać do bazy danych kolumn nowych w v2: ").split(". Kosmetyka")[0]
+    assert problem.startswith("pets (aura, aura_perc, mission_perc): LockNotAvailableError")
+    assert note == bot_module.MSG_AURA_COLUMNS_FAILED.format(problems=problem)
+    assert "AURY TOWARZYSZY i ZARADNOŚĆ W ZLECENIACH są WYŁĄCZONE" in note and "Kosmetyka towarzyszy działa" in note
+    assert "Baza danych różni się" not in note
+    assert await pets.cosmetics_available(bot) is True and await pets.frames_available(bot) is True
+    assert await pets.aura_columns_available(bot) is False
 
 
 def test_start_up_note_says_only_what_is_really_missing():
@@ -1347,6 +1417,16 @@ def test_start_up_note_says_only_what_is_really_missing():
     assert note(["x", "y"], [missing("pets", "frame"), *album_only]) == (
         bot_module.MSG_FRAME_COLUMNS_FAILED.format(problems="x; y"))
     assert note(["x"], album_only) == bot_module.MSG_ALBUM_COLUMNS_FAILED.format(problems="x")
+    # The aura and "Zaradność w zleceniach" (2026-11-26): their PETS columns, or only the album's.
+    aura_only = [missing("pets", column) for column in ("aura", "aura_perc", "mission_perc")]
+    album_aura = [missing("pet_album", column) for column in ("aura", "aura_perc", "mission_perc")]
+    assert note(["x"], aura_only) == bot_module.MSG_AURA_COLUMNS_FAILED.format(problems="x")
+    assert note(["x"], [missing("pets", "mission_perc")]) == bot_module.MSG_AURA_COLUMNS_FAILED.format(problems="x")
+    assert note(["x"], album_aura) == bot_module.MSG_ALBUM_AURA_COLUMNS_FAILED.format(problems="x")
+    assert note(["x"], [*album_only, *album_aura]) == bot_module.MSG_ALBUM_COLUMNS_FAILED.format(problems="x")
+    assert note(["x"], [*aura_only, *album_aura]) == bot_module.MSG_AURA_COLUMNS_FAILED.format(problems="x")
+    assert "porzucenie jest ODRZUCANE" in bot_module.MSG_ALBUM_AURA_COLUMNS_FAILED
+    assert "AURA / AURA_PERC / MISSION_PERC" in bot_module.MSG_DATABASE_DOWN_AT_START   # said conditionally
     assert note(["x"], []) is None                                                       # all there after all
     assert note(["x"], ["tower: brak kolumny time"]) is None                             # not a new column
 
@@ -1478,6 +1558,36 @@ def test_start_up_note_copes_with_a_feature_module_that_cannot_be_imported(monke
 
 
 # -- the game without the columns (the migration failed) ----------------------------------
+
+async def test_game_goes_on_without_the_aura_columns(game_db, monkeypatch, aura_config, sacrifices):
+    """Today's PETS without AURA / AURA_PERC / MISSION_PERC: nothing is rolled, shown, added or saved there."""
+    db, bot = game_db.bot.db, game_db.bot
+    await v3_database(db)
+    aura_config(10000)                                                         # an aura at every hatching - if it could
+    player = game_db.add_member("Ala")
+    await add_owner(db, player.id, 5, pet_id_alt1=6, reroll_scroll=3)
+    await add_pet(db, 5)
+    await add_pet(db, 6, pet_lvl=2, pet_skills=2, crit_perc=8)
+    asked = dice(monkeypatch, 0, 0)
+    notes: list[str] = []
+    assert await pets.level_up_pet(game_db.scene(player), player, album_note=notes) is True
+    assert asked == [] and notes == []                                         # no roll, no note
+    row = await pet_row(db, 5)
+    assert row["pet_lvl"] == 1 and "aura" not in row and "mission_perc" not in row
+    assert (await pets.get_pet_skills(bot, player.id))["CRIT_PERC"] >= 0       # the fight stats work
+    assert await pets.aura_bonus(bot, player.id) == {} and await pets.aura_columns_available(bot) is False
+    embed, _options = await pets._stable_view(bot, player.id)
+    assert "🌟" not in embed.description
+    assert await pets.show_pet(game_db.scene(player), player) is True
+    assert "Zaradność" not in last_embed(game_db).description
+    # A reroll never draws "Zaradność w zleceniach" (no column to keep it).
+    pools, _ = rig(monkeypatch, choices=["MISSION_PERC"] * 4)
+    confirms(game_db, player)
+    assert await pets.reroll_pet(game_db.scene(player), player) is True
+    assert pools and all("MISSION_PERC" not in pool for pool in pools)
+    assert (await pets.egg_places(bot, player.id)).occupied[0][2]["pet_lvl"] == 2   # the mine's picker reads fine
+    assert await pets.discard_pet(game_db.scene(player)) is True               # no warning to read, no error
+
 
 async def test_game_goes_on_without_cosmetics_when_the_columns_are_missing(game_db, monkeypatch, cards, cog, caplog):
     db, bot = game_db.bot.db, game_db.bot
@@ -1839,11 +1949,12 @@ async def test_backup_copies_the_table_with_and_without_the_columns(db, tmp_path
     made = await backup.create_backup(db, tmp_path / "data", tmp_path / "new", tables=("pets",))
     with zipfile.ZipFile(made.path) as archive:
         header, row = archive.read("db/pets.csv").decode("utf-8").splitlines()
-        assert header.split(",")[-5:] == ["mythic", "seal", "holo", "frame", "holo_partial"]
-        assert row.split(",")[-4:] == ["2", "t", "S1-A", "t"]
+        assert header.split(",")[-8:] == ["mythic", "seal", "holo", "frame", "holo_partial",
+                                          "aura", "aura_perc", "mission_perc"]
+        assert row.split(",")[-7:-3] == ["2", "t", "S1-A", "t"]
         assert "SEAL NUMERIC NOT NULL DEFAULT 0" in archive.read("schema.sql").decode("utf-8")
         assert "FRAME VARCHAR(16) NOT NULL DEFAULT ''" in archive.read("schema.sql").decode("utf-8")
-    assert made.tables[0].columns[-4:] == ("seal", "holo", "frame", "holo_partial")
+    assert made.tables[0].columns[-7:] == ("seal", "holo", "frame", "holo_partial", "aura", "aura_perc", "mission_perc")
 
     await old_database(db)
     await add_pet(db, 6)

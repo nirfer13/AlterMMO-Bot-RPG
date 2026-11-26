@@ -116,21 +116,38 @@ MSG_MODULES_BROKEN = ("Nie udało się wczytać części kodu bota: {modules}. F
 MSG_NEW_COLUMNS_FAILED = (
     "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Kosmetyka towarzyszy "
     "(pieczęcie, folia Holo) jest WYŁĄCZONA: nic nie jest losowane, a towarzysze nie mają pieczęci "
-    "ani folii (ramki Shiny / Ultra Shiny działają normalnie) - reszta gry działa normalnie. "
+    "ani folii (ramki Shiny / Ultra Shiny działają normalnie); aury towarzyszy i Zaradność w zleceniach "
+    "też są wyłączone - reszta gry działa normalnie. "
     "Bot spróbuje ponownie przy następnym starcie.")
-#: ... only the frame / partial Holo columns of ``PETS`` are missing (``pets.frames_available``);
+#: ... only the frame / partial Holo columns of ``PETS`` are missing (``pets.frames_available``; the
+#: columns of the auras, which came later, then too);
 MSG_FRAME_COLUMNS_FAILED = (
     "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Pieczęcie i pełna folia Holo "
     "działają normalnie, ale NOWE RAMKI i częściowa folia Holo są WYŁĄCZONE: nie są losowane ani "
-    "zapisywane, a każdy towarzysz ma podstawową ramkę swojej klasy - reszta gry działa normalnie. "
+    "zapisywane, a każdy towarzysz ma podstawową ramkę swojej klasy; aury towarzyszy i Zaradność w "
+    "zleceniach też są wyłączone - reszta gry działa normalnie. "
     "Bot spróbuje ponownie przy następnym starcie.")
-#: ... ``PETS`` is complete, the album lacks the frame / partial Holo columns (``album.keep``).
+#: ... only the columns of the auras and of "Zaradność w zleceniach" of ``PETS`` are missing
+#: (``pets.aura_columns_available``, 2026-11-26);
+MSG_AURA_COLUMNS_FAILED = (
+    "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Kosmetyka towarzyszy działa "
+    "normalnie, ale AURY TOWARZYSZY i ZARADNOŚĆ W ZLECENIACH są WYŁĄCZONE: żaden towarzysz nie wykluwa się "
+    "z aurą, aury nie pomagają w walkach, a punkty talentu nie trafiają do zaradności - reszta gry działa "
+    "normalnie. Bot spróbuje ponownie przy następnym starcie.")
+#: ... ``PETS`` is complete, the album lacks the frame / partial Holo columns (``album.keep``);
 MSG_ALBUM_COLUMNS_FAILED = (
     "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Kosmetyka towarzyszy działa "
     "normalnie, ale album nie ma miejsca na ramkę i częściową folię Holo: towarzysza z rzadką ramką "
     "albo z częściową folią Holo nie da się zapisać w albumie, więc jego porzucenie jest ODRZUCANE "
     "(gracz dostaje komunikat, towarzysz zostaje u niego). Pozostali towarzysze trafiają do albumu "
     "normalnie - reszta gry działa normalnie. Bot spróbuje ponownie przy następnym starcie.")
+#: ... the album has its frame columns but lacks those of the aura / "Zaradność w zleceniach" (``album.keep``).
+MSG_ALBUM_AURA_COLUMNS_FAILED = (
+    "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Kosmetyka i aury towarzyszy działają "
+    "normalnie, ale album nie ma miejsca na aurę i Zaradność w zleceniach: towarzysza z aurą albo z "
+    "zaradnością nie da się zapisać w albumie, więc jego porzucenie jest ODRZUCANE (gracz dostaje komunikat, "
+    "towarzysz zostaje u niego). Pozostali towarzysze trafiają do albumu normalnie - reszta gry działa "
+    "normalnie. Bot spróbuje ponownie przy następnym starcie.")
 #: ``PETOWNER`` lacks the merchant's columns (stable places 5-10, the egg pouch; then also the missions');
 MSG_OWNER_COLUMNS_FAILED = (
     "Nie udało się dodać do bazy danych kolumn nowych w v2: {problems}. Miejsca w stajni 5-10, Sakwa na jajko, "
@@ -150,8 +167,10 @@ def new_columns_note(not_added: list[str], problems: list[str]) -> str | None:
     Which columns are really missing is read from what ``schema.verify`` found
     (``problems``), so the note says what is off and not more: all cosmetics
     (seal / Holo of ``PETS`` missing), the new frames and the partial Holo
-    (only those columns of ``PETS``), or keeping such a pet in the album (only
-    the album's columns).  ``add_new_columns`` adds a table's columns all or
+    (only those columns of ``PETS``), the auras and "Zaradność w zleceniach"
+    (only their columns of ``PETS``, 2026-11-26), or keeping such a pet in the
+    album (only the album's columns: the frames', else the auras').
+    ``add_new_columns`` adds a table's columns all or
     none, and without the frame columns of ``PETS`` no pet has a rare frame -
     so the first case that applies is the whole truth.  ``PETOWNER`` is
     another table: its note (the merchant's columns - the missions' are then
@@ -179,17 +198,24 @@ def new_columns_note(not_added: list[str], problems: list[str]) -> str | None:
     elif owner_missing & set(pets.MISSION_COLUMNS):
         owner_note = MSG_MISSION_COLUMNS_FAILED.format(problems=details)
     pets_note = None
+    aura_columns = (*pets.AURA_COLUMNS, pets.MISSION_PERC_COLUMN)
     if any(("pets", column) in missing for column in pets.COSMETIC_COLUMNS):
         pets_note = MSG_NEW_COLUMNS_FAILED.format(problems=details)
     elif any(("pets", column) in missing for column in pets.FRAME_COLUMNS):
         pets_note = MSG_FRAME_COLUMNS_FAILED.format(problems=details)
+    elif any(("pets", column) in missing for column in aura_columns):
+        pets_note = MSG_AURA_COLUMNS_FAILED.format(problems=details)
     else:
         try:
             from .features import album
         except Exception:  # noqa: BLE001 - see MSG_MODULES_BROKEN (and its columns are not in ``missing``)
             album = None
-        if album is not None and any(table == album.TABLE.lower() for table, _ in missing):
-            pets_note = MSG_ALBUM_COLUMNS_FAILED.format(problems=details)
+        if album is not None:
+            table = album.TABLE.lower()
+            if any((table, column.lower()) in missing for column, _ in album.LATER_COSMETIC_COLUMNS):
+                pets_note = MSG_ALBUM_COLUMNS_FAILED.format(problems=details)
+            elif any(name == table for name, _ in missing):
+                pets_note = MSG_ALBUM_AURA_COLUMNS_FAILED.format(problems=details)
     return " ".join(note for note in (pets_note, owner_note) if note) or None
 
 
@@ -223,10 +249,12 @@ MSG_DATABASE_DOWN_AT_START = (
     "następnym uruchomieniu). Jeśli czegoś z tego brakuje w bazie, do tego czasu: bez kolumn "
     "SEAL / HOLO tabeli PETS cała kosmetyka towarzyszy (pieczęcie, folia Holo, nowe ramki) jest "
     "wyłączona; bez samych kolumn FRAME / HOLO_PARTIAL pieczęcie i pełna folia Holo działają, ale "
-    "nowe ramki i częściowa folia Holo nie są losowane ani zapisywane; tabelę PET_ALBUM bot utworzy "
+    "nowe ramki i częściowa folia Holo nie są losowane ani zapisywane; bez kolumn AURA / AURA_PERC / "
+    "MISSION_PERC tabeli PETS aury towarzyszy i Zaradność w zleceniach są wyłączone; tabelę PET_ALBUM bot utworzy "
     "sam przy pierwszym porzuceniu towarzysza przez wspierającego (do tego czasu album jest pusty), "
     "a bez samych jej kolumn FRAME / HOLO_PARTIAL "
-    "odrzucane jest porzucenie towarzysza z rzadką ramką albo częściową folią Holo; "
+    "odrzucane jest porzucenie towarzysza z rzadką ramką albo częściową folią Holo (bez jej kolumn AURA / "
+    "AURA_PERC / MISSION_PERC - towarzysza z aurą albo z Zaradnością w zleceniach); "
     "tabelę PET_MISSIONS (zlecenia towarzyszy) bot utworzy sam przy pierwszym otwarciu tablicy zleceń (do tego "
     "czasu nikt nie jest na zleceniu), a bez kolumn BIG_POUCH / POUCH_PET_ID2 / SUMMON_SCROLLS tabeli PETOWNER "
     "Duża sakwa i Zwoje przywołania są wyłączone; tabelę PLAYER_ITEMS (przedmioty graczy) bot utworzy sam, gdy "
