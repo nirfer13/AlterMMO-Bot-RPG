@@ -1053,7 +1053,7 @@ async def test_a_mission_level_can_grow_the_pets_aura_and_the_result_says_so(gam
     assert (row["pet_lvl"], row["aura"], row["aura_perc"]) == (3, "CRIT_PERC", 3)
     stored = await db.fetchrow("SELECT * FROM PET_MISSIONS WHERE MISSION_ID = $1", mission_id)
     text = missions.result_embed(ala.id, stored, config()).embed.description
-    assert ("⬆️ **Mruczek** awansuje na poziom 3!\n🌟 **Aura Furii** Twojego towarzysza przybrała na sile (+3 %)!"
+    assert ("⬆️ **Mruczek** awansuje na poziom 3!\n🌟 **Aura Furii** Twojego towarzysza przybrała na sile - teraz to +3 %!"
             in text)
 
 

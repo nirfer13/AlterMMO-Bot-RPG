@@ -115,7 +115,7 @@ async def test_the_windows_of_the_two_items(game_db):
     (BossPhase.ENGAGED, True, "Walka z bossem już trwa, <@{id}> - za późno na sztuczki Dovy."),
     (BossPhase.FIGHTING, False, "Walka z bossem już trwa, <@{id}> - za późno na sztuczki Dovy."),
     (BossPhase.FIGHTING, True, "Walka z bossem już trwa, <@{id}> - za późno na sztuczki Dovy."),
-    (BossPhase.IDLE, False, "Kość Dovy działa tylko, zanim następny boss da o sobie znać, <@{id}>."),
+    (BossPhase.IDLE, False, "Kość Dovy zadziała, gdy następny boss będzie już w drodze albo stanie na kanale, <@{id}>."),
 ])
 async def test_outside_its_window_an_item_is_refused_and_not_taken(game_db, phase, card, text):
     bot = game_db.bot
@@ -182,7 +182,7 @@ async def test_the_die_rerolls_the_coming_boss_and_keeps_its_arrival(game_db, dr
     assert row.rarity == 3 and row.respawn_started and row.respawn_at == arrives_at   # the arrival did not move
     assert cycle.arrives_at == arrives_at
     assert last(game_db).content == (f"🎲 <@{ala.id}> rzuca **Kością Dovy**... Kość toczy się po stole, podskakuje i "
-                                     "staje na: 🟧 **legendarny**! Taki boss nadejdzie jako następny. *Kapliczka i "
+                                     "wypada: 🟧 **legendarny**! Taki boss nadejdzie jako następny. *Kapliczka i "
                                      "pora dnia wciąż mogą to zmienić.*")
     assert await stored(bot.db, ala.id, "dova_die") == 1 and not bot.state.busy and bot.owner_log == []
 
@@ -218,6 +218,27 @@ async def test_the_boss_table_failing_keeps_the_new_rarity_and_tells_the_owner(g
 
 # -- the Kość Dovy on the boss on the channel ---------------------------------------------------------------
 
+async def test_a_die_landing_on_the_boss_s_own_rarity_changes_nothing(game_db, drawn, monsters):
+    """The same rarity again: the die is used, the boss on the channel stays exactly as it is (no re-post)."""
+    bot = game_db.bot
+    cycle = bot.boss_cycle
+    ala = game_db.add_member("Ala")
+    await give(game_db, ala, "dova_die")
+    old_picture, old_embed = await on_the_channel(game_db, 1)
+    row_before = await database.read_boss_table(bot)
+    sent_before = len(game_db.channel.messages)
+    drawn.rarity = 1
+    assert await dova.throw_die(game_db.scene(ala)) is True
+    assert bot.state.boss == BossInfo(rarity=1) and bot.state.boss_phase is BossPhase.VISIBLE
+    assert not old_picture.deleted and not old_embed.deleted
+    new = game_db.channel.messages[sent_before:]
+    assert not any(message.files or message.embeds for message in new)          # no picture, no embed again
+    assert game_db.channel.messages[-1].content == dova.MSG_DIE_SAME.format(player_id=ala.id, emoji="🟦",
+                                                                            rarity="rzadki")
+    assert await database.read_boss_table(bot) == row_before
+    assert not bot.state.busy and bot.owner_log == [] and await stored(bot.db, ala.id, "dova_die") == 0
+
+
 async def test_the_die_on_the_boss_on_the_channel_shows_it_again(game_db, drawn, monsters, monkeypatch):
     bot = game_db.bot
     cycle = bot.boss_cycle
@@ -237,7 +258,7 @@ async def test_the_die_on_the_boss_on_the_channel_shows_it_again(game_db, drawn,
     # The old picture and its button are gone; the line, then the boss as a spawn shows it.
     assert old_picture.deleted and old_embed.deleted
     line, picture, embed = game_db.channel.messages[-3:]
-    assert line.content == (f"🎲 <@{ala.id}> rzuca **Kością Dovy**... Kość toczy się po stole, podskakuje i staje na: "
+    assert line.content == (f"🎲 <@{ala.id}> rzuca **Kością Dovy**... Kość toczy się po stole, podskakuje i wypada: "
                             "🟧 **legendarny**! Boss na kanale zmienia się na oczach wszystkich!")
     assert picture.files == ["1000.gif"]
     assert embed.embeds[0].title == "💀 🟧 Legendarny boss! 🟧 💀" and "Nie dasz rady sam" in embed.embeds[0].description
@@ -473,7 +494,7 @@ async def test_a_boss_without_perks_gets_one_and_a_drawn_rest_resets_the_hunts(g
     await give(game_db, ala, "dova_card")
     assert await dova.shuffle_card(game_db.scene(ala)) is True
     assert last(game_db).embeds[0].description == (                             # (no rest: not told; no ":" left hanging)
-        f"<@{ala.id}> tasuje **Kartę Dovy**... Następny boss wciąż nie ma żadnych perków - karta zapłonęła i zgasła "
+        f"<@{ala.id}> tasuje **Kartę Dovy**... Następny boss wciąż nie ma żadnych perków - karta zatliła się i zgasła "
         "jak mokra hubka.")
     assert bot.owner_log == [dova.LOG_HUNTS_NOT_RESET.format(error="OSError")]
 
@@ -643,7 +664,7 @@ async def test_somebody_claiming_during_the_take_gives_the_die_back(game_db, dra
 
     monkeypatch.setattr(items, "take", take_and_claim)
     assert await dova.throw_die(game_db.scene(ala)) is False
-    assert last(game_db).content == "Ktoś był szybszy i już stanął do walki - Kość Dovy wraca do Twojej sakwy."
+    assert last(game_db).content == f"Ktoś był szybszy i już stanął do walki, <@{ala.id}> - Kość Dovy wraca do Twojej sakwy."
     assert await stored(bot.db, ala.id, "dova_die") == 1 and drawn.delays == []
     assert bot.state.boss.rarity == 1 and not old_embed.deleted and not bot.state.busy
 

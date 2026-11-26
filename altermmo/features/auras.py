@@ -106,7 +106,7 @@ DEFAULT_WEIGHTS: dict[str, int] = {"mroz": 35, "furia": 30, "szczescie": 25, "op
 MSG_HATCHED = ("🌟 Z jajka wykluł się towarzysz otoczony **{aura}**! Aura pomaga Ci zawsze - nawet gdy "
                "towarzysz odpoczywa w stajni.")
 #: The note of a growth (``value``: the aura's new value) - the drop, the mine, !PetLvlUp, a mission's level.
-MSG_GREW = "🌟 **{aura}** Twojego towarzysza przybrała na sile (+{value} %)!"
+MSG_GREW = "🌟 **{aura}** Twojego towarzysza przybrała na sile - teraz to +{value} %!"
 #: ``!towarzysz`` of an aura pet, after its statistics.
 MSG_SHOWN = "🌟 {aura}: +{value} % do {stat} - działa zawsze, także gdy towarzysz jest w stajni."
 #: ``!stajnia``: the auras of all the player's pets, summed per stat (no cap, so no "maks.").

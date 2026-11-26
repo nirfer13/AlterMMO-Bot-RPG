@@ -467,7 +467,7 @@ async def test_hazard_won(game_db, loot, monkeypatch):
     clicks_on(game, "Zaryzykuj!", (game.bot.user, WINNING), (ala, WINNING))
     assert await events.spawn_hazard(game.scene()) is True
     assert await scrolls_of(game, ala) == 15
-    assert game.channel.contains("*Ech, gratuluje* - Dova rzekł zawiedziony.")
+    assert game.channel.contains("*Ech, gratuluję* - Dova rzekł zawiedziony.")
     assert loot == [(2, ala, 55)]
     assert f"Kubek wybiera {ala.mention}." in panel(game, "Zaryzykuj!").text
     assert no_listeners(game) and no_live_buttons(game)
@@ -532,6 +532,7 @@ async def stored_item(game, member, key):
 
 
 PRIZE_LINE = "Dova sięga pod stół, mruczy coś o przegranym zakładzie i wciska Ci w dłoń: "
+PRIZE_END = ". Co z tym zrobić, podpowie **!przedmioty**."
 
 
 @pytest.mark.parametrize("seed, prizes", [(0, []), (1, ["dova_die"]), (7, ["dova_card"]),
@@ -558,7 +559,7 @@ async def test_hazard_win_rolls_dovas_two_prizes_each_on_its_own(game_db, loot, 
     won = next(m for m in game.channel.messages if m.content.startswith(events.MSG_HAZARD_WON))
     shown = {"dova_die": "🎲 **Kość Dovy**", "dova_card": "🃏 **Karta Dovy**"}
     assert won.content == (events.MSG_HAZARD_WON if not prizes
-                           else events.MSG_HAZARD_WON + "\n" + PRIZE_LINE + " i ".join(shown[key] for key in prizes))
+                           else events.MSG_HAZARD_WON + "\n" + PRIZE_LINE + " i ".join(shown[key] for key in prizes) + PRIZE_END)
     assert "<@" not in won.content and game.bot.owner_log == []
 
 
@@ -601,7 +602,7 @@ async def test_a_prize_the_store_cannot_take_is_left_out_of_the_line(game_db, lo
     clicks_on(game, "Zaryzykuj!", (ala, WINNING))
     assert await events.spawn_hazard(game.scene()) is True
     won = [m for m in game.channel.messages if m.content.startswith(events.MSG_HAZARD_WON)][-1]
-    assert won.content == events.MSG_HAZARD_WON + "\n" + PRIZE_LINE + "🃏 **Karta Dovy**"
+    assert won.content == events.MSG_HAZARD_WON + "\n" + PRIZE_LINE + "🃏 **Karta Dovy**" + PRIZE_END
     assert await stored_item(game, ala, "dova_card") == 1 and await stored_item(game, ala, "dova_die") == 0
     assert bot.owner_log == [dova.LOG_PRIZE_UNSURE.format(name="Kość Dovy", player_id=ala.id,
                                                           error="DatabaseUnavailable", key="dova_die")]

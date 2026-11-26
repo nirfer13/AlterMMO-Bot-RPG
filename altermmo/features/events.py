@@ -194,7 +194,7 @@ HAZARD_DESCR = ('Witaj Wędrowcze, nazywam się Dova. Nie chcesz zgarnąć kilka
                 '\n\nWybierz jeden z dwóch kubków. Pod jednym z nich będzie się kryła nagroda.'
                 '\n\n*Kliknij jeden z kubków pod postem, jeśli chcesz zagrać. Potrzebujesz 5 zwojów.*')
 HAZARD_LABELS = ("Lewy kubek", "Prawy kubek")
-MSG_HAZARD_WON = "*Ech, gratuluje* - Dova rzekł zawiedziony."
+MSG_HAZARD_WON = "*Ech, gratuluję* - Dova rzekł zawiedziony."
 MSG_HAZARD_LOST = "*Dzięki za zwoje. Kolego* <:2Head:882184634572627978> - Chwilę potem Dova znikł za drzwiami karczmy."
 MSG_HAZARD_POOR = "Najpierw musisz mieć czym grać. Potrzebujesz co najmniej 5 zwojów..."
 MSG_HAZARD_NOBODY = ("*Ech, na tym Discordzie nie ma pracy dla oszustów z moimi talentami...* "

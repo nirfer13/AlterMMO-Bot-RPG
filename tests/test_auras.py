@@ -180,7 +180,7 @@ def test_the_texts():
     assert auras.note(hatched) == ("🌟 Z jajka wykluł się towarzysz otoczony **Aurą Mrozu**! Aura pomaga Ci zawsze "
                                    "- nawet gdy towarzysz odpoczywa w stajni.")
     assert auras.note(auras.Change(auras.GREW, "DROP_PERC", 5)) == (
-        "🌟 **Aura Szczęścia** Twojego towarzysza przybrała na sile (+5 %)!")
+        "🌟 **Aura Szczęścia** Twojego towarzysza przybrała na sile - teraz to +5 %!")
     assert auras.note(auras.Change(auras.GREW, "NIC", 5)) == ""
     pet = {"pet_lvl": 2, "aura": "CRIT_PERC", "aura_perc": 3}
     assert auras.shown_line(pet) == ("🌟 Aura Furii: +3 % do szansy na krytyczne uderzenie - działa zawsze, także "
@@ -261,7 +261,7 @@ async def test_the_aura_grows_at_a_later_level_up_to_the_pets_maximum(game_db, a
     assert asked == [auras.GROWTH_ROLL]
     row = await pet_row(db, 5)
     assert (row["pet_lvl"], row["aura"], row["aura_perc"]) == (2, "SLOW_PERC", 7)
-    assert notes == ["🌟 **Aura Mrozu** Twojego towarzysza przybrała na sile (+7 %)!"]
+    assert notes == ["🌟 **Aura Mrozu** Twojego towarzysza przybrała na sile - teraz to +7 %!"]
     # Level 2 -> 3 at the maximum: nothing is drawn, nothing is said.
     asked = draws(monkeypatch, 0)
     aura_note: list[str] = []
@@ -294,7 +294,7 @@ async def test_a_mission_level_grows_the_aura_of_a_stabled_pet(game_db, monkeypa
     assert grown == [auras.Change(auras.GREW, "DROP_PERC", 5)] and (await pet_row(db, 6))["aura_perc"] == 5
     line = missions.result_line({"kind": "level", "name": "Burek", "new": 2, "aura": "DROP_PERC", "aura_perc": 5})
     assert line == ("⬆️ **Burek** awansuje na poziom 2!\n"
-                    "🌟 **Aura Szczęścia** Twojego towarzysza przybrała na sile (+5 %)!")
+                    "🌟 **Aura Szczęścia** Twojego towarzysza przybrała na sile - teraz to +5 %!")
     assert missions.result_line({"kind": "level", "name": "Burek", "new": 2}) == "⬆️ **Burek** awansuje na poziom 2!"
 
 

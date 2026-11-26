@@ -1221,7 +1221,7 @@ MSG_SUMMON_NONE = ("Nie masz Zwoju przywołania, <@{player_id}>. Czasem wypada z
                    "jakiś pod ladą.")
 MSG_SUMMON_OFF = "Zwoje przywołania są chwilowo niedostępne, <@{player_id}>."
 MSG_SUMMON_QUESTION = ("Czy na pewno chcesz odczytać **Zwój przywołania**, <@{player_id}>? Na kanał przybędzie "
-                       "🟥 **mityczny boss** - zaatakować go może każdy <:Hmm:984767035617730620> Jeśli przez pół "
+                       "🟥 **mityczny boss** - zaatakować go może każdy. <:Hmm:984767035617730620> Jeśli przez pół "
                        "godziny nikt go nie zaatakuje, bestia odejdzie, a zwój obróci się w popiół. "
                        + pets.CONFIRM_HINT)
 MSG_SUMMON_BOSS_THERE = ("Boss już jest na kanale albo właśnie nadciąga, <@{player_id}>! Zwój przywołania nie "

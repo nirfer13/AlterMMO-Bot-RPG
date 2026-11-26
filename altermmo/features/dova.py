@@ -97,7 +97,8 @@ DOVA_COLOUR = 0x827B7A
 # -- the prizes on a won game of cups -----------------------------------------------------------
 
 #: Appended to Dova's "you won" line (``{prizes}``: the emoji and name of each prize).
-MSG_PRIZE = "Dova sięga pod stół, mruczy coś o przegranym zakładzie i wciska Ci w dłoń: {prizes}"
+MSG_PRIZE = ("Dova sięga pod stół, mruczy coś o przegranym zakładzie i wciska Ci w dłoń: {prizes}. Co z tym zrobić, "
+             "podpowie **!przedmioty**.")
 PRIZE = "{emoji} **{name}**"
 PRIZES_JOIN = " i "
 #: To the owner (with a ping): a prize could not be stored, or nobody knows whether it was.
@@ -107,16 +108,21 @@ LOG_PRIZE_UNSURE = ("Nagroda Dovy ({name}) dla gracza <@{player_id}>: baza danyc
 
 # -- the uses -----------------------------------------------------------------------------------
 
-MSG_DIE_NEXT = ("🎲 <@{player_id}> rzuca **Kością Dovy**... Kość toczy się po stole, podskakuje i staje na: "
+MSG_DIE_NEXT = ("🎲 <@{player_id}> rzuca **Kością Dovy**... Kość toczy się po stole, podskakuje i wypada: "
                 "{emoji} **{rarity}**! Taki boss nadejdzie jako następny. *Kapliczka i pora dnia wciąż mogą to "
                 "zmienić.*")
-MSG_DIE_VISIBLE = ("🎲 <@{player_id}> rzuca **Kością Dovy**... Kość toczy się po stole, podskakuje i staje na: "
+MSG_DIE_VISIBLE = ("🎲 <@{player_id}> rzuca **Kością Dovy**... Kość toczy się po stole, podskakuje i wypada: "
                    "{emoji} **{rarity}**! Boss na kanale zmienia się na oczach wszystkich!")
-MSG_DIE_CLOSED = "Kość Dovy działa tylko, zanim następny boss da o sobie znać, <@{player_id}>."
+#: The die landed on the rarity the boss on the channel already has: nothing changes, nothing is re-posted.
+MSG_DIE_SAME = ("🎲 <@{player_id}> rzuca **Kością Dovy**... Kość toczy się po stole, podskakuje i wypada: "
+                "{emoji} **{rarity}** - dokładnie to, co już stoi na kanale! Dova chichocze pod nosem, a boss "
+                "nawet nie drgnie.")
+MSG_DIE_CLOSED = ("Kość Dovy zadziała, gdy następny boss będzie już w drodze albo stanie na kanale, "
+                  "<@{player_id}>.")
 MSG_ARRIVING = "Boss właśnie nadciąga, <@{player_id}> - poczekaj, aż się pokaże."
 MSG_FIGHT = "Walka z bossem już trwa, <@{player_id}> - za późno na sztuczki Dovy."
 #: The boss on the channel was claimed while the item was being taken (``{name}``: the item's name).
-MSG_TOO_LATE = "Ktoś był szybszy i już stanął do walki - {name} wraca do Twojej sakwy."
+MSG_TOO_LATE = "Ktoś był szybszy i już stanął do walki, <@{player_id}> - {name} wraca do Twojej sakwy."
 #: The window moved otherwise during the take (the boss started arriving, left, was reset...).
 MSG_MOVED = "Na kanale bossa coś się właśnie zmieniło, <@{player_id}> - {name} wraca do Twojej sakwy."
 MSG_NO_DIE = ("Nie masz żadnej **Kości Dovy**, <@{player_id}>. Dova od kubków nosi takie w rękawie - podobno dla "
@@ -139,9 +145,9 @@ CARD_HEAD_REST_EMPTY = ("<@{player_id}> tasuje **Kartę Dovy**... {who} nadal ni
                         "karta przynosi wszystkim chwilę wytchnienia:")
 #: ...and even the rest could not be given (the hunts' file failed; the owner is told).
 CARD_FIZZLED = ("<@{player_id}> tasuje **Kartę Dovy**... Stare błogosławieństwa i klątwy {whose} rozwiewają się, "
-                "ale na ich miejsce nic nie przychodzi - karta zapłonęła i zgasła jak mokra hubka.")
+                "ale na ich miejsce nic nie przychodzi - karta zatliła się i zgasła jak mokra hubka.")
 CARD_FIZZLED_EMPTY = ("<@{player_id}> tasuje **Kartę Dovy**... {who} wciąż nie ma żadnych perków - karta "
-                      "zapłonęła i zgasła jak mokra hubka.")
+                      "zatliła się i zgasła jak mokra hubka.")
 #: Which boss the card's words are about: the next one, or the one on the channel (``visible``).
 WHOSE = {False: "następnego bossa", True: "bossa na kanale"}
 WHO = {False: "Następny boss", True: "Boss na kanale"}
@@ -386,9 +392,18 @@ async def _throw(scene: "Scene", *, visible: bool, token: int) -> None:
     drawn = draw_base_rarity(bot)
     boost = modifiers.current_modifiers(bot).get("rarity_boost", 0)
     rarity = boss_cycle.final_rarity(drawn, boost, clock.now(), debug=bot.debug)
-    picture, variant = (None, None) if info.is_player_boss else boss.picture_like(rarity, variant=info.variant)
-    scheduled = cycle.change_visible_boss(rarity, variant=variant.id if variant is not None else "", base=drawn)
+    same = rarity == old  # nothing to change: the boss on the channel stays as it is (no re-post, no row)
+    picture, variant = (None, None) if info.is_player_boss or same else boss.picture_like(rarity,
+                                                                                         variant=info.variant)
+    scheduled = False if same else cycle.change_visible_boss(rarity, variant=variant.id if variant is not None
+                                                             else "", base=drawn)
     # -- the write is done -------------------------------------------------------------------------
+    if same:
+        log.info("Dova: %s threw the Kość Dovy on the boss on the channel: rarity %s again (drawn %s).",
+                 player_id, rarity, drawn)
+        await _say(scene, MSG_DIE_SAME.format(player_id=player_id, emoji=boss_cycle.rarity_emoji(rarity),
+                                              rarity=boss_cycle.RARITY_NAMES.get(rarity, "")))
+        return
     log.info("Dova: %s threw the Kość Dovy on the boss on the channel: rarity %s -> %s (drawn %s).", player_id,
              old, rarity, drawn)
     # The boss is shown anew at once; its BOSS row matters only after a restart, so it comes last.
