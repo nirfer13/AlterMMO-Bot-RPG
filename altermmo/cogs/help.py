@@ -24,7 +24,7 @@ Jeśli brakuje Wam graczy, to warto zawołać rolę <@&985071779787730944>. Do r
 
 Wspierający ({patrons.SUPPORTERS_LONG}) mogą zostać bossami. Jest to losowe. Jednak jeśli taki boss pokona gracza, to użytkownik Discorda, który owym bossem był, zgarnia dodatkowe doświadczenie.
 
-🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży, wysyła towarzysza na zlecenie oraz pokazuje towarzysza, stajnię, klejnoty, rankingi (wspierającym także ranking kolekcji) i album. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo wpisując **!potwierdzam**. Wszystkie komendy poniżej działają nadal. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
+🎮 **Przyciski:** przypięty na kanale bossa **Panel gry** rusza na polowanie i do Wieży, wysyła towarzysza na zlecenie oraz pokazuje towarzysza, stajnię, klejnoty, rankingi (wspierającym także ranking kolekcji) i album. Do wydarzeń dołączasz przyciskami pod ich postami (**Dołącz**, **Wkrocz do lasu**, **Otwórz skrzynię**, **Pomódl się**...), a pytania potwierdzasz przyciskiem **Potwierdzam** albo wpisując **!potwierdzam**. Same walki toczą się na klawiaturze: wpisuj podane słowa, zanim minie czas!
 
 ⛏️ **Kopalnia Ostatniej Lampy:** schodzi do niej tylko ten, kto pierwszy kliknie **Wejdź do kopalni**. Łup trzeba zabrać, zanim kopalnię zamknie następne wydarzenie albo boss - inaczej przepada.
 
@@ -50,8 +50,8 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
     ("🐾 Towarzysz", """- !towarzysz - Sprawdź swojego towarzysza; pod nim znajdziesz przyciski akcji. Skrót !t.
 - !nazwij Nowe imię - Nazywasz swojego towarzysza (raz na 23 godziny). Skrót !n.
 - !stajnia - Sprawdza stajnię z towarzyszami; z listy pod nią wyciągniesz towarzysza. Skrót !s.
-- !schowajtowarzysza numer_slota - Chowa towarzysza do podanego slota stajni (1-4, w większej stajni więcej). Skrót !st.
-- !wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1-4, w większej stajni więcej). Skrót !wt.
+- !schowajtowarzysza numer_slota - Chowa towarzysza do podanego slota stajni (1-4 lub więcej). Skrót !st.
+- !wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1-4 lub więcej). Skrót !wt.
 - !wyjmijjajko - Wyjmuje jajko z sakwy na jajko, żeby mogło rosnąć (towarzysz przy Tobie idzie do stajni). Skrót !wj.
 - !odrodzenie - Przelosowuje wszystkie statystyki towarzysza. Skrót !o.
 - !mocneodrodzenie - Przelosowanie z pominięciem wybranych statystyk (wybierasz je z listy). Skrót !mo.
@@ -62,8 +62,10 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
 - !wybierzklejnot numer - Zmienia aktywny klejnot na wybrany z listy !klejnoty. Skrót !ws.
 - !pokazskill - Prezentuje aktywny klejnot umiejętności. Skrót !pu.
 - !skill - Używa aktywnego klejnotu umiejętności. Skrót !uu."""),
-    ("🎒 Przedmioty", """- !przedmioty - Wszystko, co nosisz w sakwie, także bez towarzysza. Skrót !eq.
-- !przywolaj - Odczytuje Zwój przywołania: przybywa mityczny boss (czeka pół godziny)."""),
+    ("🎒 Przedmioty", """- !przedmioty - Wszystko, co nosisz w sakwie. Skrót !eq.
+- !przywolaj - Zwój przywołania: przybywa mityczny boss (czeka pół godziny).
+- !przyneta - Polowanie z Przynętą: groźniejszy potwór.
+- !wskrzes @gracz - Wskrzesza poległego łowcę."""),
     ("👑 Rzeźnik Potworów", """Komendy dla <@&983798433590673448>:
 - !flex - Pokaż innym jakim jesteś koxem.
 - !kolor kolor_hex - Zmienia kolor rangi <@&983798433590673448>, np. !kolor 00FFFF.

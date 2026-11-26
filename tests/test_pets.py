@@ -1010,10 +1010,10 @@ async def test_enlightenment_adds_talent_for_a_stone(game_db, monkeypatch):
         "żeby sprawdzić ich ilość. Kamienie olśnienia możesz zdobyć na polowaniu lub po zabiciu bossów, "
         "jednak są one bardzo rzadkie.")
     await db.execute("UPDATE PETOWNER SET REBIRTH_STONES = 2")
-    assert await pets.enlight_pet(game_db.scene(player), player) is False
+    assert await pets.enlight_pet(game_db.scene(player), player) is False          # talent 9: the top
     assert game_db.channel.messages[-1].content == (
-        f"Twój towarzysz już dostąpił oświecenia <@{player.id}> <:prayge:1063891597760139304> Wpisz "
-        "**!towarzysz**, żeby sprawdzić jego talent.")
+        f"Twój towarzysz osiągnął już talent **Boski** <@{player.id}> <:prayge:1063891597760139304> Wyżej "
+        "sięgają już tylko bogowie.")
     await db.execute("UPDATE PETS SET PET_LVL = 2, PET_SKILLS = 3")
     assert await pets.enlight_pet(game_db.scene(player), player) is False
     assert game_db.channel.messages[-1].content == (
@@ -1041,6 +1041,126 @@ async def test_a_typed_change_of_the_pet_says_nothing_during_a_fight(game_db, mo
     assert (row["rebirth_stones"], row["reroll_scroll"]) == (1, 3) and (await pet_row(db, 5))["pet_skills"] == 6
     rig(monkeypatch, choices=["CRIT_PERC"] * 9)
     assert await pets.enlight_pet(game_db.scene(player), player) is True         # afterwards as always
+
+
+async def feathers_of(db, player_id: int) -> int | None:
+    value = await db.fetchval("SELECT COUNT FROM PLAYER_ITEMS WHERE PLAYER_ID = $1 AND ITEM = 'feather'", player_id)
+    return None if value is None else int(value)
+
+
+async def test_the_feather_enlightens_a_talent_7_or_8_pet_once_more(game_db, monkeypatch):
+    """items_decisions.md §3: talent 7-8 - one Pióro Żar-ptaka + 2 Kamienie olśnienia, +1 talent (one roll);
+    mythic pets too; talent 9 is the top.  The question says what it costs."""
+    from altermmo.features import items
+
+    db = game_db.bot.db
+    player = game_db.add_member("Ala")
+    await add_owner(db, player.id, 5, rebirth_stones=3)
+    await add_pet(db, 5, pet_lvl=3, pet_skills=7, crit_perc=10, mythic=True, quality="Mythic", type="Void")
+    await items.grant(game_db.bot, player.id, "feather", 2)
+    pools, ranges = rig(monkeypatch, choices=["CRIT_PERC"] * 3)
+    confirms(game_db, player)
+    assert await pets.enlight_pet(game_db.scene(player), player) is True
+    assert game_db.channel.contains(
+        f"Czy jesteś pewien, że chcesz zwiększyć talent swojego towarzysza <@{player.id}>? To oświecenie kosztuje "
+        "🪶 **Pióro Żar-ptaka** i **2 Kamienie olśnienia** - towarzysz zyska jeden talent. "
+        "<:Hmm:984767035617730620> Kliknij **Potwierdzam** albo wpisz **!potwierdzam**.")
+    row = await pet_row(db, 5)
+    assert (row["pet_skills"], row["crit_perc"]) == (8, 22)                    # one point: the mythic 8-12
+    assert ranges == [(8, 12)] and len(pools) == 1                             # no 1-3 roll, ONE skill roll
+    assert (await owner_row(db, player.id))["rebirth_stones"] == 1 and await feathers_of(db, player.id) == 1
+    asked = game_db.channel.count(ASK)
+
+    # Not enough stones (a feather is there): refused before the question, nothing taken.
+    assert await pets.enlight_pet(game_db.scene(player), player) is False
+    assert game_db.channel.messages[-1].content == (
+        f"Oświecenie z 🪶 **Piórem Żar-ptaka** wymaga też **2 Kamieni olśnienia** <@{player.id}> "
+        "<:Sadge:936907659142111273> Wpisz **!przedmioty**, żeby sprawdzić, co nosisz.")
+    # No feather (stones enough): the text names both costs.
+    await db.execute("UPDATE PETOWNER SET REBIRTH_STONES = 2")
+    await items.take(game_db.bot, player.id, "feather")
+    assert await pets.enlight_pet(game_db.scene(player), player) is False
+    assert game_db.channel.messages[-1].content == (
+        f"Twój towarzysz już dostąpił oświecenia <@{player.id}> <:prayge:1063891597760139304> Wyżej wzniesie go "
+        "tylko 🪶 **Pióro Żar-ptaka**: za pióro i **2 Kamienie olśnienia** zyska jeszcze jeden talent. Wpisz "
+        "**!przedmioty**, żeby sprawdzić, co nosisz.")
+    assert game_db.channel.count(ASK) == asked and (await pet_row(db, 5))["pet_skills"] == 8
+
+    # The last step: talent 9 ("Boski") - and nothing beyond it, whatever he carries.
+    await items.grant(game_db.bot, player.id, "feather")
+    assert await pets.enlight_pet(game_db.scene(player), player) is True
+    assert (await pet_row(db, 5))["pet_skills"] == 9 and "Talent: Boski" in last_embed(game_db).description
+    assert (await owner_row(db, player.id))["rebirth_stones"] == 0 and await feathers_of(db, player.id) == 0
+    await db.execute("UPDATE PETOWNER SET REBIRTH_STONES = 5")
+    await items.grant(game_db.bot, player.id, "feather", 3)
+    assert await pets.enlight_pet(game_db.scene(player), player) is False
+    assert game_db.channel.messages[-1].content.endswith("Wyżej sięgają już tylko bogowie.")
+    assert (await owner_row(db, player.id))["rebirth_stones"] == 5 and await feathers_of(db, player.id) == 3
+
+    # Without the item store a talent 7-8 pet has no feather.
+    await db.execute("UPDATE PETS SET PET_SKILLS = 7")
+    game_db.bot._player_items = (False, items.clock.monotonic())
+    assert await pets.enlight_pet(game_db.scene(player), player) is False
+    assert game_db.channel.messages[-1].content.startswith("Twój towarzysz już dostąpił oświecenia")
+
+
+async def test_an_ordinary_enlightenment_never_asks_for_a_feather(game_db, monkeypatch):
+    from altermmo.features import items
+
+    db = game_db.bot.db
+    player = game_db.add_member("Ala")
+    await add_owner(db, player.id, 5, rebirth_stones=1)
+    await add_pet(db, 5, pet_lvl=3, pet_skills=6)
+    await items.grant(game_db.bot, player.id, "feather")
+    rig(monkeypatch, randint=1)
+    confirms(game_db, player)
+    assert await pets.enlight_pet(game_db.scene(player), player) is True
+    assert not game_db.channel.contains("Pióro") and (await pet_row(db, 5))["pet_skills"] == 7
+    assert (await owner_row(db, player.id))["rebirth_stones"] == 0 and await feathers_of(db, player.id) == 1
+
+
+async def test_a_feather_or_stones_gone_after_the_question_change_nothing(game_db, monkeypatch):
+    """The locked check sees what is left; and should a conditional take still find nothing, the whole change
+    (the other item taken, the talent, the stats) is rolled back."""
+    from altermmo.features import items
+
+    db = game_db.bot.db
+    player = game_db.add_member("Ala")
+    await add_owner(db, player.id, 5, rebirth_stones=2)
+    await add_pet(db, 5, pet_lvl=3, pet_skills=7, crit_perc=10)
+    await items.grant(game_db.bot, player.id, "feather")
+    rig(monkeypatch, choices=["CRIT_PERC"] * 3)
+
+    # The owner takes the feather back while the question is open.
+    game_db.auto_answer(player, responder=lambda message: "!potwierdzam" if ASK in message.content else None)
+    real_confirm = pets._confirm
+
+    async def confirm(scene, who, prompt, **kwargs):
+        answer = await real_confirm(scene, who, prompt, **kwargs)
+        await items.adjust(game_db.bot, player.id, "feather", -1)
+        return answer
+
+    monkeypatch.setattr(pets, "_confirm", confirm)
+    assert await pets.enlight_pet(game_db.scene(player), player) is False
+    assert game_db.channel.messages[-1].content.startswith("Twój towarzysz już dostąpił oświecenia")
+    assert (await pet_row(db, 5))["pet_skills"] == 7 and (await owner_row(db, player.id))["rebirth_stones"] == 2
+    monkeypatch.setattr(pets, "_confirm", real_confirm)
+
+    # The stones vanish between the feather's take and theirs (in the same transaction): all is rolled back.
+    await items.grant(game_db.bot, player.id, "feather")
+    real_take = items.take_in
+
+    async def take_in(con, player_id, key, number=1):
+        left = await real_take(con, player_id, key, number)
+        await con.execute("UPDATE PETOWNER SET REBIRTH_STONES = 1 WHERE PLAYER_ID = $1", player_id)
+        return left
+
+    monkeypatch.setattr(items, "take_in", take_in)
+    assert await pets.enlight_pet(game_db.scene(player), player) is False
+    assert game_db.channel.messages[-1].content.startswith("Oświecenie z 🪶 **Piórem Żar-ptaka** wymaga też")
+    row = await pet_row(db, 5)
+    assert (row["pet_skills"], row["crit_perc"]) == (7, 10) and await feathers_of(db, player.id) == 1
+    assert (await owner_row(db, player.id))["rebirth_stones"] == 2
 
 
 async def test_enlightenment_refusals_and_timeout(game_db, short_timeouts):

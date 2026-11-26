@@ -31,6 +31,11 @@ The view (``!przedmioty``, the hub's "🎒 Przedmioty"): read-only, it works
 without a pet, it shows only the player's own items, and it is silent during
 a typed fight on the channel (``guards.not_during_fight``; the hub's display
 gate refuses the click).  Each line names the command that uses the item.
+
+Where each item is used: the Pióro Żar-ptaka in ``pets.enlight_pet``, the
+Przynęta in ``daily.start_hunt(bait=True)``, the Lina sztygara in the mine
+(``dungeon``), the Klucz do wieży in ``tower.start_tower(use_key=True)`` -
+and the Zwój wskrzeszenia here (:func:`revive`, ``!wskrzes @gracz``).
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Mapping
 
 import discord
 
-from ..core import clock
+from ..core import clock, io, ui
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -312,6 +317,19 @@ async def counts(bot: "AlterBot", player_id: Any) -> dict[str, int]:
     return {str(row["item"]): _int(row["count"]) for row in rows if str(row["item"]) in BY_KEY}
 
 
+async def count_in(q: Any, player_id: int, key: str | Item, *, lock: bool = False) -> int:
+    """How many of ``key`` the player has, read through ``q`` (a transaction's connection); 0 without a row.
+
+    ``lock=True`` locks his row (``FOR UPDATE``) until the transaction ends, so a
+    conditional take later in it finds what was counted.  Only for
+    ``PLAYER_ITEMS`` items; the caller asked :func:`table_ready`.
+    """
+    item = _item(key)
+    if item.in_petowner:
+        raise ValueError(f"{item.key} lives in PETOWNER: use pets.summon_scrolls")
+    return _int(await q.fetchval(_SQL_COUNT + (" FOR UPDATE" if lock else ""), int(player_id), item.key))
+
+
 async def grant_in(con: Any, player_id: int, key: str | Item, number: int = 1) -> int:
     """Add ``number`` items inside the caller's transaction (the row is made when missing); the new count.
 
@@ -469,3 +487,143 @@ async def show_items(scene: "Scene", player: Any = None) -> bool:
                           + "\n".join(lines), color=VIEW_COLOUR)
     await scene.send(embed=embed, allowed_mentions=mentions)
     return True
+
+
+# -- the Zwój wskrzeszenia (!wskrzes @gracz) --------------------------------------------------
+
+MSG_REVIVED = ("🕊️ <@{reviver}> odczytuje nad <@{target}> **Zwój wskrzeszenia**! Poległy łowca kicha, otrzepuje się "
+               "z kurzu i wraca do gry.")
+MSG_NOT_DEAD = "<@{target}> żyje i ma się dobrze, <@{reviver}> - szkoda zwoju."
+MSG_REVIVE_WHOM = "Wskaż poległego łowcę, <@{reviver}>: **!wskrzes @gracz**"
+MSG_NO_REVIVE_SCROLL = ("Nie masz żadnego **Zwoju wskrzeszenia**, <@{reviver}>. Zwykle wypada z potworów i bossów - "
+                        "albo kupisz go u Wędrownego kupca.")
+#: Somebody else is reading a scroll over the same hunter right now (one scroll per fallen hunter).
+MSG_REVIVE_TAKEN = ("Nad tym łowcą ktoś już odczytuje **Zwój wskrzeszenia**, <@{reviver}> - Twój zostaje w "
+                    "sakwie.")
+MSG_REVIVE_FAILED = ("Słowa zwoju rozwiały się bez echa, <@{reviver}> <:Sadge:936907659142111273> Zwój wskrzeszenia "
+                     "wrócił do Twojej sakwy, a administracja dostała już znać.")
+#: To the owner (with a ping).
+LOG_REVIVE_FAILED = ("Zwój wskrzeszenia: nie udało się zdjąć roli poległego łowcy graczowi <@{target}> (odczytał go "
+                     "<@{reviver}>). Zwój {refund}. Sprawdź rolę i uprawnienia bota.")
+LOG_REVIVE_REFUNDED = "wrócił do gracza"
+LOG_REVIVE_NOT_REFUNDED = ("NIE wrócił (`{error}`) - oddaj go: `!DajPrzedmiot @gracz zwój wskrzeszenia 1`")
+LOG_REVIVE_UNSURE = ("Nie wiadomo, czy Zwój wskrzeszenia gracza <@{reviver}> został zabrany - baza danych nie "
+                     "odpowiedziała (`{error}`), nikt nie został wskrzeszony. Sprawdź PLAYER_ITEMS i w razie potrzeby "
+                     "oddaj zwój: `!DajPrzedmiot @gracz zwój wskrzeszenia 1`")
+
+#: Ids of the fallen hunters a scroll is being read over right now (in memory: one scroll per hunter).
+_reviving: set[int] = set()
+
+
+def _is_dead(bot: "AlterBot", member: Any) -> bool:
+    """Whether ``member`` has the dead-hunter role (whatever gave it: a lost fight, a duel, an assassin)."""
+    role_id = bot.ids.dead_hunter_role
+    return any(getattr(role, "id", None) == role_id for role in getattr(member, "roles", None) or ())
+
+
+async def _say_revive(scene: "Scene", text: str, *people: Any) -> None:
+    """Post a line of the scroll; only ``people`` are pinged.  Never raises (what happened, happened)."""
+    try:
+        await scene.send(text, allowed_mentions=discord.AllowedMentions(everyone=False, roles=False,
+                                                                        users=list(people)))
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        log.exception("Revive: a line could not be posted.")
+
+
+async def revive(scene: "Scene", target: Any) -> bool:
+    """``!wskrzes @gracz``: ``scene.author`` reads a Zwój wskrzeszenia over ``target``; True when he is back.
+
+    Owner, 2026-11-26 (``items_decisions.md`` §5): it takes the dead-hunter
+    role away, whatever gave it (a hunt or boss lost under "ban_loser", a lost
+    duel, an assassin).  The order: the role is checked, the scroll taken
+    conditionally (never retried), the role checked again (the boss's reset
+    may have revived him meanwhile: the scroll comes back) and removed.  A
+    role that cannot be removed gives the scroll back and pings the owner; a
+    database that did not answer the take gives nothing back on a guess (the
+    owner checks).  One scroll per fallen hunter: while one is read over him,
+    another reader is refused (:data:`_reviving`, in memory).  A dead hunter
+    cannot write on the channel, so nobody revives himself (a dead reader that
+    gets through anyway is ignored).  Only the reader is pinged - and the
+    revived hunter by the line that brings him back.
+    """
+    bot, reviver = scene.bot, scene.author
+    reviver_id = _pid(reviver)
+    if target is None:
+        await _say_revive(scene, MSG_REVIVE_WHOM.format(reviver=reviver_id), reviver)
+        return False
+    if _is_dead(bot, reviver):
+        log.info("Revive: %s is a fallen hunter himself; nothing done.", reviver_id)
+        return False
+    target_id = _pid(target)
+    if not _is_dead(bot, target):
+        await _say_revive(scene, MSG_NOT_DEAD.format(target=target_id, reviver=reviver_id), reviver)
+        return False
+    if target_id in _reviving:
+        await _say_revive(scene, MSG_REVIVE_TAKEN.format(reviver=reviver_id), reviver)
+        return False
+    _reviving.add(target_id)
+    try:
+        return await _revive(scene, target)
+    finally:
+        _reviving.discard(target_id)
+
+
+async def _revive(scene: "Scene", target: Any) -> bool:
+    """The scroll and the role of :func:`revive` (under its guard)."""
+    bot, reviver = scene.bot, scene.author
+    reviver_id, target_id = _pid(reviver), _pid(target)
+    try:
+        ready = await table_ready(bot)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - nothing was taken
+        log.exception("Revive: the item store could not be asked for the scroll of %s.", reviver_id)
+        await _say_revive(scene, ui.MSG_FAILED, reviver)
+        return False
+    try:
+        left = await take(bot, reviver_id, REVIVE_SCROLL) if ready else None
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - taken or not: unknown, the owner checks
+        log.exception("Revive: the scroll of %s could not be taken.", reviver_id)
+        await bot.log_to_owner(LOG_REVIVE_UNSURE.format(reviver=reviver_id, error=type(exc).__name__), ping=True)
+        await _say_revive(scene, ui.MSG_FAILED, reviver)
+        return False
+    if left is None:
+        await _say_revive(scene, MSG_NO_REVIVE_SCROLL.format(reviver=reviver_id), reviver)
+        return False
+    role = bot.role(bot.ids.dead_hunter_role)
+    if not _is_dead(bot, target):  # (revived meanwhile, e.g. the boss's reset: the scroll was not needed)
+        await _give_back(bot, reviver_id, target_id, told_owner=False)
+        await _say_revive(scene, MSG_NOT_DEAD.format(target=target_id, reviver=reviver_id), reviver)
+        return False
+    if role is None or not await io.remove_role(target, role, reason="AlterMMO RPG: Zwój wskrzeszenia"):
+        await _give_back(bot, reviver_id, target_id, told_owner=True)
+        await _say_revive(scene, MSG_REVIVE_FAILED.format(reviver=reviver_id), reviver)
+        return False
+    log.info("Revive: %s (%s) revived %s (%s); %s scroll(s) left.", reviver, reviver_id, target, target_id, left)
+    await _say_revive(scene, MSG_REVIVED.format(reviver=reviver_id, target=target_id), reviver, target)
+    return True
+
+
+async def _give_back(bot: "AlterBot", reviver_id: int, target_id: int, *, told_owner: bool) -> None:
+    """The scroll of a revival that did not happen goes back.  Never raises.
+
+    ``told_owner``: the role could not be removed - the owner is pinged with
+    the outcome of the refund; otherwise only a refund that failed reaches him.
+    """
+    error = ""
+    try:
+        await grant(bot, reviver_id, REVIVE_SCROLL)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Revive: the scroll of %s could not be given back.", reviver_id)
+        error = type(exc).__name__
+    if told_owner or error:
+        refund = LOG_REVIVE_NOT_REFUNDED.format(error=error) if error else LOG_REVIVE_REFUNDED
+        with contextlib.suppress(Exception):
+            await bot.log_to_owner(LOG_REVIVE_FAILED.format(target=target_id, reviver=reviver_id, refund=refund),
+                                   ping=True)

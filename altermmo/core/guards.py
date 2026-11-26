@@ -36,7 +36,9 @@ posted there (:func:`notify_busy`), and every new typed command carries
 
 from __future__ import annotations
 
+import inspect
 import time
+from typing import Any
 
 from discord.ext import commands
 
@@ -142,6 +144,31 @@ def not_during_fight():
     async def predicate(ctx: commands.Context) -> bool:
         if challenge.fight_on(ctx.channel):
             raise SilentCheckFailure("a typed fight is on the channel")
+        return True
+
+    return commands.check(predicate)
+
+
+def in_order(*decorators: Any):
+    """ONE check that runs the given guards (``commands.check`` decorators) strictly in the order given.
+
+    discord.py reverses a command's list of checks in place every time the
+    command is built - also when a cog is instantiated and copies its
+    commands - so the checks of a cog command run top to bottom or bottom to
+    top depending on how often its cog was made (in the running bot: bottom to
+    top).  Where the order matters (a refusal of its own must come before the
+    busy notice, nothing may be posted on another channel), the guards go
+    into this one check instead of stacked decorators.
+    """
+    predicates = [decorator.predicate for decorator in decorators]
+
+    async def predicate(ctx: commands.Context) -> bool:
+        for one in predicates:
+            result = one(ctx)
+            if inspect.isawaitable(result):
+                result = await result
+            if not result:
+                return False
         return True
 
     return commands.check(predicate)

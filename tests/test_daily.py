@@ -915,6 +915,245 @@ async def test_daily_hunt_gives_the_attempt_back_after_disruptions_and_on_shutdo
     assert not daily.load_daily_from_file(bot, hunter.id)
 
 
+# -- !przyneta: the daily hunt with a bait (items_decisions.md §4) ---------------------------
+
+async def baits(bot, player) -> int | None:
+    value = await bot.db.fetchval("SELECT COUNT FROM PLAYER_ITEMS WHERE PLAYER_ID = $1 AND ITEM = 'bait'", player.id)
+    return None if value is None else int(value)
+
+
+def monster_card(game) -> discord.Embed:
+    return next(m for m in reversed(game.channel.messages) if m.embeds and m.embeds[0].title.startswith("💀")).embeds[0]
+
+
+@pytest.mark.parametrize("rolled, fought, title", [(0, 1, "💀 Rzadki mob! 💀"), (1, 2, "💀 Unikalny mob! 💀")])
+async def test_a_bait_lures_the_monster_one_step_up_and_is_used_once(game_db, skills, monkeypatch, rolled, fought,
+                                                                    title):
+    bot = game_db.bot
+    bot.debug = False
+    ala = game_db.add_member("Ala")
+    await items.grant(bot, ala.id, "bait", 2)
+    monkeypatch.setattr(daily, "roll_hunt_rarity", lambda: rolled)
+    monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 2)
+    real_hunt, fights = daily.hunt_mobs, []
+
+    async def hunt_spy(scene, rarity, *args, **kwargs):
+        fights.append(rarity)
+        return await real_hunt(scene, rarity, *args, **kwargs)
+
+    monkeypatch.setattr(daily, "hunt_mobs", hunt_spy)
+    game_db.auto_answer(ala)
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is True
+    card = monster_card(game_db)
+    assert card.title == title and fights == [fought]                        # every hunter fights the rarer one
+    assert card.description.startswith(f"Na polowaniu pojawił się {'rzadki' if fought == 1 else 'UNIKALNY'} "
+                                       "potwór! ⚔️\n\n🪤 Przynęta zwabiła z puszczy groźniejszą bestię!")
+    assert await baits(bot, ala) == 1 and daily.load_daily_from_file(bot, ala.id)   # the starter's attempt
+    assert game_db.channel.contains(f"Brawo <@{ala.id}> <:ok:990161663053422592> Potwór pokonany!")
+    assert not bot.state.busy and bot.owner_log == []
+
+
+async def test_a_unique_roll_needs_no_bait(game_db, skills, monkeypatch):
+    bot = game_db.bot
+    bot.debug = False
+    ala = game_db.add_member("Ala")
+    await items.grant(bot, ala.id, "bait")
+    monkeypatch.setattr(daily, "roll_hunt_rarity", lambda: 2)
+    monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 2)
+    game_db.auto_answer(ala)
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is True
+    card = monster_card(game_db)
+    assert card.title == "💀 Unikalny mob! 💀" and daily.MSG_BAIT_NOT_NEEDED in card.description
+    assert daily.MSG_BAITED not in card.description and await baits(bot, ala) == 1
+
+
+async def test_no_bait_no_hunt_and_nothing_is_used(game_db, monkeypatch):
+    bot = game_db.bot
+    bot.debug = False
+    ala = game_db.add_member("Ala")
+    hunts: list = []
+
+    async def fake_hunt(scene, **kwargs):
+        hunts.append(kwargs)
+
+    monkeypatch.setattr(daily, "daily_hunt", fake_hunt)
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is False
+    assert game_db.channel.messages[-1].content == (
+        f"Nie masz żadnej **Przynęty**, <@{ala.id}>. Zwykle wypada z potworów - albo kupisz ją u Wędrownego kupca.")
+    assert hunts == [] and not daily.load_daily_from_file(bot, ala.id) and not bot.state.busy
+    # With a bait it is the hunt of !polowanie (the same rules: the boss, the cooldown) with bait=True.
+    await items.grant(bot, ala.id, "bait")
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is True and hunts == [{"bait": True}]
+    daily.save_daily_to_file(bot, ala.id)
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is False
+    assert game_db.channel.messages[-1].content == daily.cooldown_text() and len(hunts) == 1
+    await daily.remove_player_daily_file(bot, [ala.id])
+    await bot.state.set_boss_phase(BossPhase.VISIBLE)
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is False
+    assert game_db.channel.messages[-1].content == daily.MSG_BOSS_HERE and len(hunts) == 1
+    # Without the item store nobody has a bait.
+    await bot.state.set_boss_phase(BossPhase.WAITING)
+    bot._player_items = (False, items.clock.monotonic())
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is False
+    assert game_db.channel.messages[-1].content.startswith("Nie masz żadnej **Przynęty**") and len(hunts) == 1
+
+
+async def test_a_bait_gone_by_the_time_it_is_taken_starts_no_hunt(game_db, skills, monkeypatch):
+    """The count before the checks said one; the conditional take inside the busy hold finds none."""
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    monkeypatch.setattr(daily, "baits_of", lambda bot, player_id: _value(1))
+    monkeypatch.setattr(daily, "roll_hunt_rarity", lambda: 0)
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is True
+    assert game_db.channel.messages[-1].content.startswith(f"Nie masz żadnej **Przynęty**, <@{ala.id}>.")
+    assert not daily.load_daily_from_file(bot, ala.id) and not any(m.embeds for m in game_db.channel.messages)
+    assert await baits(bot, ala) is None
+
+
+async def test_a_bait_the_database_may_or_may_not_have_taken_is_for_the_owner(game_db, skills, monkeypatch):
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    await items.grant(bot, ala.id, "bait")
+    monkeypatch.setattr(daily, "roll_hunt_rarity", lambda: 1)
+
+    async def lost_reply(*args, **kwargs):
+        raise DatabaseUnavailable("the reply was lost")
+
+    monkeypatch.setattr(items, "take", lost_reply)
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is True
+    assert game_db.channel.messages[-1].content == daily.ui.MSG_FAILED
+    assert not daily.load_daily_from_file(bot, ala.id) and await baits(bot, ala) == 1   # nothing given on a guess
+    assert bot.owner_log == [daily.LOG_BAIT_UNSURE.format(user_id=ala.id, error="DatabaseUnavailable")]
+
+
+async def test_the_bait_comes_back_with_the_attempt_while_the_hunt_is_undecided(game_db, skills, monkeypatch):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, "bait")
+    monkeypatch.setattr(daily, "roll_hunt_rarity", lambda: 0)
+
+    # Repeated disruptions: the hunt is interrupted - the attempt and the bait come back.
+    async def dead_line(bot, channel, prompt, **kwargs):
+        return RoundResult(Outcome.DISRUPTED)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(challenge, "ask", dead_line)
+        assert await daily.daily_hunt(game_db.scene(hunter), bait=True) is None
+    assert not daily.load_daily_from_file(bot, hunter.id) and await baits(bot, hunter) == 1
+    assert game_db.channel.messages[-1].content == (daily.MSG_ATTEMPT_RETURNED.format(user_id=hunter.id)
+                                                    + daily.MSG_BAIT_RETURNED)
+
+    # A technical failure before the hunt is decided.
+    original = game_db.channel.send
+
+    async def broken_on_second_prompt(content=None, **kwargs):
+        if content and content.startswith("2. "):
+            raise RuntimeError("discord broke")
+        return await original(content, **kwargs)
+
+    game_db.auto_answer(hunter)
+    game_db.channel.send = broken_on_second_prompt
+    with pytest.raises(RuntimeError):
+        await daily.daily_hunt(game_db.scene(hunter), bait=True)
+    game_db.channel.send = original
+    assert not daily.load_daily_from_file(bot, hunter.id) and await baits(bot, hunter) == 1
+    assert game_db.channel.messages[-1].content.endswith(daily.MSG_BAIT_RETURNED)
+
+    # The bot stops in the middle of the hunt: the bait comes back as well (the CancelledError path).
+    game_db.channel.send_hooks.clear()
+    asked = len(prompts(game_db.channel))
+    task = asyncio.ensure_future(daily.daily_hunt(game_db.scene(hunter), bait=True))
+    await wait_until(lambda: len(prompts(game_db.channel)) > asked)
+    assert await baits(bot, hunter) == 0
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not daily.load_daily_from_file(bot, hunter.id) and await baits(bot, hunter) == 1
+
+    # A lost hunt is decided: the bait is used for good, as is the attempt.
+    returned = game_db.channel.sent_count(daily.MSG_BAIT_RETURNED)
+    game_db.auto_answer(hunter, wrong_on_round=1)
+    assert await daily.daily_hunt(game_db.scene(hunter), bait=True) is False
+    assert daily.load_daily_from_file(bot, hunter.id) and await baits(bot, hunter) == 0
+    assert game_db.channel.sent_count(daily.MSG_BAIT_RETURNED) == returned
+
+
+async def test_a_bait_that_cannot_be_given_back_is_for_the_owner(game_db, skills, monkeypatch):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, "bait")
+    monkeypatch.setattr(daily, "roll_hunt_rarity", lambda: 0)
+
+    async def dead_line(bot, channel, prompt, **kwargs):
+        return RoundResult(Outcome.DISRUPTED)
+
+    async def no_grant(*args, **kwargs):
+        raise DatabaseUnavailable("down")
+
+    monkeypatch.setattr(challenge, "ask", dead_line)
+    monkeypatch.setattr(items, "grant", no_grant)
+    assert await daily.daily_hunt(game_db.scene(hunter), bait=True) is None
+    assert game_db.channel.messages[-1].content == daily.MSG_ATTEMPT_RETURNED.format(user_id=hunter.id)
+    assert bot.owner_log == [daily.LOG_BAIT_NOT_RETURNED.format(user_id=hunter.id, error="DatabaseUnavailable")]
+
+
+async def test_przyneta_command_rules(game_db, monkeypatch):
+    bot = game_db.bot
+    bot.debug = False
+    await bot.load_extension("altermmo.cogs.hunting")
+    command = bot.get_command("przyneta")
+    assert command is not None and command.cog_name == "Hunting" and bot.get_command("przynęta") is command
+    # ONE check (guards.in_order): discord.py flips the order of stacked checks with every copy of a command.
+    assert len(command.checks) == 1
+    cog = bot.get_cog("Hunting")
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    starts: list = []
+    real_start = daily.start_hunt
+
+    async def fake_start(scene, **kwargs):
+        starts.append((scene.author, kwargs))
+        return True
+
+    monkeypatch.setattr(daily, "start_hunt", fake_start)
+    # Only on the boss channel; silent during a typed fight.
+    elsewhere = FakeChannel(555, game_db.guild, bot.fake_user, name="inny")
+    with pytest.raises(guards.SilentCheckFailure):
+        await run_checks(command, make_ctx(game_db, ala, "!przyneta", channel=elsewhere))
+    with challenge.round_running(game_db.channel):
+        before = len(game_db.channel.sent)
+        with pytest.raises(guards.SilentCheckFailure):
+            await run_checks(command, make_ctx(game_db, ala, "!przyneta"))
+        assert len(game_db.channel.sent) == before
+    ctx = make_ctx(game_db, ala, "!przyneta")
+    await run_checks(command, ctx)
+    await command.callback(cog, ctx)
+    assert starts == [(ala, {"bait": True})]
+
+    # Somebody's hunt is gathering hunters: refused with its own text (once per 20 s), not the busy notice.
+    daily._gathering[game_db.channel.id] = daily._Gathering(asyncio.Queue(), [ola])
+    with bot.state.hold_busy("hunt"):
+        for _ in range(2):
+            with pytest.raises(guards.SilentCheckFailure):
+                await run_checks(command, make_ctx(game_db, ala, "!przyneta"))
+    del daily._gathering[game_db.channel.id]
+    assert game_db.channel.count(daily.MSG_BAIT_GATHERING.format(user_id=ala.id)) == 1
+    assert not game_db.channel.contains(guards.BUSY_NOTICE)
+    # Busy with something else: the busy notice, as for every gameplay command.
+    guards._last_notice.clear()
+    with bot.state.hold_busy("event:PARTY"):
+        with pytest.raises(guards.SilentCheckFailure):
+            await run_checks(command, make_ctx(game_db, ala, "!przyneta"))
+    assert game_db.channel.messages[-1].content == guards.BUSY_NOTICE and len(starts) == 1
+    # ... and start_hunt says the same when it finds a gathering hunt itself (nobody joins with a bait).
+    monkeypatch.setattr(daily, "start_hunt", real_start)
+    daily._gathering[game_db.channel.id] = daily._Gathering(asyncio.Queue(), [ola])
+    await items.grant(bot, ala.id, "bait")
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is False
+    del daily._gathering[game_db.channel.id]
+    assert game_db.channel.messages[-1].content == daily.MSG_BAIT_GATHERING.format(user_id=ala.id)
+    assert await baits(bot, ala) == 1
+
+
 # -- the cog -------------------------------------------------------------------------------
 
 async def test_hunting_cog_registers_the_legacy_commands(game):
@@ -1070,6 +1309,10 @@ async def _nothing(*args, **kwargs):
 
 async def _no_loot(scene, rarity, hunter, boost):
     return ""
+
+
+async def _value(value):
+    return value
 
 
 def _answers(*, wrong=frozenset(), silent=frozenset()):

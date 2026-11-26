@@ -69,6 +69,12 @@ the payment, so the restart knows that none of them is anywhere yet and places
 them by the closing rule.  A payment that fails technically is reported the
 same way and shown to the player.
 
+The Lina sztygara (owner, 2026-11-26, ``features/items.py``): a player who
+carries one gets "Schodzę niżej na linie" in a chamber (not in the treasury),
+once per expedition - the same draw as "Schodzę niżej", the rope spent
+whatever happens, and a failure pays the loot of the chamber he stood in
+instead of nothing (:func:`_descend_on_rope`; paid once, like the rest).
+
 Pictures: ``assets/events/dungeon/00.jpg`` (the entrance, in the
 announcement), ``01.jpg`` .. ``08.jpg`` (the chambers) and ``NN-pet.jpg``
 (shown instead for a player with a hatched pet at his side; the package has
@@ -98,7 +104,7 @@ from ..core import challenge, io, timing, ui
 from ..core.scene import Scene
 from ..core.state import BossPhase, EventType
 from ..settings import CONFIG_DIR
-from . import album, events, expsum, patrons, pets
+from . import album, events, expsum, items, patrons, pets
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -143,6 +149,8 @@ NAME_MAX = 80
 TEXT_MAX = 1200
 #: Discord's limits of an embed: its title, its description, all of it.
 EMBED_TITLE, EMBED_TEXT, EMBED_TOTAL = 256, 4096, 6000
+#: Discord's limit of buttons in one row (the buttons of a chamber page share one).
+ROW_BUTTONS = 5
 
 COLOUR = 0x2F6DB5
 COLOUR_LOST = 0x5C5C5C
@@ -183,6 +191,8 @@ MSG_ANNOUNCE_CLOSED = "⌛ Kopalnia została zamknięta."
 ENTER_LABEL = "Wejdź do kopalni"
 
 LEAVE_LABEL, DEEPER_LABEL, STABLE_LABEL = "Wracam z łupem", "Schodzę niżej", "Stajnia"
+#: The Lina sztygara (owner, 2026-11-26, ``items_decisions.md`` §6): one roped descent per expedition.
+ROPE_LABEL = "Schodzę niżej na linie"
 CLAIM_LABEL, REFRESH_LABEL = "Odbierz łup", "Odśwież"
 EGG_ACTIVE_LABEL, EGG_POUCH_LABEL = "Weź jako towarzysza", "Do sakwy"
 EGG_STABLE_LABEL, EGG_SWAP_LABEL, EGG_SACRIFICE_LABEL = "Do stajni", "Zamień w stajni", "Poświęć jajko"
@@ -253,6 +263,12 @@ MSG_FAILED_DESCENT = ("„Pod stopą osuwa się podkład. Rzucasz zdobycz i obie
                       "powierzchnię wychodzisz z pustymi rękami.”")
 MSG_LOST_DETAIL = ("Zejście do komory {number} ({name}) nie powiodło się. Łup z tej wyprawy ({loot}) przepadł - "
                    "wszystko, co miałeś przed wyprawą, jest bezpieczne.")
+#: The Lina sztygara: a failed roped descent pays the loot of the chamber the player stood in.
+MSG_ROPE_SAVED = ("🪢 Podkład osuwa się pod stopą, ale lina sztygara napina się jak struna. Wychodzisz na "
+                  "powierzchnię z łupem z komory {name}.")
+#: ... a roped descent that succeeded (the rope is spent on it all the same).
+MSG_ROPE_SPENT = "🪢 Lina sztygara zostaje w szybie - zjeżdżasz po niej bezpiecznie do komory {name}."
+MSG_NO_ROPE = "*Nie masz już Liny sztygara - wybierz jeszcze raz.*"
 CLOSED_TITLE = "⛏️ Kopalnia zamknięta"
 MSG_CLOSED_INSIDE = ("Lampa zgasła, zanim zdążyłeś wyjść. Kopalnia zamknęła się, gdy stałeś w komorze "
                      "{number}/{total} ({name}) - łup z tej wyprawy ({loot}) przepadł.")
@@ -301,6 +317,11 @@ LOG_NOT_SAVED = ("Kopalnia Ostatniej Lampy: nie udało się zapisać stanu kopal
                  "Dopóki zapis nie działa, łup nie jest wypłacany i żadne jajo nie jest rozdawane; próbuję dalej. "
                  "Sprawdź dysk i plik. Gdyby bot został zrestartowany, zanim zapis zadziała, sprawdź ręcznie łup "
                  "i jaja z tej wyprawy{player}.")
+LOG_ROPE_UNSURE = ("Kopalnia Ostatniej Lampy: nie wiadomo, czy Lina sztygara gracza <@{player_id}> została zabrana - "
+                   "baza danych nie odpowiedziała (`{error}`), zejścia na linie nie było. Sprawdź PLAYER_ITEMS i w "
+                   "razie potrzeby oddaj ją: `!DajPrzedmiot @gracz lina sztygara 1`")
+LOG_ROPE_NOT_RETURNED = ("Kopalnia Ostatniej Lampy: Lina sztygara gracza <@{player_id}> nie wróciła (`{error}`) - "
+                         "zejście na linie się nie odbyło. Oddaj ją: `!DajPrzedmiot @gracz lina sztygara 1`")
 LOG_PAGE_REFUSED = ("Kopalnia Ostatniej Lampy: Discord odrzucił stronę wyprawy gracza <@{player_id}> (`{error}`). "
                     "Pokazuję ją w wersji uproszczonej (sam tekst), przyciski działają dalej. Sprawdź teksty w "
                     "`config/dungeonConfig.json` i log.")
@@ -459,7 +480,9 @@ def page_too_long(config: Config) -> str:
     Every page is built once with the longest inserts it can get (a full
     stable, the longest pet name, every notice, the most eggs of a row, a
     known closing time).  A page Discord refuses cannot be shown - so such a
-    config is refused before the event starts (:func:`load_config`).
+    config is refused before the event starts (:func:`load_config`).  The
+    Lina sztygara counts too: its notices (with the chamber's name) and its
+    extra button (a row of buttons holds five).
     """
     latest = LATEST.format(when="<t:99999999999:R>")
     player_id = 10 ** 19
@@ -467,11 +490,14 @@ def page_too_long(config: Config) -> str:
     pet = {"pet_id": 1, "pet_name": name, "pet_lvl": 1, "type": "Cat"}
     crowded = pets.EggPlaces(False, False, 99, (), (), pet)
     roomy = pets.EggPlaces(True, True, 99, tuple(range(1, 100)), ())
-    notice = max(MSG_STABLED.format(name=_pet_name(pet)), MSG_STABLE_NOBODY, MSG_STABLE_FULL, MSG_STABLE_AWAY,
-                 MSG_PLACES_UNKNOWN, ui.MSG_FAILED, key=len)
+    notices = (MSG_STABLED.format(name=_pet_name(pet)), MSG_STABLE_NOBODY, MSG_STABLE_FULL, MSG_STABLE_AWAY,
+               MSG_PLACES_UNKNOWN, ui.MSG_FAILED, MSG_NO_ROPE)
     pages = [("the announcement", announcement_embed(config, went_down=f"<@{player_id}>", latest=latest))]
     for chamber in config.chambers:
         number = chamber.number
+        if len(chamber_buttons(config, number, rope=True)) > ROW_BUTTONS:
+            return f"the buttons of chamber {number}"
+        notice = max(*notices, MSG_ROPE_SPENT.format(name=chamber.name), key=len)
         pages += [(f"the page of chamber {number}",
                    chamber_embed(config, player_id, number, places, latest=latest, notice=notice))
                   for places in (crowded, roomy, None)]
@@ -482,8 +508,9 @@ def page_too_long(config: Config) -> str:
         record = {"state": EGGS if eggs else DONE, "chamber": number, "eggs": eggs,
                   "granted": {"xp": chamber.xp, "scrolls": chamber.scrolls,
                               "level": {"name": _pet_name(pet), "old": 1, "new": 2}, "failed": [chamber.loot]}}
+        result_notice = max(MSG_EGG_FAILED, MSG_ROPE_SAVED.format(name=chamber.name), key=len)
         pages.append((f"the result page of chamber {number}",
-                      result_embed(config, player_id, record, latest=latest, notice=MSG_EGG_FAILED,
+                      result_embed(config, player_id, record, latest=latest, notice=result_notice,
                                    egg_lines=["W" * 300])))
         pages += [(f"the last page of chamber {number}", ended_embed(config, player_id, {"state": state,
                                                                                          "chamber": number}))
@@ -866,10 +893,13 @@ def ended_embed(config: Config, player_id: int, record: dict[str, Any], *,
 Button = tuple[str, str, discord.ButtonStyle, str]
 
 
-def chamber_buttons(config: Config, number: int) -> list[Button]:
+def chamber_buttons(config: Config, number: int, *, rope: bool = False) -> list[Button]:
+    """The buttons of chamber ``number``; ``rope``: the player may go down on a Lina sztygara (never in the treasury)."""
     take = (("claim", CLAIM_LABEL, discord.ButtonStyle.success, "🎁") if number >= config.last
             else ("leave", LEAVE_LABEL, discord.ButtonStyle.success, "💰"))
     deeper = [] if number >= config.last else [("deeper", DEEPER_LABEL, discord.ButtonStyle.danger, "⬇️")]
+    if deeper and rope:
+        deeper.append(("rope", ROPE_LABEL, discord.ButtonStyle.primary, "🪢"))
     return [take, *deeper, ("stable", STABLE_LABEL, discord.ButtonStyle.secondary, "🐴")]
 
 
@@ -988,8 +1018,10 @@ async def _page(mine: Mine, expedition: Expedition) -> tuple[discord.Embed, Path
         expedition.with_pet = _hatched(places)
         shown = picture(number, with_pet=expedition.with_pet)
         name = None if shown is None else shown.name
+        # The rope's button: one per expedition, not from the treasury, only for who carries one.
+        rope = not record.get("rope") and number < config.last and await _ropes(bot, player_id) > 0
         return (chamber_embed(config, player_id, number, places, latest=mine.latest(), notice=expedition.notice,
-                              picture_name=name), shown, chamber_buttons(config, number))
+                              picture_name=name), shown, chamber_buttons(config, number, rope=rope))
     shown = expedition.picture
     if state in (LOST, CLOSED):
         return ended_embed(config, player_id, record, picture_name=None if shown is None else shown.name), shown, []
@@ -1273,6 +1305,8 @@ async def clicked(mine: Mine, expedition: Expedition, key: str, interaction: Any
                     await _stable(mine, expedition)
                 elif key == "deeper" and expedition.chamber < mine.config.last:
                     _descend(mine, expedition)
+                elif key == "rope" and expedition.chamber < mine.config.last:
+                    await _descend_on_rope(mine, expedition, interaction)
                 elif key in ("leave", "claim"):
                     await _leave(mine, expedition, interaction)
     await _paint(mine, expedition)
@@ -1305,10 +1339,15 @@ async def _stable(mine: Mine, expedition: Expedition) -> None:
     expedition.touch()
 
 
+def _draw(mine: Mine, expedition: Expedition) -> tuple[Chamber, bool]:
+    """ONE draw with the exact chance of the chamber below: ``(that chamber, whether the descent succeeds)``."""
+    target = mine.config.chamber(expedition.chamber + 1)
+    return target, random.randrange(target.chance.denominator) < target.chance.numerator
+
+
 def _descend(mine: Mine, expedition: Expedition) -> None:
     """ "Schodzę niżej": ONE draw with the exact chance of the next chamber; the result is saved at once."""
-    target = mine.config.chamber(expedition.chamber + 1)
-    success = random.randrange(target.chance.denominator) < target.chance.numerator
+    target, success = _draw(mine, expedition)
     expedition.notice = ""
     if success:
         expedition.record["chamber"] = target.number
@@ -1320,8 +1359,132 @@ def _descend(mine: Mine, expedition: Expedition) -> None:
              chance_text(target.chance), "success" if success else "failed - the expedition is over")
 
 
-async def _leave(mine: Mine, expedition: Expedition, interaction: Any) -> None:
-    """ "Wracam z łupem" / "Odbierz łup": the row of the chamber is paid - once (see the module docstring)."""
+# -- the Lina sztygara -------------------------------------------------------------------------
+
+#: ``record["rope"]`` of an expedition whose one rope is spent (absent: none used yet).
+ROPE_USED = "used"
+
+
+async def _ropes(bot: "AlterBot", player_id: int) -> int:
+    """How many Liny sztygara the player carries (0 when the store is not there or cannot be read).  Never raises."""
+    try:
+        return await items.count(bot, player_id, items.ROPE)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the page is shown without the rope's button
+        log.warning("Mine: the ropes of %s could not be counted (%s: %s).", player_id, type(exc).__name__, exc)
+        return 0
+
+
+async def _return_rope(bot: "AlterBot", player_id: int) -> bool:
+    """Give back the rope of a roped descent that did not happen; True when it is back.  Never raises.
+
+    A rope that cannot be given back is told to the owner (he gives it by hand).
+    """
+    try:
+        await items.grant(bot, player_id, items.ROPE)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Mine: the rope of %s could not be given back.", player_id)
+        try:
+            await bot.log_to_owner(LOG_ROPE_NOT_RETURNED.format(player_id=player_id, error=type(exc).__name__),
+                                   ping=True)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - it is in the log
+            log.exception("Mine: the owner could not be told about a rope that did not come back.")
+        return False
+    log.info("Mine: the rope of %s was given back.", player_id)
+    return True
+
+
+async def _descend_on_rope(mine: Mine, expedition: Expedition, interaction: Any) -> None:
+    """ "Schodzę niżej na linie" (owner, 2026-11-26, ``items_decisions.md`` §6), under the expedition's lock.
+
+    The same ONE draw with the same chance as "Schodzę niżej"; the rope is
+    spent on this descent whatever happens, one rope per expedition
+    (``record["rope"]``).  On a failure the player leaves with the loot of the
+    chamber he stood in instead of nothing - exactly the payment of "Wracam z
+    łupem" (:func:`_leave`, with :data:`MSG_ROPE_SAVED` on the page).
+
+    Paid exactly once, as everything in the mine: that the expedition's rope
+    is used is saved before the rope is taken (a state that cannot be saved
+    takes nothing); the take is conditional and never retried; the mine is
+    looked at before it and again after it - closed meanwhile, the rope goes
+    back.  A success is saved at once; a failure goes through :func:`_leave`,
+    which saves before each payment - and when it returns without paying
+    (the mine closed while the eggs were rolled, a state that cannot be
+    saved) the rope goes back too.  A database that did not answer the take
+    gives nothing back on a guess: the owner is told.
+    """
+    bot, record, player_id = mine.bot, expedition.record, expedition.player_id
+    if mine.closed or record.get("rope") or expedition.state != CHAMBER:
+        return
+    # 1. One rope per expedition - on the disk before the rope is taken.
+    record["rope"] = ROPE_USED
+    expedition.notice = ""
+    expedition.touch()
+    if not _save(mine):
+        record.pop("rope", None)
+        expedition.notice = ui.MSG_FAILED
+        return
+    # 2. The rope (conditional, never retried).
+    try:
+        ready = await items.table_ready(bot)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - nothing was taken
+        log.exception("Mine: the item store could not be asked for the rope of %s.", player_id)
+        ready, left = None, None
+    else:
+        try:
+            left = await items.take(bot, player_id, items.ROPE) if ready else None
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - taken or not: unknown, the owner checks
+            log.exception("Mine: the rope of %s could not be taken.", player_id)
+            await bot.log_to_owner(LOG_ROPE_UNSURE.format(player_id=player_id, error=type(exc).__name__), ping=True)
+            ready, left = None, None
+    if left is None:
+        if not mine.closed and expedition.state == CHAMBER:
+            record.pop("rope", None)
+            expedition.notice = MSG_NO_ROPE if ready is not None else ui.MSG_FAILED
+            expedition.touch()
+            _save(mine)
+        return
+    # 3. Closed while the rope was taken: there is no descent - the rope goes back.
+    if mine.closed or expedition.state != CHAMBER:
+        log.info("Mine: closed while the rope of %s was taken; it goes back.", player_id)
+        record.pop("rope", None)
+        _save(mine)
+        await _return_rope(bot, player_id)
+        return
+    # 4. The descent: the draw of "Schodzę niżej".
+    chamber = mine.config.chamber(expedition.chamber)
+    target, success = _draw(mine, expedition)
+    log.info("Mine: %s goes down on a rope to chamber %s (%s): %s; %s rope(s) left.", player_id, target.number,
+             chance_text(target.chance), "success" if success else "failed - the rope holds, the loot is paid", left)
+    if success:
+        record["chamber"] = target.number
+        expedition.notice = MSG_ROPE_SPENT.format(name=target.name)
+        expedition.touch()
+        _save(mine)
+        return
+    # 5. A failed descent: the rope holds - he leaves with the loot of the chamber he stood in.
+    await _leave(mine, expedition, interaction, notice=MSG_ROPE_SAVED.format(name=chamber.name))
+    if expedition.state == CHAMBER:  # (_leave paid nothing: closed meanwhile, or the state could not be saved)
+        log.info("Mine: the roped descent of %s paid nothing; the rope goes back.", player_id)
+        record.pop("rope", None)
+        _save(mine)
+        await _return_rope(bot, player_id)
+
+
+async def _leave(mine: Mine, expedition: Expedition, interaction: Any, *, notice: str = "") -> None:
+    """ "Wracam z łupem" / "Odbierz łup": the row of the chamber is paid - once (see the module docstring).
+
+    ``notice``: the line the result page shows (the Lina sztygara's, :data:`MSG_ROPE_SAVED`).
+    """
     bot = mine.bot
     player = interaction.user
     player_id = expedition.player_id
@@ -1345,7 +1508,7 @@ async def _leave(mine: Mine, expedition: Expedition, interaction: Any) -> None:
         return  # (closed while the database was asked: nothing was taken)
     # 1. The intent is on the disk before anything is paid.
     record["state"], record["eggs"] = LEAVING, [{"egg": egg, "fate": UNDECIDED} for egg in eggs]
-    expedition.notice, expedition.table = "", False
+    expedition.notice, expedition.table = notice, False
     expedition.touch()
     if not _save(mine):
         record["state"], record["eggs"] = CHAMBER, []

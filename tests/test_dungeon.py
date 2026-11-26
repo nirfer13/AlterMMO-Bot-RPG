@@ -21,7 +21,8 @@ from altermmo.cogs import help as help_cog
 from altermmo.cogs.ui import UiCog
 from altermmo.core import timing, ui
 from altermmo.core.state import BossPhase, EventType
-from altermmo.features import boss_cycle, dungeon, expsum, modifiers, patchnotes, patrons, pets, shortcuts
+from altermmo.core.db import DatabaseUnavailable
+from altermmo.features import boss_cycle, dungeon, expsum, items, modifiers, patchnotes, patrons, pets, shortcuts
 from altermmo.features import events as events_feature
 
 from fakes import FakeInteraction
@@ -879,6 +880,199 @@ async def test_double_and_concurrent_clicks_pay_once(game_db, luck):
     assert late.response.is_done() and late.replies == []
     assert xp_of(game, ala) == 180 and await scrolls_of(db, ala.id) == 2 and len(luck.calls) == 4
     assert len(record_of(game, ala)["eggs"]) == 2
+
+
+# -- the Lina sztygara (items_decisions.md §6) ----------------------------------------------------
+
+ROPE = dungeon.ROPE_LABEL
+
+
+async def ropes_of(db, player) -> int | None:
+    value = await db.fetchval("SELECT COUNT FROM PLAYER_ITEMS WHERE PLAYER_ID = $1 AND ITEM = 'rope'", player.id)
+    return None if value is None else int(value)
+
+
+def test_the_rope_counts_in_the_pages_and_in_the_row_of_buttons(monkeypatch):
+    config = dungeon.load_config()
+    assert [b[0] for b in dungeon.chamber_buttons(config, 3, rope=True)] == ["leave", "deeper", "rope", "stable"]
+    assert [b[0] for b in dungeon.chamber_buttons(config, config.last, rope=True)] == ["claim", "stable"]
+    assert dungeon.chamber_buttons(config, 3, rope=True)[2][1:] == (ROPE, discord.ButtonStyle.primary, "🪢")
+    assert dungeon.page_too_long(config) == ""
+    monkeypatch.setattr(dungeon, "ROW_BUTTONS", 3)                       # (the check behind the extra button)
+    assert dungeon.page_too_long(config) == "the buttons of chamber 1"
+    # The rope's lines, with the longest name a chamber may have, fit the pages they are shown on.
+    longest = "N" * dungeon.NAME_MAX
+    roomy = dungeon.Config(tuple(dataclasses.replace(c, name=longest) for c in config.chambers))
+    monkeypatch.setattr(dungeon, "ROW_BUTTONS", 5)
+    assert dungeon.page_too_long(roomy) == ""
+    assert "lobby" not in (dungeon.MSG_ROPE_SAVED + dungeon.MSG_ROPE_SPENT + dungeon.MSG_NO_ROPE).lower()
+
+
+async def test_the_rope_button_is_there_for_a_rope_and_never_in_the_treasury(game_db, luck):
+    game, bot = game_db, game_db.bot
+    ala, ola = game.add_member("Ala"), game.add_member("Ola")
+    await items.grant(bot, ala.id, "rope")
+    mine = await open_mine(game)
+    message = await enter(game, mine, ala)
+    assert message.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, ROPE, dungeon.STABLE_LABEL]
+    await descend(game, message, ala, 8)
+    assert message.button_labels == [dungeon.CLAIM_LABEL, dungeon.STABLE_LABEL]      # the treasury: no rope
+    # Without a rope there is no such button.
+    other = await open_mine(game)
+    message = await enter(game, other, ola)
+    assert message.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, dungeon.STABLE_LABEL]
+
+
+async def test_a_roped_descent_draws_like_any_other_and_spends_the_rope_once_per_expedition(game_db, luck):
+    game, bot = game_db, game_db.bot
+    ala = game.add_member("Ala")
+    await items.grant(bot, ala.id, "rope", 2)
+    mine = await open_mine(game)
+    message = await enter(game, mine, ala)
+    await game.click(message, ala, "rope")
+    assert luck.calls == [10] and mine.expeditions[ala.id].chamber == 2            # the draw of "Schodzę niżej"
+    assert await ropes_of(bot.db, ala) == 1 and record_of(game, ala)["rope"] == "used"
+    assert dungeon.MSG_ROPE_SPENT.format(name="Rozjazd wagoników") in message.embeds[0].description
+    # One rope per expedition: the button is gone though she has another; a late click does nothing.
+    assert message.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, dungeon.STABLE_LABEL]
+    late = await dispatch(game, message, ala, "rope")
+    assert late.response.is_done() and luck.calls == [10] and await ropes_of(bot.db, ala) == 1
+    assert mine.expeditions[ala.id].chamber == 2
+    await game.click(message, ala, "leave")
+    assert xp_of(game, ala) == 40                                                   # the rope pays nothing itself
+
+
+async def test_a_failed_roped_descent_pays_the_loot_of_the_chamber_he_stood_in(game_db, luck):
+    game, db, bot = game_db, game_db.bot.db, game_db.bot
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=0)
+    await items.grant(bot, ala.id, "rope", 2)
+    mine, message = await go_down(game, ala, 3)
+    luck.results = [2]                                                              # 2 of 3: the descent fails
+    await game.click(message, ala, "rope")
+    assert xp_of(game, ala) == 70 and await scrolls_of(db, ala.id) == 1 and await ropes_of(db, ala) == 1
+    record = record_of(game, ala)
+    assert (record["state"], record["chamber"], record["rope"]) == ("done", 3, "used") and len(luck.calls) == 3
+    text = message.embeds[0].description
+    assert message.embeds[0].title == "⛏️ Powrót z łupem · 3/8 · Most nad Czarną Wodą"
+    assert dungeon.MSG_ROPE_SAVED.format(name="Most nad Czarną Wodą") in text and "✅ 70 XP" in text
+    assert dungeon.MSG_FAILED_DESCENT not in text and mine.closed                    # over, like a "Wracam z łupem"
+    # A row with eggs: they wait for her decision, as after "Wracam z łupem".
+    mine, message = await go_down(game, ala, 4)
+    luck.results = [5]                                                              # 5 of 8: fails
+    await game.click(message, ala, "rope")
+    record = record_of(game, ala)
+    assert record["state"] == "eggs" and len(record["eggs"]) == 1 and xp_of(game, ala) == 70 + 110
+    assert dungeon.MSG_ROPE_SAVED.format(name="Zatopiona pompownia") in message.embeds[0].description
+    assert await ropes_of(db, ala) == 0 and not mine.closed
+
+
+async def test_no_rope_after_all_draws_nothing(game_db, luck):
+    game, bot = game_db, game_db.bot
+    ala = game.add_member("Ala")
+    await items.grant(bot, ala.id, "rope")
+    mine = await open_mine(game)
+    message = await enter(game, mine, ala)
+    await items.adjust(bot, ala.id, "rope", -1)                                     # gone before the click
+    await game.click(message, ala, "rope")
+    assert luck.calls == [] and mine.expeditions[ala.id].chamber == 1 and "rope" not in record_of(game, ala)
+    assert dungeon.MSG_NO_ROPE in message.embeds[0].description
+    assert message.button_labels == [dungeon.LEAVE_LABEL, dungeon.DEEPER_LABEL, dungeon.STABLE_LABEL]
+
+
+async def test_a_rope_the_database_may_have_taken_is_for_the_owner(game_db, luck, monkeypatch):
+    game, bot = game_db, game_db.bot
+    ala = game.add_member("Ala")
+    await items.grant(bot, ala.id, "rope")
+    mine = await open_mine(game)
+    message = await enter(game, mine, ala)
+
+    async def lost_reply(*args, **kwargs):
+        raise DatabaseUnavailable("the reply was lost")
+
+    monkeypatch.setattr(items, "take", lost_reply)
+    await game.click(message, ala, "rope")
+    assert luck.calls == [] and mine.expeditions[ala.id].chamber == 1 and ui.MSG_FAILED in message.embeds[0].description
+    assert bot.owner_log == [dungeon.LOG_ROPE_UNSURE.format(player_id=ala.id, error="DatabaseUnavailable")]
+    assert await ropes_of(bot.db, ala) == 1                                         # nothing given on a guess
+
+
+async def test_a_rope_whose_use_cannot_be_saved_is_not_taken(game_db, luck, monkeypatch):
+    game, bot = game_db, game_db.bot
+    ala = game.add_member("Ala")
+    await items.grant(bot, ala.id, "rope")
+    mine = await open_mine(game)
+    message = await enter(game, mine, ala)
+    working = bot.store.dungeon.save
+    monkeypatch.setattr(bot.store.dungeon, "save", disk_full)
+    await game.click(message, ala, "rope")
+    assert luck.calls == [] and await ropes_of(bot.db, ala) == 1 and ui.MSG_FAILED in message.embeds[0].description
+    monkeypatch.setattr(bot.store.dungeon, "save", working)
+    await game.click(message, ala, "rope")                                          # the disk works again
+    assert luck.calls == [10] and await ropes_of(bot.db, ala) == 0
+
+
+async def test_the_rope_comes_back_when_the_mine_closes_while_it_is_taken(game_db, luck, monkeypatch):
+    game, bot = game_db, game_db.bot
+    ala = game.add_member("Ala")
+    await items.grant(bot, ala.id, "rope")
+    mine, message = await go_down(game, ala, 2)
+    real_take, closing = items.take, []
+
+    async def take_and_close(*args, **kwargs):
+        left = await real_take(*args, **kwargs)
+        bot.state.close_event()                                                      # the boss took the channel
+        closing.append(asyncio.ensure_future(dungeon.close(bot)))
+        await asyncio.sleep(0)                                                       # (the closing has begun)
+        return left
+
+    monkeypatch.setattr(items, "take", take_and_close)
+    await game.click(message, ala, "rope")
+    await asyncio.wait_for(closing[0], 5)
+    assert len(luck.calls) == 1 and await ropes_of(bot.db, ala) == 1                 # no draw, the rope is back
+    assert record_of(game, ala) == {"state": "closed", "chamber": 2, "eggs": [], "granted": None}
+    assert mine.settled and xp_of(game, ala) == 0
+
+
+async def test_the_rope_comes_back_when_its_payment_never_starts(game_db, luck, monkeypatch):
+    game, db, bot = game_db, game_db.bot.db, game_db.bot
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=0)
+    await items.grant(bot, ala.id, "rope")
+    # The mine closes while the eggs of the row are rolled.
+    mine, message = await go_down(game, ala, 4)
+    luck.results = [5]
+    working, closing = pets._cosmetic_state, []
+
+    async def closed_meanwhile(bot_):
+        answer = await working(bot_)
+        bot.state.close_event()
+        closing.append(asyncio.ensure_future(dungeon.close(bot)))
+        await asyncio.sleep(0)
+        return answer
+
+    monkeypatch.setattr(pets, "_cosmetic_state", closed_meanwhile)
+    await game.click(message, ala, "rope")
+    await asyncio.wait_for(closing[0], 5)
+    assert xp_of(game, ala) == 0 and await scrolls_of(db, ala.id) == 0 and await ropes_of(db, ala) == 1
+    assert record_of(game, ala)["state"] == "closed" and mine.settled
+    monkeypatch.setattr(pets, "_cosmetic_state", working)
+
+    # The state "leaving" cannot be written: nothing is paid, the rope is back, she stands where she stood.
+    mine = await open_mine(game)
+    message = await enter(game, mine, ala)
+    saving = bot.store.dungeon.save
+
+    def no_leaving(value):
+        if any(entry.get("state") == "leaving" for entry in value["mine"]["expeditions"].values()):
+            raise OSError("disk full")
+        return saving(value)
+
+    monkeypatch.setattr(bot.store.dungeon, "save", no_leaving)
+    luck.results = [9]                                                               # 9 of 10: fails
+    await game.click(message, ala, "rope")
+    assert xp_of(game, ala) == 0 and await ropes_of(db, ala) == 1 and mine.expeditions[ala.id].state == "chamber"
+    assert ui.MSG_FAILED in message.embeds[0].description and "rope" not in record_of(game, ala)
 
 
 async def test_the_treasury_level_goes_to_the_pet_at_the_players_side(game_db, luck):

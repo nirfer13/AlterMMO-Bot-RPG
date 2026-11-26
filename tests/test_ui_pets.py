@@ -351,9 +351,14 @@ async def test_panel_shows_the_buttons_that_make_sense(game_db):
     assert panel.button("pet:discard").style is discord.ButtonStyle.danger
     assert panel.button("pet:reroll").style is discord.ButtonStyle.primary
 
+    # A mythic pet is never transformed; at talent 7-8 the Pióro Żar-ptaka still enlightens it
+    # (items_decisions.md §3) - at talent 9 nothing does.
     mythic = patron(game_db, "Ula")
     await add_owner(db, mythic.id, 4)
     await add_pet(db, 4, pet_lvl=3, pet_skills=7, mythic=True, quality="Mythic", type="Void")
+    assert (await show(game_db, mythic)).button_labels == [
+        "Zmień imię", "Stajnia", "Odrodzenie", "Mocne odrodzenie", "Oświecenie", "Porzuć"]
+    await db.execute("UPDATE PETS SET PET_SKILLS = 9 WHERE PET_ID = 4")
     assert (await show(game_db, mythic)).button_labels == [
         "Zmień imię", "Stajnia", "Odrodzenie", "Mocne odrodzenie", "Porzuć"]
 

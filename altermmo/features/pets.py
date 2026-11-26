@@ -129,7 +129,7 @@ import discord
 
 from ..core import challenge, clock, io, timing, ui, waiting
 from ..settings import ASSETS_DIR, COMMAND_PREFIX
-from . import achievements, bossdetect, modifiers, patrons, petcards
+from . import achievements, bossdetect, items, modifiers, patrons, petcards
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -347,6 +347,12 @@ _DEFAULT_GAINS: tuple[tuple[int, int], ...] = ((8, 12), (6, 11), (5, 8), (3, 5))
 MAX_LEVEL = 3
 #: A level 3 pet with at most this talent can be enlightened.
 ENLIGHT_MAX_SKILLS = 6
+#: The Pióro Żar-ptaka (owner, 2026-11-26, ``items_decisions.md`` §3): a level 3 pet with a talent above
+#: :data:`ENLIGHT_MAX_SKILLS` and at most this one is enlightened once more by ``!oswiecenie`` for one
+#: feather and :data:`FEATHER_STONES` Kamienie olśnienia - one talent point (one :func:`_roll_skill`).
+#: Talent 9 ("Boski") is the top: nothing goes beyond it.
+FEATHER_MAX_SKILLS = 8
+FEATHER_STONES = 2
 DEFAULT_NAME = "Towarzysz"
 MAX_NAME_LENGTH = 255  # PETS.PET_NAME is VARCHAR(255)
 
@@ -2522,7 +2528,20 @@ def _other_pet(active_pet_id: int, expected_pet: int | None) -> bool:
     return expected_pet is not None and active_pet_id > 0 and active_pet_id != expected_pet
 
 
-async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, messages: dict[str, str],
+class _Refused(Exception):
+    """Raised by the ``apply`` of :func:`_confirmed_change` when something it pays with is gone after all.
+
+    The transaction is rolled back (nothing of the change stays) and the
+    player is told ``messages[status]``, as if the locked ``check`` had said so.
+    """
+
+    def __init__(self, status: str) -> None:
+        super().__init__(status)
+        self.status = status
+
+
+async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str | Callable[[Any], str],
+                            messages: dict[str, str],
                             check: Callable[..., Awaitable[tuple[str, Any]]],
                             apply: Callable[[Any, Any], Awaitable[None]]) -> bool:
     """Common flow of ``!odrodzenie``, ``!oswiecenie`` and ``!transformacja``.
@@ -2535,6 +2554,9 @@ async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, message
     answered with :data:`MSG_OTHER_PET`, and :data:`AWAY` (the pet is on a
     companion mission; ``check`` returns ``(AWAY, Away)``, see
     :func:`_away_check`) with :data:`MSG_PET_AWAY` - shared by every caller.
+    ``prompt`` may be a function of the first check's data (the question of
+    ``!oswiecenie`` names what this enlightenment costs).  ``apply`` may raise
+    :class:`_Refused`: its transaction is rolled back and the player told why.
 
     Nothing at all happens while a typed fight is on the channel
     (``challenge.fight_on``; owner's rule: nothing may post into a running
@@ -2557,19 +2579,24 @@ async def _confirmed_change(scene: "Scene", player: Any, *, prompt: str, message
     if status != _OK:
         await scene.send(refusal(status, data))
         return False
+    question = prompt(data) if callable(prompt) else prompt
     with _confirmation_slot(player_id) as free:
         if not free:
             await scene.send(MSG_ALREADY_WAITING)
             return False
-        answer = await _confirm(scene, player, prompt)
+        answer = await _confirm(scene, player, question)
         if not answer:
             await scene.send(MSG_UNSURE)
             return False
         await _thank(answer, "<:PepoG:790963160528977980>")
-        async with bot.db.transaction() as con:
-            status, data = await check(con, True)
-            if status == _OK:
-                await apply(con, data)
+        try:
+            async with bot.db.transaction() as con:
+                status, data = await check(con, True)
+                if status == _OK:
+                    await apply(con, data)
+        except _Refused as refused:  # (raised inside the transaction: it is rolled back)
+            log.info("Pet change of %s rolled back: %s.", player_id, refused.status)
+            status, data = refused.status, None
     if status != _OK:
         await scene.send(refusal(status, data))
         return False
@@ -2782,15 +2809,39 @@ async def transform_pet(scene: "Scene", player: Any, *, expected_pet: int | None
         })
 
 
+def _feather_way(pet: Any) -> bool:
+    """Whether ``!oswiecenie`` of this (level 3) pet goes the way of the Pióro Żar-ptaka (talent 7-8)."""
+    return ENLIGHT_MAX_SKILLS < _int(pet["pet_skills"]) <= FEATHER_MAX_SKILLS
+
+
+async def _feathers(bot: "AlterBot", q: Any, player_id: int, *, lock: bool = False) -> int:
+    """How many Pióra Żar-ptaka the player has, read through ``q`` (locked with ``lock``); 0 without the store."""
+    if not await items.table_ready(bot):
+        return 0
+    return await items.count_in(q, player_id, items.FEATHER, lock=lock)
+
+
 async def enlight_pet(scene: "Scene", player: Any, *, expected_pet: int | None = None) -> bool:
     """Enlighting pet (1-3 more talent points for a level 3 pet) for a rebirth stone.
 
     ``expected_pet``: as in :func:`reroll_pet`.
+
+    The Pióro Żar-ptaka (owner, 2026-11-26, ``items_decisions.md`` §3): a pet
+    whose talent is already 7 or 8 (above :data:`ENLIGHT_MAX_SKILLS`) is
+    enlightened once more for ONE feather and :data:`FEATHER_STONES` stones -
+    exactly one talent point (one :func:`_roll_skill`), mythic pets too; the
+    question says what it costs.  At talent 9 ("Boski") nothing goes higher.
+    The feather and the stones are counted in both checks (the second one with
+    the rows locked) and taken in the transaction of the change by conditional
+    statements; should either be gone after all, the whole change is rolled
+    back (:class:`_Refused`).  The aura of a pet is never touched here.
     """
+    bot = scene.bot
     player_id = _pid(player)
     mention = "<@" + str(player_id) + ">"
     unworthy = ("Niestety Twój towarzysz nie jest godny dostąpić oświecenia " + mention
                 + " <:Sadge:936907659142111273> Wpisz **!towarzysz**, żeby sprawdzić jego poziom.")
+    feather = f"{items.BY_KEY[items.FEATHER].emoji} **{items.BY_KEY[items.FEATHER].name}**"
 
     async def check(q: Any, lock: bool) -> tuple[str, Any]:
         owner = await _owner(q, player_id, "PET_ID, REBIRTH_STONES", lock=lock)
@@ -2799,23 +2850,42 @@ async def enlight_pet(scene: "Scene", player: Any, *, expected_pet: int | None =
             return "alone", None
         if _other_pet(pet_id, expected_pet):
             return "other_pet", None
-        if away := await _away_check(scene.bot, q, pet_id):  # (after the owner lock, a statement of its own)
+        if away := await _away_check(bot, q, pet_id):  # (after the owner lock, a statement of its own)
             return away
-        if _int(owner["rebirth_stones"]) <= 0:
+        stones = _int(owner["rebirth_stones"])
+        if stones <= 0:
             return "poor", None
         pet = await _pet(q, pet_id, lock=lock)
         if pet is None:
             return "no_data", None
         level, skills = _int(pet["pet_lvl"]), _int(pet["pet_skills"])
-        if skills <= ENLIGHT_MAX_SKILLS and level == MAX_LEVEL:
-            return _OK, pet
         if level < MAX_LEVEL:
             return "unworthy", None
-        return ("enlightened" if skills > ENLIGHT_MAX_SKILLS else "unworthy"), None
+        if skills <= ENLIGHT_MAX_SKILLS:
+            return _OK, pet
+        if skills > FEATHER_MAX_SKILLS:
+            return "gods", None
+        if await _feathers(bot, q, player_id, lock=lock) <= 0:
+            return "no_feather", None
+        if stones < FEATHER_STONES:
+            return "few_stones", None
+        return _OK, pet
 
     async def apply(con: Any, pet: Any) -> None:
-        add_skill = random.randint(1, 3)
         stats = _stats_of(pet)
+        if _feather_way(pet):
+            # Both are taken conditionally (never below 0); one of them gone: nothing at all happens.
+            if await items.take_in(con, player_id, items.FEATHER) is None:
+                raise _Refused("no_feather")
+            if await con.fetchval("UPDATE PETOWNER SET REBIRTH_STONES = REBIRTH_STONES - $2 WHERE PLAYER_ID = $1 "
+                                  "AND REBIRTH_STONES >= $2 RETURNING REBIRTH_STONES",
+                                  player_id, FEATHER_STONES) is None:
+                raise _Refused("few_stones")
+            _roll_skill(stats, SKILL_POOL, pet)
+            await _save_pet(con, pet, stats, skills=_int(pet["pet_skills"]) + 1)
+            log.info("Pet %s of player %s enlightened with a feather (+1 talent).", pet["pet_id"], player_id)
+            return
+        add_skill = random.randint(1, 3)
         for _ in range(add_skill):
             _roll_skill(stats, SKILL_POOL, pet)
         await _save_pet(con, pet, stats, skills=_int(pet["pet_skills"]) + add_skill)
@@ -2823,16 +2893,27 @@ async def enlight_pet(scene: "Scene", player: Any, *, expected_pet: int | None =
                           player_id)
         log.info("Pet %s of player %s enlightened (+%s talent).", pet["pet_id"], player_id, add_skill)
 
+    def prompt(pet: Any) -> str:
+        cost = (f" To oświecenie kosztuje {feather} i **{FEATHER_STONES} Kamienie olśnienia** - towarzysz "
+                "zyska jeden talent." if _feather_way(pet) else "")
+        return ("Czy jesteś pewien, że chcesz zwiększyć talent swojego towarzysza " + mention + "?" + cost
+                + " <:Hmm:984767035617730620> " + CONFIRM_HINT)
+
     return await _confirmed_change(
-        scene, player, check=check, apply=apply,
-        prompt=("Czy jesteś pewien, że chcesz zwiększyć talent swojego towarzysza " + mention
-                + "? <:Hmm:984767035617730620> " + CONFIRM_HINT),
+        scene, player, check=check, apply=apply, prompt=prompt,
         messages={
             "alone": _msg_alone(player_id),
             "no_data": MSG_NO_PET_DATA,
             "unworthy": unworthy,
-            "enlightened": ("Twój towarzysz już dostąpił oświecenia " + mention
-                            + " <:prayge:1063891597760139304> Wpisz **!towarzysz**, żeby sprawdzić jego talent."),
+            # (Talent 7-8 without a feather used to be told "already enlightened" - the feather's text says it now.)
+            "gods": ("Twój towarzysz osiągnął już talent **Boski** " + mention
+                     + " <:prayge:1063891597760139304> Wyżej sięgają już tylko bogowie."),
+            "no_feather": ("Twój towarzysz już dostąpił oświecenia " + mention + " <:prayge:1063891597760139304> "
+                           f"Wyżej wzniesie go tylko {feather}: za pióro i **{FEATHER_STONES} Kamienie "
+                           "olśnienia** zyska jeszcze jeden talent. Wpisz **!przedmioty**, żeby sprawdzić, co "
+                           "nosisz."),
+            "few_stones": (f"Oświecenie z {items.BY_KEY[items.FEATHER].emoji} **Piórem Żar-ptaka** wymaga też **{FEATHER_STONES} Kamieni olśnienia** " + mention
+                           + " <:Sadge:936907659142111273> Wpisz **!przedmioty**, żeby sprawdzić, co nosisz."),
             "poor": ("Nie masz żadnych kamieni olśnienia " + mention + " <:Sadge:936907659142111273> "
                      "Wpisz **!towarzysz**, żeby sprawdzić ich ilość. Kamienie olśnienia możesz zdobyć na "
                      "polowaniu lub po zabiciu bossów, jednak są one bardzo rzadkie."),
@@ -3827,7 +3908,8 @@ class PetPanel(ui.PanelView):
             hidden |= {self.rename, self.reroll, self.adv_reroll, self.enlight, self.transform, self.discard}
         if level < 1:
             hidden |= {self.reroll, self.adv_reroll}
-        if not (level == MAX_LEVEL and skills <= ENLIGHT_MAX_SKILLS):
+        # Talent 7-8 too: the Pióro Żar-ptaka enlightens once more (the question says what it costs).
+        if not (level == MAX_LEVEL and skills <= FEATHER_MAX_SKILLS):
             hidden.add(self.enlight)
         if pet["mythic"] or not patrons.check_if_patron(player):
             hidden.add(self.transform)

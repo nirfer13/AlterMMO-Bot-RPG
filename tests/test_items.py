@@ -221,6 +221,7 @@ async def test_grant_and_take_have_no_cap_and_never_go_below_zero(game_db):
     # Inside a caller's transaction (the later uses of the items: the feather in !oswiecenie...).
     async with db.transaction() as con:
         assert await items.grant_in(con, 7, "feather", 2) == 2
+        assert await items.count_in(con, 7, "feather", lock=True) == 2 and await items.count_in(con, 8, "feather") == 0
         assert await items.take_in(con, 7, "feather") == 1 and await items.take_in(con, 7, "feather", 5) is None
     assert await items.counts(bot, 7) == {"tower_key": 0, "rope": 0, "feather": 1}
     with pytest.raises(ValueError):

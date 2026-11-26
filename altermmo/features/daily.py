@@ -37,6 +37,11 @@ button elsewhere (the hub panel) can run exactly the same thing.
 
 The "come back later" text shows the real moment of the next reset
 (:func:`next_daily_reset`), as Discord's live "za 3 godziny".
+
+``!przyneta`` (owner, 2026-11-26) is the same hunt with a Przynęta
+(``features/items.py``): after the normal rarity roll its monster goes up one
+step (:func:`daily_hunt` with ``bait=True``); the bait comes back with the
+attempt while the hunt is undecided.
 """
 
 from __future__ import annotations
@@ -176,6 +181,26 @@ MSG_ON_COOLDOWN = ("Zregeneruj się i spróbuj zapolować ponownie {when} <:Bedg
                    "modlitwy przy kapliczkach również są w stanie zregenerować Twoje siły, więc bądź czujny!")
 # Only for a click (a typed !polowanie stays silent during a boss fight, as before).
 MSG_BOSS_FIGHT = "Trwa walka z bossem - polowanie musi poczekać <:MonkaS:882181709100097587>"
+
+# The Przynęta (owner, 2026-11-26, ``items_decisions.md`` §4): ``!przyneta`` - :func:`start_hunt` with ``bait=True``.
+#: On the monster's embed of a baited hunt.
+MSG_BAITED = "🪤 Przynęta zwabiła z puszczy groźniejszą bestię!"
+#: ... of a hunt whose roll was the unique monster already: the bait was not needed and is not used.
+MSG_BAIT_NOT_NEEDED = "🪤 Najgroźniejsza bestia przyszła sama - Przynęta nie była potrzebna i zostaje w sakwie."
+MSG_NO_BAIT = ("Nie masz żadnej **Przynęty**, <@{user_id}>. Zwykle wypada z potworów - albo kupisz ją u "
+               "Wędrownego kupca.")
+#: ``!przyneta`` while a hunt gathers hunters (typed ``!polowanie`` would join it; the bait waits).
+MSG_BAIT_GATHERING = ("Polowanie już się zbiera, <@{user_id}> - Przynęta poczeka na Twoje własne łowy. Dołączyć "
+                      "możesz, wpisując **!polowanie** albo klikając **Dołącz do polowania**.")
+#: Appended to :data:`MSG_ATTEMPT_RETURNED` when the hunt's bait came back with the attempt.
+MSG_BAIT_RETURNED = " Przynęta wróciła do Twojej sakwy 🪤"
+#: To the owner (with a ping) when the database did not answer the taking of a bait (taken or not: unknown).
+LOG_BAIT_UNSURE = ("Nie wiadomo, czy Przynęta gracza <@{user_id}> została zabrana - baza danych nie odpowiedziała "
+                   "(`{error}`), polowanie się nie zaczęło (próba wróciła). Sprawdź PLAYER_ITEMS i w razie potrzeby "
+                   "oddaj ją: `!DajPrzedmiot @gracz przynęta 1`")
+#: To the owner (with a ping) when the bait of a hunt that is given back could not be returned.
+LOG_BAIT_NOT_RETURNED = ("Przynęta gracza <@{user_id}> nie wróciła (`{error}`) - jego polowanie przerwał problem "
+                         "techniczny, zanim się rozstrzygnęło. Oddaj ją: `!DajPrzedmiot @gracz przynęta 1`")
 
 # The "Dołącz do polowania" button under the monster.
 JOIN_BUTTON = "Dołącz do polowania"
@@ -439,13 +464,14 @@ def _mob_picture(rarity: int):
     return ASSETS_DIR / "mobs" / "100.png"
 
 
-async def send_mob_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
+async def send_mob_image(scene: "Scene", rarity: int, *, note: str = "") -> tuple[bool, Any]:
     """Show the monster: its picture (or the avatar of the player posing as it) and the embed.
 
     Returns ``(is_player_boss, boss_player)``; ``boss_player`` is the member
     who earns scrolls when the monster is not beaten, or None for an ordinary
     monster.  Pass both on to :func:`hunt_mobs`.  The embed carries the "Dołącz
     do polowania" button; :func:`hunt_mobs` on the same channel listens to it.
+    ``note``: a line right under "a monster appeared" (the Przynęta's, :data:`MSG_BAITED`).
     """
     bot = scene.bot
     rarity = int(rarity)
@@ -460,7 +486,7 @@ async def send_mob_image(scene: "Scene", rarity: int) -> tuple[bool, Any]:
                      forced_id)
     is_player_boss = boss_player is not None
 
-    add_desc = ""
+    add_desc = f"\n\n{note}" if note else ""
     if is_player_boss:
         add_desc = ("\n\n*Potworem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
                     "to ten gracz zgarnia " + str(rarity + 1) + " zwojów!*")
@@ -919,14 +945,119 @@ def roll_hunt_rarity() -> int:
     return 2
 
 
-async def _give_back_attempt(scene: "Scene", player: Any) -> None:
-    """Take the player off the daily cooldown list and tell him (never raises)."""
+async def _give_back_attempt(scene: "Scene", player: Any, *, bait: bool = False) -> None:
+    """Take the player off the daily cooldown list and tell him (never raises).
+
+    ``bait``: the hunt's Przynęta is given back too (:func:`_return_bait`; the
+    message says so only when it really came back).
+    """
     release_cooldown(scene.bot.store.daily_cd, player.id)
     log.info("Daily hunt of %s (%s) given back after a technical problem.", player, player.id)
-    await io.send_patient(scene.channel, MSG_ATTEMPT_RETURNED.format(user_id=player.id), give_up_after=60)
+    returned = bait and await _return_bait(scene.bot, player)
+    text = MSG_ATTEMPT_RETURNED.format(user_id=player.id) + (MSG_BAIT_RETURNED if returned else "")
+    await io.send_patient(scene.channel, text, give_up_after=60)
 
 
-async def daily_hunt(scene: "Scene") -> bool | None:
+# -- the Przynęta ----------------------------------------------------------------------------
+
+#: Baits being given back from a cancelled hunt (kept here so the task is not garbage-collected).
+_returns: set[asyncio.Future] = set()
+
+
+async def baits_of(bot: "AlterBot", player_id: Any) -> int:
+    """How many Przynęty the player has (0 when the store is not there or cannot be read).  Never raises."""
+    try:
+        return await items.count(bot, player_id, items.BAIT)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - "none" is the safe answer: nothing starts, nothing is taken
+        log.info("Hunt: the baits of %s could not be counted.", getattr(player_id, "id", player_id))
+        return 0
+
+
+async def _say(scene: "Scene", text: str) -> None:
+    """Post a line that names only the acting player (only he is pinged).  Never raises."""
+    try:
+        await scene.send(text, allowed_mentions=discord.AllowedMentions(
+            everyone=False, roles=False, users=[scene.author]))
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        log.exception("Hunt: a line of the bait could not be posted.")
+
+
+async def _take_bait(scene: "Scene", rarity: int) -> bool | None:
+    """Use the Przynęta of ``scene.author`` for a monster of ``rarity`` (rolled already); inside ``hold_busy("hunt")``.
+
+    True: taken - the monster goes up one step.  False: not needed, nothing
+    taken (the roll was the unique monster already).  None: no hunt - he has
+    none left (told), the store could not be asked (nothing taken), or the
+    database did not answer the take (taken or not: unknown - the owner is
+    pinged and checks; no refund on a guess).  The take is conditional and
+    never retried (``items.take``).
+    """
+    bot, player = scene.bot, scene.author
+    if rarity >= 2:
+        return False
+    try:
+        ready = await items.table_ready(bot)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - nothing was taken
+        log.exception("Hunt: the item store could not be asked for the bait of %s.", player.id)
+        await _say(scene, ui.MSG_FAILED)
+        return None
+    try:
+        left = await items.take(bot, player.id, items.BAIT) if ready else None
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - taken or not: unknown, the owner checks
+        log.exception("Hunt: the bait of %s could not be taken.", player.id)
+        await bot.log_to_owner(LOG_BAIT_UNSURE.format(user_id=player.id, error=type(exc).__name__), ping=True)
+        await _say(scene, ui.MSG_FAILED)
+        return None
+    if left is None:
+        await _say(scene, MSG_NO_BAIT.format(user_id=player.id))
+        return None
+    log.info("Hunt: %s (%s) used a bait (%s left): the monster goes up from rarity %s.", player, player.id, left,
+             rarity)
+    return True
+
+
+async def _return_bait(bot: "AlterBot", player: Any) -> bool:
+    """Give the bait of a hunt that is given back to its player; True when it is back.  Never raises.
+
+    Called only while the hunt is undecided (the effect provably did not
+    happen).  A failure is told to the owner, who gives it back by hand.
+    """
+    try:
+        left = await items.grant(bot, player.id, items.BAIT)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Hunt: the bait of %s could not be given back.", player.id)
+        with contextlib.suppress(Exception):
+            await bot.log_to_owner(LOG_BAIT_NOT_RETURNED.format(user_id=player.id, error=type(exc).__name__),
+                                   ping=True)
+        return False
+    log.info("Hunt: the bait of %s (%s) was given back (%s now).", player, player.id, left)
+    return True
+
+
+async def _return_bait_on_cancel(bot: "AlterBot", player: Any) -> None:
+    """The hunt is being cancelled (e.g. the bot stops) while undecided: the bait goes back all the same.
+
+    The return runs as a task of its own and is awaited shielded - a second
+    cancellation does not stop it halfway.
+    """
+    task = asyncio.ensure_future(_return_bait(bot, player))
+    _returns.add(task)
+    task.add_done_callback(_returns.discard)
+    with contextlib.suppress(asyncio.CancelledError):
+        await asyncio.shield(task)
+
+
+async def daily_hunt(scene: "Scene", *, bait: bool = False) -> bool | None:
     """The whole ``!polowanie`` of ``scene.author``: cooldown, monster, fight.
 
     The caller has already checked the cooldown and holds the busy flag.  The
@@ -935,7 +1066,16 @@ async def daily_hunt(scene: "Scene") -> bool | None:
     but only while the hunt is undecided: once the monster is dead (the
     rewards are being handed out) or the hunters have lost, the hunt counts,
     whatever happens next (a monster is fought once).
-    Returns what :func:`hunt_mobs` returned.
+    Returns what :func:`hunt_mobs` returned (None also for a baited hunt that
+    did not start, see below).
+
+    ``bait=True`` is ``!przyneta`` (owner, 2026-11-26): after the normal rarity
+    roll the Przynęta is taken (:func:`_take_bait`, still inside the caller's
+    busy hold) and the monster goes up one step - zwykły to rzadki, rzadki to
+    unikalny; a unique roll needs no bait and takes none.  The bait is given
+    back on every path that gives the attempt back while the hunt is
+    undecided, the cancellation included.  No bait after all: no hunt, the
+    attempt is released.
     """
     bot = scene.bot
     player = scene.author
@@ -943,9 +1083,20 @@ async def daily_hunt(scene: "Scene") -> bool | None:
         raise ValueError("daily_hunt needs a scene with an author")
     save_daily_to_file(bot, player.id)
     progress: dict[str, Any] = {"decided": False}
+    baited = False  # a bait was taken for this hunt (it comes back while the hunt is undecided)
     try:
         rarity = roll_hunt_rarity()
-        is_player_boss, boss_player = await send_mob_image(scene, rarity)
+        if bait:
+            taken = await _take_bait(scene, rarity)
+            if taken is None:
+                release_cooldown(bot.store.daily_cd, player.id)  # (no hunt took place)
+                return None
+            baited = taken
+            rarity += 1 if baited else 0
+            is_player_boss, boss_player = await send_mob_image(
+                scene, rarity, note=MSG_BAITED if baited else MSG_BAIT_NOT_NEEDED)
+        else:
+            is_player_boss, boss_player = await send_mob_image(scene, rarity)
         result = await hunt_mobs(scene, rarity, is_player_boss, boss_player, progress=progress)
     except asyncio.CancelledError:
         if progress["decided"]:
@@ -953,11 +1104,13 @@ async def daily_hunt(scene: "Scene") -> bool | None:
                         player, player.id)
         else:
             release_cooldown(bot.store.daily_cd, player.id)  # e.g. the bot is shutting down mid-hunt
+            if baited:
+                await _return_bait_on_cancel(bot, player)
         raise
     except Exception as exc:
         if not progress["decided"]:
             log.exception("Daily hunt of %s (%s) failed; giving the attempt back.", player, player.id)
-            await _give_back_attempt(scene, player)
+            await _give_back_attempt(scene, player, bait=baited)
             raise
         # Decided already: the hunt counts.  Not re-raised - "something went wrong, try again"
         # would be the wrong thing to tell the player.
@@ -968,11 +1121,11 @@ async def daily_hunt(scene: "Scene") -> bool | None:
                                ping=True)
         return False
     if result is None:
-        await _give_back_attempt(scene, player)
+        await _give_back_attempt(scene, player, bait=baited)
     return result
 
 
-async def start_hunt(scene: "Scene", *, refuse: Answer | None = None) -> bool:
+async def start_hunt(scene: "Scene", *, refuse: Answer | None = None, bait: bool = False) -> bool:
     """The whole ``!polowanie`` command of ``scene.author`` (boss phase, cooldown, busy flag, the hunt).
 
     The command guards (boss channel, busy notice) run before; this checks
@@ -987,14 +1140,33 @@ async def start_hunt(scene: "Scene", *, refuse: Answer | None = None) -> bool:
 
     Returns True when a hunt took place.  The hunt itself runs to its end
     inside this call (minutes): acknowledge a click before calling it.
+
+    ``bait=True`` is ``!przyneta`` (owner, 2026-11-26): the same hunt with the
+    same rules (the starter's attempt, others may join), its monster lured one
+    step up (:func:`daily_hunt`).  His baits are counted BEFORE the checks
+    above, so there is still no await between them and ``hold_busy``; the bait
+    itself is taken inside the hold, after the rarity roll.  Refused while a
+    hunt gathers hunters (:data:`MSG_BAIT_GATHERING`) and, when the hunt could
+    start, without a bait (:data:`MSG_NO_BAIT`) - nothing is used then.
     """
     bot = scene.bot
     state = bot.state
     player = scene.author
     if player is None:
         raise ValueError("start_hunt needs a scene with an author")
-    if is_gathering(scene.channel):
+    mentions = discord.AllowedMentions(everyone=False, roles=False, users=[player])
+
+    async def tell(text: str) -> None:
         if refuse is not None:
+            await refuse(text)
+        else:
+            await io.send(scene.channel, text, allowed_mentions=mentions)
+
+    baits = await baits_of(bot, player.id) if bait else 0
+    if is_gathering(scene.channel):
+        if bait:
+            await tell(MSG_BAIT_GATHERING.format(user_id=player.id))
+        elif refuse is not None:
             if is_hunting(scene.channel, player):
                 await refuse(MSG_ALREADY_HUNTING)  # here, so the gathering never waits for it
             else:
@@ -1010,15 +1182,12 @@ async def start_hunt(scene: "Scene", *, refuse: Answer | None = None) -> bool:
     on_cd = load_daily_from_file(bot, player.id)
     # No await between the checks above and hold_busy: two players cannot both start.
     if (not state.boss_blocks_activities or bot.debug) and not on_cd:
+        if bait and baits <= 0:
+            await tell(MSG_NO_BAIT.format(user_id=player.id))
+            return False
         with state.hold_busy("hunt"):
-            await daily_hunt(scene)
+            await (daily_hunt(scene, bait=True) if bait else daily_hunt(scene))
         return True
-
-    async def tell(text: str) -> None:
-        if refuse is not None:
-            await refuse(text)
-        else:
-            await io.send(scene.channel, text)
 
     if phase is BossPhase.PRE_SPAWN:
         await tell(MSG_BOSS_COMING)

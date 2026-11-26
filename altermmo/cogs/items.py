@@ -7,6 +7,10 @@ channel of the server, the busy policy of the display commands), silent while
 a typed fight is on the channel (``guards.not_during_fight``), also for a
 player without a pet.
 
+``!wskrzes @gracz`` (skróty ``!wskrzesz``, ``!wskrzeszenie``; owner,
+2026-11-26) reads a Zwój wskrzeszenia over a fallen hunter: the dead-hunter
+role goes (``items.revive``).  A gameplay command (the boss channel only).
+
 For the owner's support (not in the help): ``!DajPrzedmiot @gracz <klucz|nazwa>
 [n]`` gives ``n`` items (1 when left out); a negative ``n`` takes them back,
 never below 0.  Every use is logged and told to the owner's log channel.
@@ -56,6 +60,18 @@ class ItemsCog(commands.Cog, name="Przedmioty"):
     @guards.unless_busy(read_only=True)
     async def przedmioty(self, ctx: commands.Context) -> None:
         await items.show_items(Scene.from_ctx(ctx))
+
+    @commands.command(name="wskrzes", aliases=["wskrzesz", "wskrzeszenie"],
+                      brief="Revive a fallen hunter with a Zwój wskrzeszenia.")
+    @guards.in_order(guards.boss_channel_only(), guards.not_during_fight(), guards.unless_busy())
+    async def wskrzes(self, ctx: commands.Context, gracz: discord.Member | None = None) -> None:
+        """``!wskrzes @gracz``: the dead-hunter role goes, for one Zwój wskrzeszenia (``items.revive``).
+
+        A gameplay command: the boss channel only, silent during a typed fight,
+        the busy notice while the channel is busy - one ordered check
+        (``guards.in_order``).  Without a (known) player the command says how to use it.
+        """
+        await items.revive(Scene.from_ctx(ctx), gracz)
 
     @commands.command(name="DajPrzedmiot", brief="Give (or take back) a player's item (support).")
     @guards.owner_or_admin()

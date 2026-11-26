@@ -307,6 +307,38 @@ async def test_no_busy_notice_and_no_new_command_during_a_typed_fight(game):
     assert game.channel.messages[-1].content == guards.BUSY_NOTICE
 
 
+async def test_guards_in_order_run_in_the_order_given_however_often_the_command_is_copied():
+    """discord.py reverses a command's stacked checks in place on every copy (a cog instance copies its
+    commands): ``guards.in_order`` is one check, so its guards run in the written order whatever happens."""
+    from discord.ext import commands
+
+    seen: list[str] = []
+
+    def guard(name: str, answer: bool = True):
+        async def predicate(ctx):
+            seen.append(name)
+            if name == "refuses":
+                raise guards.SilentCheckFailure(name)
+            return answer
+        return commands.check(predicate)
+
+    @commands.command(name="probe")
+    @guard("first")
+    @guards.in_order(guard("one"), guard("two"), guard("refuses"), guard("never"))
+    async def probe(ctx):
+        pass
+
+    for copy in (probe, probe.copy(), probe.copy().copy()):
+        seen.clear()
+        with pytest.raises(guards.SilentCheckFailure):
+            for check in copy.checks:
+                await check(SimpleNamespace())
+        assert seen[seen.index("one"):] == ["one", "two", "refuses"]
+    seen.clear()
+    assert await _predicate_of(guards.in_order(guard("one"), guard("no", False), guard("never")))(None) is False
+    assert seen == ["one", "no"]
+
+
 def _predicate_of(decorator):
     """The predicate a ``commands.check`` decorator adds to a command."""
     async def command():
