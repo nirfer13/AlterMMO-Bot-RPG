@@ -7,13 +7,13 @@
         {"id": "rest_kit", "name": "Zestaw do wypoczynku", "price": 10, "weight": 30},
         {"id": "stable_place", "name": "Powiększenie stajni", "price": 100, "weight": 25, "max_places": 10},
         {"id": "egg_pouch", "name": "Sakwa na jajko", "price": 250, "price_spread_percent": 30, "weight": 10},
-        {"id": "tower_ticket", "name": "Klucz do wieży", "price": 60, "weight": 3},
+        {"id": "tower_ticket", "name": "Klucz do wieży", "price": 25, "weight": 3},
         {"id": "random_gem", "name": "Losowy klejnot", "price": 1000, "weight": 2},
-        {"id": "summon_scroll", "name": "Zwój przywołania", "price": 300, "weight": 1},
-        {"id": "feather", "name": "Pióro Żar-ptaka", "price": 500, "weight": 0.05},
-        {"id": "bait", "name": "Przynęta", "price": 15, "weight": 4},
-        {"id": "revive_scroll", "name": "Zwój wskrzeszenia", "price": 40, "weight": 3},
-        {"id": "rope", "name": "Lina sztygara", "price": 30, "weight": 3},
-        {"id": "dust", "name": "Nieuchwytny pył", "price": 150, "weight": 0.3}
+        {"id": "summon_scroll", "name": "Zwój przywołania", "price": 100, "weight": 1},
+        {"id": "feather", "name": "Pióro Żar-ptaka", "price": 250, "weight": 0.05},
+        {"id": "bait", "name": "Przynęta", "price": 5, "weight": 4},
+        {"id": "revive_scroll", "name": "Zwój wskrzeszenia", "price": 12, "weight": 3},
+        {"id": "rope", "name": "Lina sztygara", "price": 10, "weight": 3},
+        {"id": "dust", "name": "Nieuchwytny pył", "price": 80, "weight": 0.3}
     ]
 }

@@ -34,20 +34,20 @@ OWN_CONFIG = {
         {"id": "rest_kit", "name": "Zestaw do wypoczynku", "price": 10, "weight": 30},
         {"id": "stable_place", "name": "Powiększenie stajni", "price": 100, "weight": 25, "max_places": 10},
         {"id": "egg_pouch", "name": "Sakwa na jajko", "price": 250, "price_spread_percent": 30, "weight": 10},
-        {"id": "tower_ticket", "name": "Klucz do wieży", "price": 60, "weight": 3},
+        {"id": "tower_ticket", "name": "Klucz do wieży", "price": 25, "weight": 3},
         {"id": "random_gem", "name": "Losowy klejnot", "price": 1000, "weight": 2},
         # The items of 2026-11-26: on in the shipped file, at 0 in the tests' own (see above).
-        {"id": "summon_scroll", "name": "Zwój przywołania", "price": 300, "weight": 0},
-        {"id": "feather", "name": "Pióro Żar-ptaka", "price": 500, "weight": 0},
-        {"id": "bait", "name": "Przynęta", "price": 15, "weight": 0},
-        {"id": "revive_scroll", "name": "Zwój wskrzeszenia", "price": 40, "weight": 0},
-        {"id": "rope", "name": "Lina sztygara", "price": 30, "weight": 0},
-        {"id": "dust", "name": "Nieuchwytny pył", "price": 150, "weight": 0},
+        {"id": "summon_scroll", "name": "Zwój przywołania", "price": 100, "weight": 0},
+        {"id": "feather", "name": "Pióro Żar-ptaka", "price": 250, "weight": 0},
+        {"id": "bait", "name": "Przynęta", "price": 5, "weight": 0},
+        {"id": "revive_scroll", "name": "Zwój wskrzeszenia", "price": 12, "weight": 0},
+        {"id": "rope", "name": "Lina sztygara", "price": 10, "weight": 0},
+        {"id": "dust", "name": "Nieuchwytny pył", "price": 80, "weight": 0},
     ],
 }
 PRICES = {"egg_pouch": 250, "random_egg": 25, "stable_place": 100, "random_gem": 1000, "rest_kit": 10,
-          "tower_ticket": 60, "summon_scroll": 300, "feather": 500, "bait": 15, "revive_scroll": 40, "rope": 30,
-          "dust": 150}
+          "tower_ticket": 25, "summon_scroll": 100, "feather": 250, "bait": 5, "revive_scroll": 12, "rope": 10,
+          "dust": 80}
 #: The wares that put an item into the player's items (features/items.py) - and which item.
 ITEM_WARES = {"tower_ticket": "tower_key", "summon_scroll": "summon_scroll", "feather": "feather", "bait": "bait",
               "revive_scroll": "revive_scroll", "rope": "rope", "dust": "dust"}
@@ -461,7 +461,7 @@ async def test_too_few_scrolls_takes_nothing_and_the_ware_stays(game_db, cart):
     await game.click(panel, rich, merchant.buy_key(1))
     stock = await asyncio.wait_for(task, 5)
     assert [offer.buyer for offer in stock] == [rich, rich]
-    assert await scrolls_of(db, rich.id) == 100 - 10 - 60
+    assert await scrolls_of(db, rich.id) == 100 - 10 - 25
     # The key is stored (2026-11-26): the door stays closed until he uses it (!klucz).
     assert tower.load_weekly_tower_from_file(game.bot, rich.id)
     assert await items.count(game.bot, rich.id, items.TOWER_KEY) == 1
@@ -708,14 +708,14 @@ async def test_the_rest_kit_needs_a_used_hunt_the_tower_key_is_stored_any_time(g
     rest = await game.click(panel, ala, merchant.buy_key(0))
     await until(lambda: rest.answers)
     assert rest.answers == [merchant.MSG_HUNT_READY] and await scrolls_of(db, ala.id) == 100
-    assert panel.button_labels == ["Zestaw do wypoczynku (10 zwojów)", "Klucz do wieży (60 zwojów)"]
-    assert "🗝️ **Klucz do wieży** - 60 zwojów\n*Otwiera Drzwi Wieży Śmierci ponownie" in panel.embeds[0].description
+    assert panel.button_labels == ["Zestaw do wypoczynku (10 zwojów)", "Klucz do wieży (25 zwojów)"]
+    assert "🗝️ **Klucz do wieży** - 25 zwojów\n*Otwiera Drzwi Wieży Śmierci ponownie" in panel.embeds[0].description
     key = await game.click(panel, ala, merchant.buy_key(1))
     await until(lambda: game.channel.contains("kupuje **Klucz do wieży**"))
-    assert key.answers == [] and await scrolls_of(db, ala.id) == 40
+    assert key.answers == [] and await scrolls_of(db, ala.id) == 75
     assert await items.count(game.bot, ala.id, items.TOWER_KEY) == 1
     assert not tower.load_weekly_tower_from_file(game.bot, ala.id)            # the door was open: still open
-    assert game.channel.contains(f"🛒 {ala.mention} kupuje **Klucz do wieży** za 60 zwojów! "
+    assert game.channel.contains(f"🛒 {ala.mention} kupuje **Klucz do wieży** za 25 zwojów! "
                                  + merchant.DETAIL_TOWER.format(count=1))
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
@@ -762,7 +762,7 @@ async def test_an_item_ware_waits_while_its_store_is_missing(game_db, cart):
     scroll = await game.click(panel, ala, merchant.buy_key(1))
     await until(lambda: bait.answers and scroll.answers)
     assert bait.answers == scroll.answers == [merchant.MSG_STORE_OFF] and await scrolls_of(db, ala.id) == 1000
-    assert panel.button_labels == ["Przynęta (15 zwojów)", "Zwój przywołania (300 zwojów)"]
+    assert panel.button_labels == ["Przynęta (5 zwojów)", "Zwój przywołania (100 zwojów)"]
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
 
