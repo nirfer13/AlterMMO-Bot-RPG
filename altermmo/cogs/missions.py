@@ -5,8 +5,8 @@ player's missions as one panel (the board, the progress of the pet that is
 away, its result) - like the hub's "Zlecenia" button: on the boss channel
 only, following the busy policy of the display commands, also during the
 sign-up of the "Trening towarzyszy" event (``stable=True``).  ``!przywolaj``
-reads a Zwój przywołania won on a mission (a mythic boss comes): a gameplay
-command.  The buttons under the panel are answered by its own view (they die
+reads a Zwój przywołania (from a mission, a drop or the merchant - a mythic
+boss comes): a gameplay command, silent during a typed fight.  The buttons under the panel are answered by its own view (they die
 with it; a click after a restart is answered as stale).
 
 The cog also runs the notifier "missions-watch" (pays the missions that have
@@ -52,8 +52,9 @@ class MissionsCog(commands.Cog, name="Zlecenia"):
         await missions.show_board(Scene.from_ctx(ctx))
 
     @commands.command(name="przywolaj", aliases=["przywołaj", "przywolanie", "przywołanie"],
-                      brief="Use a summoning scroll from missions (mythic boss).")
+                      brief="Use a summoning scroll (mythic boss).")
     @guards.boss_channel_only()
+    @guards.not_during_fight()
     @guards.unless_busy()
     async def przywolaj(self, ctx: commands.Context) -> None:
         await missions.use_summon_scroll(Scene.from_ctx(ctx))

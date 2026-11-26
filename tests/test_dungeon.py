@@ -2133,16 +2133,19 @@ async def test_the_boss_on_its_way_closes_a_mine_with_a_player_in_a_chamber_and_
     assert state.boss_phase is BossPhase.VISIBLE and empty.settled and len(summaries(game)) == 1
 
 
-async def test_a_summoned_boss_closes_the_mine(game_db, luck, boss):
+async def test_a_summoned_boss_waits_for_the_mine(game_db, luck, boss):
+    """(Owner, 2026-11-26, items_decisions.md §1) a summon no longer closes the mine: the summoning gem and the
+    Zwój przywołania wait until it is gone (they are refused before anything is used).  The scheduled boss
+    still closes it (above)."""
     game = game_db
     bot = game.bot
     ala = game.add_member("Ala")
     mine, message = await go_down(game, ala, 8)                                  # the unclaimed treasury
-    assert await bot.boss_cycle.summon(game.scene(), 3)
-    assert bot.state.boss_phase is BossPhase.VISIBLE and mine.settled and message.deleted
-    assert record_of(game, ala)["state"] == "closed" and xp_of(game, ala) == 0
-    await dungeon.tick(bot)
-    assert len(summaries(game)) == 1
+    assert bot.boss_cycle.open_event_in_the_way() == "mine"
+    for origin in ("", "gem", "scroll"):
+        assert not await bot.boss_cycle.summon(game.scene(ala), 3, origin=origin)
+    assert bot.state.boss_phase is BossPhase.IDLE and not mine.settled and not message.deleted
+    assert dungeon.is_open(bot) and record_of(game, ala)["state"] != "closed"
 
 
 async def test_the_tournament_closes_the_mine_before_it_starts(game_db, luck, monkeypatch):

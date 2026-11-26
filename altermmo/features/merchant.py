@@ -40,7 +40,17 @@ Owner's request of 2026-11-22 (passed on by the owner's other Claude session):
 The goods are :data:`WARES`: an id (the ``id`` in the config), an emoji, a
 description, a check that runs before any scroll is taken and the hand-over
 itself.  A new ware is one more :class:`Ware` here plus its entry in the
-config file.
+config file.  A ware that needs something in the database (:attr:`Ware.needs`:
+a column, the item store) is not offered while it is missing
+(:func:`available_stores`).
+
+Since 2026-11-26 (``items_decisions.md``) most new wares are ITEMS
+(:attr:`Ware.item`): the purchase puts them into the player's items
+(``features/items.py``) - nothing acts at the counter, so the hand-over works
+even before the command that uses the item exists.  The ticket of old
+(``tower_ticket``) is the stored Klucz do wieży now; the Zwój przywołania
+comes "from under the counter".  The new wares ship with weight 0 (the config
+is read live by the running bot: the owner turns them on there).
 """
 
 from __future__ import annotations
@@ -53,7 +63,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Collection, Mapping, Sequence
 
 import discord
 
@@ -61,7 +71,7 @@ from ..core import clock, io, timing, ui
 from ..core.scene import Scene
 from ..core.state import EventType
 from ..settings import CONFIG_DIR
-from . import daily, events, pets, skills, tower
+from . import daily, events, items, pets, skills
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -128,6 +138,14 @@ Check = Callable[["AlterBot", int, "Offer"], Awaitable[str | None]]
 Hand = Callable[[Scene, "Offer"], Awaitable[tuple[bool, str]]]
 
 
+#: What a ware may need in the database to be offered at all (:attr:`Ware.needs`, :func:`draw_stock`'s
+#: ``available``, :func:`available_stores`): the ``PETOWNER`` columns of the stable places and the egg
+#: pouch (``pets.upgrades_available``), the column of the Zwoje przywołania
+#: (``pets.mission_columns_available``), the table ``PLAYER_ITEMS`` (``items.table_ready``).
+NEEDS_UPGRADES, NEEDS_MISSIONS, NEEDS_ITEMS = "upgrades", "missions", "items"
+NEEDS: frozenset[str] = frozenset({NEEDS_UPGRADES, NEEDS_MISSIONS, NEEDS_ITEMS})
+
+
 @dataclass(frozen=True)
 class Ware:
     """One kind of goods the merchant can bring."""
@@ -137,8 +155,11 @@ class Ware:
     about: str
     check: Check
     hand: Hand
-    #: Needs the ``PETOWNER`` columns of the stable places / the egg pouch (``pets.upgrades_available``).
-    needs_upgrades: bool = False
+    #: What it needs in the database (:data:`NEEDS`); without it the ware never comes.
+    needs: frozenset[str] = frozenset()
+    #: The item (a key of ``features/items.py``) the ware puts into the player's items - '' for
+    #: the wares that act at once.
+    item: str = ""
 
 
 @dataclass
@@ -260,34 +281,86 @@ async def _hand_rest(scene: Scene, offer: Offer) -> tuple[bool, str]:
     return False, MSG_HUNT_READY
 
 
-# tower ticket (one more entry this week)
+# an item for the player's items (features/items.py): the Klucz do wieży, the Zwój przywołania and the
+# other items of 2026-11-26.  Stored, never used at the purchase (owner: every item is used later, by a
+# command - a summon would end the merchant's own visit); no cap, so nothing is refused for having many.
+# The hand-over only adds to the store: it works before the command that uses the item exists.
 
-MSG_TOWER_READY = ("W tym tygodniu masz jeszcze wejście do Wieży - wejściówka przyda się, gdy je wykorzystasz.")
-DETAIL_TOWER = "Możesz jeszcze raz wyruszyć do Wieży Śmierci (**!wieża**), gdy kupiec odjedzie."
+MSG_STORE_OFF = "Ten towar chwilowo nie trafi do Twoich przedmiotów - kupiec zatrzyma go dla kogoś innego."
+#: The ticket of old, stored since 2026-11-26 as the Klucz do wieży (``{count}``: the keys he has now).
+DETAIL_TOWER = ("🗝️ Klucz trafia do Twoich przedmiotów (masz ich teraz: {count}). Gdy Drzwi Wieży Śmierci będą "
+                "dla Ciebie zamknięte, otworzysz je komendą **!klucz**.")
+DETAIL_SUMMON = ("📯 Zwój trafia do Twoich przedmiotów (masz ich teraz: {count}) - odczytasz go na kanale bossa "
+                 "komendą **!przywolaj**.")
+DETAIL_ITEM = "Trafia do Twoich przedmiotów (masz teraz: {count}) - zajrzysz do nich komendą **!przedmioty**."
+#: The sale's detail of an item ware (default: :data:`DETAIL_ITEM`).
+_ITEM_DETAILS: dict[str, str] = {items.TOWER_KEY: DETAIL_TOWER, items.SUMMON_SCROLL: DETAIL_SUMMON}
 
 
-async def _check_tower(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
-    return None if tower.load_weekly_tower_from_file(bot, player_id) else MSG_TOWER_READY
+async def _check_item(bot: "AlterBot", player_id: int, offer: Offer) -> str | None:
+    """Refused only while the item's store is not there (``items.store_ready``): no cap."""
+    return None if await items.store_ready(bot, items.BY_KEY[offer.ware.item]) else MSG_STORE_OFF
 
 
-async def _hand_tower(scene: Scene, offer: Offer) -> tuple[bool, str]:
-    if daily.release_cooldown(scene.bot.store.weekly_tower_cd, scene.author.id):
-        return True, DETAIL_TOWER
-    return False, MSG_TOWER_READY
+async def _hand_item(scene: Scene, offer: Offer) -> tuple[bool, str]:
+    """One item more (``items.grant``: one statement, never retried - an error counts as sold, the owner checks)."""
+    item = items.BY_KEY[offer.ware.item]
+    if not await items.store_ready(scene.bot, item):
+        return False, MSG_STORE_OFF
+    count = await items.grant(scene.bot, scene.author.id, item)
+    return True, _ITEM_DETAILS.get(item.key, DETAIL_ITEM).format(count=count)
 
 
-#: Every ware the merchant can bring, by the ``id`` of ``config/merchantConfig.json``.
+def _item_ware(ware_id: str, key: str, about: str | None = None, *, needs: str = NEEDS_ITEMS) -> Ware:
+    """The ware of an item of features/items.py (its emoji; ``about``: default its description)."""
+    item = items.BY_KEY[key]
+    text = about if about is not None else f"{item.description} Trafia do Twoich przedmiotów."
+    return Ware(ware_id, item.emoji, text, _check_item, _hand_item, needs=frozenset({needs}), item=key)
+
+
+#: Every ware the merchant can bring, by the ``id`` of ``config/merchantConfig.json``.  (The wares
+#: after the gem came on 2026-11-26 with weight 0 in the config; the owner turns them on there.)
 WARES: dict[str, Ware] = {ware.id: ware for ware in (
     Ware("egg_pouch", "👝", "Gdy masz przy sobie towarzysza, nowe jajko trafi do sakwy, zamiast przepaść. "
-         "W sakwie jajko nie rośnie - żeby je wychować, wyjmij je.", _check_pouch, _hand_pouch, needs_upgrades=True),
+         "W sakwie jajko nie rośnie - żeby je wychować, wyjmij je.", _check_pouch, _hand_pouch,
+         needs=frozenset({NEEDS_UPGRADES})),
     Ware("random_egg", "🥚", "Losowe jajko, takie jak z łupu.", _check_egg, _hand_egg),
     Ware("stable_place", "🐴", "Jedno miejsce więcej w Twojej stajni.", _check_stable, _hand_stable,
-         needs_upgrades=True),
+         needs=frozenset({NEEDS_UPGRADES})),
     Ware("random_gem", "💎", "Losowy klejnot umiejętności - takiego rodzaju, jakiego jeszcze nie masz.",
          _check_gem, _hand_gem),
     Ware("rest_kit", "🛏️", "Pozwala od razu znowu zapolować.", _check_rest, _hand_rest),
-    Ware("tower_ticket", "🎟️", "Jedno dodatkowe wejście do Wieży Śmierci w tym tygodniu.", _check_tower, _hand_tower),
+    # (The config id of the "Wejściówka do wieży" of old: since 2026-11-26 the stored Klucz do wieży.)
+    _item_ware("tower_ticket", items.TOWER_KEY,
+               "Otwiera Drzwi Wieży Śmierci ponownie, gdy w tym tygodniu już tam byłeś. Trafia do Twoich "
+               "przedmiotów - użyjesz go, kiedy zechcesz."),
+    _item_ware("summon_scroll", items.SUMMON_SCROLL,
+               "Spod lady. Kupiec zarzeka się, że takich rzeczy nie sprzedaje - ten jeden „znalazł na "
+               "gościńcu”. Trafia do Twoich przedmiotów.", needs=NEEDS_MISSIONS),
+    _item_ware("feather", items.FEATHER),
+    _item_ware("bait", items.BAIT),
+    _item_ware("revive_scroll", items.REVIVE_SCROLL),
+    _item_ware("rope", items.ROPE),
+    _item_ware("dust", items.DUST),
 )}
+
+
+async def available_stores(bot: "AlterBot") -> frozenset[str]:
+    """Which of :data:`NEEDS` the database has now (:func:`draw_stock`'s ``available``).  Never raises.
+
+    A check that fails counts as "not there": its wares stay at home for this
+    visit, the others come.
+    """
+    checks = {NEEDS_UPGRADES: pets.upgrades_available, NEEDS_MISSIONS: pets.mission_columns_available,
+              NEEDS_ITEMS: items.table_ready}
+    available = set()
+    for need, check in checks.items():
+        try:
+            if await check(bot):
+                available.add(need)
+        except Exception:  # noqa: BLE001 - those wares stay at home this time
+            log.exception("Merchant: cannot tell whether %r is there.", need)
+    return frozenset(available)
 
 
 # -- the config ----------------------------------------------------------------------------
@@ -391,12 +464,17 @@ def draw_price(price: int, spread_percent: float, rng: Any = random) -> int:
     return low if low == high else rng.randint(low, high)
 
 
-def draw_stock(config: Config, *, upgrades: bool = True, rng: random.Random | None = None) -> list[Offer]:
+def draw_stock(config: Config, *, available: Collection[str] | None = None, upgrades: bool = True,
+               rng: random.Random | None = None) -> list[Offer]:
     """The merchant's cart: how many wares (``stock_weights``), then that many DIFFERENT ones by weight.
 
-    Wares with weight 0 never come; without the ``PETOWNER`` columns
-    (``upgrades=False``) neither do the stable place and the egg pouch.  Fewer
-    wares when fewer can come; an empty list when none can.
+    Wares with weight 0 never come; neither does a ware whose :attr:`Ware.needs`
+    the database does not have - ``available`` (:func:`available_stores`;
+    None: everything is there).  ``upgrades=False`` (the older way to say it)
+    takes the ``PETOWNER`` columns of the stable place and the egg pouch out
+    of ``available``.  Fewer wares when fewer can come; an empty list when
+    none can.  (Which wares are left out changes nothing in the draw of the
+    others: they are out of the pool before the first die.)
 
     The price of a ware with a spread (``price_spread_percent``) is drawn here,
     once for the visit (:func:`draw_price`).  The prices are drawn AFTER the
@@ -405,8 +483,10 @@ def draw_stock(config: Config, *, upgrades: bool = True, rng: random.Random | No
     nothing more.
     """
     rng = rng or random
-    pool = [(item, item[3]) for item in config.items
-            if item[3] > 0 and (upgrades or not WARES[item[0]].needs_upgrades)]
+    have = set(NEEDS if available is None else available)
+    if not upgrades:
+        have.discard(NEEDS_UPGRADES)
+    pool = [(item, item[3]) for item in config.items if item[3] > 0 and WARES[item[0]].needs <= have]
     counts = sorted(config.stock_weights)
     count = rng.choices(counts, weights=[config.stock_weights[c] for c in counts])[0]
     chosen: list[Offer] = []
@@ -536,7 +616,7 @@ async def spawn_merchant(scene: Scene) -> list[Offer]:
     bot = scene.bot
     state = bot.state
     config = load_config()
-    stock = draw_stock(config, upgrades=await pets.upgrades_available(bot))
+    stock = draw_stock(config, available=await available_stores(bot))
     if not stock:
         log.warning("Merchant skipped: no ware can come (check %s).", CONFIG_FILE.name)
         return []

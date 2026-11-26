@@ -220,6 +220,28 @@ def test_a_summoned_boss_of_a_bot_that_was_not_running_is_dropped_with_its_origi
     assert bot.store.runtime.load() == {"boss_spawning_enabled": True}
 
 
+@pytest.mark.parametrize("claimed", [False, True])
+def test_an_unclaimed_scroll_boss_of_a_bot_that_was_not_running_owes_its_scroll(game, claimed):
+    """(Items, 2026-11-26) dropped like every summoned boss - and its scroll goes back once the cycle runs
+    (``boss_cycle.KEY_REFUND_DUE``); a claimed one gives nothing back."""
+    import os
+    import time
+
+    from altermmo.features import boss_cycle
+
+    bot = game.bot
+    bot.store.runtime.save({"summoned_boss_rarity": 4, "boss_spawning_enabled": True,
+                            "summoned_boss_info": {"origin": "scroll", "at": "2026-11-20T10:00:00+00:00",
+                                                   "by": 42, "claimed": claimed}})
+    three_days_ago = time.time() - 3 * 86400
+    os.utime(bot.store.runtime.path, (three_days_ago, three_days_ago))
+    bot._review_saved_state()
+    expected = {"boss_spawning_enabled": True}
+    if not claimed:
+        expected[boss_cycle.KEY_REFUND_DUE] = {"by": 42, "why": boss_cycle.WHY_STALE}
+    assert bot.store.runtime.load() == expected
+
+
 def test_owner_is_told_when_spawning_is_switched_off(game):
     bot = game.bot
     bot.store.runtime_set("boss_spawning_enabled", False)

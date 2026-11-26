@@ -108,6 +108,24 @@ async def test_the_missions_button_carries_its_player_and_mission(game):
     assert cls in set(game.bot._connection._view_store._dynamic_items.values())
 
 
+async def test_the_key_button_carries_its_player_and_survives_a_restart(game):
+    """(Items, 2026-11-26) "Użyj klucza" under the closed tower door (features/tower.py)."""
+    view = shortcuts.key_view(SimpleNamespace(id=123456789012345678))
+    (button,) = view.children
+    assert isinstance(button, shortcuts.KeyButton) and view.timeout is None and view.is_persistent()
+    assert button.custom_id == "altermmo:tower:key:123456789012345678" and not button.custom_id.startswith(
+        ui.FLOW_PREFIX)
+    assert button.item.label == "Użyj klucza" and str(button.item.emoji) == "🗝️"
+    cls = shortcuts.KeyButton
+    rebuilt = await cls.from_custom_id(None, None, cls.__discord_ui_compiled_template__.fullmatch(
+        "altermmo:tower:key:77"))
+    assert rebuilt.player_id == 77 and rebuilt.custom_id == "altermmo:tower:key:77"
+    for other in (shortcuts.PetButton, shortcuts.AlbumButton, shortcuts.EntryButton, shortcuts.MissionsButton):
+        assert other.__discord_ui_compiled_template__.fullmatch("altermmo:tower:key:77") is None
+    await game.bot.load_extension("altermmo.cogs.hub")
+    assert cls in set(game.bot._connection._view_store._dynamic_items.values())
+
+
 def test_registering_never_raises():
     class Broken:
         def add_dynamic_items(self, *items):

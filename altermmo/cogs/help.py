@@ -35,7 +35,7 @@ Więcej informacji w wiadomości https://discord.com/channels/686137998177206281
 #: ``(field name, field value)``; mentions render only in values, never in names.
 HELP_FIELDS: tuple[tuple[str, str], ...] = (
     ("⚔️ Przygoda", """- **!polowanie - Polujesz na zwykłe stwory, możliwe raz dziennie lub po odpowiedniej modlitwie w kapliczce**. Komenda, od której warto zacząć przygodę. Inni dołączają przyciskiem **Dołącz do polowania** albo wpisując od razu !polowanie. Skróty !p, !pol.
-- **!wieża - Wyruszasz na eksplorację Wieży Śmierci. Im wyżej, tym trudniej**. Dostępna raz w tygodniu.
+- **!wieża - Wyruszasz na eksplorację Wieży Śmierci. Im wyżej, tym trudniej**. Raz w tygodniu - albo z kluczem (!klucz).
 - !zaatakuj - Atakuje bossa, gdy ten czeka na tym kanale (albo przycisk **Zaatakuj** pod bossem). Na legendarnego bossa zbiera się drużyna: **Dołącz** albo !zaatakuj, a gotowość potwierdza się przyciskiem **Gotowy** albo wpisując !tak.
 - !skrzynia - Otwiera skrzynię, gdy pojawi się na kanale (albo przycisk **Otwórz skrzynię**).
 - Wędrowny kupiec - kupujesz za zwoje przyciskiem pod jego postem; kto pierwszy, ten lepszy.
@@ -62,13 +62,13 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
 - !wybierzklejnot numer - Zmienia aktywny klejnot na wybrany z listy !klejnoty. Skrót !ws.
 - !pokazskill - Prezentuje aktywny klejnot umiejętności. Skrót !pu.
 - !skill - Używa aktywnego klejnotu umiejętności. Skrót !uu."""),
-    ("🎒 Przedmioty", """- !przedmioty - Wszystko, co nosisz w sakwie, także bez towarzysza. Skrót !eq."""),
+    ("🎒 Przedmioty", """- !przedmioty - Wszystko, co nosisz w sakwie, także bez towarzysza. Skrót !eq.
+- !przywolaj - Odczytuje Zwój przywołania: przybywa mityczny boss (czeka pół godziny)."""),
     ("👑 Rzeźnik Potworów", """Komendy dla <@&983798433590673448>:
 - !flex - Pokaż innym jakim jesteś koxem.
 - !kolor kolor_hex - Zmienia kolor rangi <@&983798433590673448>, np. !kolor 00FFFF.
 - !ikona - Zmienia ikonę rangi: wyślij komendę z dołączonym obrazkiem .png."""),
-    ("🧭 Zlecenia", """- **!zlecenia - Raz dziennie wysyłasz towarzysza (tego przy Tobie albo ze stajni) na zlecenie z tablicy; szansę widzisz przed wysłaniem**. Pokazuje też postęp i łup. Skrót !zl.
-- !przywolaj - Odczytuje Zwój przywołania zdobyty na zleceniu: na kanał przybywa mityczny boss."""),
+    ("🧭 Zlecenia", """- **!zlecenia - Raz dziennie wysyłasz towarzysza (tego przy Tobie albo ze stajni) na zlecenie z tablicy; szansę widzisz przed wysłaniem**. Pokazuje też postęp i łup. Skrót !zl."""),
     # Before 2026-11-20: "🙏 Patroni" (crafters and patrons only).
     ("🙏 Wspierający", f"""Komendy tylko dla wspierających ({patrons.SUPPORTERS_LONG}):
 - !modlitwa - Gdy pojawi się kapliczka, modlitwą (albo przyciskiem **Pomódl się**) można wpłynąć na statystyki kolejnego bossa.

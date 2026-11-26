@@ -16,7 +16,11 @@ który od razu pokazuje album."
   opens the player's mission board, as the panel's "Zlecenia" button does.
   Its id also names the mission (``altermmo:show:missions:<id>:<mission>``):
   the player has read that result in the post, so his board does not show it
-  a second time (``missions.show_board(seen=...)``).
+  a second time (``missions.show_board(seen=...)``);
+* :func:`key_view` goes under the answer "Drzwi Wieży Śmierci ani drgną" for a
+  player who has a Klucz do wieży (``tower.start_tower``, 2026-11-26): "Użyj
+  klucza" is his ``!klucz`` - a gameplay click with the tower's own answers
+  (``hub.tower_clicked(use_key=True)``), not a display.
 
 A button belongs to the player of its message: his id is part of the
 ``custom_id`` (``altermmo:show:pet:<id>``), so the button keeps working after a
@@ -55,6 +59,9 @@ ENTRY_ID = ui.PREFIX + "show:entry:{player_id}:{entry_id}"
 MISSIONS_LABEL = "Zlecenia"
 MISSIONS_EMOJI = "🧭"
 MISSIONS_ID = ui.PREFIX + "show:missions:{player_id}:{mission_id}"
+KEY_LABEL = "Użyj klucza"
+KEY_EMOJI = "🗝️"
+KEY_ID = ui.PREFIX + "tower:key:{player_id}"
 
 
 async def _clicked(interaction: Any, player_id: int, what: str, entry_id: int | None = None) -> bool:
@@ -75,6 +82,8 @@ async def _clicked(interaction: Any, player_id: int, what: str, entry_id: int | 
     try:
         if what == "missions":  # (the board's own gate: boss channel only)
             return await hub.missions_clicked(interaction, seen=int(entry_id or 0))
+        if what == "key":  # (a gameplay click: the tower's own gate and answers)
+            return await hub.tower_clicked(interaction, use_key=True)
         return await hub.show_display(interaction, show)
     except Exception as exc:  # noqa: BLE001 - discord.py would only log it: answer and report as a view does
         log.error("Shortcut %s of %s failed.", what, player_id, exc_info=exc)
@@ -155,6 +164,22 @@ class MissionsButton(discord.ui.DynamicItem[discord.ui.Button],
         await _clicked(interaction, self.player_id, "missions", self.mission_id)
 
 
+class KeyButton(discord.ui.DynamicItem[discord.ui.Button], template=r"altermmo:tower:key:(?P<player>[0-9]{1,20})"):
+    """"Użyj klucza" under the closed Drzwi Wieży Śmierci: ``!klucz`` of one player (features/tower.py)."""
+
+    def __init__(self, player_id: int) -> None:
+        self.player_id = int(player_id)
+        super().__init__(discord.ui.Button(label=KEY_LABEL, emoji=KEY_EMOJI, style=discord.ButtonStyle.primary,
+                                           custom_id=KEY_ID.format(player_id=self.player_id)))
+
+    @classmethod
+    async def from_custom_id(cls, interaction: Any, item: Any, match: re.Match[str], /) -> "KeyButton":
+        return cls(int(match["player"]))
+
+    async def callback(self, interaction: Any) -> None:
+        await _clicked(interaction, self.player_id, "key")
+
+
 def _view(*items: discord.ui.Item) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
     for item in items:
@@ -181,10 +206,15 @@ def missions_view(player_id: Any, mission_id: int) -> discord.ui.View:
     return _view(MissionsButton(int(getattr(player_id, "id", player_id)), int(mission_id)))
 
 
+def key_view(player_id: Any) -> discord.ui.View:
+    """The "Użyj klucza" button of ``player_id`` (a member or an id) under the closed tower door."""
+    return _view(KeyButton(int(getattr(player_id, "id", player_id))))
+
+
 def register(bot: Any) -> bool:
     """Make the shortcut buttons of messages posted before a restart work.  Call once; never raises."""
     try:
-        bot.add_dynamic_items(PetButton, AlbumButton, EntryButton, MissionsButton)
+        bot.add_dynamic_items(PetButton, AlbumButton, EntryButton, MissionsButton, KeyButton)
         return True
     except Exception:  # noqa: BLE001 - the buttons of old messages stay dead, nothing else
         log.exception("Could not register the shortcut buttons.")

@@ -111,7 +111,8 @@ PANEL_GAME_TEXT = (
     "dotąd - ich listę znajdziesz pod przyciskiem **Pomoc**.\n\n"
     "⚔️ **Polowanie** - zapoluj na zwykłe stwory (raz dziennie, modlitwa w kapliczce może to odnowić). "
     "Inni łowcy dołączą przyciskiem pod potworem.\n"
-    "🏰 **Wieża** - wyrusz na eksplorację Wieży Śmierci (raz w tygodniu). Im wyżej, tym trudniej!\n"
+    "🏰 **Wieża** - wyrusz na eksplorację Wieży Śmierci (raz w tygodniu - **Klucz do wieży** otworzy ją "
+    "ponownie). Im wyżej, tym trudniej!\n"
     "🧭 **Zlecenia** - raz dziennie wyślij towarzysza na zlecenie z tablicy: szansę powodzenia poznasz przed "
     "wysłaniem, a im trudniejsze i dłuższe zlecenie, tym lepszy łup.\n"
     "🐾 **Towarzysz**, 🐴 **Stajnia**, 💎 **Klejnoty** - podejrzyj swojego towarzysza, stajnię "
@@ -298,9 +299,10 @@ class HubView(ui.GameView):
         await notify_clicked(interaction)
 
 
-def _refusal(interaction: Any) -> Callable[[str], Awaitable[Any]]:
-    async def refuse(text: str) -> None:
-        await ui.reply(interaction, text)
+def _refusal(interaction: Any) -> Callable[..., Awaitable[Any]]:
+    """``refuse(text, **message)`` of a click: ``ui.reply`` (``view=`` etc. are passed on)."""
+    async def refuse(text: str, **message: Any) -> None:
+        await ui.reply(interaction, text, **message)
 
     return refuse
 
@@ -334,17 +336,21 @@ async def hunt_clicked(interaction: Any) -> bool:
                                                                 refuse=_refusal(interaction)))
 
 
-async def tower_clicked(interaction: Any) -> bool:
-    """"Wieża": ``!wieża`` for the clicker; True when a run took place (minutes later)."""
+async def tower_clicked(interaction: Any, *, use_key: bool = False) -> bool:
+    """"Wieża": ``!wieża`` for the clicker; True when a run took place (minutes later).
+
+    ``use_key=True``: "Użyj klucza" under the closed tower door
+    (``shortcuts.KeyButton``) - ``!klucz`` for the clicker.
+    """
     from . import tower
 
     if not await ui.gate(interaction, unless_busy=False):  # start_tower answers "busy" itself
         return False
     if not await ui.ack(interaction):
         return False  # Discord gave the click up: the player saw "interaction failed"
-    log.info("Hub: tower clicked by %s.", interaction.user.id)
+    log.info("Hub: tower clicked by %s%s.", interaction.user.id, " (with a key)" if use_key else "")
     return await _guarded(interaction, lambda: tower.start_tower(ui.scene_of(interaction),
-                                                                 refuse=_refusal(interaction)))
+                                                                 refuse=_refusal(interaction), use_key=use_key))
 
 
 async def missions_clicked(interaction: Any, *, seen: int = 0) -> bool:

@@ -22,7 +22,7 @@ from .core.scene import Scene
 from .core.state import GameState
 from .core.storage import IdListFile, JsonFile, migrate_legacy_file
 from .core.supervisor import Supervisor
-from .features import petcards
+from .features import boss_cycle, petcards
 from .features.boss_cycle import BossCycle
 from .settings import COMMAND_PREFIX, COMMAND_PREFIXES, PROJECT_ROOT, Ids, Settings, Timings
 
@@ -461,9 +461,14 @@ class AlterBot(commands.Bot):
         if idle_for > STALE_STATE_AFTER:
             data = runtime.load()
             # A summoned boss from days ago is not brought back (its rarity and how it came,
-            # see boss_cycle._KEY_SUMMONED / _KEY_SUMMONED_INFO).
+            # see boss_cycle._KEY_SUMMONED / _KEY_SUMMONED_INFO).  A boss of a Zwój przywołania
+            # that nobody had claimed gives its scroll back: the boss cycle pays it once it runs.
             summoned = data.pop("summoned_boss_rarity", None) is not None
-            if data.pop("summoned_boss_info", None) is not None or summoned:
+            info = data.pop("summoned_boss_info", None)
+            owed = boss_cycle.scroll_refund_owed(info) if summoned else None
+            if owed is not None:
+                data[boss_cycle.KEY_REFUND_DUE] = {**owed, "why": boss_cycle.WHY_STALE}
+            if info is not None or summoned:
                 runtime.save(data)
             stale = [key for key in data if key.startswith("job_last_run:")]
             if stale:

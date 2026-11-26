@@ -214,6 +214,11 @@ MSG_EVENT_IN_THE_WAY = ("Trwa teraz inne wydarzenie, <@{player_id}>! Klejnot prz
                         "spróbuj ponownie, gdy się zakończy <:Bedge:970576892874854400>")
 MSG_BOSS_IN_THE_WAY = ("Boss już jest na kanale albo właśnie nadciąga, <@{player_id}>! Klejnot przywołania "
                        "nie został użyty - spróbuj ponownie później <:Bedge:970576892874854400>")
+#: Beside an open passive event (owner, 2026-11-26: a summoned boss no longer closes it; the gem waits).
+MSG_MERCHANT_IN_THE_WAY = ("Wędrowny kupiec jeszcze nie zwinął kramu, <@{player_id}> - przywołany boss rozniósłby "
+                           "mu wóz w drzazgi. Klejnot przywołania nie został użyty.")
+MSG_MINE_IN_THE_WAY = ("Kopalnia Ostatniej Lampy jest jeszcze otwarta, <@{player_id}> - ryk przywołanego bossa "
+                       "zawaliłby sztolnię. Klejnot przywołania nie został użyty.")
 MSG_INTERRUPTED = ("Problemy z połączeniem przerwały użycie klejnotu <:Sadge:936907659142111273> "
                    "Moc Twojego kamienia umiejętności nie została wyczerpana - spróbuj ponownie za chwilę.")
 
@@ -1003,7 +1008,21 @@ async def skill_spawn_boss(scene: "Scene") -> bool:
         # Their sign-up leaves the channel free; a boss now would wipe it.
         await scene.send(MSG_EVENT_IN_THE_WAY.format(player_id=scene.author.id))
         return False
+    open_event = _open_event_text(bot)
+    if open_event is not None:
+        # The merchant, the mine, a chest, the shrine: the summoned boss waits for them (owner, 2026-11-26).
+        await scene.send(open_event.format(player_id=scene.author.id))
+        return False
     return True
+
+
+def _open_event_text(bot: "AlterBot") -> str | None:
+    """The refusal (with ``{player_id}``) when an open passive event keeps the gem's boss away
+    (``BossCycle.open_event_in_the_way``), else None."""
+    from . import boss_cycle
+
+    return {boss_cycle.OPEN_MERCHANT: MSG_MERCHANT_IN_THE_WAY, boss_cycle.OPEN_MINE: MSG_MINE_IN_THE_WAY,
+            boss_cycle.OPEN_EVENT: MSG_EVENT_IN_THE_WAY}.get(bot.boss_cycle.open_event_in_the_way())
 
 
 async def skill_summon_boss(scene: "Scene") -> bool:
@@ -1033,7 +1052,9 @@ async def skill_summon_boss(scene: "Scene") -> bool:
             log.info("Boss of the summoning gem did not appear; player %s keeps the weekly use.",
                      scene.author.id)
     if not summoned:
-        await scene.send(MSG_BOSS_IN_THE_WAY.format(player_id=getattr(scene.author, "id", 0)))
+        # (An event opened between the check and the summon: its own words; else a boss was faster.)
+        refusal = _open_event_text(bot) or MSG_BOSS_IN_THE_WAY
+        await scene.send(refusal.format(player_id=getattr(scene.author, "id", 0)))
         return False
     log.info("Boss of rarity %s summoned by the skill gem of %s.", rarity, getattr(scene.author, "id", None))
     return True

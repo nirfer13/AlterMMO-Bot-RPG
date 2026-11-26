@@ -23,6 +23,13 @@ v2 panels change only the "come back later" text: it shows the real moment of
 the weekly reset (:func:`altermmo.features.daily.next_season_end`) as
 Discord's live "za 3 dni".  :func:`start_tower` is the whole ``!wieża``
 command, so a button elsewhere (the hub panel) can run exactly the same thing.
+
+The Klucz do wieży (owner, 2026-11-26): a stored item (``PLAYER_ITEMS``
+``tower_key``, :mod:`altermmo.features.items`; it drops, and the merchant
+sells it) that opens the door once more in a week whose run the player has
+already had.  It is used on purpose - ``!klucz`` or the "Użyj klucza" button
+under the closed-door answer (``shortcuts.key_view``) - both are
+``start_tower(use_key=True)``.
 """
 
 from __future__ import annotations
@@ -78,10 +85,11 @@ MSG_FIGHT_START = ("Rozpoczyna się walka w Wieży Śmierci, <@{user_id}>! Każd
                    "boss do pokonania <:REEeee:790963160495947856>! Wpisz pojawiające się słowa tak szybko, "
                    "jak to możliwe! Wielkość liter nie ma znaczenia! Wpisz słowa bez spacji! Przygotuj się!")
 MSG_FLOOR_CLEARED = "Brawo <@{user_id}> <:ok:990161663053422592> Piętro zaliczone!"
-MSG_MISTAKE_LOST = ("Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie w przyszłym tygodniu! "
-                    "<:RIP:912797982917816341> Twój rekord został zapisany!")
+MSG_MISTAKE_LOST = ("Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie w przyszłym tygodniu - albo "
+                    "wcześniej, z Kluczem do wieży! <:RIP:912797982917816341> Twój rekord został zapisany!")
 MSG_TOO_SLOW_LOST = ("Niestety nie zdążyłeś! <:Bedge:970576892874854400>  Spróbuj ponownie w przyszłym "
-                     "tygodniu! <:RIP:912797982917816341> Twój rekord został zapisany!")
+                     "tygodniu - albo wcześniej, z Kluczem do wieży! <:RIP:912797982917816341> Twój rekord został "
+                     "zapisany!")
 MSG_NO_RECORD = "Jeszcze nie udało Ci się zeksplorować Wieży Śmierci.\n"
 
 LOG_WEEKLY_RESET = "Zresetowano cooldown na weekly tower."
@@ -105,11 +113,32 @@ MSG_BOSS_COMING = ("Zaraz pojawi się prawdziwe wyzwanie <:MonkaS:88218170910009
 MSG_BOSS_HERE = ("Nie możesz ruszyć na eksplorację Wieży Śmierci, na Twojej drodze stoi boss "
                  "<:MonkaS:882181709100097587> Kliknij **Zaatakuj** pod bossem albo wpisz **!zaatakuj**, "
                  "żeby stawić mu czoła.")
-#: ``{when}``: Discord's live countdown to the weekly reset.
-MSG_ON_COOLDOWN = ("Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie {when} "
-                   "<:Bedge:970576892874854400>")
+#: ``{when}``: Discord's live countdown to the weekly reset.  (Owner, 2026-11-26: with the hint
+#: that a Klucz do wieży opens the door again - :data:`MSG_ON_COOLDOWN_KEYS` for who has one.)
+MSG_ON_COOLDOWN = ("Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie {when} - chyba że ktoś ma "
+                   "**Klucz do wieży** <:Bedge:970576892874854400>")
+#: ... for a player who has keys (``{keys}``); the "Użyj klucza" button comes with it (``shortcuts.key_view``).
+MSG_ON_COOLDOWN_KEYS = ("Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie {when} - ale masz **Klucz do "
+                        "wieży** (sztuk: {keys})! Kliknij **Użyj klucza** albo wpisz **!klucz** 🗝️")
 # Only for a click (a typed !wieża stays silent during a boss fight, as before).
 MSG_BOSS_FIGHT = "Trwa walka z bossem - Wieża Śmierci musi poczekać <:MonkaS:882181709100097587>"
+
+# The Klucz do wieży (owner, 2026-11-26): ``!klucz`` / the "Użyj klucza" button (:func:`start_tower`
+# with ``use_key=True``).
+MSG_KEY_USED = ("🗝️ <@{user_id}> przekręca w zamku **Klucz do wieży**. Zgrzyt, jęk zawiasów - i Drzwi Wieży "
+                "Śmierci stają otworem! (zostało kluczy: {left})")
+MSG_KEY_KEPT = "Drzwi Wieży Śmierci są otwarte, <@{user_id}> - klucz zostaje w kieszeni."
+#: ``!klucz`` without a key while the door is closed for the player.
+MSG_NO_KEY = ("Nie masz przy sobie **Klucza do wieży**, <@{user_id}>. Drzwi Wieży Śmierci otworzą się ponownie "
+              "{when} <:Bedge:970576892874854400>")
+#: To the owner (with a ping) when the database did not answer the taking of a key (taken or not: unknown).
+LOG_KEY_UNSURE = ("Nie wiadomo, czy Klucz do wieży gracza <@{user_id}> został zabrany - baza danych nie "
+                  "odpowiedziała (`{error}`), wyprawa do Wieży się nie zaczęła. Sprawdź PLAYER_ITEMS i w razie "
+                  "potrzeby oddaj klucz: `!DajPrzedmiot @gracz klucz do wieży 1`")
+#: To the owner (with a ping) when a key taken during the Monday reset could not be given back.
+LOG_KEY_NOT_RETURNED = ("Klucz do wieży gracza <@{user_id}> nie wrócił (`{error}`): Drzwi Wieży otworzył "
+                        "w tej samej chwili poniedziałkowy reset, więc klucz się nie przydał - oddaj go: "
+                        "`!DajPrzedmiot @gracz klucz do wieży 1`")
 
 
 # -- database ------------------------------------------------------------------------
@@ -386,21 +415,37 @@ async def explore_tower(scene: "Scene") -> int:
     return cleared
 
 
-async def start_tower(scene: "Scene", *, refuse: Any = None) -> bool:
+async def start_tower(scene: "Scene", *, refuse: Any = None, use_key: bool = False) -> bool:
     """The whole ``!wieża`` command of ``scene.author`` (boss phase, cooldown, busy flag, the run).
 
     The command guards (boss channel, busy notice) run before; this checks the
     busy flag again because a click (the hub panel) has no command guards.
-    ``refuse`` (``async (text) -> Any``) answers a click (``ui.reply``); None (a
-    typed command) answers on the channel as before.  Returns True when a run
-    took place.  The run lasts minutes inside this call: acknowledge a click
-    before calling it.
+    ``refuse`` (``async (text, **message) -> Any``) answers a click
+    (``ui.reply``); None (a typed command) answers on the channel as before.
+    Returns True when a run took place.  The run lasts minutes inside this
+    call: acknowledge a click before calling it.
+
+    ``use_key=True`` is ``!klucz`` / the "Użyj klucza" button (owner,
+    2026-11-26): with the door open it is a normal free run and the key stays
+    in the pocket; with the door closed for the player a Klucz do wieży is
+    taken - INSIDE the busy hold (:func:`_open_with_key`), so that there is
+    still no await between the cooldown check and ``hold_busy``: two clicks
+    cannot both start, nor one player run twice on one key.  The door closed
+    without a key (``use_key`` or not) is answered with the reset's countdown
+    - for a player who has keys with the "Użyj klucza" button under it.
     """
     bot = scene.bot
     state = bot.state
     player = scene.author
     if player is None:
         raise ValueError("start_tower needs a scene with an author")
+
+    async def tell(text: str, **message: Any) -> None:
+        if refuse is not None:
+            await (refuse(text, **message) if message else refuse(text))
+        else:
+            await io.send(scene.channel, text, **message)
+
     if state.busy:  # somebody took the channel between the guard and here
         if refuse is None:
             await guards.notify_busy(scene)  # type: ignore[arg-type] - needs only ``.channel``
@@ -410,16 +455,15 @@ async def start_tower(scene: "Scene", *, refuse: Any = None) -> bool:
     phase = state.boss_phase
     on_cd = load_weekly_tower_from_file(bot, player.id)
     # No await between the checks above and hold_busy: two players cannot both start.
-    if (not state.boss_blocks_activities or bot.debug) and not on_cd:
+    if (not state.boss_blocks_activities or bot.debug) and (not on_cd or use_key):
         with state.hold_busy("tower"):
+            if on_cd:
+                if not await _open_with_key(scene, tell):
+                    return False
+            elif use_key:
+                await _say(scene, MSG_KEY_KEPT.format(user_id=player.id))
             await explore_tower(scene)
         return True
-
-    async def tell(text: str) -> None:
-        if refuse is not None:
-            await refuse(text)
-        else:
-            await io.send(scene.channel, text)
 
     if phase is BossPhase.PRE_SPAWN:
         await tell(MSG_BOSS_COMING)
@@ -429,13 +473,103 @@ async def start_tower(scene: "Scene", *, refuse: Any = None) -> bool:
         if refuse is not None:  # a typed command stays silent during a boss fight, as before
             await refuse(MSG_BOSS_FIGHT)
     elif on_cd:
-        await tell(cooldown_text())
+        keys = await keys_of(bot, player.id)
+        if keys > 0 and not challenge.fight_on(scene.channel):
+            from . import shortcuts  # (lazily, as everywhere: the shortcuts reach the hub)
+
+            await tell(cooldown_text(keys), view=shortcuts.key_view(player.id))
+        else:
+            await tell(cooldown_text())
     return False
 
 
-def cooldown_text() -> str:
-    """"Come back later" with Discord's live countdown to the weekly reset (Monday 15:00)."""
-    return MSG_ON_COOLDOWN.format(when=ui.when(daily.next_season_end()))
+async def _open_with_key(scene: "Scene", tell: Any) -> bool:
+    """The door is closed for ``scene.author``: open it with a Klucz do wieży.  True: the run may start.
+
+    Called inside ``hold_busy("tower")`` (see :func:`start_tower`).  The key
+    is taken conditionally (``items.take``: never below 0, never retried).
+    Then the weekly cooldown is looked at again: should the Monday reset have
+    opened the door while the database was asked, the key is given back and
+    the run is the week's free one.  Otherwise the cooldown is released (the
+    run puts it back before floor 1, :func:`explore_tower`) and the key's line
+    is posted.  No key: the reset's countdown.  A database error: no run, the
+    owner is pinged (the key may be gone or not - he checks).  A key run that
+    breaks before any reward gives the attempt back as every run does; the
+    key does not come back on top of it.
+    """
+    bot, player = scene.bot, scene.author
+    try:
+        ready = await items.table_ready(bot)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - nothing was taken
+        log.exception("Tower: the item store could not be asked for the key of %s.", player.id)
+        await tell(ui.MSG_FAILED)
+        return False
+    try:
+        left = await items.take(bot, player.id, items.TOWER_KEY) if ready else None
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - taken or not: unknown, the owner checks
+        log.exception("Tower: the key of %s could not be taken.", player.id)
+        await bot.log_to_owner(LOG_KEY_UNSURE.format(user_id=player.id, error=type(exc).__name__), ping=True)
+        await tell(ui.MSG_FAILED)
+        return False
+    if left is None:
+        await tell(MSG_NO_KEY.format(user_id=player.id, when=ui.when(daily.next_season_end())))
+        return False
+    if not load_weekly_tower_from_file(bot, player.id):
+        # The Monday reset opened the door meanwhile: the key was not needed.
+        log.info("Tower: the weekly reset came while the key of %s was taken; it goes back.", player.id)
+        try:
+            await items.grant(bot, player.id, items.TOWER_KEY)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the run is the free one anyway; the owner gives it back
+            log.exception("Tower: the key of %s could not be given back.", player.id)
+            await bot.log_to_owner(LOG_KEY_NOT_RETURNED.format(user_id=player.id, error=type(exc).__name__),
+                                   ping=True)
+        await _say(scene, MSG_KEY_KEPT.format(user_id=player.id))
+        return True
+    daily.release_cooldown(bot.store.weekly_tower_cd, player.id)
+    log.info("Tower: %s (%s) opened the door with a key (%s left).", player, player.id, left)
+    await _say(scene, MSG_KEY_USED.format(user_id=player.id, left=left))
+    return True
+
+
+async def _say(scene: "Scene", text: str) -> None:
+    """Post a line of the key that names the player (only him is pinged).  Never raises: once a key is
+    used (or kept), the run starts whatever Discord says."""
+    try:
+        await scene.send(text, allowed_mentions=discord.AllowedMentions(
+            everyone=False, roles=False, users=[scene.author]))
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        log.exception("Tower: a line of the key could not be posted.")
+
+
+async def keys_of(bot: "AlterBot", player_id: Any) -> int:
+    """How many Klucze do wieży the player has (0 when the store is not there or cannot be read).  Never raises."""
+    try:
+        return await items.count(bot, player_id, items.TOWER_KEY)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 - only a hint under a refusal
+        log.info("Tower: the keys of %s could not be counted.", getattr(player_id, "id", player_id))
+        return 0
+
+
+def cooldown_text(keys: int = 0) -> str:
+    """"Come back later" with Discord's live countdown to the weekly reset (Monday 15:00).
+
+    ``keys``: how many Klucze do wieży the player has - with any, the text
+    says so and points at the "Użyj klucza" button / ``!klucz``.
+    """
+    when = ui.when(daily.next_season_end())
+    if keys > 0:
+        return MSG_ON_COOLDOWN_KEYS.format(when=when, keys=int(keys))
+    return MSG_ON_COOLDOWN.format(when=when)
 
 
 # -- rankings --------------------------------------------------------------------------

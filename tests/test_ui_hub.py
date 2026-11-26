@@ -294,7 +294,9 @@ def test_the_missions_button_follows_the_tower_and_has_its_line():
         assert str(button.emoji) == "🧭" and button.style is discord.ButtonStyle.primary
     finally:
         view.stop()
-    assert ("🏰 **Wieża** - wyrusz na eksplorację Wieży Śmierci (raz w tygodniu). Im wyżej, tym trudniej!\n"
+    # (2026-11-26: "raz w tygodniu" with the Klucz do wieży that opens the door again.)
+    assert ("🏰 **Wieża** - wyrusz na eksplorację Wieży Śmierci (raz w tygodniu - **Klucz do wieży** otworzy ją "
+            "ponownie). Im wyżej, tym trudniej!\n"
             "🧭 **Zlecenia** - raz dziennie wyślij towarzysza na zlecenie z tablicy") in hub.PANEL_GAME_TEXT
     assert hub.PANEL_FOOTER == ("Polowanie, Wieża i Zlecenia działają tylko na tym kanale i nie wtedy, gdy trwa "
                                 "inne wydarzenie.")

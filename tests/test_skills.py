@@ -16,7 +16,7 @@ import pytest_asyncio
 from altermmo.core import challenge, guards, timing, ui
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
-from altermmo.core.state import BossPhase
+from altermmo.core.state import BossPhase, EventType
 from altermmo.features import daily as real_daily
 from altermmo.features import modifiers, skills
 
@@ -815,6 +815,30 @@ async def test_summoning_gem_keeps_its_power_while_a_boss_is_around(game_db, pha
     assert texts(game_db) == [skills.MSG_BOSS_IN_THE_WAY.format(player_id=player.id)]
     assert game_db.bot.store.skill_weekly_cd.all() == []
     assert game_db.bot.state.boss_phase is phase                         # legacy forced BOSSALIVE = 4
+
+
+@pytest.mark.parametrize("event, text", [(EventType.MERCHANT, skills.MSG_MERCHANT_IN_THE_WAY),
+                                         (EventType.DUNGEON, skills.MSG_MINE_IN_THE_WAY),
+                                         (EventType.CHEST, skills.MSG_EVENT_IN_THE_WAY),
+                                         (EventType.SHRINE, skills.MSG_EVENT_IN_THE_WAY)])
+async def test_summoning_gem_waits_for_an_open_event_and_the_mine(game_db, event, text):
+    """(Owner, 2026-11-26) a summoned boss no longer closes the merchant, the mine, a chest or the shrine: the gem
+    says why, and its power is not used up."""
+    player = await with_gem(game_db, skills.SUMMON)
+    game_db.bot.state.open_event(event)
+    assert await skills.use_skill(game_db.scene(player), player) == 0
+    assert texts(game_db) == [text.format(player_id=player.id)]
+    assert game_db.bot.store.skill_weekly_cd.all() == [] and game_db.bot.state.event_type is event
+
+
+async def test_summoning_gem_names_the_event_that_opened_meanwhile(game):
+    """The boss refused (an event opened between the gem's check and the boss): its own words, the use comes back."""
+    player = game.add_member("Ala")
+    skills.weekly_skill_used(game.bot, player.id)
+    game.bot.state.open_event(EventType.MERCHANT)
+    assert await skills.skill_summon_boss(game.scene(player)) is False
+    assert texts(game) == [skills.MSG_MERCHANT_IN_THE_WAY.format(player_id=player.id)]
+    assert game.bot.store.skill_weekly_cd.all() == [] and game.bot.state.event_type is EventType.MERCHANT
 
 
 @pytest.mark.parametrize("roll, boost, rarity", [(2, 0, 2), (3, 0, 4), (4, 0, 4), (2, 1, 4), (3, 1, 4), (4, 1, 4),

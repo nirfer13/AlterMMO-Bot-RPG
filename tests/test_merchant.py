@@ -13,7 +13,7 @@ import pytest
 from altermmo.cogs import events as events_cog
 from altermmo.core import timing, ui
 from altermmo.core.state import EventType
-from altermmo.features import album, daily, merchant, patrons, pets, skills, tower
+from altermmo.features import album, daily, items, merchant, patrons, pets, skills, tower
 
 from test_album_note import EMPTY_NOTE, force, new_egg, notes, recorded
 
@@ -33,12 +33,27 @@ OWN_CONFIG = {
         {"id": "rest_kit", "name": "Zestaw do wypoczynku", "price": 10, "weight": 30},
         {"id": "stable_place", "name": "Powiększenie stajni", "price": 100, "weight": 25, "max_places": 10},
         {"id": "egg_pouch", "name": "Sakwa na jajko", "price": 250, "price_spread_percent": 30, "weight": 10},
-        {"id": "tower_ticket", "name": "Wejściówka do wieży", "price": 50, "weight": 3},
+        {"id": "tower_ticket", "name": "Klucz do wieży", "price": 60, "weight": 3},
         {"id": "random_gem", "name": "Losowy klejnot", "price": 1000, "weight": 2},
+        # The items of 2026-11-26: they come only when the owner turns them on (weight 0 for now).
+        {"id": "summon_scroll", "name": "Zwój przywołania", "price": 300, "weight": 0},
+        {"id": "feather", "name": "Pióro Żar-ptaka", "price": 500, "weight": 0},
+        {"id": "bait", "name": "Przynęta", "price": 15, "weight": 0},
+        {"id": "revive_scroll", "name": "Zwój wskrzeszenia", "price": 40, "weight": 0},
+        {"id": "rope", "name": "Lina sztygara", "price": 30, "weight": 0},
+        {"id": "dust", "name": "Nieuchwytny pył", "price": 150, "weight": 0},
     ],
 }
 PRICES = {"egg_pouch": 250, "random_egg": 25, "stable_place": 100, "random_gem": 1000, "rest_kit": 10,
-          "tower_ticket": 50}
+          "tower_ticket": 60, "summon_scroll": 300, "feather": 500, "bait": 15, "revive_scroll": 40, "rope": 30,
+          "dust": 150}
+#: The wares that put an item into the player's items (features/items.py) - and which item.
+ITEM_WARES = {"tower_ticket": "tower_key", "summon_scroll": "summon_scroll", "feather": "feather", "bait": "bait",
+              "revive_scroll": "revive_scroll", "rope": "rope", "dust": "dust"}
+#: ... of which these ship switched off (weight 0, items_decisions.md §9: turned on by a later commit).
+NEW_WARES = set(ITEM_WARES) - {"tower_ticket"}
+#: The names of the tests' config.
+OWN_NAMES = {item["id"]: item["name"] for item in OWN_CONFIG["items"]}
 #: The wares whose price is drawn at every visit (owner, 2026-11-23: "+ - 30% for egg bag and egg") and
 #: what they can cost: 25 less / plus 30 % is 17.5 / 32.5, a half rounded up; 250 less / plus 30 % is 175 / 325.
 PRICE_RANGES = {"random_egg": (18, 33), "egg_pouch": (175, 325)}
@@ -73,7 +88,7 @@ def cart(monkeypatch, no_pictures):
     config (nothing is drawn here, no price either - see ``visit`` for the real draw)."""
     chosen: list[str] = []
 
-    def draw(config, *, upgrades=True, rng=None):
+    def draw(config, *, available=None, upgrades=True, rng=None):
         by_id = {item[0]: item for item in config.items}
         return [merchant.Offer(merchant.WARES[ware], by_id[ware][1], by_id[ware][2], by_id[ware][4])
                 for ware in chosen]
@@ -154,9 +169,14 @@ def test_the_shipped_config_has_every_ware_at_the_owners_price():
     assert {item[0]: item[2] for item in config.items} == PRICES
     assert set(PRICES) == set(merchant.WARES)
     weights = {item[0]: item[3] for item in config.items}
-    # often: egg, rest kit, stable place; middling: the pouch; rarely: the tower ticket and the gem
+    # often: egg, rest kit, stable place; middling: the pouch; rarely: the tower key and the gem
     assert min(weights["random_egg"], weights["rest_kit"], weights["stable_place"]) > weights["egg_pouch"] \
         > max(weights["tower_ticket"], weights["random_gem"]) > 0
+    assert weights["tower_ticket"] == 3
+    # The new items ship switched off (the running bot reads this file live; a later commit turns them on).
+    assert {ware for ware, weight in weights.items() if weight == 0} == NEW_WARES
+    names = {item[0]: item[1] for item in config.items}
+    assert names["tower_ticket"] == "Klucz do wieży" and names["summon_scroll"] == "Zwój przywołania"
     stable = next(item for item in config.items if item[0] == "stable_place")
     assert stable[4]["max_places"] == 10 == pets.STABLE_MAX_PLACES
     assert config.stay_seconds == 600
@@ -316,8 +336,9 @@ def test_the_cart_holds_different_wares_mostly_one():
         seen.update(ids)
     assert sizes[1] > 0.7 * 4000 and sizes[2] > 0 and sizes[3] > 0
     assert seen["random_egg"] > seen["egg_pouch"] > seen["random_gem"] > 0
+    assert not any(seen[ware] for ware in NEW_WARES)                      # weight 0: never on the cart
     # Only the egg and the pouch change their price from visit to visit.
-    assert all(prices[ware] == {PRICES[ware]} for ware in PRICES if ware not in PRICE_RANGES)
+    assert all(prices[ware] == {PRICES[ware]} for ware in PRICES if ware not in set(PRICE_RANGES) | NEW_WARES)
     assert prices["random_egg"] == set(range(18, 34)) and len(prices["egg_pouch"]) > 100
     assert min(prices["egg_pouch"]) >= 175 and max(prices["egg_pouch"]) <= 325
 
@@ -330,6 +351,56 @@ def test_without_the_new_columns_neither_the_pouch_nor_stable_places_come():
         assert not ids & {"egg_pouch", "stable_place"}
     nothing = merchant.Config(600, {1: 1}, tuple((i, n, p, 0.0, e) for i, n, p, _w, e in config.items))
     assert merchant.draw_stock(nothing, rng=rng) == []
+
+
+def test_a_ware_comes_only_when_the_database_has_what_it_needs():
+    """``Ware.needs`` / ``draw_stock(available=...)``: the item wares need ``PLAYER_ITEMS``, the Zwój
+    przywołania its ``PETOWNER`` column, the pouch and the stable place theirs (2026-11-26)."""
+    assert merchant.NEEDS == {"upgrades", "missions", "items"}
+    assert {ware.id for ware in merchant.WARES.values() if ware.needs == {"upgrades"}} == {"egg_pouch", "stable_place"}
+    assert {ware.id for ware in merchant.WARES.values() if ware.needs == {"missions"}} == {"summon_scroll"}
+    assert {ware.id for ware in merchant.WARES.values() if ware.needs == {"items"}} == set(ITEM_WARES) - {
+        "summon_scroll"}
+    assert {ware.id: ware.item for ware in merchant.WARES.values() if ware.item} == ITEM_WARES
+    assert {ware.id for ware in merchant.WARES.values() if not ware.needs} == {"random_egg", "random_gem", "rest_kit"}
+    # Every ware on: what comes is exactly what the database has.
+    real = merchant.load_config()
+    every = merchant.Config(600, {3: 1}, tuple((i, n, p, 1.0, e) for i, n, p, _w, e in real.items))
+    rng = random.Random(5)
+    for available, absent in ((frozenset(), set(ITEM_WARES) | {"egg_pouch", "stable_place"}),
+                              ({"upgrades", "missions"}, set(ITEM_WARES) - {"summon_scroll"}),
+                              ({"items"}, {"summon_scroll", "egg_pouch", "stable_place"}),
+                              (merchant.NEEDS, set())):
+        seen = set()
+        for _ in range(400):
+            seen |= {offer.ware.id for offer in merchant.draw_stock(every, available=available, rng=rng)}
+        assert seen == set(PRICES) - absent, available
+    # The older way to say it still works, and both together take the narrower set.
+    for _ in range(200):
+        ids = {offer.ware.id for offer in merchant.draw_stock(every, available={"upgrades", "items"}, upgrades=False,
+                                                               rng=rng)}
+        assert not ids & {"egg_pouch", "stable_place", "summon_scroll"}
+
+
+async def test_the_merchant_asks_the_database_what_is_there(game_db, monkeypatch):
+    bot = game_db.bot
+    assert await merchant.available_stores(bot) == merchant.NEEDS
+    bot._mission_columns = False                                              # SUMMON_SCROLLS missing
+
+    async def broken(bot_, **kwargs):
+        raise RuntimeError("test: the database went away")
+
+    monkeypatch.setattr(pets, "upgrades_available", broken)                  # a failing check: not there
+    assert await merchant.available_stores(bot) == {"items"}
+    seen: list = []
+
+    def draw(config, *, available=None, upgrades=True, rng=None):
+        seen.append(available)
+        return []
+
+    monkeypatch.setattr(merchant, "draw_stock", draw)
+    assert await merchant.spawn_merchant(game_db.scene()) == []
+    assert seen == [{"items"}]
 
 
 def test_the_merchant_is_a_random_event():
@@ -385,8 +456,10 @@ async def test_too_few_scrolls_takes_nothing_and_the_ware_stays(game_db, cart):
     await game.click(panel, rich, merchant.buy_key(1))
     stock = await asyncio.wait_for(task, 5)
     assert [offer.buyer for offer in stock] == [rich, rich]
-    assert await scrolls_of(db, rich.id) == 100 - 10 - 50
-    assert not tower.load_weekly_tower_from_file(game.bot, rich.id)            # one more tower run
+    assert await scrolls_of(db, rich.id) == 100 - 10 - 60
+    # The key is stored (2026-11-26): the door stays closed until he uses it (!klucz).
+    assert tower.load_weekly_tower_from_file(game.bot, rich.id)
+    assert await items.count(game.bot, rich.id, items.TOWER_KEY) == 1
 
 
 async def test_a_player_without_a_row_cannot_pay(game_db, cart, quick):
@@ -618,7 +691,9 @@ async def test_a_real_gem_is_bought(game_db, cart):
     assert await scrolls_of(db, ala.id) == 0 and int((await row(db, ala.id))["skill_gem"]) > 0
 
 
-async def test_rest_kit_and_tower_ticket_need_a_used_attempt(game_db, cart):
+async def test_the_rest_kit_needs_a_used_hunt_the_tower_key_is_stored_any_time(game_db, cart):
+    """The rest kit acts at once, so it needs today's hunt used.  The Klucz do wieży (the ticket of old,
+    2026-11-26) is stored: it is sold with the door open too, and the cooldown is not touched."""
     game, db = game_db, game_db.bot.db
     cart("rest_kit", "tower_ticket")
     ala = game.add_member("Ala")
@@ -626,10 +701,63 @@ async def test_rest_kit_and_tower_ticket_need_a_used_attempt(game_db, cart):
     task = start(game)
     panel = await game.wait_for_buttons(merchant.buy_key(0))
     rest = await game.click(panel, ala, merchant.buy_key(0))
-    ticket = await game.click(panel, ala, merchant.buy_key(1))
-    await until(lambda: rest.answers and ticket.answers)
-    assert rest.answers == [merchant.MSG_HUNT_READY] and ticket.answers == [merchant.MSG_TOWER_READY]
-    assert await scrolls_of(db, ala.id) == 100
+    await until(lambda: rest.answers)
+    assert rest.answers == [merchant.MSG_HUNT_READY] and await scrolls_of(db, ala.id) == 100
+    assert panel.button_labels == ["Zestaw do wypoczynku (10 zwojów)", "Klucz do wieży (60 zwojów)"]
+    assert "🗝️ **Klucz do wieży** - 60 zwojów\n*Otwiera Drzwi Wieży Śmierci ponownie" in panel.embeds[0].description
+    key = await game.click(panel, ala, merchant.buy_key(1))
+    await until(lambda: game.channel.contains("kupuje **Klucz do wieży**"))
+    assert key.answers == [] and await scrolls_of(db, ala.id) == 40
+    assert await items.count(game.bot, ala.id, items.TOWER_KEY) == 1
+    assert not tower.load_weekly_tower_from_file(game.bot, ala.id)            # the door was open: still open
+    assert game.channel.contains(f"🛒 {ala.mention} kupuje **Klucz do wieży** za 60 zwojów! "
+                                 + merchant.DETAIL_TOWER.format(count=1))
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("ware", sorted(ITEM_WARES))
+async def test_every_item_ware_goes_into_the_players_items(game_db, cart, ware):
+    """The hand-over only adds to the store (no cap): it works before the command that uses the item exists."""
+    game, db = game_db, game_db.bot.db
+    cart(ware)
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=PRICES[ware] * 2)
+    key = ITEM_WARES[ware]
+    await items.grant(game.bot, ala.id, key, 4)                               # he has some already: no cap
+    for bought in (1, 2):
+        task = start(game)
+        panel = await game.wait_for_buttons(merchant.buy_key(0))
+        assert panel.button_labels == [f"{OWN_NAMES[ware]} ({merchant.scrolls(PRICES[ware])})"]
+        await game.click(panel, ala, merchant.buy_key(0))
+        stock = await asyncio.wait_for(task, 5)
+        assert stock[0].buyer == ala and await scrolls_of(db, ala.id) == PRICES[ware] * (2 - bought)
+        assert await items.count(game.bot, ala.id, key) == 4 + bought
+    detail = {"tower_ticket": merchant.DETAIL_TOWER, "summon_scroll": merchant.DETAIL_SUMMON}.get(
+        ware, merchant.DETAIL_ITEM).format(count=6)
+    assert game.channel.contains(f"🛒 {ala.mention} kupuje **{OWN_NAMES[ware]}** za "
+                                 f"{merchant.scrolls(PRICES[ware])}! {detail}")
+    item = items.BY_KEY[key]
+    assert merchant.WARES[ware].emoji == item.emoji
+    if ware not in ("tower_ticket", "summon_scroll"):
+        assert merchant.WARES[ware].about == f"{item.description} Trafia do Twoich przedmiotów."
+
+
+async def test_an_item_ware_waits_while_its_store_is_missing(game_db, cart):
+    """No PLAYER_ITEMS (or no SUMMON_SCROLLS): refused before any scroll is taken - the ware stays on sale."""
+    game, db = game_db, game_db.bot.db
+    cart("bait", "summon_scroll")
+    ala = game.add_member("Ala")
+    await make_owner(db, ala.id, scrolls=1000)
+    game.bot._player_items = (False, float("inf"))                           # "not there", not looked at again
+    game.bot._mission_columns = False
+    task = start(game)
+    panel = await game.wait_for_buttons(merchant.buy_key(0))
+    bait = await game.click(panel, ala, merchant.buy_key(0))
+    scroll = await game.click(panel, ala, merchant.buy_key(1))
+    await until(lambda: bait.answers and scroll.answers)
+    assert bait.answers == scroll.answers == [merchant.MSG_STORE_OFF] and await scrolls_of(db, ala.id) == 1000
+    assert panel.button_labels == ["Przynęta (15 zwojów)", "Zwój przywołania (300 zwojów)"]
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
 

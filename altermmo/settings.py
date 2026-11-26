@@ -159,6 +159,10 @@ class Timings:
     #: A summoned (ritual / skill gem) boss leaves when the scheduled boss is due,
     #: but never sooner than this after it appeared.
     summoned_min_stay: float = 600.0
+    #: A boss of a Zwój przywołania that nobody attacks leaves this long after it appeared,
+    #: whatever the schedule says (owner, 2026-11-26: half an hour) - and the scroll is lost.
+    #: A restart never makes it stay longer (``BossCycle._restore``).
+    scroll_boss_stay: float = 1800.0
 
 
 _DEBUG_TIMINGS = Timings(
@@ -171,6 +175,7 @@ _DEBUG_TIMINGS = Timings(
     event_gap_min=15.0,
     event_gap_max=20.0,
     summoned_min_stay=20.0,
+    scroll_boss_stay=120.0,
 )
 
 

@@ -1187,11 +1187,60 @@ async def test_no_scroll_is_taken_while_no_boss_can_come(game_db, summons, situa
     state._busy_owner = None
 
 
-async def test_a_scroll_waits_beside_a_passive_event(game_db, summons):
+@pytest.mark.parametrize("situation, text", [
+    (EventType.MERCHANT, missions.MSG_SUMMON_MERCHANT), (EventType.DUNGEON, missions.MSG_SUMMON_MINE),
+    (EventType.CHEST, missions.MSG_SUMMON_WAIT), (EventType.SHRINE, missions.MSG_SUMMON_WAIT),
+    ("spawning off", missions.MSG_SUMMON_WAIT),
+])
+async def test_a_scroll_waits_for_an_open_event_the_mine_and_spawning(game_db, summons, situation, text):
+    """(Owner, 2026-11-26) the scroll closes nothing: it waits for the merchant, the mine, a chest, the shrine -
+    and for boss spawning (``!stopSpawnBoss``: its boss would never leave).  Nothing is taken."""
+    state = game_db.bot.state
     ala = await player_with(game_db, summon_scrolls=1)
     confirms(game_db, ala)
-    game_db.bot.state.open_event(EventType.CHEST)
-    assert await missions.use_summon_scroll(game_db.scene(ala)) is True
+    if situation == "spawning off":
+        game_db.bot.store.runtime_set("boss_spawning_enabled", False)
+    else:
+        state.open_event(situation)
+    assert await missions.use_summon_scroll(game_db.scene(ala)) is False
+    assert summons.calls == [] and await scrolls_of(game_db.bot.db, ala.id) == 1
+    assert game_db.channel.messages[-1].content == text.format(player_id=ala.id)
+    assert not game_db.channel.contains("Czy na pewno chcesz odczytać")
+    state.close_event()
+    game_db.bot.store.runtime_set("boss_spawning_enabled", True)
+    assert await missions.use_summon_scroll(game_db.scene(ala)) is True        # ... and comes once it is over
+
+
+async def test_a_typed_fight_hears_nothing_of_a_scroll(game_db, summons):
+    """The fight check comes FIRST - before even the "no columns" and "no scroll" answers."""
+    ala = await player_with(game_db)
+    game_db.bot._mission_columns = False
+    said = len(game_db.channel.bot_messages)
+    with challenge.round_running(game_db.channel):
+        assert await missions.use_summon_scroll(game_db.scene(ala)) is False
+    assert len(game_db.channel.bot_messages) == said and summons.calls == []
+    # The typed command carries the fight guard too: its checks say nothing during a fight, busy or not.
+    from altermmo.cogs import missions as missions_cog
+
+    cog = missions_cog.MissionsCog(game_db.bot)
+    assert {check.__qualname__.split(".")[0] for check in cog.przywolaj.checks} == {
+        "boss_channel_only", "not_during_fight", "unless_busy"}
+    ctx = SimpleNamespace(bot=game_db.bot, channel=game_db.channel, author=ala, guild=game_db.guild)
+    with game_db.bot.state.hold_busy("hunt"), challenge.round_running(game_db.channel):
+        for check in cog.przywolaj.checks:
+            try:
+                await check(ctx)
+            except guards.SilentCheckFailure:
+                pass
+    assert len(game_db.channel.bot_messages) == said
+
+
+def test_the_scroll_texts_name_its_new_sources_and_its_half_hour():
+    assert missions.MSG_SUMMON_NONE.format(player_id=1) == (
+        "Nie masz Zwoju przywołania, <@1>. Czasem wypada z bossów i najgroźniejszych potworów, przynoszą go "
+        "towarzysze z najdłuższych zleceń, a podobno i Wędrowny kupiec chowa jakiś pod ladą.")
+    assert ("Jeśli przez pół godziny nikt go nie zaatakuje, bestia odejdzie, a zwój obróci się w popiół."
+            in missions.MSG_SUMMON_QUESTION) and missions.MSG_SUMMON_QUESTION.endswith(pets.CONFIRM_HINT)
 
 
 async def test_a_question_left_unanswered_takes_nothing(game_db, summons, monkeypatch):

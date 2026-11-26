@@ -1190,16 +1190,25 @@ SUMMON_MARKER = "missions_summon_pending"
 #: The rarity of the boss a scroll summons (mythic; the modifiers do not change it).
 SUMMON_RARITY = 4
 
-MSG_SUMMON_NONE = ("Nie masz Zwoju przywołania, <@{player_id}>. Zdobywa się go czasem na najdłuższych epickich "
-                   "zleceniach <:Hmm:984767035617730620>")
+MSG_SUMMON_NONE = ("Nie masz Zwoju przywołania, <@{player_id}>. Czasem wypada z bossów i najgroźniejszych "
+                   "potworów, przynoszą go towarzysze z najdłuższych zleceń, a podobno i Wędrowny kupiec chowa "
+                   "jakiś pod ladą.")
 MSG_SUMMON_OFF = "Zwoje przywołania są chwilowo niedostępne, <@{player_id}>."
 MSG_SUMMON_QUESTION = ("Czy na pewno chcesz odczytać **Zwój przywołania**, <@{player_id}>? Na kanał przybędzie "
-                       "🟥 **mityczny boss** - zaatakować go może każdy <:Hmm:984767035617730620> "
+                       "🟥 **mityczny boss** - zaatakować go może każdy <:Hmm:984767035617730620> Jeśli przez pół "
+                       "godziny nikt go nie zaatakuje, bestia odejdzie, a zwój obróci się w popiół. "
                        + pets.CONFIRM_HINT)
 MSG_SUMMON_BOSS_THERE = ("Boss już jest na kanale albo właśnie nadciąga, <@{player_id}>! Zwój przywołania nie "
                          "został użyty - spróbuj ponownie później <:Bedge:970576892874854400>")
 MSG_SUMMON_BUSY = ("Trwa teraz inne wydarzenie, <@{player_id}>! Zwój przywołania nie został użyty - spróbuj "
                    "ponownie, gdy się zakończy <:Bedge:970576892874854400>")
+#: Refusals beside an open passive event (owner, 2026-11-26: the scroll waits, nothing is closed by it).
+MSG_SUMMON_MERCHANT = ("Wędrowny kupiec jeszcze nie zwinął kramu, <@{player_id}> - mityczny boss rozniósłby mu "
+                       "wóz w drzazgi. Zwój przywołania nie został użyty.")
+MSG_SUMMON_MINE = ("Kopalnia Ostatniej Lampy jest jeszcze otwarta, <@{player_id}> - ryk mitycznego bossa "
+                   "zawaliłby sztolnię. Zwój nie został użyty.")
+#: ... beside anything else (a chest, the shrine; boss spawning switched off by the owner).
+MSG_SUMMON_WAIT = "Na kanale bossa jeszcze coś się dzieje, <@{player_id}> - zwój poczeka."
 MSG_SUMMON_FAILED = ("Boss nie odpowiedział na wezwanie, <@{player_id}> - Zwój przywołania wraca do Ciebie. "
                      "Spróbuj ponownie później.")
 MSG_SUMMON_DONE = "📯 <@{player_id}> odczytał Zwój przywołania!"
@@ -1220,13 +1229,31 @@ def _mention_only(member: Any) -> discord.AllowedMentions:
 
 
 def _summon_refusal(bot: "AlterBot") -> str | None:
-    """Why no boss can be summoned now (a text with ``{player_id}``), or None - as the summoning gem asks."""
-    if not bot.boss_cycle.can_summon():
+    """Why no boss can be summoned now (a text with ``{player_id}``), or None.
+
+    Everything ``BossCycle.summon`` would refuse for a scroll, checked before
+    anything is taken (owner, 2026-11-26): a boss there or on its way; a hunt,
+    a tower run, an interactive event or a duel / ritual sign-up; an open
+    passive event - the merchant, the mine, a chest or the shrine (the scroll
+    waits, it closes nothing); boss spawning switched off (``!stopSpawnBoss``:
+    the boss would never leave).  The caller checks a typed fight first.
+    """
+    from . import boss_cycle
+
+    cycle = bot.boss_cycle
+    if not cycle.can_summon():
         return MSG_SUMMON_BOSS_THERE
     state = bot.state
-    if bot.boss_cycle.activity_in_the_way() or (
+    if cycle.activity_in_the_way() or (
             state.event_alive and state.event_type in (EventType.DUEL, EventType.RITUAL)):
         return MSG_SUMMON_BUSY
+    open_event = cycle.open_event_in_the_way()
+    if open_event == boss_cycle.OPEN_MERCHANT:
+        return MSG_SUMMON_MERCHANT
+    if open_event == boss_cycle.OPEN_MINE:
+        return MSG_SUMMON_MINE
+    if open_event is not None or not cycle.enabled:
+        return MSG_SUMMON_WAIT
     return None
 
 
@@ -1243,9 +1270,10 @@ def _mark_summon(bot: "AlterBot", value: Any) -> None:
 async def use_summon_scroll(scene: "Scene") -> bool:
     """Read a Zwój przywołania (**!przywolaj** / the panel's button): a mythic boss comes to the channel.
 
-    Nothing is taken while no boss can come (a boss is there or coming, a
-    hunt / tower / interactive event runs, a duel or ritual sign-up is open)
-    or when the player does not confirm; the scroll is taken atomically after
+    Nothing is taken while no boss can come (:func:`_summon_refusal`: a boss
+    is there or coming, a hunt / tower / interactive event runs, a duel or
+    ritual sign-up is open, the merchant / the mine / a chest / the shrine is
+    open, boss spawning is off) or when the player does not confirm; the scroll is taken atomically after
     the confirmation and the conditions are checked again.  When the boss did
     not come (``summon`` answered False or failed) the scroll is given back.
     Between the taking and the boss :data:`SUMMON_MARKER` is kept in
@@ -1253,9 +1281,9 @@ async def use_summon_scroll(scene: "Scene") -> bool:
     (:func:`resolve_summon_marker`) and nothing is given back on its own.
     A second call while the player's own question is open (a double click,
     **!przywolaj** twice) is told that the bot waits for his answer, not that
-    another event runs; a typed fight that began during the question gets no
-    post at all (nothing is taken: no boss could come).  True when the boss
-    came.
+    another event runs; a typed fight - on the channel already (the first
+    check of all, before any post) or begun during the question - gets no post
+    at all (nothing is taken: no boss could come).  True when the boss came.
     """
     bot, member = scene.bot, scene.author
     player_id = pets._pid(member)
@@ -1264,6 +1292,8 @@ async def use_summon_scroll(scene: "Scene") -> bool:
     async def say(text: str) -> None:
         await scene.send(text.format(player_id=player_id), allowed_mentions=mentions)
 
+    if challenge.fight_on(scene.channel):  # (owner's rule: nothing between a fight's prompts)
+        return False
     if not await pets.mission_columns_available(bot):
         await say(MSG_SUMMON_OFF)
         return False

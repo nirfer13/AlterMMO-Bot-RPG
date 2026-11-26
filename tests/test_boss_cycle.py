@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -96,8 +96,16 @@ def stub(monkeypatch):
     async def detect_boss(bot, rarity):
         boss.calls.append(("detect", rarity))
 
+    async def give_summon_scrolls(bot, player_id, number):
+        # A Zwój przywołania given back (BossCycle._refund_scroll); ``boss.refund_error`` makes it fail.
+        if boss.refund_error is not None:
+            raise boss.refund_error
+        boss.refunds.append((int(player_id), number))
+        return number
+
+    boss.refunds, boss.refund_error = [], None
     modifiers.load_modifiers = load_modifiers
-    pets = SimpleNamespace(detect_boss=detect_boss)
+    pets = SimpleNamespace(detect_boss=detect_boss, give_summon_scrolls=give_summon_scrolls)
     for name, module in (("boss", boss), ("modifiers", modifiers), ("pets", pets)):
         monkeypatch.setitem(sys.modules, f"altermmo.features.{name}", module)
         monkeypatch.setattr(altermmo.features, name, module, raising=False)
@@ -634,7 +642,15 @@ async def test_gem_boss_never_barges_into_an_activity_or_a_sign_up(game_db, cycl
         assert state.event_alive and state.event_type is EventType.RITUAL   # ...which is left alone
     assert stub.calls == [] and state.boss_phase is BossPhase.IDLE
 
-    state.open_event(EventType.CHEST)                                 # an unclaimed chest is no obstacle
+    # (Owner, 2026-11-26) an open passive event is waited for, not closed: the merchant's cart, the
+    # mine, an unclaimed chest, the shrine - nothing is posted, the event stays open.
+    for event in (EventType.MERCHANT, EventType.DUNGEON, EventType.CHEST, EventType.SHRINE):
+        state.open_event(event)
+        assert not await cycle.summon(game_db.scene(player), 4)
+        assert state.event_alive and state.event_type is event
+    assert stub.calls == [] and state.boss_phase is BossPhase.IDLE
+    state.close_event()
+
     busy_while_posting = []
     real_image = stub.send_boss_image
 
@@ -646,6 +662,320 @@ async def test_gem_boss_never_barges_into_an_activity_or_a_sign_up(game_db, cycl
     assert await cycle.summon(game_db.scene(player), 4)
     assert busy_while_posting == ["boss-summon"] and not state.busy and not state.event_alive
     assert state.boss_phase is BossPhase.VISIBLE
+
+
+# -- the boss of a Zwój przywołania (items_decisions.md §1, 2026-11-26) ----------------------------
+
+async def restart(bot) -> None:
+    """"Restart" as in test_summoned_boss_comes_back_after_a_restart: a new cycle on the same data folder."""
+    bot.supervisor.stop(boss_cycle.LOOP_NAME)
+    await bot.state.set_boss_phase(BossPhase.IDLE)
+    bot.boss_cycle = boss_cycle.BossCycle(bot)
+    bot.boss_cycle.start()
+
+
+def note(bot) -> dict | None:
+    return bot.store.runtime_get("summoned_boss_info")
+
+
+def backdate(bot, minutes: float) -> None:
+    """The scroll boss's stay began ``minutes`` ago (in runtime.json and in memory)."""
+    info = note(bot)
+    began = clock.utcnow() - timedelta(minutes=minutes)
+    info["at"] = began.isoformat()
+    bot.store.runtime_set("summoned_boss_info", info)
+    bot.boss_cycle._summoned_at = began
+
+
+async def test_an_unattacked_scroll_boss_leaves_after_its_half_hour_and_the_scroll_is_lost(game_db, cycle, stub):
+    bot = game_db.bot
+    bot.timings = dataclasses.replace(SLOW_RESPAWN, scroll_boss_stay=0.3)
+    ala = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    planned = cycle.arrives_at
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    assert note(bot) == {"origin": "scroll", "at": note(bot)["at"], "by": ala.id, "claimed": False}
+    notice = game_db.announce_channel.messages[-1]
+    assert notice.content == boss_cycle.NOTICE_SCROLL.format(name="Ala", channel=bot.ids.boss_channel)
+    assert clock.seconds_until(cycle.summoned_leaves_at()) < 1 < clock.seconds_until(planned)   # not the schedule's
+
+    await _eventually(lambda: game_db.channel.ever_sent(boss_cycle.MSG_SCROLL_BOSS_LEFT))
+    await wait_phase(bot, BossPhase.WAITING)                     # (the quiet hour was over: the schedule goes on)
+    assert cycle.arrives_at == planned and bot.state.boss.origin == "" and bot.state.boss_rarity == 1
+    assert notice.deleted and note(bot) is None and bot.store.runtime_get("summoned_boss_rarity") is None
+    assert stub.refunds == [] and "reset_end" not in stub.calls  # the scroll is lost; nobody fought
+    assert not game_db.channel.ever_sent(boss_cycle.MSG_SUMMONED_LEFT)
+    assert not game_db.channel.contains("BOSS rarity 4")
+
+
+async def test_a_scroll_boss_leaving_in_the_quiet_hour_leaves_the_silence_to_come(game_db, cycle, stub):
+    """It leaves at its own time: back to SCHEDULED while the quiet hour lasts (its "silence" still to come)."""
+    bot = game_db.bot
+    bot.timings = dataclasses.replace(SLOW_RESPAWN, post_fight_pause=60.0, scroll_boss_stay=0.3)
+    ala = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.SCHEDULED)
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    await _eventually(lambda: game_db.channel.ever_sent(boss_cycle.MSG_SCROLL_BOSS_LEFT))
+    await wait_phase(bot, BossPhase.SCHEDULED)
+    await asyncio.sleep(0.1)
+    assert bot.state.boss_phase is BossPhase.SCHEDULED and not game_db.channel.ever_sent(boss_cycle.MSG_SILENCE)
+
+
+async def test_where_the_schedule_stands_after_a_scroll_boss(game_db, cycle, stub):
+    now = clock.utcnow()
+    cycle.arrives_at, cycle.quiet_until = now + timedelta(hours=1), now + timedelta(minutes=5)
+    assert cycle._phase_after_scroll_boss() is BossPhase.SCHEDULED
+    cycle.quiet_until = now - timedelta(minutes=5)
+    assert cycle._phase_after_scroll_boss() is BossPhase.WAITING
+    cycle.quiet_until = None
+    assert cycle._phase_after_scroll_boss() is BossPhase.WAITING
+    cycle.arrives_at = None                                      # no schedule at all: a new one is drawn
+    assert cycle._phase_after_scroll_boss() is BossPhase.IDLE
+
+
+async def test_the_scroll_boss_stays_half_an_hour_whatever_the_schedule_says(game_db, cycle, stub):
+    bot = game_db.bot
+    bot.timings = dataclasses.replace(FAST, respawn_min=1, respawn_max=1)
+    ala = game_db.add_member("Ala")
+    assert bot.timings.scroll_boss_stay == 1800.0
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)                     # the scheduled boss is due in a second
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    assert abs(clock.seconds_until(cycle.summoned_leaves_at()) - 1800) < 5
+    await asyncio.sleep(1.3)                                     # the scheduled boss waits
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss.origin == "scroll"
+    assert ("image", 1) not in stub.calls
+
+
+def test_the_half_hour_is_a_timing_of_its_own():
+    from altermmo import settings
+
+    assert settings.Timings().scroll_boss_stay == 1800.0 and settings.Timings().summoned_min_stay == 600.0
+    assert 0 < settings._DEBUG_TIMINGS.scroll_boss_stay < 1800.0              # debug mode shortens it too
+
+
+async def test_a_scroll_boss_is_refused_while_spawning_is_off(game_db, cycle, stub):
+    """Only the running loop sends it away after its half hour; the gem keeps today's rule."""
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    await cycle.disable()
+    assert not await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    assert stub.calls == [] and bot.state.boss_phase is BossPhase.IDLE and note(bot) is None
+    assert await cycle.summon(game_db.scene(ala), 4, origin="gem")
+
+
+async def test_a_restart_never_makes_a_scroll_boss_stay_longer(game_db, cycle, stub):
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN                                   # (the stay: 30 min, at least 10 more after a restart)
+    ala = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    # max(when it came, now - 30 min + 10 min): what is left of the half hour, but at least 10 minutes.
+    for minutes_ago, left in ((15, 15), (25, 10), (40, 10), (0, 30)):
+        backdate(bot, minutes_ago)
+        await restart(bot)
+        await wait_phase(bot, BossPhase.VISIBLE)
+        assert bot.state.boss.origin == "scroll" and bot.state.boss_rarity == 4
+        assert abs(clock.seconds_until(bot.boss_cycle.summoned_leaves_at()) - left * 60) < 5, minutes_ago
+        info = note(bot)
+        assert info["by"] == ala.id and info["claimed"] is False
+        assert abs(clock.seconds_until(datetime.fromisoformat(info["at"])) + (30 - left) * 60) < 5
+        # A fresh notice, naming the reader (the scene of a restart has no author: the note says who).
+        assert game_db.announce_channel.messages[-1].content == boss_cycle.NOTICE_SCROLL.format(
+            name="Ala", channel=bot.ids.boss_channel)
+    assert stub.refunds == []
+
+
+async def test_an_interrupted_fight_gives_a_fresh_half_hour_and_the_boss_counts_as_claimed(game_db, cycle, stub):
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    backdate(bot, 25)
+    stub.fight_error = FightInterrupted("lag")
+    await cycle.attack(game_db.scene(ola))
+    assert bot.state.boss_phase is BossPhase.VISIBLE
+    assert abs(clock.seconds_until(cycle.summoned_leaves_at()) - 1800) < 5
+    info = note(bot)
+    assert info["claimed"] is True and abs(clock.seconds_until(datetime.fromisoformat(info["at"]))) < 5
+    await cycle.reset()                                          # claimed once: never refunded
+    assert stub.refunds == []
+    await cycle.disable()
+
+
+@pytest.mark.parametrize("admin, why", [("reset", boss_cycle.WHY_RESET), ("disable", boss_cycle.WHY_STOPPED)])
+async def test_an_unclaimed_scroll_boss_gives_its_scroll_back_on_reset_and_stop(game_db, cycle, stub, admin, why):
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN
+    ala = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    notice = game_db.announce_channel.messages[-1]
+    await getattr(cycle, admin)()
+    assert stub.refunds == [(ala.id, 1)]
+    assert boss_cycle.LOG_SCROLL_REFUNDED.format(player_id=ala.id, why=why) in bot.owner_log
+    assert game_db.channel.ever_sent(boss_cycle.MSG_SCROLL_REFUNDED.format(player_id=ala.id))
+    assert note(bot) is None and notice.deleted
+    await getattr(cycle, admin)()                                # once: the note is gone
+    assert stub.refunds == [(ala.id, 1)]
+    await cycle.disable()
+
+
+@pytest.mark.parametrize("origin", ["gem", "ritual", ""])
+async def test_other_summoned_bosses_give_nothing_back(game_db, cycle, stub, origin):
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    assert await cycle.summon(game_db.scene(ala), 4, origin=origin, show_image=origin != "ritual")
+    await cycle.reset()
+    assert stub.refunds == []
+    await cycle.disable()
+
+
+async def test_a_scroll_boss_being_fought_gives_nothing_back(game_db, cycle, stub):
+    """!ResetBoss during the fight: no refund (and the fight's loot is the fight's business)."""
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    for phase in (BossPhase.ENGAGED, BossPhase.FIGHTING):
+        await bot.state.set_boss_phase(phase)
+        assert cycle._owed_refund() is None
+    await cycle.reset()
+    assert stub.refunds == []
+    await cycle.disable()
+
+
+async def test_a_refund_that_fails_is_told_to_the_owner(game_db, cycle, stub):
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    stub.refund_error = RuntimeError("test: no database")
+    with bot.state.hold_busy("hunt"):                            # (a hunt runs: the player is not told now)
+        await cycle.disable()
+    assert bot.owner_log == [boss_cycle.LOG_SCROLL_NOT_REFUNDED.format(player_id=ala.id, why=boss_cycle.WHY_STOPPED,
+                                                                       error="RuntimeError")]
+    assert game_db.log_channel.messages[-1].content.startswith(f"<@{bot.ids.owner}>!")
+    assert not game_db.channel.ever_sent("wraca cały i zdrowy")
+
+
+async def test_the_player_hears_of_his_refund_only_while_the_channel_is_quiet(game_db, cycle, stub):
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    with bot.state.hold_busy("hunt"):
+        await cycle.disable()
+    assert stub.refunds == [(ala.id, 1)] and bot.owner_log == [
+        boss_cycle.LOG_SCROLL_REFUNDED.format(player_id=ala.id, why=boss_cycle.WHY_STOPPED)]
+    assert not game_db.channel.ever_sent(boss_cycle.MSG_SCROLL_REFUNDED.format(player_id=ala.id))
+
+
+@pytest.mark.parametrize("claimed", [False, True])
+@pytest.mark.parametrize("why", ["discord down", "busy"])
+async def test_a_scroll_boss_that_cannot_come_back_after_a_restart(game_db, cycle, stub, claimed, why):
+    """A failed restore (or a channel taken at the restore): the scroll goes back - unless it was claimed."""
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN
+    ala = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    if claimed:
+        bot.boss_cycle._amend_summoned(claimed=True)
+    if why == "discord down":
+        stub.image_errors = 1
+    else:
+        bot.state._busy_owner = "hunt"
+    await restart(bot)
+    await _eventually(lambda: note(bot) is None)
+    await asyncio.sleep(0.05)
+    assert bot.store.runtime_get("summoned_boss_rarity") is None
+    assert stub.refunds == ([] if claimed else [(ala.id, 1)])
+    if not claimed:
+        assert boss_cycle.LOG_SCROLL_REFUNDED.format(player_id=ala.id, why=boss_cycle.WHY_NOT_BACK) in bot.owner_log
+    bot.state._busy_owner = None
+    await bot.boss_cycle.disable()
+
+
+async def test_spawning_off_at_the_start_gives_the_scroll_back(game_db, cycle, stub):
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN
+    ala = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    bot.store.runtime_set("boss_spawning_enabled", False)        # (switched off in the file: no !stopSpawnBoss)
+    await restart(bot)
+    await _eventually(lambda: stub.refunds)
+    assert stub.refunds == [(ala.id, 1)] and note(bot) is None
+    assert boss_cycle.LOG_SCROLL_REFUNDED.format(player_id=ala.id, why=boss_cycle.WHY_SPAWNING_OFF) in bot.owner_log
+
+    # A gem boss waits for !startSpawnBoss, as it always did.
+    bot.store.runtime_set("summoned_boss_rarity", 4)
+    bot.store.runtime_set("summoned_boss_info", {"origin": "gem", "at": clock.utcnow().isoformat(), "by": ala.id,
+                                                 "claimed": False})
+    await restart(bot)
+    await asyncio.sleep(0.2)
+    assert stub.refunds == [(ala.id, 1)] and note(bot)["origin"] == "gem"
+    bot.supervisor.stop(boss_cycle.LOOP_NAME)
+
+
+async def test_a_scroll_owed_since_the_start_is_paid_once(game_db, cycle, stub):
+    """``runtime.json`` was too old to trust (AlterBot._review_saved_state): the cycle pays the scroll back."""
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    bot.store.runtime_set(boss_cycle.KEY_REFUND_DUE, {"by": ala.id, "why": boss_cycle.WHY_STALE})
+    cycle.start()
+    await _eventually(lambda: stub.refunds)
+    assert stub.refunds == [(ala.id, 1)] and bot.store.runtime_get(boss_cycle.KEY_REFUND_DUE) is None
+    assert boss_cycle.LOG_SCROLL_REFUNDED.format(player_id=ala.id, why=boss_cycle.WHY_STALE) in bot.owner_log
+    await cycle._pay_refund_due()
+    assert stub.refunds == [(ala.id, 1)]
+
+
+def test_which_boss_owes_its_scroll():
+    assert boss_cycle.scroll_refund_owed({"origin": "scroll", "by": 7, "claimed": False}) == {"by": 7}
+    for info in ({"origin": "scroll", "by": 7, "claimed": True}, {"origin": "gem", "by": 7}, {"origin": "scroll"},
+                 {"origin": "scroll", "by": "nonsense"}, {"origin": "scroll", "by": 0}, None, 4):
+        assert boss_cycle.scroll_refund_owed(info) is None, info
+
+
+async def test_every_summoned_boss_is_announced_on_the_general_chat(game_db, cycle, stub, monkeypatch):
+    """After ``BossInfo`` is set, on every path, without a mention, the name escaped; it goes with its boss."""
+    bot = game_db.bot
+    chat = game_db.announce_channel
+    channel = bot.ids.boss_channel
+    mentions = []
+    real_send = io.send
+
+    async def send(destination, content=None, **kwargs):
+        if destination is chat:
+            mentions.append(kwargs.get("allowed_mentions"))
+        return await real_send(destination, content, **kwargs)
+
+    monkeypatch.setattr(io, "send", send)
+    star = game_db.add_member("*Ala_*")
+    for kwargs, expected in (
+            ({"origin": "scroll"}, boss_cycle.NOTICE_SCROLL.format(name=r"\*Ala\_\*", channel=channel)),
+            ({"origin": "gem"}, boss_cycle.NOTICE_GEM.format(channel=channel, emoji="🟥", rarity="mityczny")),
+            ({"origin": "ritual", "show_image": False},
+             boss_cycle.NOTICE_RITUAL.format(channel=channel, emoji="🟥", rarity="mityczny")),
+            ({}, boss_cycle.spawn_notice(channel, 4))):
+        assert await cycle.summon(game_db.scene(star), 4, **kwargs)
+        notice = chat.messages[-1]
+        assert notice.content == expected and boss_cycle.is_spawn_notice(notice.content, channel)
+        assert mentions[-1] is not None and mentions[-1].users is False and mentions[-1].everyone is False
+        await cycle.attack(game_db.scene(star))                 # fought: the notice goes with it
+        assert notice.deleted and chat.messages == []
+    gem = boss_cycle.summon_notice(channel, 2, "gem")
+    assert "🟪 **epicki boss**" in gem and boss_cycle.summon_notice(channel, 2, "nonsense") == \
+        boss_cycle.spawn_notice(channel, 2)
+    assert boss_cycle.summon_notice(channel, 4, "scroll", "") == boss_cycle.NOTICE_SCROLL.format(
+        name="Ktoś", channel=channel)
 
 
 # -- special bosses (features/bossvariants.py): the variant goes with the boss into its fight ------

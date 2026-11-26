@@ -44,6 +44,16 @@ nor with the button (:meth:`BossCycle.attack`).  Joining a lobby that already
 runs is not an attack and is not affected.  (In production hunts and tower
 runs do not start once the boss is on its way, so this is a safeguard; a skill
 gem or a pet menu that holds the busy flag does not keep the boss away.)
+
+Summoned bosses (:meth:`BossCycle.summon`: the skill gem, the ritual, the Zwój
+przywołania) pause the schedule.  A ritual / gem boss nobody attacks leaves
+when the scheduled boss is due; a scroll boss (owner, 2026-11-26) leaves after
+its half hour whatever the schedule says, its scroll lost - a restart never
+lengthens that stay - and gives its scroll back only when it vanished
+unclaimed for a technical reason (a restart that could not bring it back,
+``!ResetBoss``, ``!stopSpawnBoss``, spawning off at the start, a
+``runtime.json`` too old to trust).  Every summoned boss is announced on the
+general chat like the scheduled one, in the words of how it came.
 """
 
 from __future__ import annotations
@@ -98,6 +108,26 @@ MSG_BOSS_LEFT = ("Nikt nie odważył się stanąć do walki... Potwór odchodzi 
                  "Boss pojawi się później! <:RIP:912797982917816341>")
 MSG_SUMMONED_LEFT = ("Nikt nie odważył się stanąć do walki... Przywołany potwór rozpływa się w powietrzu, "
                      "bo z oddali nadciąga już coś innego <:MonkaS:882181709100097587>")
+#: A boss of a Zwój przywołania that nobody attacked for ``timings.scroll_boss_stay`` (owner, 2026-11-26):
+#: it leaves whatever the schedule says, and the scroll is lost.
+MSG_SCROLL_BOSS_LEFT = ("Nikt nie odważył się stanąć do walki... Przywołana bestia ziewa, rozpływa się w kłębach "
+                        "dymu i wraca tam, skąd przyszła. Zwój przywołania obrócił się w popiół "
+                        "<:RIP:912797982917816341>")
+#: The scroll of a boss nobody had claimed yet goes back when the boss vanished for a technical reason
+#: (a restart that could not bring it back, !ResetBoss, !stopSpawnBoss...): to the player, only while
+#: the boss channel is quiet; the owner is always told.
+MSG_SCROLL_REFUNDED = ("📯 Przywołana Twoim zwojem bestia zniknęła z przyczyn technicznych, zanim ktokolwiek "
+                       "stanął do walki, <@{player_id}> - Zwój przywołania wraca cały i zdrowy do Twojej sakwy.")
+LOG_SCROLL_REFUNDED = ("Zwój przywołania gracza <@{player_id}> wrócił do niego: jego mityczny boss zniknął, "
+                       "zanim ktoś go zaatakował ({why}).")
+LOG_SCROLL_NOT_REFUNDED = ("Zwój przywołania gracza <@{player_id}> NIE wrócił, choć jego boss zniknął, zanim ktoś "
+                           "go zaatakował ({why}): `{error}` - oddaj go: `!DajZwojPrzywolania`")
+#: Why a scroll went back (the owner's log).
+WHY_RESET = "!ResetBoss"
+WHY_STOPPED = "!stopSpawnBoss"
+WHY_NOT_BACK = "nie wrócił na kanał po restarcie bota"
+WHY_SPAWNING_OFF = "respawn bossów był wyłączony przy starcie bota"
+WHY_STALE = "bot nie działał ponad 36 godzin"
 
 #: Legendary bosses need a party; outside these hours (and outside weekends)
 #: a legendary boss becomes a mythic one that a single player can fight.
@@ -109,12 +139,23 @@ _KEY_QUIET_UNTIL = "boss_quiet_until"
 #: so that a restart of the bot does not make that boss vanish.  Always an int (or
 #: None): ``_restore`` - and the code before 2026-11-26, should it run again - reads it so.
 _KEY_SUMMONED = "summoned_boss_rarity"
-#: ... and how it came and when (``{"origin": "scroll", "at": "<iso time>"}``): a key of its own,
-#: so that the one above stays a plain int.  Written and cleared with it (``_remember_summoned``).
+#: ... and how it came, when, who summoned it and whether anybody has claimed it since
+#: (``{"origin": "scroll", "at": "<iso time>", "by": <player id or None>, "claimed": false}``): a key
+#: of its own, so that the one above stays a plain int.  Written and cleared with it
+#: (``_remember_summoned``).  ``at`` is when its stay began (the summon, or the last interrupted
+#: fight): a restart does not begin it anew for a scroll boss.  ``claimed`` stays true once
+#: somebody attacked it - such a boss never gives its scroll back.
 _KEY_SUMMONED_INFO = "summoned_boss_info"
+#: A scroll owed back that the cycle pays after the start (``{"by": id, "why": text}``): written by
+#: ``AlterBot._review_saved_state``, which drops a summoned boss of a ``runtime.json`` too old to
+#: trust before the cycle exists (see :func:`scroll_refund_owed`).
+KEY_REFUND_DUE = "summoned_scroll_refund_due"
 #: How a summoned boss may have come (``BossInfo.origin``): '' = not said (the default of
 #: :meth:`BossCycle.summon`), the Zwój przywołania, the summoning gem, the ritual.
 SUMMON_ORIGINS: tuple[str, ...] = ("", "scroll", "gem", "ritual")
+#: An open passive event a boss summoned with its own picture would close (owner, 2026-11-26: it waits
+#: instead, :meth:`BossCycle.open_event_in_the_way`): the merchant's cart, the mine, a chest or a shrine.
+OPEN_MERCHANT, OPEN_MINE, OPEN_EVENT = "merchant", "mine", "event"
 #: ``runtime.json``: a fight was decided and its post-fight reset has not run yet -
 #: ``{"losers": [ids to ban]}``; see ``BossCycle.mark_decided`` and ``_finish_after_restart``.
 _KEY_PENDING_RESET = "boss_reset_pending"
@@ -173,6 +214,62 @@ def spawn_notice(boss_channel_id: int, rarity: int | None = None) -> str:
               else "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
     return (f"⚔️ Przygotujcie się! Na kanale <#{boss_channel_id}> właśnie pojawił się potwór: "
             f"{RARITY_EMOJI[rarity]} **{RARITY_NAMES[rarity]} boss**. {ending}")
+
+
+#: The general-chat notice of a summoned boss, by how it came (owner, 2026-11-26).  Each keeps the words
+#: :func:`is_spawn_notice` looks for ("pojawił się", "potwór"): it is removed like the scheduled boss's.
+NOTICE_SCROLL = ("📯 **{name}** odczytał Zwój przywołania! Na kanale <#{channel}> właśnie pojawił się potwór: "
+                 "🟥 **mityczny boss**. Zaatakować go może każdy - kto pierwszy, ten lepszy, a bestia nie będzie "
+                 "czekać wiecznie!")
+NOTICE_GEM = ("💎 Ktoś użył Klejnotu Przywołania! Na kanale <#{channel}> właśnie pojawił się potwór: {emoji} "
+              "**{rarity} boss**. Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+NOTICE_RITUAL = ("🕯️ Rytuał się udał! Na kanale <#{channel}> właśnie pojawił się potwór: {emoji} **{rarity} boss**. "
+                 "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+#: Who read the scroll, when the notice cannot find his name (he left the server meanwhile).
+NOTICE_SOMEBODY = "Ktoś"
+
+
+def summon_notice(boss_channel_id: int, rarity: int, origin: str, name: str = "") -> str:
+    """The general-chat notice of a boss summoned by ``origin`` (``name``: who read the scroll).
+
+    The name is escaped here (a ``*`` in a nickname must not break the bold);
+    the notice is posted without any mention.  A summon that names no origin
+    gets the scheduled boss's notice (:func:`spawn_notice`).
+    """
+    if origin == "scroll":
+        shown = discord.utils.escape_markdown(str(name).strip()) or NOTICE_SOMEBODY
+        return NOTICE_SCROLL.format(name=shown, channel=int(boss_channel_id))
+    text = {"gem": NOTICE_GEM, "ritual": NOTICE_RITUAL}.get(origin)
+    if text is None or int(rarity) not in RARITY_NAMES:
+        return spawn_notice(boss_channel_id, rarity)
+    return text.format(channel=int(boss_channel_id), emoji=RARITY_EMOJI[int(rarity)],
+                       rarity=RARITY_NAMES[int(rarity)])
+
+
+def scroll_refund_owed(info: Any) -> dict[str, Any] | None:
+    """``{"by": id}`` when the summoned boss noted by ``info`` gives its scroll back should it vanish now.
+
+    Only a boss of a Zwój przywołania whose summoner is known and that nobody
+    has claimed (owner, 2026-11-26: a claimed or fought boss never gives its
+    scroll back; one that simply left after half an hour neither - that path
+    never asks).  ``info`` is the note of :data:`_KEY_SUMMONED_INFO`.
+    """
+    if not isinstance(info, dict) or info.get("origin") != "scroll" or info.get("claimed"):
+        return None
+    try:
+        player_id = int(info.get("by") or 0)
+    except (TypeError, ValueError):
+        return None
+    return {"by": player_id} if player_id > 0 else None
+
+
+def _moment(text: Any) -> datetime | None:
+    """An aware UTC moment of ``runtime.json`` (an ISO text), or None when it cannot be read."""
+    try:
+        moment = datetime.fromisoformat(str(text))
+    except (TypeError, ValueError):
+        return None
+    return moment if moment.tzinfo is not None else None
 
 
 def final_rarity(base_rarity: int, rarity_boost: int, now: datetime, *, debug: bool) -> int:
@@ -345,9 +442,13 @@ class BossCycle:
 
         An open mine stays open, but no longer closes at the end of the quiet
         hour (:meth:`silence_at`): it is told its new latest closing at once.
+        A boss of a Zwój przywołania that nobody had claimed is gone with it: its
+        scroll goes back (:meth:`_refund_scroll`, once - the note is dropped
+        before anything is awaited).
         """
         from . import dungeon
 
+        owed = self._owed_refund()
         self.bot.store.runtime_set(_KEY_ENABLED, False)
         self.bot.supervisor.stop(LOOP_NAME)
         self._forget_schedule()
@@ -356,10 +457,16 @@ class BossCycle:
         await self.retire_attack_buttons()
         await self.remove_spawn_notice()
         await self._database.update_boss_table(self.bot, 0, 0, False)
+        await self._refund_scroll(owed, WHY_STOPPED)
 
     async def reset(self) -> None:
-        """``!ResetBoss``: drop whatever is going on and start a fresh cycle."""
+        """``!ResetBoss``: drop whatever is going on and start a fresh cycle.
+
+        A boss of a Zwój przywołania that nobody had claimed gives its scroll
+        back (as :meth:`disable`); a claimed or fought one does not.
+        """
         bot = self.bot
+        owed = self._owed_refund()
         bot.supervisor.stop(LOOP_NAME)
         self._forget_schedule()
         bot.state.force_release_busy()
@@ -373,6 +480,75 @@ class BossCycle:
         self._restored = True  # the schedule was wiped on purpose - do not resume it
         if self.enabled:
             self.start()
+        await self._refund_scroll(owed, WHY_RESET)
+
+    def _owed_refund(self) -> dict[str, Any] | None:
+        """The scroll owed back should the boss on the channel vanish NOW (:func:`scroll_refund_owed`).
+
+        Only while it stands there unclaimed (VISIBLE): a boss that is being
+        fought, or leaving on its own, gives nothing back.  Synchronous: the
+        callers drop the note right after it (``_forget_schedule``), before any
+        await - so no scroll can go back twice.
+        """
+        if self.bot.state.boss_phase is not BossPhase.VISIBLE:
+            return None
+        return scroll_refund_owed(self._remembered_info())
+
+    async def _refund_scroll(self, owed: dict[str, Any] | None, why: str) -> bool:
+        """Give the Zwój przywołania of ``owed`` (:func:`scroll_refund_owed`) back; True when it went back.
+
+        Never raises.  The note of the boss is already gone (the caller dropped
+        it before the first await), so this runs once.  The owner is told
+        either way (with a ping when it failed: he gives it back by hand); the
+        player only while the boss channel is quiet - nothing may post into a
+        fight.  ``give_summon_scrolls``: one transaction, never retried.
+        """
+        if not owed:
+            return False
+        bot = self.bot
+        player_id = int(owed["by"])
+        try:
+            from . import pets
+
+            await pets.give_summon_scrolls(bot, player_id, 1)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the owner gives it back by hand
+            log.exception("The summoning scroll of %s could not be given back (%s).", player_id, why)
+            await bot.log_to_owner(LOG_SCROLL_NOT_REFUNDED.format(player_id=player_id, why=why,
+                                                                  error=type(exc).__name__), ping=True)
+            return False
+        log.info("The summoning scroll of %s went back: its boss vanished unclaimed (%s).", player_id, why)
+        await bot.log_to_owner(LOG_SCROLL_REFUNDED.format(player_id=player_id, why=why))
+        try:
+            from . import dungeon
+
+            if dungeon.channel_quiet(bot, after_restart=True):
+                await io.send(bot.boss_channel, MSG_SCROLL_REFUNDED.format(player_id=player_id),
+                              allowed_mentions=discord.AllowedMentions(
+                                  everyone=False, roles=False, users=[discord.Object(id=player_id)]))
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - the scroll is back; the word about it is only a courtesy
+            log.exception("Could not tell %s that the summoning scroll went back.", player_id)
+        return True
+
+    async def _pay_refund_due(self) -> None:
+        """A scroll owed back since the start (:data:`KEY_REFUND_DUE`, see ``AlterBot._review_saved_state``).
+
+        Never raises; the note is taken off ``runtime.json`` before the scroll
+        is given back (once).
+        """
+        try:
+            due = self.bot.store.runtime_get(KEY_REFUND_DUE)
+            if due is None:
+                return
+            self.bot.store.runtime_set(KEY_REFUND_DUE, None)
+        except OSError:
+            log.exception("Could not read the summoning scroll owed back after the start.")
+            return
+        owed = scroll_refund_owed({"origin": "scroll", "by": due.get("by")} if isinstance(due, dict) else None)
+        await self._refund_scroll(owed, str(due.get("why") or WHY_STALE) if isinstance(due, dict) else WHY_STALE)
 
     def _forget_schedule(self) -> None:
         self._encounters += 1  # whatever stood there is gone: a late "still here" notice is out of date
@@ -385,15 +561,18 @@ class BossCycle:
         self.bot.store.runtime_set(_KEY_QUIET_UNTIL, None)
         self._remember_summoned(None)
 
-    def _remember_summoned(self, rarity: int | None, *, origin: str = "", at: datetime | None = None) -> None:
+    def _remember_summoned(self, rarity: int | None, *, origin: str = "", at: datetime | None = None,
+                           by: int | None = None, claimed: bool = False) -> None:
         """Note (or forget, ``None``) the summoned boss standing on the channel.  Never raises.
 
         The rarity goes under :data:`_KEY_SUMMONED` (an int, as always), its
-        origin and the moment it came under :data:`_KEY_SUMMONED_INFO` - both
-        are cleared together, so every path that forgets the boss forgets both.
+        origin, the moment its stay began, its summoner and whether it was
+        claimed under :data:`_KEY_SUMMONED_INFO` - both are cleared together,
+        so every path that forgets the boss forgets both.
         """
         info = None if rarity is None else {"origin": origin if origin in SUMMON_ORIGINS else "",
-                                            "at": (at or clock.utcnow()).isoformat()}
+                                            "at": (at or clock.utcnow()).isoformat(),
+                                            "by": int(by) if by else None, "claimed": bool(claimed)}
         try:
             if self.bot.store.runtime_get(_KEY_SUMMONED) != rarity:
                 self.bot.store.runtime_set(_KEY_SUMMONED, rarity)
@@ -402,15 +581,31 @@ class BossCycle:
         except OSError:
             log.exception("Could not persist the summoned boss (%s).", rarity)
 
-    def _remembered_origin(self) -> str:
-        """The origin of the summoned boss kept in ``runtime.json`` ('' when none or not readable).  Never raises."""
+    def _remembered_info(self) -> dict[str, Any] | None:
+        """The note of the summoned boss in ``runtime.json`` (None when none or not readable).  Never raises."""
         try:
             info = self.bot.store.runtime_get(_KEY_SUMMONED_INFO)
         except OSError:
             log.exception("Could not read how the summoned boss came.")
-            return ""
-        origin = info.get("origin") if isinstance(info, dict) else None
+            return None
+        return dict(info) if isinstance(info, dict) else None
+
+    def _remembered_origin(self) -> str:
+        """The origin of the summoned boss kept in ``runtime.json`` ('' when none or not readable).  Never raises."""
+        origin = (self._remembered_info() or {}).get("origin")
         return origin if isinstance(origin, str) and origin in SUMMON_ORIGINS else ""
+
+    def _amend_summoned(self, **changes: Any) -> None:
+        """Change the note of the summoned boss (``claimed=True``, a new ``at``) - when there is one.  Never raises."""
+        info = self._remembered_info()
+        if info is None:
+            return
+        info.update({key: value.isoformat() if isinstance(value, datetime) else value
+                     for key, value in changes.items()})
+        try:
+            self.bot.store.runtime_set(_KEY_SUMMONED_INFO, info)
+        except OSError:
+            log.exception("Could not update the note of the summoned boss (%s).", changes)
 
     def seconds_to_arrival(self) -> float | None:
         return clock.seconds_until(self.arrives_at) if self.arrives_at is not None else None
@@ -425,10 +620,18 @@ class BossCycle:
             # Once per start of the process - not when the loop is merely restarted.
             self._tidied = True
             await self.tidy_after_start()
+            await self._pay_refund_due()  # (a scroll boss of a runtime.json too old to trust)
             if bot.state.boss_phase < BossPhase.VISIBLE:
                 # A reset owed by a fight decided before the restart (also with spawning switched off).
                 await self._finish_after_restart()
         if not self.enabled:
+            # A scroll boss lives on this loop (it leaves after its half hour): with spawning off it
+            # would never come back nor leave - its scroll goes back now, if nobody had claimed it.
+            # (A gem / ritual boss waits for !startSpawnBoss, as it always did.)
+            owed = scroll_refund_owed(self._remembered_info())
+            if owed is not None and bot.state.boss_phase < BossPhase.VISIBLE:
+                self._remember_summoned(None)
+                await self._refund_scroll(owed, WHY_SPAWNING_OFF)
             log.info("Boss spawning is switched off (!startSpawnBoss enables it).")
             await asyncio.Event().wait()
         if not self._restored:
@@ -598,12 +801,16 @@ class BossCycle:
             log.info("No boss respawn in progress - starting a new cycle.")
             await bot.state.set_boss_phase(BossPhase.IDLE)
 
-        # A ritual / skill gem boss that was standing there when the bot stopped comes back.
+        # A ritual / skill gem / scroll boss that was standing there when the bot stopped comes back
+        # (a scroll boss with what is left of its half hour, see summon's ``restored``).  One that
+        # cannot come back is forgotten - a scroll boss nobody had claimed gives its scroll back.
         summoned = bot.store.runtime_get(_KEY_SUMMONED)
         if summoned is not None:
+            info = self._remembered_info()
             back = False
             try:
-                back = await self.summon(bot.boss_scene(), int(summoned), origin=self._remembered_origin())
+                back = await self.summon(bot.boss_scene(), int(summoned), origin=self._remembered_origin(),
+                                         restored=info or {})
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 - the regular schedule matters more
@@ -612,6 +819,7 @@ class BossCycle:
                 log.info("Summoned boss of rarity %s is back on the channel after a restart.", summoned)
             else:
                 self._remember_summoned(None)
+                await self._refund_scroll(scroll_refund_owed(info), WHY_NOT_BACK)
 
     async def _phase_idle(self) -> None:
         """Legacy episode 0: draw the respawn delay, derive the rarity, persist."""
@@ -791,44 +999,103 @@ class BossCycle:
         from . import pets
         await pets.detect_boss(self.bot, rarity)
 
-    async def _announce_spawn(self) -> None:
+    async def _announce_spawn(self, text: str | None = None) -> None:
         """General-chat notice; the previous one is removed.  Purely best effort.
 
-        The notice itself is removed again when its boss is gone (:meth:`remove_spawn_notice`).
+        ``text``: the notice of a summoned boss (:func:`summon_notice`); None -
+        the scheduled boss's (:func:`spawn_notice`).  Posted without any
+        mention (a summoner's name is only a name).  The notice itself is
+        removed again when its boss is gone (:meth:`remove_spawn_notice`).
         """
         bot = self.bot
         await self.remove_spawn_notice()
         try:
             announce = bot.text_channel(bot.ids.announce_channel)
-            rarity = getattr(bot.state.boss, "rarity", None)
+            if text is None:
+                text = spawn_notice(bot.ids.boss_channel, getattr(bot.state.boss, "rarity", None))
             self._remember_spawn_notice(
-                await io.send(announce, spawn_notice(bot.ids.boss_channel, rarity)))
+                await io.send(announce, text, allowed_mentions=discord.AllowedMentions.none()))
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             log.exception("Could not post the boss spawn notice.")
 
+    async def _announce_summoned(self, scene: Scene, rarity: int, origin: str, summoner: int | None) -> None:
+        """The general-chat notice of a boss :meth:`summon` has just put on the channel.  Never raises.
+
+        Posted once the boss is there (``BossInfo`` set, the phase VISIBLE) -
+        on every way a boss is summoned, a boss brought back after a restart
+        included.  The scroll's notice names the reader: the scene's author, or
+        (after a restart) the member noted as the summoner.  Should the boss be
+        gone already when the notice is out (fought within a second, reset), the
+        notice goes at once.
+        """
+        try:
+            name = ""
+            if origin == "scroll":
+                member = scene.author
+                if member is None and summoner:
+                    member = await self.bot.member(summoner)
+                name = (getattr(member, "display_name", None) or str(member)) if member is not None else ""
+            await self._announce_spawn(summon_notice(self.bot.ids.boss_channel, rarity, origin, name))
+            if self.bot.state.boss_phase < BossPhase.VISIBLE:
+                await self.remove_spawn_notice()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a notice is never worth an error
+            log.exception("Could not post the notice of the summoned boss.")
+
     def summoned_leaves_at(self) -> datetime | None:
-        """When an unattacked summoned boss makes room for the scheduled one (None: never).
+        """When an unattacked summoned boss leaves (None: never).
 
         Owner's rule: a ritual / skill gem boss waits only until the scheduled
         boss is due - but at least ``timings.summoned_min_stay`` after it
         appeared, so nobody summons a boss that is gone within seconds.
+
+        A boss of a Zwój przywołania (owner, 2026-11-26) leaves
+        ``timings.scroll_boss_stay`` (half an hour) after it appeared, whatever
+        the schedule says: a scheduled boss that falls due meanwhile waits.
         """
-        if self._resume_phase is None or self.arrives_at is None or not self.enabled:
+        if self._resume_phase is None:
+            return None
+        if getattr(self.bot.state.boss, "origin", "") == "scroll":
+            if self._summoned_at is None:
+                self._summoned_at = clock.utcnow()
+            return self._summoned_at + timedelta(seconds=self.bot.timings.scroll_boss_stay)
+        if self.arrives_at is None or not self.enabled:
             return None
         if self._summoned_at is None:
             self._summoned_at = clock.utcnow()
         stays_until = self._summoned_at + timedelta(seconds=self.bot.timings.summoned_min_stay)
         return max(self.arrives_at, stays_until)
 
+    def _phase_after_scroll_boss(self) -> BossPhase:
+        """Where the schedule stands once a scroll boss nobody attacked has left.
+
+        It leaves at its own time, not when the scheduled boss is due: SCHEDULED
+        while the quiet hour after the last fight lasts (its "silence" and the
+        mine's closing are still to come), WAITING after it, IDLE without a
+        schedule at all (a new one is drawn).
+        """
+        if self.arrives_at is None or not self.enabled:
+            return BossPhase.IDLE
+        if self.quiet_until is not None and self.quiet_until > clock.utcnow():
+            return BossPhase.SCHEDULED
+        return BossPhase.WAITING
+
     async def _summoned_boss_leaves(self) -> None:
-        """The scheduled boss is due: the summoned boss nobody attacked is gone.
+        """The summoned boss nobody attacked is gone: the scheduled boss is due (or its half hour is over).
 
         Called with the boss already claimed (ENGAGED), so nobody can attack it
         any more.  Nothing is reset: the shrine modifiers, the dead hunters and
         the schedule belong to the boss that arrives now - without the quiet
-        hour that follows a fight.
+        hour that follows a fight.  Its general-chat notice goes.
+
+        A boss of a Zwój przywołania leaves at the end of its half hour with a
+        text of its own; its scroll is lost (owner, 2026-11-26: a refund would
+        let anybody block the channel for free) and the schedule goes on where
+        it stands (:meth:`_phase_after_scroll_boss`).  A ritual / gem boss
+        leaves for the scheduled boss, which is due now (WAITING).
 
         When the loop is cancelled meanwhile by !ResetBoss / !stopSpawnBoss, the
         phase is left alone: they have set their own (IDLE) already.  A plain
@@ -837,24 +1104,27 @@ class BossCycle:
         without a fight would block the channel for two hours.
         """
         bot = self.bot
-        log.info("Nobody attacked the summoned boss (rarity %s); it leaves, the scheduled boss is due.",
-                 bot.state.boss.rarity)
+        scroll = getattr(bot.state.boss, "origin", "") == "scroll"
+        log.info("Nobody attacked the summoned boss (rarity %s, %s); it leaves.", bot.state.boss.rarity,
+                 "its half hour is over" if scroll else "the scheduled boss is due")
         self._encounters += 1  # the boss is gone: a late "still here" notice is out of date
         cancelled = False
         try:
             await self.retire_attack_buttons()  # in case clearing the channel fails
+            await self.remove_spawn_notice()
             await io.clear_channel(bot.boss_channel)
-            await io.send_patient(bot.boss_channel, MSG_SUMMONED_LEFT)
+            await io.send_patient(bot.boss_channel, MSG_SCROLL_BOSS_LEFT if scroll else MSG_SUMMONED_LEFT)
         except asyncio.CancelledError:
             cancelled = True
             raise
         finally:
             self._remember_summoned(None)
+            resume = self._phase_after_scroll_boss() if scroll else BossPhase.WAITING
             self._resume_phase = None
             self._summoned_at = None
             if not cancelled or bot.state.boss_phase is BossPhase.ENGAGED:
                 bot.state.boss = BossInfo(rarity=self.base_rarity)
-                await bot.state.set_boss_phase(BossPhase.WAITING)
+                await bot.state.set_boss_phase(resume)
 
     async def _phase_visible(self) -> None:
         """The boss waits for an attacker.
@@ -916,10 +1186,30 @@ class BossCycle:
         state = self.bot.state
         return state.busy or (state.event_alive and state.event_type not in _PASSIVE_EVENTS)
 
+    def open_event_in_the_way(self) -> str | None:
+        """The open passive event a summoned boss would close now - :data:`OPEN_MERCHANT`,
+        :data:`OPEN_MINE` (``dungeon.is_open`` implies its event), :data:`OPEN_EVENT` (a chest,
+        a shrine) - or None.
+
+        Owner, 2026-11-26: a summon no longer sends them away (the merchant's
+        cart, an expedition in the mine, an unclaimed chest): the Zwój
+        przywołania and the summoning gem wait until they are gone, and nothing
+        is used up meanwhile.  (The scheduled boss still closes them: it never
+        waits for them.)
+        """
+        state = self.bot.state
+        if not state.event_alive or state.event_type not in _PASSIVE_EVENTS:
+            return None
+        if state.event_type is EventType.MERCHANT:
+            return OPEN_MERCHANT
+        if state.event_type is EventType.DUNGEON:
+            return OPEN_MINE
+        return OPEN_EVENT
+
     async def summon(self, scene: Scene, rarity: int, *, show_image: bool = True,
                      is_player_boss: bool = False, player_boss: Any = None, variant: str = "",
-                     origin: str = "") -> bool:
-        """Put an extra boss on the channel right now (skill gem / ritual).
+                     origin: str = "", restored: dict[str, Any] | None = None) -> bool:
+        """Put an extra boss on the channel right now (skill gem / ritual / Zwój przywołania).
 
         The regular schedule is only paused: when the summoned boss is dealt
         with, the scheduled one still arrives at its original time - and when
@@ -928,27 +1218,46 @@ class BossCycle:
         boss is already there or on its way.
 
         ``show_image=True`` clears the channel and posts the boss picture (skill
-        gem); with ``show_image=False`` the caller already presented the boss
-        (ritual) and passes ``is_player_boss`` / ``player_boss`` itself - and
-        ``variant``, the special variant it showed the boss as ('' = ordinary;
-        with ``show_image=True`` the picture posted here decides).
+        gem, scroll); with ``show_image=False`` the caller already presented the
+        boss (ritual) and passes ``is_player_boss`` / ``player_boss`` itself -
+        and ``variant``, the special variant it showed the boss as ('' =
+        ordinary; with ``show_image=True`` the picture posted here decides).
+        With its own picture the boss also waits for an activity on the channel
+        and for an open passive event (:meth:`open_event_in_the_way`: False,
+        nothing is closed).
 
         ``origin`` (:data:`SUMMON_ORIGINS`): how the boss came - the Zwój
         przywołania passes ``"scroll"``, the summoning gem ``"gem"``, the ritual
         ``"ritual"``; it is kept in ``BossInfo.origin`` and in ``runtime.json``
-        (a restart brings it back with it).  '' (the default) says nothing.
+        (a restart brings it back with it).  '' (the default) says nothing.  A
+        scroll boss is refused while boss spawning is off: only the running
+        loop sends it away after its half hour.  The summoner is the scene's
+        author (named in the scroll's general-chat notice, given his scroll back
+        should the boss vanish unclaimed).
+
+        ``restored``: the note of the boss in ``runtime.json`` when it comes back
+        after a restart (:meth:`_restore`; the scene has no author then) - its
+        summoner and whether it was claimed go on, and a scroll boss keeps the
+        moment its stay began: a restart never makes it stay longer, it only
+        gets at least ``timings.summoned_min_stay`` more.
+
+        Once the boss is there its notice goes to the general chat
+        (:meth:`_announce_summoned`).
         """
         bot = self.bot
         state = bot.state
+        origin = origin if origin in SUMMON_ORIGINS else ""
         if not self.can_summon():
             return False
+        if origin == "scroll" and not self.enabled:
+            return False
         if show_image:
-            if self.activity_in_the_way():
+            if self.activity_in_the_way() or self.open_event_in_the_way() is not None:
                 return False
             # Posting the picture takes a moment: the channel is kept meanwhile, so
             # nothing else (a ritual that has just ended...) can show a second boss.
             with state.hold_busy("boss-summon"):
-                await self._close_mine()
+                await self._close_mine()  # (a no-op: an open mine refused the summon above)
                 state.close_event()
                 await io.clear_channel(scene.channel)
                 shown = await self._boss.send_boss_image(scene, rarity)
@@ -960,13 +1269,27 @@ class BossCycle:
             state.close_event()
         # Read only now: the phase may have moved on (IDLE -> SCHEDULED) during the upload.
         self._resume_phase = state.boss_phase
-        self._summoned_at = clock.utcnow()
+        now = clock.utcnow()
+        summoner = getattr(scene.author, "id", None)
+        claimed, began = False, now
+        if restored is not None:
+            claimed = bool(restored.get("claimed"))
+            try:
+                summoner = summoner or int(restored.get("by") or 0) or None
+            except (TypeError, ValueError):
+                summoner = None
+            if origin == "scroll":
+                timings = bot.timings
+                latest_start = now - timedelta(seconds=timings.scroll_boss_stay - timings.summoned_min_stay)
+                stored = _moment(restored.get("at"))
+                began = min(max(stored, latest_start), now) if stored is not None else latest_start
+        self._summoned_at = began
         self._encounters += 1  # a new boss: notices about the previous one are out of date
-        origin = origin if origin in SUMMON_ORIGINS else ""
         state.boss = BossInfo(rarity=int(rarity), is_player_boss=is_player_boss, player_boss=player_boss,
                               variant=variant if isinstance(variant, str) else "", origin=origin)
-        self._remember_summoned(int(rarity), origin=origin, at=self._summoned_at)
+        self._remember_summoned(int(rarity), origin=origin, at=began, by=summoner, claimed=claimed)
         await state.set_boss_phase(BossPhase.VISIBLE)
+        await self._announce_summoned(scene, int(rarity), origin, summoner)
         return True
 
     # -- fights -----------------------------------------------------------------
@@ -1013,6 +1336,10 @@ class BossCycle:
             else:
                 await io.send(scene.channel, refusal)
             return
+        if self._resume_phase is not None:
+            # A summoned boss was claimed: from now on it never gives a Zwój przywołania back
+            # (also after a restart - the note says so).
+            self._amend_summoned(claimed=True)
         self._encounters += 1
         encounter = self._encounters
         self._decided = None
@@ -1188,13 +1515,16 @@ class BossCycle:
         By policy (``boss_returns_after_interrupted_fight``) the boss stays.  A
         summoned boss then gets its minimal stay anew: the rule that makes it
         leave for the scheduled boss is about a boss nobody attacked, and it
-        must not leave at the very moment the "still here" notice appears.
+        must not leave at the very moment the "still here" notice appears.  A
+        scroll boss gets a fresh half hour - noted in ``runtime.json`` too, so
+        that a restart counts from here.
         """
         bot = self.bot
         stays = bot.settings.boss_returns_after_interrupted_fight
         if stays:
             if self._resume_phase is not None:
                 self._summoned_at = clock.utcnow()
+                self._amend_summoned(at=self._summoned_at)
             await bot.state.set_boss_phase(BossPhase.VISIBLE)
             message = MSG_FIGHT_INTERRUPTED_STAYS
         else:

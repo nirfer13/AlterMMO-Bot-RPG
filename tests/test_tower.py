@@ -15,12 +15,12 @@ import pytest
 from discord.ext import commands
 
 from altermmo.cogs import tower as tower_cog
-from altermmo.core import challenge, guards
+from altermmo.core import challenge, guards, ui
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.scene import Scene
 from altermmo.core.state import BossPhase
-from altermmo.features import achievements, boss, daily, modifiers, patrons, pets, tower
+from altermmo.features import achievements, boss, daily, hub, items, modifiers, patrons, pets, shortcuts, tower
 
 from fakes import FakeChannel, FakeMember, FakeMessage, requested_word
 
@@ -30,10 +30,10 @@ ZERO = {"CRIT_PERC": 0.0, "REPLACE_PERC": 0.0, "DEF_PERC": 0.0, "DROP_PERC": 0.0
 MSG_START = ("Rozpoczyna się walka w Wieży Śmierci, <@{id}>! Każde piętro to coraz trudniejszy boss do "
              "pokonania <:REEeee:790963160495947856>! Wpisz pojawiające się słowa tak szybko, jak to możliwe! "
              "Wielkość liter nie ma znaczenia! Wpisz słowa bez spacji! Przygotuj się!")
-MSG_MISTAKE = ("Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie w przyszłym tygodniu! "
-               "<:RIP:912797982917816341> Twój rekord został zapisany!")
-MSG_TOO_SLOW = ("Niestety nie zdążyłeś! <:Bedge:970576892874854400>  Spróbuj ponownie w przyszłym tygodniu! "
-                "<:RIP:912797982917816341> Twój rekord został zapisany!")
+MSG_MISTAKE = ("Pomyliłeś się! <:PepeHands:783992337377918986> Spróbuj ponownie w przyszłym tygodniu - albo "
+               "wcześniej, z Kluczem do wieży! <:RIP:912797982917816341> Twój rekord został zapisany!")
+MSG_TOO_SLOW = ("Niestety nie zdążyłeś! <:Bedge:970576892874854400>  Spróbuj ponownie w przyszłym tygodniu - albo "
+                "wcześniej, z Kluczem do wieży! <:RIP:912797982917816341> Twój rekord został zapisany!")
 TOWER_URL = ("https://www.altermmo.pl/wp-content/uploads/alter0000_Huge_mystery_gloomy_tower_with_small_"
              "lights_inside._F_2fe81cd9-bff9-4bbe-af41-8101162ec6b9.png")
 
@@ -789,8 +789,9 @@ async def test_wieza_command_rules(game, monkeypatch):
     await command.callback(cog, ctx)
     stamp = int(daily.next_season_end().timestamp())                  # the weekly reset: Monday 15:00
     assert game.channel.messages[-1].content == (
-        f"Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie <t:{stamp}:R> <:Bedge:970576892874854400>")
-    assert len(runs) == 2
+        f"Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie <t:{stamp}:R> - chyba że ktoś ma **Klucz do "
+        "wieży** <:Bedge:970576892874854400>")                          # (no database here: no keys)
+    assert game.channel.messages[-1].view is None and len(runs) == 2
 
     # Busy with something else: the guard answers with the notice, nothing starts.
     await tower.clear_weekly_tower_file(bot)
@@ -850,6 +851,251 @@ async def test_admin_commands(game_db):
     await cog.create_tower_database.callback(cog, make_ctx(game_db, admin, "!createTowerDatabase", admin=True))
     assert game_db.channel.messages[-1].content == "Baza danych TOWER utworzona."
     assert await record(bot, admin.id) == (4, "0:00:04.000000")       # nothing was dropped
+
+
+# -- the Klucz do wieży (items_decisions.md §2, 2026-11-26) -----------------------------------
+
+@pytest.fixture
+def runs(monkeypatch):
+    """The run is a recorder: ``(player, busy owner, on the weekly list at the start)`` per run."""
+    seen: list[tuple] = []
+
+    async def fake_run(scene):
+        bot = scene.bot
+        seen.append((scene.author, bot.state.busy_owner, tower.load_weekly_tower_from_file(bot, scene.author.id)))
+        tower.save_weekly_tower_to_file(bot, scene.author.id)          # (as the real run does before floor 1)
+        return 0
+
+    monkeypatch.setattr(tower, "explore_tower", fake_run)
+    return seen
+
+
+async def keys(bot, player) -> int:
+    return await items.count(bot, player.id, items.TOWER_KEY)
+
+
+def last(game) -> str:
+    return game.channel.messages[-1].content
+
+
+async def test_the_key_command_is_a_gameplay_command_silent_during_a_fight(game):
+    bot = game.bot
+    await bot.load_extension("altermmo.cogs.tower")
+    command = bot.get_command("klucz")
+    assert command is not None and command.cog_name == "Tower"
+    assert {bot.get_command(alias) for alias in ("uzyjklucza", "klucze")} == {command}
+    assert len(command.checks) == 3 and command._buckets._cooldown is None
+    ala = game.add_member("Ala")
+    elsewhere = FakeChannel(555, game.guild, bot.fake_user, name="inny")
+    with pytest.raises(guards.SilentCheckFailure):
+        await run_checks(command, make_ctx(game, ala, "!klucz", channel=elsewhere))
+    said = len(game.channel.bot_messages)
+    with challenge.round_running(game.channel):                           # a typed fight on the boss channel
+        with pytest.raises(guards.SilentCheckFailure):
+            await run_checks(command, make_ctx(game, ala, "!klucz"))
+    assert len(game.channel.bot_messages) == said
+    await run_checks(command, make_ctx(game, ala, "!klucz"))
+
+
+async def test_a_key_opens_the_closed_door_once(game_db, runs):
+    bot = game_db.bot
+    bot.debug = False
+    ala = game_db.add_member("Ala")
+    await items.grant(bot, ala.id, items.TOWER_KEY, 2)
+    tower.save_weekly_tower_to_file(bot, ala.id)                          # this week's run is done
+    cog = tower_cog.TowerCog(bot)
+    ctx = make_ctx(game_db, ala, "!klucz")
+    await run_checks(cog.use_key, ctx)
+    await cog.use_key.callback(cog, ctx)
+    # The key was used, the cooldown released for the run (which puts it back before floor 1).
+    assert runs == [(ala, "tower", False)] and await keys(bot, ala) == 1
+    assert game_db.channel.contains(tower.MSG_KEY_USED.format(user_id=ala.id, left=1))
+    assert tower.load_weekly_tower_from_file(bot, ala.id) and not bot.state.busy
+    # ... and the second key the next time.
+    assert await tower.start_tower(game_db.scene(ala), use_key=True) is True
+    assert await keys(bot, ala) == 0 and len(runs) == 2
+    assert game_db.channel.contains(tower.MSG_KEY_USED.format(user_id=ala.id, left=0))
+    # No key left: the door stays shut, nothing runs.
+    assert await tower.start_tower(game_db.scene(ala), use_key=True) is False
+    stamp = int(daily.next_season_end().timestamp())
+    assert last(game_db) == tower.MSG_NO_KEY.format(user_id=ala.id, when=f"<t:{stamp}:R>")
+    assert len(runs) == 2 and await keys(bot, ala) == 0 and not bot.state.busy
+    assert bot.owner_log == []
+
+
+async def test_with_the_door_open_the_key_stays_in_the_pocket(game_db, runs):
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    await items.grant(bot, ala.id, items.TOWER_KEY)
+    assert await tower.start_tower(game_db.scene(ala), use_key=True) is True
+    assert runs == [(ala, "tower", False)] and await keys(bot, ala) == 1
+    assert game_db.channel.contains(tower.MSG_KEY_KEPT.format(user_id=ala.id))
+    assert not game_db.channel.contains("przekręca w zamku")
+    # A plain !wieża never touches a key either.
+    await tower.clear_weekly_tower_file(bot)
+    assert await tower.start_tower(game_db.scene(ala)) is True and await keys(bot, ala) == 1
+
+
+async def test_the_closed_door_shows_the_key_and_its_button(game_db, runs):
+    bot = game_db.bot
+    bot.debug = False
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    for player in (ala, ola):
+        tower.save_weekly_tower_to_file(bot, player.id)
+    await items.grant(bot, ala.id, items.TOWER_KEY, 3)
+    stamp = int(daily.next_season_end().timestamp())
+
+    # Without a key: the hint that keys exist, no button.
+    assert await tower.start_tower(game_db.scene(ola)) is False
+    assert last(game_db) == tower.cooldown_text() == (
+        f"Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie <t:{stamp}:R> - chyba że ktoś ma **Klucz do "
+        "wieży** <:Bedge:970576892874854400>")
+    assert game_db.channel.messages[-1].view is None
+
+    # With keys: how many, and the "Użyj klucza" button (his own, it survives a restart).
+    assert await tower.start_tower(game_db.scene(ala)) is False
+    message = game_db.channel.messages[-1]
+    assert message.content == tower.cooldown_text(3) == (
+        f"Drzwi Wieży Śmierci ani drgną. Otworzą się ponownie <t:{stamp}:R> - ale masz **Klucz do wieży** "
+        "(sztuk: 3)! Kliknij **Użyj klucza** albo wpisz **!klucz** 🗝️")
+    (button,) = message.view.children
+    assert isinstance(button, shortcuts.KeyButton) and button.custom_id == f"altermmo:tower:key:{ala.id}"
+    assert button.item.label == "Użyj klucza" and str(button.item.emoji) == "🗝️" and message.view.is_persistent()
+    assert runs == [] and await keys(bot, ala) == 3
+
+    # Somebody else's click: whose button it is, nothing runs.
+    click = await game_db.click(message, ola, button.custom_id)
+    assert click.answers == [ui.MSG_NOT_YOURS_NAMED.format(player_id=ala.id)] and runs == []
+    # His click: the key opens the door.
+    await game_db.click(message, ala, button.custom_id)
+    assert runs == [(ala, "tower", False)] and await keys(bot, ala) == 2
+    assert game_db.channel.contains(tower.MSG_KEY_USED.format(user_id=ala.id, left=2))
+
+
+async def test_the_hub_click_shows_the_button_too(game_db, runs):
+    """The panel's "Wieża" answers a closed door through ``ui.reply`` - with the button for a key owner."""
+    from fakes import FakeInteraction
+
+    bot = game_db.bot
+    bot.debug = False
+    ala = game_db.add_member("Ala")
+    tower.save_weekly_tower_to_file(bot, ala.id)
+    await items.grant(bot, ala.id, items.TOWER_KEY)
+    interaction = FakeInteraction(bot, ala, None, channel=game_db.channel)
+    assert await hub.tower_clicked(interaction) is False
+    (reply,) = interaction.replies
+    assert interaction.answers == [tower.cooldown_text(1)]
+    assert reply.view.children[0].custom_id == f"altermmo:tower:key:{ala.id}" and runs == []
+
+
+async def test_the_boss_keeps_the_key_in_the_pocket(game_db, runs):
+    bot = game_db.bot
+    bot.debug = False
+    ala = game_db.add_member("Ala")
+    tower.save_weekly_tower_to_file(bot, ala.id)
+    await items.grant(bot, ala.id, items.TOWER_KEY)
+    for phase, text in ((BossPhase.PRE_SPAWN, tower.MSG_BOSS_COMING), (BossPhase.VISIBLE, tower.MSG_BOSS_HERE)):
+        await bot.state.set_boss_phase(phase)
+        assert await tower.start_tower(game_db.scene(ala), use_key=True) is False
+        assert last(game_db) == text
+    await bot.state.set_boss_phase(BossPhase.FIGHTING)
+    before = len(game_db.channel.bot_messages)
+    assert await tower.start_tower(game_db.scene(ala), use_key=True) is False
+    assert len(game_db.channel.bot_messages) == before                     # typed: silent during a boss fight
+    assert runs == [] and await keys(bot, ala) == 1
+
+
+async def test_the_key_is_taken_inside_the_busy_hold(game_db, runs, monkeypatch):
+    """No await between the cooldown check and ``hold_busy``: the key is taken while the channel is held, so
+    a second player (or a second click) is refused and one key opens the door once."""
+    bot = game_db.bot
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    for player in (ala, ola):
+        tower.save_weekly_tower_to_file(bot, player.id)
+        await items.grant(bot, player.id, items.TOWER_KEY)
+    real_take, gate, owners = items.take, asyncio.Event(), []
+
+    async def slow_take(bot_, player_id, key, number=1):
+        owners.append(bot.state.busy_owner)
+        await gate.wait()                                                  # the database takes its time
+        return await real_take(bot_, player_id, key, number)
+
+    monkeypatch.setattr(items, "take", slow_take)
+    first = asyncio.ensure_future(tower.start_tower(game_db.scene(ala), use_key=True))
+    await wait_until(lambda: owners)
+    assert owners == ["tower"]
+    refused: list[str] = []
+
+    async def refuse(text):
+        refused.append(text)
+
+    assert await tower.start_tower(game_db.scene(ola), refuse=refuse, use_key=True) is False
+    assert await tower.start_tower(game_db.scene(ala), refuse=refuse, use_key=True) is False
+    assert refused == [ui.MSG_BUSY, ui.MSG_BUSY]
+    gate.set()
+    assert await first is True
+    assert runs == [(ala, "tower", False)] and await keys(bot, ala) == 0 and await keys(bot, ola) == 1
+    source = inspect.getsource(tower.start_tower)
+    check, hold = source.index("on_cd = load_weekly_tower_from_file"), source.index('state.hold_busy("tower")')
+    code = [line.split("#")[0] for line in source[check:hold].splitlines()]
+    assert not any("await" in line for line in code)                       # the invariant, in the code itself
+
+
+async def test_the_monday_reset_during_the_take_gives_the_key_back(game_db, runs, monkeypatch):
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    tower.save_weekly_tower_to_file(bot, ala.id)
+    await items.grant(bot, ala.id, items.TOWER_KEY)
+    real_take = items.take
+
+    async def take_while_the_week_ends(bot_, player_id, key, number=1):
+        left = await real_take(bot_, player_id, key, number)
+        await tower.clear_weekly_tower_file(bot)                           # Monday 15:00, right now
+        return left
+
+    monkeypatch.setattr(items, "take", take_while_the_week_ends)
+    assert await tower.start_tower(game_db.scene(ala), use_key=True) is True
+    assert runs == [(ala, "tower", False)] and await keys(bot, ala) == 1   # the free run; the key is back
+    assert game_db.channel.contains(tower.MSG_KEY_KEPT.format(user_id=ala.id))
+    assert not game_db.channel.contains("przekręca w zamku")
+
+
+async def test_a_database_error_means_no_run_and_the_owner_is_pinged(game_db, runs, monkeypatch):
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    tower.save_weekly_tower_to_file(bot, ala.id)
+    await items.grant(bot, ala.id, items.TOWER_KEY)
+
+    async def lost_reply(*args, **kwargs):
+        raise DatabaseUnavailable("test: the reply was lost")
+
+    monkeypatch.setattr(items, "take", lost_reply)
+    assert await tower.start_tower(game_db.scene(ala), use_key=True) is False
+    assert runs == [] and not bot.state.busy and tower.load_weekly_tower_from_file(bot, ala.id)
+    assert last(game_db) == ui.MSG_FAILED
+    assert bot.owner_log == [tower.LOG_KEY_UNSURE.format(user_id=ala.id, error="DatabaseUnavailable")]
+    assert game_db.log_channel.messages[-1].content.startswith(f"<@{bot.ids.owner}>!")    # with a ping
+
+
+async def test_a_broken_key_run_gives_the_attempt_back_but_not_the_key(game_db, skills, drops):
+    """As every run that breaks before a reward: the attempt comes back; the key is not refunded on top."""
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    tower.save_weekly_tower_to_file(bot, ala.id)
+    await items.grant(bot, ala.id, items.TOWER_KEY)
+    game_db.auto_answer(ala)
+    original = game_db.channel.send
+
+    async def broken_on_floor_one(content=None, **kwargs):
+        if content and content.startswith("2. "):
+            raise RuntimeError("discord broke")
+        return await original(content, **kwargs)
+
+    game_db.channel.send = broken_on_floor_one
+    with pytest.raises(RuntimeError):
+        await tower.start_tower(game_db.scene(ala), use_key=True)
+    assert not tower.load_weekly_tower_from_file(bot, ala.id)               # the attempt is back
+    assert await keys(bot, ala) == 0 and drops == [] and not bot.state.busy
 
 
 # -- small stand-ins -----------------------------------------------------------------------
