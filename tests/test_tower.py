@@ -1014,6 +1014,17 @@ async def test_with_the_door_open_the_key_stays_in_the_pocket(game_db, runs):
     assert await tower.start_tower(game_db.scene(ala)) is True and await keys(bot, ala) == 1
 
 
+async def test_with_the_door_open_and_no_key_nothing_is_said_about_a_pocket(game_db, runs):
+    """``!klucz`` typed without a key, or an old "Użyj klucza" clicked after the Monday reset with none
+    left: just the week's free run - "klucz zostaje w kieszeni" would be a lie."""
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    assert await tower.start_tower(game_db.scene(ala), use_key=True) is True
+    assert runs == [(ala, "tower", False)] and await keys(bot, ala) == 0
+    assert not game_db.channel.contains("klucz zostaje w kieszeni")
+    assert not game_db.channel.contains("przekręca w zamku") and bot.owner_log == []
+
+
 async def test_the_closed_door_shows_the_key_and_its_button(game_db, runs):
     bot = game_db.bot
     bot.debug = False

@@ -708,8 +708,9 @@ async def revive(scene: "Scene", target: Any) -> bool:
     owner checks).  One scroll per fallen hunter: while one is read over him,
     another reader is refused (:data:`_reviving`, in memory).  A dead hunter
     cannot write on the channel, so nobody revives himself (a dead reader that
-    gets through anyway is ignored).  Only the reader is pinged - and the
-    revived hunter by the line that brings him back.
+    gets through anyway is ignored).  Only the reader is pinged, also by the
+    line that brings the hunter back (owner rule: a player text mentions only
+    the acting player; ``<@target>`` still shows the revived hunter's name).
     """
     bot, reviver = scene.bot, scene.author
     reviver_id = _pid(reviver)
@@ -767,7 +768,9 @@ async def _revive(scene: "Scene", target: Any) -> bool:
         await _say_revive(scene, MSG_REVIVE_FAILED.format(reviver=reviver_id), reviver)
         return False
     log.info("Revive: %s (%s) revived %s (%s); %s scroll(s) left.", reviver, reviver_id, target, target_id, left)
-    await _say_revive(scene, MSG_REVIVED.format(reviver=reviver_id, target=target_id), reviver, target)
+    # Only the reader is pinged (owner rule: a player text mentions only the acting player); <@target>
+    # still shows the revived hunter's name.
+    await _say_revive(scene, MSG_REVIVED.format(reviver=reviver_id, target=target_id), reviver)
     return True
 
 

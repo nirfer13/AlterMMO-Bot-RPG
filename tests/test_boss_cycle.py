@@ -560,6 +560,43 @@ async def test_summoned_boss_comes_back_after_a_restart(game_db, cycle, stub):
     assert bot.boss_cycle.arrives_at == planned                       # ...and the scheduled boss still comes
 
 
+async def test_a_summoned_boss_of_the_old_code_comes_back_from_its_bare_rarity(game_db, cycle, stub):
+    """The restart that deploys the items: runtime.json holds only ``summoned_boss_rarity`` (the code before
+    it wrote no ``summoned_boss_info``).  The boss comes back as one that says nothing of its origin - the
+    gem's rule for its stay, a summoned boss's loot, no scroll to give back - and gets its note written."""
+    bot = game_db.bot
+    bot.timings = SLOW_RESPAWN
+    ala = game_db.add_member("Ala")
+    cycle.start()
+    await wait_phase(bot, BossPhase.WAITING)
+    bot.store.runtime_set("summoned_boss_rarity", 4)              # (as the old code left it - and nothing else)
+    assert note(bot) is None
+
+    await restart(bot)
+    await wait_phase(bot, BossPhase.VISIBLE)
+    restored = bot.boss_cycle
+    assert bot.state.boss_rarity == 4 and bot.state.boss.origin == "" and ("image", 4) in stub.calls
+    info = note(bot)
+    assert info["origin"] == "" and info["by"] is None and info["claimed"] is False
+    assert abs((datetime.fromisoformat(info["at"]) - clock.utcnow()).total_seconds()) < 5
+    # The gem's rule, not the scroll's half hour: until the scheduled boss is due (in 1000 s), at least 600 s.
+    leaves_in = clock.seconds_until(restored.summoned_leaves_at())
+    assert abs(leaves_in - max(clock.seconds_until(restored.arrives_at), bot.timings.summoned_min_stay)) < 5
+    assert abs(leaves_in - bot.timings.scroll_boss_stay) > 60
+    await restored.reset()                                      # an admin's reset: nobody's scroll to give back
+    assert stub.refunds == [] and note(bot) is None and bot.store.runtime_get("summoned_boss_rarity") is None
+
+    # Once more from the bare rarity: attacked, it is a summoned boss's loot.
+    await wait_phase(bot, BossPhase.WAITING)
+    bot.store.runtime_set("summoned_boss_rarity", 4)
+    await restart(bot)
+    await wait_phase(bot, BossPhase.VISIBLE)
+    await bot.boss_cycle.attack(game_db.scene(ala))
+    assert stub.sources == ["summoned"] and stub.refunds == []
+    assert bot.store.runtime_get("summoned_boss_rarity") is None and note(bot) is None
+    bot.supervisor.stop(boss_cycle.LOOP_NAME)
+
+
 async def test_a_summoned_boss_keeps_its_origin_across_a_restart_and_its_loot_is_a_summoned_ones(game_db, cycle,
                                                                                                  stub):
     """(Items, 2026-11-26) ``BossInfo.origin`` and its own key in runtime.json (the rarity stays a plain int)."""

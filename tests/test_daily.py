@@ -1012,6 +1012,30 @@ async def test_a_bait_lures_the_monster_one_step_up_and_is_used_once(game_db, sk
     assert not bot.state.busy and bot.owner_log == []
 
 
+@pytest.mark.parametrize("rolled, note", [(0, daily.MSG_BAITED), (2, daily.MSG_BAIT_NOT_NEEDED)],
+                         ids=["baited", "not-needed"])
+async def test_a_baited_hunt_keeps_its_line_when_a_player_poses_as_the_monster(game_db, skills, monkeypatch,
+                                                                             rolled, note):
+    """The shrine's player-monster line is added after the bait's line, never instead of it."""
+    bot = game_db.bot
+    bot.debug = False
+    ala, patron = game_db.add_member("Ala"), game_db.add_member("Patron")
+    await items.grant(bot, ala.id, "bait")
+    await modifiers.modify_modifiers(bot, "player_id", patron.id)
+    monkeypatch.setattr(daily, "roll_hunt_rarity", lambda: rolled)
+    monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 2)
+    game_db.auto_answer(ala)
+    assert await daily.start_hunt(game_db.scene(ala), bait=True) is True
+    card = monster_card(game_db)
+    fought = min(rolled + 1, 2)
+    assert card.title == f"💀 {'Rzadki' if fought == 1 else 'Unikalny'} Patron! 💀"
+    assert card.description.startswith(
+        f"Na polowaniu pojawił się {'rzadki' if fought == 1 else 'UNIKALNY'} potwór! ⚔️\n\n{note}"
+        "\n\n*Potworem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
+        f"to ten gracz zgarnia {fought + 1} zwojów!*")
+    assert await baits(bot, ala) == (0 if rolled == 0 else 1)
+
+
 async def test_a_unique_roll_needs_no_bait(game_db, skills, monkeypatch):
     bot = game_db.bot
     bot.debug = False

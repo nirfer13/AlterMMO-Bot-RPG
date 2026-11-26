@@ -470,9 +470,10 @@ async def start_tower(scene: "Scene", *, refuse: Any = None, use_key: bool = Fal
 
     ``use_key=True`` is ``!klucz`` / the "Użyj klucza" button (owner,
     2026-11-26): with the door open it is a normal free run and the key stays
-    in the pocket; with the door closed for the player a Klucz do wieży is
-    taken - INSIDE the busy hold (:func:`_open_with_key`), so that there is
-    still no await between the cooldown check and ``hold_busy``: two clicks
+    in the pocket (said only to a player who has one); with the door closed
+    for the player a Klucz do wieży is taken - INSIDE the busy hold
+    (:func:`_open_with_key`), so that there is still no await between the
+    cooldown check and ``hold_busy``: two clicks
     cannot both start, nor one player run twice on one key.  The door closed
     without a key (``use_key`` or not) is answered with the reset's countdown
     - for a player who has keys with the "Użyj klucza" button under it.
@@ -489,6 +490,11 @@ async def start_tower(scene: "Scene", *, refuse: Any = None, use_key: bool = Fal
         else:
             await io.send(scene.channel, text, **message)
 
+    # Counted before the checks below (they must reach hold_busy without an
+    # await), so that "the key stays in the pocket" is said only to a player
+    # who has one: ``!klucz`` typed with no key, or an old "Użyj klucza" button
+    # clicked after the Monday reset, is just the week's free run.
+    has_key = use_key and await keys_of(bot, player.id) > 0
     if state.busy:  # somebody took the channel between the guard and here
         if refuse is None:
             await guards.notify_busy(scene)  # type: ignore[arg-type] - needs only ``.channel``
@@ -503,7 +509,7 @@ async def start_tower(scene: "Scene", *, refuse: Any = None, use_key: bool = Fal
             if on_cd:
                 if not await _open_with_key(scene, tell):
                     return False
-            elif use_key:
+            elif has_key:
                 await _say(scene, MSG_KEY_KEPT.format(user_id=player.id))
             await explore_tower(scene)
         return True

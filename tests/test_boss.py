@@ -1252,6 +1252,23 @@ async def test_duel_pets_defend_and_soften_mistakes(game_db, pets):
             or channel.contains("Nie Twoja kolej, ale Twój towarzysz Cię broni!"))
 
 
+async def test_duel_defence_above_100_blocks_the_hit_and_never_heals(game_db, pets):
+    """Own DEF plus the auras of every hatched pet add up with no cap, so DEF can pass 100.
+
+    Then the hit is blocked whole (dealt 0, all of it "zredukowane") - before
+    the fix the reduction went negative and every hit healed the defender
+    above the duel's full life.
+    """
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    pets.skills[ola.id] = {"DEF_PERC": Decimal("120")}
+    duel_setup(game_db, ala, ola, starter=ala)
+    assert await boss.duel_fight(game_db.scene(), [ala, ola], False) == (True, ola)
+    channel = game_db.channel
+    assert said(channel, r"Ala zadał 0 obrażeń \(zredukowane o (4\d\d|500)\)\.\n\nAla 🟥 HP: 3000\nOla 🟦 HP: 3000\n")
+    assert not said(channel, r"Ala zadał -")
+    assert not said(channel, r"Ola 🟦 HP:(300[1-9]|30[1-9]\d|3[1-9]\d\d|[4-9]\d\d\d)")
+
+
 # -- the egg of a special boss (features/bossvariants.py) ------------------------------------------
 
 EGG_ONLY = [{"id": 10, "descr": "Jajko", "weight": 100}]

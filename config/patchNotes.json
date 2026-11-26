@@ -197,18 +197,5 @@
         "changes": [
             "Bot zapisuje teraz przebieg każdej walki na dłużej i dokładniej, także to, kiedy Twoja odpowiedź dotarła do Discorda. Sporne przegrane, np. przez lag, da się więc sprawdzić nawet po kilku dniach. W samych walkach nic się nie zmienia."
         ]
-    },
-    {
-        "id": 20,
-        "date": "2026-11-26",
-        "title": "Pełniejsze sakwy",
-        "changes": [
-            "🎒 Z bossów, potworów, skrzyń i wydarzeń wypada teraz więcej różnych przedmiotów, a Wędrowny kupiec ma na wozie więcej towarów. Co robią? Przekonajcie się sami!",
-            "Nowa komenda **!przedmioty** (skrót **!eq**) i przycisk **Przedmioty** w **Panelu gry** - wszystko, co nosisz, w jednym miejscu, także zanim zdobędziesz towarzysza.",
-            "Bardzo rzadko z jajka wykluwa się towarzysz otoczony tajemniczą **aurą**. Podobno pomaga swojemu panu zawsze - nawet ze stajni - i rośnie razem z nim.",
-            "Towarzysze mogą teraz rozwinąć nową cechę: **Zaradność w zleceniach**.",
-            "Bestia przywołana zwojem odchodzi, jeśli przez pół godziny nikt jej nie zaatakuje.",
-            "Dova od kubków przywiózł z dalekich stron coś wyjątkowego - kto go ogra, ten może się zdziwić."
-        ]
     }
 ]

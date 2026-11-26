@@ -1289,7 +1289,10 @@ async def duel_fight(scene: "Scene", participants: Sequence[Any], ban: bool = Tr
                 damage *= 2
 
         damage = max(damage, 0.0)
-        reduction = (100 - int(pets[foe]["DEF_PERC"])) / 100
+        # A defence above 100 (own points plus the auras of every hatched pet,
+        # which add up with no cap) blocks the whole hit - but a negative
+        # reduction must never turn the hit into healing.
+        reduction = max(0.0, (100 - int(pets[foe]["DEF_PERC"])) / 100)
         dealt = round(damage * 100 * reduction)
         reduced = round(damage * 100 - dealt)
         hp[foe] -= dealt

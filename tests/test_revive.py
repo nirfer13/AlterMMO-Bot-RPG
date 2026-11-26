@@ -68,7 +68,8 @@ async def test_a_scroll_revives_a_fallen_hunter_whatever_killed_him(game_db):
     assert game_db.channel.messages[-1].content == (
         f"🕊️ <@{ala.id}> odczytuje nad <@{ola.id}> **Zwój wskrzeszenia**! Poległy łowca kicha, otrzepuje się "
         "z kurzu i wraca do gry.")
-    assert [user.id for user in allowed[-1].users] == [ala.id, ola.id] and allowed[-1].everyone is False
+    # Owner rule: a player text mentions only the acting player - <@Ola> shows her name, without a ping.
+    assert [user.id for user in allowed[-1].users] == [ala.id] and allowed[-1].everyone is False
     assert bot.owner_log == []
     # Back among the living: a second scroll would be wasted - it is not taken, and he is not pinged for it.
     assert await items.revive(game_db.scene(ala), ola) is False

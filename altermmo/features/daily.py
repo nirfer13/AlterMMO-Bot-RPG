@@ -486,10 +486,12 @@ async def send_mob_image(scene: "Scene", rarity: int, *, note: str = "") -> tupl
                      forced_id)
     is_player_boss = boss_player is not None
 
+    # Appended, never replacing the note: a baited hunt against a player posing
+    # as the monster must still tell the starter what became of his Przynęta.
     add_desc = f"\n\n{note}" if note else ""
     if is_player_boss:
-        add_desc = ("\n\n*Potworem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
-                    "to ten gracz zgarnia " + str(rarity + 1) + " zwojów!*")
+        add_desc += ("\n\n*Potworem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
+                     "to ten gracz zgarnia " + str(rarity + 1) + " zwojów!*")
     add_desc += await modifiers.load_desc_modifiers(bot)
     add_desc += MSG_JOIN_HINT
 
