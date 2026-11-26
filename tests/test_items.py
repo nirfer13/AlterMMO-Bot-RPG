@@ -63,9 +63,8 @@ def test_the_registry_holds_the_owners_ids_and_names():
         (25, "dust", "Nieuchwytny pył", "✨"), (26, "dova_die", "Kość Dovy", "🎲"),
         (27, "dova_card", "Karta Dovy", "🃏")]
     assert items.RESERVED_LOOT_IDS == (21, 23, 24) and not set(items.RESERVED_LOOT_IDS) & set(items.BY_LOOT_ID)
-    # Only the Zwój przywołania lives in PETOWNER; it and the key are always listed in !przedmioty.
+    # Only the Zwój przywołania lives in PETOWNER.
     assert [item.key for item in items.ITEMS if item.in_petowner] == ["summon_scroll"]
-    assert [item.key for item in items.ITEMS if item.always_shown] == ["summon_scroll", "tower_key"]
     assert all(len(item.key) <= 32 and item.hint and item.description and item.label for item in items.ITEMS)
     # No id of an older loot row (0-15) is taken; 26 and 27 are Dova's prizes (§12).
     assert min(items.BY_LOOT_ID) == 16 and max(items.BY_LOOT_ID) == 27
@@ -481,7 +480,7 @@ async def test_the_view_of_a_player_with_nothing(game_db):
     assert await items.view_lines(bot, ala.id) == []
 
 
-async def test_the_view_lists_the_old_counters_the_scrolls_and_the_keys_and_what_he_has(game_db):
+async def test_the_view_lists_only_what_he_has(game_db):
     bot = game_db.bot
     ala = game_db.add_member("Ala")
     await add_owner(bot.db, ala.id, 0, reroll_scroll=5, reroll_scroll_shard=3)   # no pet at all
@@ -494,35 +493,28 @@ async def test_the_view_lists_the_old_counters_the_scrolls_and_the_keys_and_what
         f"Oto, co nosisz w sakwie, <@{ala.id}>:", "",
         "📜 **Zwoje odrodzenia**: 5 - **!odrodzenie**, **!mocneodrodzenie**",
         "🧩 **Fragmenty zwojów**: 3 - 10 fragmentów to pełny zwój (zamienią się przy **!towarzysz**)",
-        "💎 **Kamienie olśnienia**: 0 - **!oswiecenie**",
-        "🪞 **Lustra wizualiów**: 0 - **!transformacja**",
-        "📯 **Zwoje przywołania**: 0 - **!przywolaj**",
-        "🗝️ **Klucze do wieży**: 0 - **!klucz**",
         "🪶 **Pióra Żar-ptaka**: 1 - **!oswiecenie**"]
-    assert "Nieuchwytny" not in embed.description                      # (none left: not listed)
+    # Owner: nothing he does not have is listed (no "0" lines, the scrolls and keys included).
+    assert not any(word in embed.description for word in ("Nieuchwytny", "Kamienie", "Lustra", "przywołania",
+                                                          "Klucze"))
 
 
 async def test_the_view_lists_the_thefts_and_the_pouch(game_db):
     bot = game_db.bot
     ala = game_db.add_member("Ala")
     xpsteal.grant(bot, ala.id, 10000)
-    assert await items.view_lines(bot, ala.id) == [                   # a theft alone is something
-        "📜 **Zwoje odrodzenia**: 0 - **!odrodzenie**, **!mocneodrodzenie**",
-        "🧩 **Fragmenty zwojów**: 0 - 10 fragmentów to pełny zwój (zamienią się przy **!towarzysz**)",
-        "💎 **Kamienie olśnienia**: 0 - **!oswiecenie**", "🪞 **Lustra wizualiów**: 0 - **!transformacja**",
-        "📯 **Zwoje przywołania**: 0 - **!przywolaj**", "🗝️ **Klucze do wieży**: 0 - **!klucz**",
-        items.LINE_THEFTS.format(count=1)]
+    assert await items.view_lines(bot, ala.id) == [items.LINE_THEFTS.format(count=1)]   # a theft alone is something
     await add_owner(bot.db, ala.id, 5, egg_pouch=True, summon_scrolls=2)
     await add_pet(bot.db, 5, pet_lvl=1)
     lines = await items.view_lines(bot, ala.id)
     assert "📯 **Zwoje przywołania**: 2 - **!przywolaj**" in lines and lines[-1] == items.LINE_POUCH
     await bot.db.execute("UPDATE PETOWNER SET BIG_POUCH = TRUE WHERE PLAYER_ID = $1", ala.id)
     assert (await items.view_lines(bot, ala.id))[-1] == items.LINE_BIG_POUCH
-    # Without the missions' columns (no summoning scrolls) the line says 0, without the table no item.
+    # Without the missions' columns (no summoning scrolls) there is no scroll line, without the table no item.
     bot._mission_columns = bot._owner_upgrades = False
     bot._player_items = (False, clock.monotonic())
     lines = await items.view_lines(bot, ala.id)
-    assert "📯 **Zwoje przywołania**: 0 - **!przywolaj**" in lines and not any("Sakwa" in line for line in lines)
+    assert not any("przywołania" in line or "Sakwa" in line for line in lines)
 
 
 async def test_przedmioty_is_a_display_command_silent_during_a_fight(game_db, items_cog):

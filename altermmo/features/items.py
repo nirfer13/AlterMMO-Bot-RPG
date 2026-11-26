@@ -117,8 +117,6 @@ class Item:
     description: str
     #: Kept in ``PETOWNER.SUMMON_SCROLLS`` (the Zwój przywołania), not in ``PLAYER_ITEMS``.
     in_petowner: bool = False
-    #: Shown in ``!przedmioty`` also when the player has none.
-    always_shown: bool = False
 
 
 SUMMON_SCROLL = "summon_scroll"
@@ -140,9 +138,9 @@ DOVA_PRIZES: tuple[str, ...] = (DOVA_DIE, DOVA_CARD)
 ITEMS: tuple[Item, ...] = (
     Item(SUMMON_SCROLL, 16, "Zwój przywołania", "Zwoje przywołania", "📯", "**!przywolaj**",
          "Odczytany na kanale bossa sprowadza mitycznego bossa, którego zaatakować może każdy.",
-         in_petowner=True, always_shown=True),
+         in_petowner=True),
     Item(TOWER_KEY, 17, "Klucz do wieży", "Klucze do wieży", "🗝️", "**!klucz**",
-         "Zardzewiały, ale pasuje do Drzwi Wieży Śmierci.", always_shown=True),
+         "Zardzewiały, ale pasuje do Drzwi Wieży Śmierci."),
     Item(FEATHER, 18, "Pióro Żar-ptaka", "Pióra Żar-ptaka", "🪶", "**!oswiecenie**",
          "Wciąż tli się w nim ogień z dalekiej krainy."),
     Item(BAIT, 19, "Przynęta", "Przynęty", "🪤", "**!przyneta**",
@@ -601,7 +599,7 @@ VIEW_COLOUR = 0xC08A3E
 MSG_VIEW_HEAD = "Oto, co nosisz w sakwie, <@{player_id}>:"
 MSG_EMPTY = ("Twoja sakwa świeci pustkami, <@{player_id}>. Ruszaj na **!polowanie** - potwory same się "
              "nie okradną!")
-#: The old counters of ``PETOWNER`` (always shown): ``(column, emoji, label, how it is used)``.
+#: The old counters of ``PETOWNER`` (shown when above 0): ``(column, emoji, label, how it is used)``.
 OLD_COUNTERS: tuple[tuple[str, str, str, str], ...] = (
     ("reroll_scroll", "📜", "Zwoje odrodzenia", "**!odrodzenie**, **!mocneodrodzenie**"),
     ("reroll_scroll_shard", "🧩", "Fragmenty zwojów",
@@ -618,9 +616,10 @@ LINE_BIG_POUCH = "🎒 **Duża sakwa** - mieści dwa jajka (**!wyjmijjajko**)"
 async def view_lines(bot: "AlterBot", player_id: Any) -> list[str]:
     """The lines of ``!przedmioty`` for the player; [] when he has nothing at all (the empty view).
 
-    The old counters, the Zwoje przywołania and the Klucze do wieży are always
-    listed; the XP thefts and the pouch when he has them; every other item
-    when he has at least one.  A store that is not there counts as none.
+    Only what he has (owner, 2026-11-26: "Nie pokazuj zwojów i kluczy wieży,
+    jeśli ktoś nie ma. Tak samo z innymi przedmiotami."): every counter and
+    item with at least one, the XP thefts and the pouch when he has them.  A
+    store that is not there counts as none.
     """
     from . import xpsteal
 
@@ -631,19 +630,15 @@ async def view_lines(bot: "AlterBot", player_id: Any) -> list[str]:
     thefts = len(xpsteal.pending(bot, player_id))
     pouch = await pets.pouch_size(bot, player_id)
     lines = [LINE.format(emoji=emoji, label=label, count=_int(owner.get(column)), hint=hint)
-             for column, emoji, label, hint in OLD_COUNTERS]
-    numbers = [_int(owner.get(column)) for column, *_ in OLD_COUNTERS]
+             for column, emoji, label, hint in OLD_COUNTERS if _int(owner.get(column)) > 0]
     for item in ITEMS:
         number = _int(owner.get("summon_scrolls")) if item.in_petowner else stored.get(item.key, 0)
-        numbers.append(number)
-        if item.always_shown or number > 0:
+        if number > 0:
             lines.append(LINE.format(emoji=item.emoji, label=item.label, count=number, hint=item.hint))
     if thefts > 0:
         lines.append(LINE_THEFTS.format(count=thefts))
     if pouch > 0:
         lines.append(LINE_BIG_POUCH if pouch > 1 else LINE_POUCH)
-    if not any(number > 0 for number in numbers) and thefts <= 0 and pouch <= 0:
-        return []
     return lines
 
 
