@@ -151,6 +151,50 @@ def test_the_shipped_tables_append_the_new_items_after_every_older_row(name, tab
         assert all(row["sources"] == (["boss"] if name == "lootConfig.json" else ["world"]) for row in scroll)
 
 
+#: items_decisions.md §9: ``loot id: (weight per tier, sources, boost)`` - the tiers are the boss's
+#: Normal..Mythic and the monster's Normal..Epic; ``None``: no ``sources`` (it drops everywhere).
+FINAL_WEIGHTS = {
+    "lootConfig.json": {
+        16: ((0, 0, 1, 2, 5), ["boss"], True),
+        17: ((0, 1, 2, 3, 5), ["boss", "summoned", "duel"], True),
+        18: ((0.03, 0.05, 0.08, 0.1, 0.12), ["boss", "summoned", "duel"], False),
+        19: ((2, 3, 4, 4, 6), None, True),
+        20: ((0.5, 0.5, 1, 1, 2), None, True),
+        22: ((1, 2, 3, 3, 5), None, True),
+        25: ((0.05, 0.1, 0.2, 0.3, 0.5), None, True),
+    },
+    "mobLootConfig.json": {
+        16: ((0, 0, 1), ["world"], True),
+        17: ((0, 0.3, 2), ["world", "duel"], True),
+        18: ((0.02, 0.07, 0.15), None, False),
+        19: ((2, 4, 6), None, True),
+        20: ((0.2, 1, 3), None, True),
+        22: ((1, 3, 6), None, True),
+        25: ((0.02, 0.05, 0.3), None, True),
+    },
+}
+
+
+@pytest.mark.parametrize("name, tables", [
+    ("lootConfig.json", ("Normal", "Rare", "Epic", "Legend", "Mythic")),
+    ("mobLootConfig.json", ("Normal", "Rare", "Epic")),
+])
+def test_the_new_items_drop_at_the_owners_weights(name, tables):
+    """§9, the last commit of the items: the new rows turned on at the owner's weights (they came with
+    weight 0 first - the running bot re-reads both files).  A tier whose weight is 0 has no row at all."""
+    config = json.loads((CONFIG_DIR / name).read_text(encoding="utf-8"))
+    assert set(FINAL_WEIGHTS[name]) == set(items.BY_LOOT_ID)
+    for loot_id, (weights, sources, boost) in FINAL_WEIGHTS[name].items():
+        for table, weight in zip(tables, weights, strict=True):
+            rows = [row for row in config[f"loot_details_{table}"] if row["id"] == loot_id]
+            if not weight:
+                assert rows == [], (table, loot_id)
+                continue
+            [row] = rows
+            assert row["weight"] == weight and row.get("sources") == sources, (table, row)
+            assert row.get("boost", True) is boost, (table, row)
+
+
 # -- the table ---------------------------------------------------------------------------
 
 async def test_the_table_is_made_at_start_up_with_its_key_and_check(db):
@@ -536,3 +580,59 @@ def test_the_owners_command_is_admin_only_and_not_in_the_help():
     assert isinstance(command, commands.Command)
     assert any("has_permissions" in getattr(check, "__qualname__", "") for check in command.checks)
     assert "DajPrzedmiot" not in help_cog.HELP_TEXT and "!przedmioty" in help_cog.HELP_TEXT
+
+
+# -- the patch notes ----------------------------------------------------------------------------
+
+def test_the_patch_notes_entry_teases_the_items_and_names_no_effect():
+    """Entry 20 (items_decisions.md §10): spoiler-free, no numbers, no item's name or effect, no aura's name -
+    and every command, button and name it does give is the real one (the notes are final once posted).
+
+    The bot posts an unsent entry at its next start: the entry came in the same commit that turned the
+    drops, the wares and the auras on (§9), never before - so what it promises is switched on, checked
+    below in the shipped files.  Dova's teaser comes with Dova's prizes (§12), not before them."""
+    from altermmo.cogs import items as cog
+    from altermmo.features import auras, hub, merchant, pets
+    from altermmo.features import patchnotes
+    from altermmo.settings import Timings
+
+    # (Found by its title: its number may change when the lead merges, and every later update adds an entry.)
+    [entry] = [note for note in patchnotes.load_notes() if note.title == "Pełniejsze sakwy"]
+    assert entry.date == "2026-11-26" and len(entry.changes) == 5
+    text = " ".join(entry.changes)
+    low = text.lower()
+    assert patchnotes.spoiler_in(entry) is None                              # no percentage, no forbidden word
+    assert not any(char.isdigit() for char in text)                           # no chances, prices or values
+    assert "$" not in text and "lobby" not in low
+    # What the players find out themselves: which items there are, what they and the auras do.
+    for item in items.ITEMS:
+        assert item.name.lower() not in low, item.name
+    for kind in auras.KINDS.values():
+        for word in (kind.name, kind.instrumental, kind.accusative, kind.stat_words, kind.stat_label):
+            assert word.lower() not in low, word
+    # The command, its short form, the button and the panel are the real ones.
+    names = {command.name: command for command in cog.ItemsCog.__cog_commands__}
+    assert "przedmioty" in names and "eq" in names["przedmioty"].aliases
+    assert "**!przedmioty** (skrót **!eq**)" in text and "**Przedmioty** w **Panelu gry**" in text
+    assert hub.PANEL_TITLE.endswith("Panel gry")
+    view = hub.HubView()
+    try:
+        assert any(getattr(item, "custom_id", None) == hub.ITEMS_ID and item.label == "Przedmioty"
+                   for item in view.children)
+    finally:
+        view.stop()
+    # The new stat by its shown name, the scroll boss's half an hour.
+    assert f"**{pets.MSG_MISSION_PERC_LABEL}**" in text
+    assert "pół godziny" in text and Timings().scroll_boss_stay == 30 * 60
+    # "więcej różnych przedmiotów ... więcej towarów", "z jajka wykluwa się ... aurą": all of it is on.
+    assert "więcej różnych przedmiotów" in text and "więcej towarów" in text and "**aurą**" in text
+    for name in ("lootConfig.json", "mobLootConfig.json"):
+        config = json.loads((CONFIG_DIR / name).read_text(encoding="utf-8"))
+        rows = [row for table in config.values() for row in table if row["id"] in items.BY_LOOT_ID]
+        assert rows and all(row["weight"] > 0 for row in rows), name
+    shipped = merchant.load_config(CONFIG_DIR / "merchantConfig.json")
+    wares = {ware: weight for ware, _name, _price, weight, _entry in shipped.items}
+    assert all(wares[ware] > 0 for ware in ("summon_scroll", "feather", "bait", "revive_scroll", "rope", "dust"))
+    assert auras.parse(json.loads((CONFIG_DIR / auras.CONFIG_FILE).read_text(encoding="utf-8"))).on
+    # Dova's line ("Dova od kubków przywiózł...", §12) is added to this entry by the part that builds his prizes.
+    assert "Dova" not in text

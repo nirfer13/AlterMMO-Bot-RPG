@@ -182,13 +182,12 @@ def test_words_and_real_loot_config(monkeypatch):
     assert len(daily.MOB_ACTIONS) == 15
     assert all(requested_word(prompt) == word for word, prompt in daily.MOB_ACTIONS)
     monkeypatch.undo()                            # the real config/mobLootConfig.json
-    # The older items, then the new ones of features/items.py - shipped with weight 0 (deploy safety: the
-    # running bot re-reads the file), so >= 0; tests/test_items.py checks their place and their keys.
+    # The older items, then the new ones of features/items.py - turned on, every row above 0 (a weight-0
+    # tier has no row); tests/test_items.py checks their place, their keys and the owner's weights.
     known = {1, 9, 10, 11, 12, 13, 14, *items.BY_LOOT_ID}
     for rarity in (0, 1, 2, 3):
         table = daily._loot_table(rarity)
-        assert table and all(item["id"] in known and item["weight"] >= 0 and item["descr"] for item in table)
-        assert all(item["weight"] > 0 for item in table if item["id"] not in items.BY_LOOT_ID)
+        assert table and all(item["id"] in known and item["weight"] > 0 and item["descr"] for item in table)
     assert daily._loot_table(3) == daily._loot_table(2)
 
 

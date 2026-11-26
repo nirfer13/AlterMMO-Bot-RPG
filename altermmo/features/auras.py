@@ -12,8 +12,9 @@ The rules, and only the rules - this module touches no database and no Discord
   ``config/auraConfig.json`` (:func:`load`, read anew before every level-up's
   transaction):  ``{"chance_per_10000": N, "kinds": {"mroz": 35, ...}}``.
   Whatever is wrong with the file means chance 0 - it never raises, so a typo
-  can never cost a player his level.  The file ships with ``0``; turning the
-  auras on is a separate change of that one number.
+  can never cost a player his level.  The file came with ``0`` (the running
+  bot reads it live) and a separate, last change of that one number turned
+  the auras on (``100``: one hatching in a hundred, items_decisions.md §9).
 * **The values are code constants** (:data:`KINDS`): where an aura starts, its
   step and the most ONE pet's aura can reach.  Owner, 2026-11-26: "nie rób
   odgórnych globalnych limitów z wszystkich źródeł. Tylko jak już to limity na

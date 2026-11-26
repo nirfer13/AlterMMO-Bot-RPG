@@ -23,28 +23,28 @@
 	{
 		"id": 18,
 		"descr": "🪶 **Pióro Żar-ptaka**! Wciąż tli się w nim ogień z dalekiej krainy - podobno pomaga towarzyszom sięgnąć wyżej (**!oswiecenie**).",
-		"weight": 0,
+		"weight": 0.02,
 		"boost": false
 	},
 	{
 		"id": 19,
 		"descr": "🪤 **Przynęta**! Pachnie tak, że żaden potwór z puszczy się nie oprze. Zarzucisz ją, ruszając na polowanie (**!przyneta**).",
-		"weight": 0
+		"weight": 2
 	},
 	{
 		"id": 20,
 		"descr": "🕊️ **Zwój wskrzeszenia**! Odczytany nad poległym łowcą stawia go z powrotem na nogi (**!wskrzes @gracz**).",
-		"weight": 0
+		"weight": 0.2
 	},
 	{
 		"id": 22,
 		"descr": "🪢 **Lina sztygara**! Mocna, konopna, pamięta niejedną sztolnię - przyda się w Kopalni Ostatniej Lampy.",
-		"weight": 0
+		"weight": 1
 	},
 	{
 		"id": 25,
 		"descr": "✨ **Nieuchwytny pył**! Szczypta czegoś, co nie chce dać się złapać. Nosisz go przy sobie - sam wie, kiedy się przydać.",
-		"weight": 0
+		"weight": 0.02
 	}
 	],"loot_details_Rare": [
 	{
@@ -70,34 +70,34 @@
 	{
 		"id": 17,
 		"descr": "🗝️ **Klucz do wieży**! Zardzewiały, ale pasuje do Drzwi Wieży Śmierci: otworzy je ponownie, gdy w tym tygodniu już tam byłeś (**!klucz**).",
-		"weight": 0,
+		"weight": 0.3,
 		"sources": ["world", "duel"]
 	},
 	{
 		"id": 18,
 		"descr": "🪶 **Pióro Żar-ptaka**! Wciąż tli się w nim ogień z dalekiej krainy - podobno pomaga towarzyszom sięgnąć wyżej (**!oswiecenie**).",
-		"weight": 0,
+		"weight": 0.07,
 		"boost": false
 	},
 	{
 		"id": 19,
 		"descr": "🪤 **Przynęta**! Pachnie tak, że żaden potwór z puszczy się nie oprze. Zarzucisz ją, ruszając na polowanie (**!przyneta**).",
-		"weight": 0
+		"weight": 4
 	},
 	{
 		"id": 20,
 		"descr": "🕊️ **Zwój wskrzeszenia**! Odczytany nad poległym łowcą stawia go z powrotem na nogi (**!wskrzes @gracz**).",
-		"weight": 0
+		"weight": 1
 	},
 	{
 		"id": 22,
 		"descr": "🪢 **Lina sztygara**! Mocna, konopna, pamięta niejedną sztolnię - przyda się w Kopalni Ostatniej Lampy.",
-		"weight": 0
+		"weight": 3
 	},
 	{
 		"id": 25,
 		"descr": "✨ **Nieuchwytny pył**! Szczypta czegoś, co nie chce dać się złapać. Nosisz go przy sobie - sam wie, kiedy się przydać.",
-		"weight": 0
+		"weight": 0.05
 	}
 	],"loot_details_Epic": [
 	{
@@ -133,40 +133,40 @@
 	{
 		"id": 16,
 		"descr": "📯 **Zwój przywołania**! Odczytasz go komendą **!przywolaj** - na kanał bossa przybędzie mityczny boss.",
-		"weight": 0,
+		"weight": 1,
 		"sources": ["world"]
 	},
 	{
 		"id": 17,
 		"descr": "🗝️ **Klucz do wieży**! Zardzewiały, ale pasuje do Drzwi Wieży Śmierci: otworzy je ponownie, gdy w tym tygodniu już tam byłeś (**!klucz**).",
-		"weight": 0,
+		"weight": 2,
 		"sources": ["world", "duel"]
 	},
 	{
 		"id": 18,
 		"descr": "🪶 **Pióro Żar-ptaka**! Wciąż tli się w nim ogień z dalekiej krainy - podobno pomaga towarzyszom sięgnąć wyżej (**!oswiecenie**).",
-		"weight": 0,
+		"weight": 0.15,
 		"boost": false
 	},
 	{
 		"id": 19,
 		"descr": "🪤 **Przynęta**! Pachnie tak, że żaden potwór z puszczy się nie oprze. Zarzucisz ją, ruszając na polowanie (**!przyneta**).",
-		"weight": 0
+		"weight": 6
 	},
 	{
 		"id": 20,
 		"descr": "🕊️ **Zwój wskrzeszenia**! Odczytany nad poległym łowcą stawia go z powrotem na nogi (**!wskrzes @gracz**).",
-		"weight": 0
+		"weight": 3
 	},
 	{
 		"id": 22,
 		"descr": "🪢 **Lina sztygara**! Mocna, konopna, pamięta niejedną sztolnię - przyda się w Kopalni Ostatniej Lampy.",
-		"weight": 0
+		"weight": 6
 	},
 	{
 		"id": 25,
 		"descr": "✨ **Nieuchwytny pył**! Szczypta czegoś, co nie chce dać się złapać. Nosisz go przy sobie - sam wie, kiedy się przydać.",
-		"weight": 0
+		"weight": 0.3
 	}
 	]
 }

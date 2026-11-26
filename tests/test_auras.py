@@ -4,8 +4,8 @@ The rules without a database first (the config, the draws, the sums, the texts),
 real PostgreSQL: the roll at hatching, the growth, the fight stats (every hatched pet counts, with or
 without a pet at the player's side, no cap but the per-pet maximum), what never touches an aura, the
 sacrifice, ``!towarzysz``, ``!stajnia``, ``!ReassignPet`` and the owner's ``!PetLvlUp``.  Every test that
-wants an aura writes its own ``auraConfig.json`` (``aura_config`` in conftest.py): the shipped file and the
-autouse fixture keep the chance at 0.
+wants an aura writes its own ``auraConfig.json`` (``aura_config`` in conftest.py): the autouse fixture keeps
+the chance at 0 (the shipped file has the owner's 1%, which no test but its pin relies on).
 """
 
 from __future__ import annotations
@@ -61,12 +61,13 @@ def test_the_owners_table_is_in_the_code():
     assert set(auras.KINDS) <= set(pets.NO_PET_SKILLS)                         # stats every fight reads
 
 
-def test_the_shipped_config_gives_no_aura_until_the_owner_turns_it_on():
-    """Deploy safety (§9): the live bot re-reads the file - it ships with chance 0 and the owner's weights."""
+def test_the_shipped_config_gives_an_aura_at_one_hatching_in_a_hundred():
+    """§9: the file came with chance 0 (the live bot re-reads it); the last commit set the owner's 100 per
+    10000 - 1% - with the owner's weights.  Every other test still starts at 0 (the autouse fixture)."""
     raw = json.loads((CONFIG_DIR / auras.CONFIG_FILE).read_text(encoding="utf-8"))
-    assert raw == {"chance_per_10000": 0, "kinds": {"mroz": 35, "furia": 30, "szczescie": 25, "opieka": 10}}
+    assert raw == {"chance_per_10000": 100, "kinds": {"mroz": 35, "furia": 30, "szczescie": 25, "opieka": 10}}
     config = auras.parse(raw)
-    assert config.hits == 0 and not config.on
+    assert config.on and config.hits * 100 == auras.AURA_ROLL                    # 1 in 100
     assert config.weights == (("SLOW_PERC", 35), ("CRIT_PERC", 30), ("DROP_PERC", 25), ("DEF_PERC", 10))
     assert auras.load().hits == 0 and not auras.load().on                       # the autouse fixture's file
 

@@ -108,8 +108,8 @@ def _ordinary_bosses(monkeypatch, tmp_path_factory):
 def _no_auras(monkeypatch, tmp_path_factory):
     """No pet hatches with an aura unless a test asks for one (features/auras.py).
 
-    The shipped ``config/auraConfig.json`` will give an aura now and then once
-    the owner turns the chance on - by chance, which would change the notes,
+    The shipped ``config/auraConfig.json`` gives an aura now and then (one
+    hatching in a hundred) - by chance, which would change the notes,
     the stats and the random draws of every test that hatches an egg.  Every
     test starts with a config whose chance is 0 (no draw is made at all); a
     test of the auras writes its own (``aura_config`` below).

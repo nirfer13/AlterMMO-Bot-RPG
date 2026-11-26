@@ -24,7 +24,8 @@ from test_album_note import EMPTY_NOTE, force, new_egg, notes, recorded
 SHIPPED_CONFIG = merchant.CONFIG_FILE
 #: The tests' OWN config: every other test here (the rules of the draw, the cart, buying, the refund)
 #: runs on these numbers (``own_config``), so a retune of the shipped file never turns a behaviour test
-#: red.  (Today they are the owner's numbers, which the pin test says.)
+#: red.  (Today they are the owner's numbers, which the pin test says - except the wares of 2026-11-26:
+#: the shipped file has them on, here they stay at 0, so the older behaviour tests draw as before.)
 OWN_CONFIG = {
     "stay_seconds": 600,
     "stock_weights": {"1": 80, "2": 15, "3": 5},
@@ -35,7 +36,7 @@ OWN_CONFIG = {
         {"id": "egg_pouch", "name": "Sakwa na jajko", "price": 250, "price_spread_percent": 30, "weight": 10},
         {"id": "tower_ticket", "name": "Klucz do wieży", "price": 60, "weight": 3},
         {"id": "random_gem", "name": "Losowy klejnot", "price": 1000, "weight": 2},
-        # The items of 2026-11-26: they come only when the owner turns them on (weight 0 for now).
+        # The items of 2026-11-26: on in the shipped file, at 0 in the tests' own (see above).
         {"id": "summon_scroll", "name": "Zwój przywołania", "price": 300, "weight": 0},
         {"id": "feather", "name": "Pióro Żar-ptaka", "price": 500, "weight": 0},
         {"id": "bait", "name": "Przynęta", "price": 15, "weight": 0},
@@ -50,8 +51,11 @@ PRICES = {"egg_pouch": 250, "random_egg": 25, "stable_place": 100, "random_gem":
 #: The wares that put an item into the player's items (features/items.py) - and which item.
 ITEM_WARES = {"tower_ticket": "tower_key", "summon_scroll": "summon_scroll", "feather": "feather", "bait": "bait",
               "revive_scroll": "revive_scroll", "rope": "rope", "dust": "dust"}
-#: ... of which these ship switched off (weight 0, items_decisions.md §9: turned on by a later commit).
+#: ... of which these are new (items_decisions.md §9: they came with weight 0, a last commit turned them on
+#: at :data:`FINAL_WEIGHTS`; the tests' own config keeps them at 0).
 NEW_WARES = set(ITEM_WARES) - {"tower_ticket"}
+#: The owner's weights of the new wares (items_decisions.md §9).
+FINAL_WEIGHTS = {"summon_scroll": 1, "feather": 0.05, "bait": 4, "revive_scroll": 3, "rope": 3, "dust": 0.3}
 #: The names of the tests' config.
 OWN_NAMES = {item["id"]: item["name"] for item in OWN_CONFIG["items"]}
 #: The wares whose price is drawn at every visit (owner, 2026-11-23: "+ - 30% for egg bag and egg") and
@@ -173,8 +177,9 @@ def test_the_shipped_config_has_every_ware_at_the_owners_price():
     assert min(weights["random_egg"], weights["rest_kit"], weights["stable_place"]) > weights["egg_pouch"] \
         > max(weights["tower_ticket"], weights["random_gem"]) > 0
     assert weights["tower_ticket"] == 3
-    # The new items ship switched off (the running bot reads this file live; a later commit turns them on).
-    assert {ware for ware, weight in weights.items() if weight == 0} == NEW_WARES
+    # The new items: turned on at the owner's weights (they came with 0 - the running bot reads this file live).
+    assert set(FINAL_WEIGHTS) == NEW_WARES and {ware: weights[ware] for ware in NEW_WARES} == FINAL_WEIGHTS
+    assert all(weight > 0 for weight in weights.values())
     names = {item[0]: item[1] for item in config.items}
     assert names["tower_ticket"] == "Klucz do wieży" and names["summon_scroll"] == "Zwój przywołania"
     stable = next(item for item in config.items if item[0] == "stable_place")
@@ -336,7 +341,7 @@ def test_the_cart_holds_different_wares_mostly_one():
         seen.update(ids)
     assert sizes[1] > 0.7 * 4000 and sizes[2] > 0 and sizes[3] > 0
     assert seen["random_egg"] > seen["egg_pouch"] > seen["random_gem"] > 0
-    assert not any(seen[ware] for ware in NEW_WARES)                      # weight 0: never on the cart
+    assert not any(seen[ware] for ware in NEW_WARES)                      # weight 0 (here): never on the cart
     # Only the egg and the pouch change their price from visit to visit.
     assert all(prices[ware] == {PRICES[ware]} for ware in PRICES if ware not in set(PRICE_RANGES) | NEW_WARES)
     assert prices["random_egg"] == set(range(18, 34)) and len(prices["egg_pouch"]) > 100

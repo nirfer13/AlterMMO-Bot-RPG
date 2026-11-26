@@ -1,5 +1,5 @@
 {
-    "_opis": "Wedrowny kupiec (features/merchant.py). Ceny w zwojach odrodzenia. 'weight' = waga losowania towaru (wieksza = czesciej; 0 = nigdy). 'price_spread_percent' (opcjonalne) = o ile procent cena towaru moze sie roznic od 'price' w gore i w dol: przy kazdym pojawieniu sie kupca cena jest losowana raz, z calych liczb w tym przedziale (np. 25 i 30 daje od 18 do 33), i obowiazuje do jego odjazdu; brak albo 0 = cena stala. 'stock_weights' = ile roznych towarow ma kupiec (1, 2 albo 3) i jak czesto. 'stay_seconds' = ile kupiec czeka, jesli nie wszystko sprzeda. Towary od 'summon_scroll' w dol (przedmioty z 2026-11-26) sa na razie wylaczone (waga 0). Plik jest czytany przy kazdym pojawieniu sie kupca - restart bota nie jest potrzebny.",
+    "_opis": "Wedrowny kupiec (features/merchant.py). Ceny w zwojach odrodzenia. 'weight' = waga losowania towaru (wieksza = czesciej; 0 = nigdy). 'price_spread_percent' (opcjonalne) = o ile procent cena towaru moze sie roznic od 'price' w gore i w dol: przy kazdym pojawieniu sie kupca cena jest losowana raz, z calych liczb w tym przedziale (np. 25 i 30 daje od 18 do 33), i obowiazuje do jego odjazdu; brak albo 0 = cena stala. 'stock_weights' = ile roznych towarow ma kupiec (1, 2 albo 3) i jak czesto. 'stay_seconds' = ile kupiec czeka, jesli nie wszystko sprzeda. Plik jest czytany przy kazdym pojawieniu sie kupca - restart bota nie jest potrzebny.",
     "stay_seconds": 600,
     "stock_weights": {"1": 80, "2": 15, "3": 5},
     "items": [
@@ -9,11 +9,11 @@
         {"id": "egg_pouch", "name": "Sakwa na jajko", "price": 250, "price_spread_percent": 30, "weight": 10},
         {"id": "tower_ticket", "name": "Klucz do wieży", "price": 60, "weight": 3},
         {"id": "random_gem", "name": "Losowy klejnot", "price": 1000, "weight": 2},
-        {"id": "summon_scroll", "name": "Zwój przywołania", "price": 300, "weight": 0},
-        {"id": "feather", "name": "Pióro Żar-ptaka", "price": 500, "weight": 0},
-        {"id": "bait", "name": "Przynęta", "price": 15, "weight": 0},
-        {"id": "revive_scroll", "name": "Zwój wskrzeszenia", "price": 40, "weight": 0},
-        {"id": "rope", "name": "Lina sztygara", "price": 30, "weight": 0},
-        {"id": "dust", "name": "Nieuchwytny pył", "price": 150, "weight": 0}
+        {"id": "summon_scroll", "name": "Zwój przywołania", "price": 300, "weight": 1},
+        {"id": "feather", "name": "Pióro Żar-ptaka", "price": 500, "weight": 0.05},
+        {"id": "bait", "name": "Przynęta", "price": 15, "weight": 4},
+        {"id": "revive_scroll", "name": "Zwój wskrzeszenia", "price": 40, "weight": 3},
+        {"id": "rope", "name": "Lina sztygara", "price": 30, "weight": 3},
+        {"id": "dust", "name": "Nieuchwytny pył", "price": 150, "weight": 0.3}
     ]
 }

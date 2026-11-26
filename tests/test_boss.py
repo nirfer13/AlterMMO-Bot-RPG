@@ -203,8 +203,8 @@ def test_real_loot_config_is_readable(monkeypatch):
     for rarity in range(6):
         table = boss._loot_table(rarity)
         assert table and all({"id", "descr", "weight"} <= set(item) for item in table)
-        # (The new items of features/items.py ship with weight 0 - deploy safety; the older rows never.)
-        assert all(item["weight"] > 0 for item in table if item["id"] not in items.BY_LOOT_ID)
+        # (The new items of features/items.py are on too - a weight-0 tier has no row: tests/test_items.py.)
+        assert all(item["weight"] > 0 for item in table)
     assert boss._loot_table(5) == boss._loot_table(3)
 
 

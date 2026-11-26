@@ -49,8 +49,9 @@ Since 2026-11-26 (``items_decisions.md``) most new wares are ITEMS
 (``features/items.py``) - nothing acts at the counter, so the hand-over works
 even before the command that uses the item exists.  The ticket of old
 (``tower_ticket``) is the stored Klucz do wieży now; the Zwój przywołania
-comes "from under the counter".  The new wares ship with weight 0 (the config
-is read live by the running bot: the owner turns them on there).
+comes "from under the counter".  The new wares came with weight 0 (the config
+is read live by the running bot) and a separate, last commit turned them on at
+the owner's weights (items_decisions.md §9).
 """
 
 from __future__ import annotations
@@ -319,7 +320,7 @@ def _item_ware(ware_id: str, key: str, about: str | None = None, *, needs: str =
 
 
 #: Every ware the merchant can bring, by the ``id`` of ``config/merchantConfig.json``.  (The wares
-#: after the gem came on 2026-11-26 with weight 0 in the config; the owner turns them on there.)
+#: after the gem came on 2026-11-26, first with weight 0 in the config, then turned on there.)
 WARES: dict[str, Ware] = {ware.id: ware for ware in (
     Ware("egg_pouch", "👝", "Gdy masz przy sobie towarzysza, nowe jajko trafi do sakwy, zamiast przepaść. "
          "W sakwie jajko nie rośnie - żeby je wychować, wyjmij je.", _check_pouch, _hand_pouch,

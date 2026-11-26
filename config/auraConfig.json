@@ -1,5 +1,5 @@
 {
-    "chance_per_10000": 0,
+    "chance_per_10000": 100,
     "kinds": {
         "mroz": 35,
         "furia": 30,

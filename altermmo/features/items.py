@@ -226,9 +226,9 @@ def loot_weight(loot: Mapping[str, Any], boost: int, source: str) -> float:
 
     0 when the row does not drop from ``source`` or its weight is not above 0 -
     ``random() * 100 <= 0`` used to be true when ``random()`` returned exactly
-    0.0, and the new rows ship with weight 0.  Otherwise the weight raised by
-    ``boost`` percent, exactly as the loops always computed it - unless the row
-    says ``"boost": false``.
+    0.0, and the new rows came with weight 0 before they were turned on.
+    Otherwise the weight raised by ``boost`` percent, exactly as the loops
+    always computed it - unless the row says ``"boost": false``.
     """
     if not drops_here(loot, source):
         return 0.0
