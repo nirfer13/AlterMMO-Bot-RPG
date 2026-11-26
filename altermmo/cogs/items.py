@@ -11,6 +11,11 @@ player without a pet.
 2026-11-26) reads a Zwój wskrzeszenia over a fallen hunter: the dead-hunter
 role goes (``items.revive``).  A gameplay command (the boss channel only).
 
+``!kosc`` (skróty ``!kość``, ``!kostka``) and ``!karta`` (skrót ``!karty``;
+owner, 2026-11-26): Dova's prizes - a new rarity, or new modifiers, for the
+boss that is coming or the one on the channel (``features/dova.py``).
+Gameplay commands as ``!wskrzes``.
+
 For the owner's support (not in the help): ``!DajPrzedmiot @gracz <klucz|nazwa>
 [n]`` gives ``n`` items (1 when left out); a negative ``n`` takes them back,
 never below 0.  Every use is logged and told to the owner's log channel.
@@ -25,7 +30,7 @@ from discord.ext import commands
 
 from ..core import guards, io
 from ..core.scene import Scene
-from ..features import items
+from ..features import dova, items
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +77,28 @@ class ItemsCog(commands.Cog, name="Przedmioty"):
         (``guards.in_order``).  Without a (known) player the command says how to use it.
         """
         await items.revive(Scene.from_ctx(ctx), gracz)
+
+    @commands.command(name="kosc", aliases=["kość", "kostka"],
+                      brief="Throw a Kość Dovy: a new rarity for the next boss or the boss on the channel.")
+    @guards.in_order(guards.boss_channel_only(), guards.not_during_fight(), guards.unless_busy())
+    async def kosc(self, ctx: commands.Context) -> None:
+        """``!kosc``: one Kość Dovy re-rolls the rarity of the coming boss or of the boss on the channel.
+
+        A gameplay command with one ordered check (``guards.in_order``): the boss
+        channel only, silent during a typed fight, the busy notice while the
+        channel is busy.  When it works and what it does: ``features/dova.py``.
+        """
+        await dova.throw_die(Scene.from_ctx(ctx))
+
+    @commands.command(name="karta", aliases=["karty"],
+                      brief="Shuffle a Karta Dovy: new modifiers for the next boss or the boss on the channel.")
+    @guards.in_order(guards.boss_channel_only(), guards.not_during_fight(), guards.unless_busy())
+    async def karta(self, ctx: commands.Context) -> None:
+        """``!karta``: one Karta Dovy draws the modifiers of the coming boss (or the boss on the channel) anew.
+
+        The same gate as ``!kosc``; ``features/dova.py`` does the rest.
+        """
+        await dova.shuffle_card(Scene.from_ctx(ctx))
 
     @commands.command(name="DajPrzedmiot", brief="Give (or take back) a player's item (support).")
     @guards.owner_or_admin()

@@ -54,11 +54,18 @@ unclaimed for a technical reason (a restart that could not bring it back,
 ``!ResetBoss``, ``!stopSpawnBoss``, spawning off at the start, a
 ``runtime.json`` too old to trust).  Every summoned boss is announced on the
 general chat like the scheduled one, in the words of how it came.
+
+Dova's prizes (``features/dova.py``, owner 2026-11-26) change the boss that is
+coming (SCHEDULED / WAITING) or the one standing on the channel unclaimed
+(VISIBLE): the Kość Dovy its rarity, the Karta Dovy its modifiers.  A boss on
+the channel is then shown again (:meth:`BossCycle.show_again`) - its old
+picture and "Zaatakuj" button go.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import random
 from datetime import datetime, timedelta
@@ -352,6 +359,10 @@ class BossCycle:
         self._spawn_notice_message: Any = None
         #: Messages that carry the "Zaatakuj" button right now.
         self._attack_buttons: list[Any] = []
+        #: The picture messages of the boss standing on the channel unclaimed (a boss shown again by
+        #: Dova's prizes replaces them, :meth:`show_again`), and the picture file it was last shown with.
+        self._boss_pictures: list[Any] = []
+        self._shown_picture: Any = None
         #: Where the button was taken off when the boss was engaged (restored when needed).
         self._engaged_buttons: list[Any] = []
         self._lobby_door: Callable[[Any], Awaitable[None]] | None = None
@@ -388,12 +399,29 @@ class BossCycle:
         if message is not None and message not in self._attack_buttons:
             self._attack_buttons.append(message)
 
+    def note_boss_picture(self, message: Any, picture: Any = None) -> None:
+        """Remember the picture message of the boss just shown (and its file; None: a player's avatar).
+
+        Called by ``boss.post_boss`` with every boss it shows; only Dova's prizes
+        use it - a boss shown again replaces its old picture (:meth:`show_again`).
+        """
+        self._shown_picture = picture
+        if message is not None and message not in self._boss_pictures:
+            self._boss_pictures.append(message)
+
+    @property
+    def shown_picture(self) -> Any:
+        """The picture file the boss on the channel was last shown with (None: unknown, or an avatar)."""
+        return self._shown_picture
+
     async def retire_attack_buttons(self) -> list[Any]:
         """Take the "Zaatakuj" button off every message that carries it.  Never raises.
 
-        Returns those messages.  A purged message is simply skipped.
+        Returns those messages.  A purged message is simply skipped.  The boss
+        those messages showed is engaged or gone: its pictures are forgotten too.
         """
         messages, self._attack_buttons = self._attack_buttons, []
+        self._boss_pictures = []
         for message in messages:
             await ui.retire(message)
         return messages
@@ -1292,6 +1320,145 @@ class BossCycle:
         await self._announce_summoned(scene, int(rarity), origin, summoner)
         return True
 
+    # -- Dova's prizes (features/dova.py) ------------------------------------------
+    #
+    # Owner, 2026-11-26: the Kość Dovy re-rolls the rarity and the Karta Dovy the modifiers of the
+    # next scheduled boss, or of the boss standing on the channel unclaimed.  The feature decides
+    # and draws; the cycle owns the state it changes.  Every write here is synchronous: the caller
+    # checks the phase and writes without an await in between.
+
+    def next_boss_waits(self) -> bool:
+        """True while the scheduled boss is coming and has not shown itself yet (the Kość Dovy's window).
+
+        Phase SCHEDULED or WAITING, spawning on, a schedule drawn, no summoned
+        boss on the channel (the schedule waiting behind one).
+        """
+        return (self.bot.state.boss_phase in (BossPhase.SCHEDULED, BossPhase.WAITING) and self.enabled
+                and self.arrives_at is not None and self._resume_phase is None)
+
+    def boss_token(self) -> int:
+        """Changes whenever the boss on the channel is claimed, gone or replaced (the encounter counter).
+
+        Equal before and after an ``await``: it is still the same unclaimed boss.
+        """
+        return self._encounters
+
+    def set_next_rarity(self, rarity: int) -> None:
+        """The scheduled boss that is coming gets ``rarity`` as its drawn (base) rarity.  Synchronous.
+
+        Its arrival time does not move; the shrine's boost and the hour still
+        apply when it comes (:func:`final_rarity` in :meth:`_phase_pre_spawn`).
+        The ``BOSS`` row is the caller's (``database.set_boss_rarity``).
+        """
+        self.base_rarity = int(rarity)
+        self.bot.state.boss_rarity = int(rarity)
+        log.info("Dova: the coming boss will be of rarity %s (arrives at %s, unchanged).", rarity,
+                 self.arrives_at.isoformat() if self.arrives_at is not None else "?")
+
+    def change_visible_boss(self, rarity: int, *, variant: str, base: int | None = None) -> bool:
+        """The boss on the channel becomes ``rarity`` with the special ``variant`` ('' = ordinary).  Synchronous.
+
+        It keeps everything else: the player posing as it, its origin, and for a
+        summoned boss its stay.  ``base`` (the Kość Dovy): its drawn rarity
+        changed too - a summoned boss notes its new rarity in ``runtime.json`` (a
+        restart brings it back so), the scheduled one keeps ``base`` as its drawn
+        rarity.  True when the caller must write ``base`` to the ``BOSS`` row
+        (only for the scheduled boss: for a summoned one the row holds the
+        paused schedule of the boss still to come).
+        """
+        state = self.bot.state
+        state.boss = dataclasses.replace(state.boss, rarity=int(rarity), variant=variant or "")
+        if base is None:
+            return False
+        if self._resume_phase is not None:
+            try:
+                if self.bot.store.runtime_get(_KEY_SUMMONED) is not None:
+                    self.bot.store.runtime_set(_KEY_SUMMONED, int(rarity))
+            except OSError:
+                log.exception("Could not note the new rarity %s of the summoned boss.", rarity)
+            return False
+        self.base_rarity = int(base)
+        return True
+
+    async def show_again(self, scene: Scene, *, token: int, picture: Any = None, variant: Any = None) -> bool:
+        """Show the boss on the channel again, as it is now (Dova's prizes).  Never raises.
+
+        The way the spawn shows it (``boss.post_boss``): its picture (``picture``
+        / ``variant``, chosen by the caller; a player posing as the boss: his
+        avatar), a fresh embed with the modifiers' "Dodatkowe statystyki" and a
+        working "Zaatakuj" button.  The old picture and embed are deleted first -
+        a message that cannot be deleted at least loses its button - so no old
+        button is left that shows the old boss.  Nothing is posted when the boss
+        was claimed or is gone (``token``: :meth:`boss_token` when the change was
+        written); should that happen while the new boss is being posted, its
+        button goes again (and its pictures, when the boss is gone).  True when
+        the new boss stands on the channel.
+        """
+        bot = self.bot
+        try:
+            if bot.state.boss_phase is not BossPhase.VISIBLE or self._encounters != token:
+                return False
+            old = self._boss_pictures + self._attack_buttons
+            self._boss_pictures, self._attack_buttons = [], []
+            for message in old:
+                if not await io.safe_delete(message):
+                    await ui.retire(message)
+            if bot.state.boss_phase is not BossPhase.VISIBLE or self._encounters != token:
+                return False  # (claimed or gone while the old picture went: nothing new is shown)
+            info = bot.state.boss
+            await self._boss.post_boss(scene, info.rarity, player_boss=info.player_boss if info.is_player_boss
+                                       else None, picture=picture, variant=variant)
+            if bot.state.boss_phase is BossPhase.VISIBLE and self._encounters == token:
+                return True
+            log.info("Dova: the boss was claimed or left while it was shown again; its new button goes.")
+            if bot.state.boss_phase in (BossPhase.ENGAGED, BossPhase.FIGHTING):
+                await self.retire_attack_buttons()
+            else:
+                gone, self._boss_pictures, self._attack_buttons = (self._boss_pictures + self._attack_buttons,
+                                                                   [], [])
+                for message in gone:
+                    await io.safe_delete(message)
+            return False
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - the change is in force; the picture is only its face
+            log.exception("Dova: the boss could not be shown again.")
+            await bot.log_to_owner(f"Nie udało się pokazać bossa ponownie po użyciu przedmiotu Dovy "
+                                   f"(`{type(exc).__name__}: {exc}`) - boss i tak jest na kanale, a "
+                                   "zmiana działa.")
+            return False
+
+    async def refresh_spawn_notice(self, old_rarity: int) -> None:
+        """The boss on the channel changed its rarity: its notice on the general chat says the new one.  Never raises.
+
+        Edited in place (no new message, nobody pinged).  A scheduled boss's
+        notice is written anew (a legendary one asks for a party), a gem's or a
+        ritual's too; in a scroll's notice, which names its reader, only the
+        rarity is swapped.
+        """
+        message = self._spawn_notice_message
+        info = self.bot.state.boss
+        old, new = int(old_rarity), int(info.rarity)
+        if message is None or old == new or old not in RARITY_NAMES or new not in RARITY_NAMES:
+            return
+        channel = self.bot.ids.boss_channel
+        origin = getattr(info, "origin", "")
+        if origin == "scroll":
+            words = "{emoji} **{name} boss**"
+            text = str(getattr(message, "content", "") or "").replace(
+                words.format(emoji=RARITY_EMOJI[old], name=RARITY_NAMES[old]),
+                words.format(emoji=RARITY_EMOJI[new], name=RARITY_NAMES[new]))
+        elif origin in ("gem", "ritual"):
+            text = summon_notice(channel, new, origin)
+        else:
+            text = spawn_notice(channel, new)
+        try:
+            await message.edit(content=text, allowed_mentions=discord.AllowedMentions.none())
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - only a notice
+            log.exception("Could not change the boss notice on the general chat to the new rarity.")
+
     # -- fights -----------------------------------------------------------------
 
     async def attack(self, scene: Scene, *, interaction: Any = None) -> None:
@@ -1348,6 +1515,7 @@ class BossCycle:
         self._lobby_opening = encounter
         self._claimer_id = getattr(scene.author, "id", None)
         self._engaged_buttons, self._attack_buttons = self._attack_buttons, []
+        self._boss_pictures = []  # (claimed: its pictures are never replaced by Dova's prizes any more)
         claimed = asyncio.ensure_future(self._claimed(interaction, self._engaged_buttons))
         try:
             # Wake the cycle loop: it then watches the encounter with its time limit

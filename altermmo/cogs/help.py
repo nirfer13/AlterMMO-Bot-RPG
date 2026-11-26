@@ -50,8 +50,8 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
     ("🐾 Towarzysz", """- !towarzysz - Sprawdź swojego towarzysza; pod nim znajdziesz przyciski akcji. Skrót !t.
 - !nazwij Nowe imię - Nazywasz swojego towarzysza (raz na 23 godziny). Skrót !n.
 - !stajnia - Sprawdza stajnię z towarzyszami; z listy pod nią wyciągniesz towarzysza. Skrót !s.
-- !schowajtowarzysza numer_slota - Chowa towarzysza do podanego slota stajni (1-4 lub więcej). Skrót !st.
-- !wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota (1-4 lub więcej). Skrót !wt.
+- !schowajtowarzysza numer_slota - Chowa towarzysza do podanego slota stajni. Skrót !st.
+- !wyciagnijtowarzysza numer_slota - Wyciąga towarzysza ze stajni z podanego slota. Skrót !wt.
 - !wyjmijjajko - Wyjmuje jajko z sakwy na jajko, żeby mogło rosnąć (towarzysz przy Tobie idzie do stajni). Skrót !wj.
 - !odrodzenie - Przelosowuje wszystkie statystyki towarzysza. Skrót !o.
 - !mocneodrodzenie - Przelosowanie z pominięciem wybranych statystyk (wybierasz je z listy). Skrót !mo.
@@ -65,7 +65,8 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
     ("🎒 Przedmioty", """- !przedmioty - Wszystko, co nosisz w sakwie. Skrót !eq.
 - !przywolaj - Zwój przywołania: przybywa mityczny boss (czeka pół godziny).
 - !przyneta - Polowanie z Przynętą: groźniejszy potwór.
-- !wskrzes @gracz - Wskrzesza poległego łowcę."""),
+- !wskrzes @gracz - Wskrzesza poległego łowcę.
+- !kosc, !karta - Kość albo Karta Dovy: nowa rzadkość albo nowe perki bossa."""),
     ("👑 Rzeźnik Potworów", """Komendy dla <@&983798433590673448>:
 - !flex - Pokaż innym jakim jesteś koxem.
 - !kolor kolor_hex - Zmienia kolor rangi <@&983798433590673448>, np. !kolor 00FFFF.
@@ -77,7 +78,7 @@ HELP_FIELDS: tuple[tuple[str, str], ...] = (
 - !transformacja - Zmienia wygląd towarzysza (zużywa lustro wizualiów).
 - !osiagniecia - Pokazuje Twoje kolekcjonerskie osiągnięcia i ile ich już masz.
 - !album - Album Twoich poświęconych towarzyszy (każdy trafia tam po **!porzucam**): przeglądaj go i kompletuj kolekcję. Skrót !kolekcja.
-- !rankingalbumow - Ranking najcenniejszych kolekcji wspierających (album pokazuje też wartość Twojej kolekcji i miejsce). Pierwsze miejsce nosi rangę **Kolekcjoner Pupili** - dodatkowa szansa w giveawayach. Skróty !rankingkolekcji, !ra.
+- !rankingalbumow - Ranking najcenniejszych kolekcji wspierających. Pierwsze miejsce nosi rangę **Kolekcjoner Pupili** - dodatkowa szansa w giveawayach. Skróty !rankingkolekcji, !ra.
 Wszystkie benefity wspierających i sposoby wsparcia znajdziesz w przypiętym **Panelu gry**."""),
 )
 

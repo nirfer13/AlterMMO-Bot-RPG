@@ -60,14 +60,17 @@ def test_the_registry_holds_the_owners_ids_and_names():
         (16, "summon_scroll", "Zwój przywołania", "📯"), (17, "tower_key", "Klucz do wieży", "🗝️"),
         (18, "feather", "Pióro Żar-ptaka", "🪶"), (19, "bait", "Przynęta", "🪤"),
         (20, "revive_scroll", "Zwój wskrzeszenia", "🕊️"), (22, "rope", "Lina sztygara", "🪢"),
-        (25, "dust", "Nieuchwytny pył", "✨")]
+        (25, "dust", "Nieuchwytny pył", "✨"), (26, "dova_die", "Kość Dovy", "🎲"),
+        (27, "dova_card", "Karta Dovy", "🃏")]
     assert items.RESERVED_LOOT_IDS == (21, 23, 24) and not set(items.RESERVED_LOOT_IDS) & set(items.BY_LOOT_ID)
     # Only the Zwój przywołania lives in PETOWNER; it and the key are always listed in !przedmioty.
     assert [item.key for item in items.ITEMS if item.in_petowner] == ["summon_scroll"]
     assert [item.key for item in items.ITEMS if item.always_shown] == ["summon_scroll", "tower_key"]
     assert all(len(item.key) <= 32 and item.hint and item.description and item.label for item in items.ITEMS)
-    # No id of an older loot row (0-15) is taken.
-    assert min(items.BY_LOOT_ID) == 16 and max(items.BY_LOOT_ID) == 25
+    # No id of an older loot row (0-15) is taken; 26 and 27 are Dova's prizes (§12).
+    assert min(items.BY_LOOT_ID) == 16 and max(items.BY_LOOT_ID) == 27
+    assert items.DOVA_PRIZES == ("dova_die", "dova_card")
+    assert [items.BY_KEY[key].hint for key in items.DOVA_PRIZES] == ["**!kosc**", "**!karta**"]
     assert items.by_loot_id(17) is items.BY_KEY["tower_key"] and items.by_loot_id("19").key == "bait"
     assert items.by_loot_id(21) is None and items.by_loot_id(13) is None and items.by_loot_id(None) is None
 
@@ -76,6 +79,7 @@ def test_the_registry_holds_the_owners_ids_and_names():
     ("tower_key", "tower_key"), ("Klucz do wieży", "tower_key"), ("klucz do wiezy", "tower_key"),
     ("KLUCZE DO WIEŻY", "tower_key"), ("zwój przywołania", "summon_scroll"), ("pioro zar-ptaka", "feather"),
     ("Pióro Żar ptaka", "feather"), ("przyneta", "bait"), ("lina", None), ("", None), ("nieuchwytny pył", "dust"),
+    ("kość dovy", "dova_die"), ("Kosc Dovy", "dova_die"), ("karta dovy", "dova_card"), ("KARTY DOVY", "dova_card"),
 ])
 def test_the_owner_may_name_an_item_by_its_key_or_its_name(text, key):
     found = items.find(text)
@@ -183,7 +187,7 @@ def test_the_new_items_drop_at_the_owners_weights(name, tables):
     """§9, the last commit of the items: the new rows turned on at the owner's weights (they came with
     weight 0 first - the running bot re-reads both files).  A tier whose weight is 0 has no row at all."""
     config = json.loads((CONFIG_DIR / name).read_text(encoding="utf-8"))
-    assert set(FINAL_WEIGHTS[name]) == set(items.BY_LOOT_ID)
+    assert set(FINAL_WEIGHTS[name]) == set(items.BY_LOOT_ID) - DOVA_IDS
     for loot_id, (weights, sources, boost) in FINAL_WEIGHTS[name].items():
         for table, weight in zip(tables, weights, strict=True):
             rows = [row for row in config[f"loot_details_{table}"] if row["id"] == loot_id]
@@ -193,6 +197,23 @@ def test_the_new_items_drop_at_the_owners_weights(name, tables):
             [row] = rows
             assert row["weight"] == weight and row.get("sources") == sources, (table, row)
             assert row.get("boost", True) is boost, (table, row)
+
+
+#: Loot ids of Dova's prizes (§12): no loot table has a row of them.
+DOVA_IDS = {items.BY_KEY[key].loot_id for key in items.DOVA_PRIZES}
+
+
+def test_only_dova_gives_his_prizes():
+    """§12: the Kość and the Karta Dovy come from a won game of cups alone - no loot table, no merchant."""
+    from altermmo.features import merchant
+
+    assert DOVA_IDS == {26, 27}
+    for name in ("lootConfig.json", "mobLootConfig.json"):
+        config = json.loads((CONFIG_DIR / name).read_text(encoding="utf-8"))
+        assert not [row for table in config.values() for row in table if row["id"] in DOVA_IDS], name
+    assert not [ware for ware in merchant.WARES.values() if ware.item in items.DOVA_PRIZES]
+    shipped = merchant.load_config(CONFIG_DIR / "merchantConfig.json")
+    assert not [ware for ware, *_ in shipped.items if merchant.WARES[ware].item in items.DOVA_PRIZES]
 
 
 # -- the table ---------------------------------------------------------------------------
@@ -590,7 +611,7 @@ def test_the_patch_notes_entry_teases_the_items_and_names_no_effect():
 
     The bot posts an unsent entry at its next start: the entry came in the same commit that turned the
     drops, the wares and the auras on (§9), never before - so what it promises is switched on, checked
-    below in the shipped files.  Dova's teaser comes with Dova's prizes (§12), not before them."""
+    below in the shipped files.  Dova's teaser came with Dova's prizes (§12), in the same commit."""
     from altermmo.cogs import items as cog
     from altermmo.features import auras, hub, merchant, pets
     from altermmo.features import patchnotes
@@ -598,7 +619,7 @@ def test_the_patch_notes_entry_teases_the_items_and_names_no_effect():
 
     # (Found by its title: its number may change when the lead merges, and every later update adds an entry.)
     [entry] = [note for note in patchnotes.load_notes() if note.title == "Pełniejsze sakwy"]
-    assert entry.date == "2026-11-26" and len(entry.changes) == 5
+    assert entry.date == "2026-11-26" and len(entry.changes) == 6
     text = " ".join(entry.changes)
     low = text.lower()
     assert patchnotes.spoiler_in(entry) is None                              # no percentage, no forbidden word
@@ -634,5 +655,10 @@ def test_the_patch_notes_entry_teases_the_items_and_names_no_effect():
     wares = {ware: weight for ware, _name, _price, weight, _entry in shipped.items}
     assert all(wares[ware] > 0 for ware in ("summon_scroll", "feather", "bait", "revive_scroll", "rope", "dust"))
     assert auras.parse(json.loads((CONFIG_DIR / auras.CONFIG_FILE).read_text(encoding="utf-8"))).on
-    # Dova's line ("Dova od kubków przywiózł...", §12) is added to this entry by the part that builds his prizes.
-    assert "Dova" not in text
+    # Dova's teaser (§12): it names him and his cups, never a prize, a command or what they do.
+    from altermmo.features import dova, events
+    assert entry.changes[-1] == ("Dova od kubków przywiózł z dalekich stron coś wyjątkowego - kto go ogra, ten może "
+                                 "się zdziwić.")
+    assert "Dova" in events.HAZARD_DESCR and "kubek" in " ".join(events.HAZARD_LABELS).lower()   # him, his cups
+    assert all(word not in low for word in ("kość", "kosc", "karta", "karty", "!kosc", "!karta", "rzadkoś", "perk"))
+    assert dova.DIE_CHANCE > 0 and dova.CARD_CHANCE > 0                  # what it promises is switched on

@@ -136,6 +136,18 @@ async def update_boss_table(bot: "AlterBot", rarity: int, respawn_seconds: float
         )
 
 
+async def set_boss_rarity(bot: "AlterBot", rarity: int) -> bool:
+    """Change only the rarity of the persisted schedule; False when there is no row to change.
+
+    The Kość Dovy re-rolls the rarity of the coming boss WITHOUT moving its
+    arrival (owner, 2026-11-26): :func:`update_boss_table` would write the
+    arrival again from "now + seconds" (cut to whole seconds), this leaves it
+    exactly as it is.
+    """
+    status = await bot.db.execute("UPDATE BOSS SET RARITY = $1 WHERE ID = 0", int(rarity), idempotent=True)
+    return not str(status).endswith(" 0")
+
+
 async def read_boss_table(bot: "AlterBot") -> BossRow | None:
     """The persisted boss schedule, or None when the table is empty."""
     row = await bot.db.fetchrow(

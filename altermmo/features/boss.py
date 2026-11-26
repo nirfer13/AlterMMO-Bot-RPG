@@ -895,14 +895,73 @@ async def send_boss_image(scene: "Scene", rarity: int, *, special: bool | None =
                 log.info("The player chosen as the boss (%s) left the server; a monster comes instead.", forced_id)
 
     is_player_boss = player_boss is not None
-    add_desc = ""
-    if is_player_boss:
-        add_desc = ("\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
-                    "to ten gracz zgarnia " + str(_boss_reward(rarity)) + " doświadczenia!*")
     picture = None if is_player_boss else _boss_picture(rarity)
     variant = None if is_player_boss else _special_variant(picture, special)
     if variant is not None:
         picture = bossvariants.special_picture(int(picture.stem))
+    return await post_boss(scene, rarity, player_boss=player_boss, picture=picture, variant=variant)
+
+
+def _pictures_of(rarity: int) -> list[int]:
+    """The picture numbers of a boss of ``rarity`` (``assets/boss/<n>.gif``, as :func:`_boss_picture` draws them)."""
+    first = pow(10, int(rarity))
+    if first == 1:
+        first = 0
+    return [first + offset for offset in range(8)]
+
+
+def picture_like(rarity: int, *, variant: str = "", same: Any = None) -> tuple[Any, "bossvariants.Variant | None"]:
+    """The picture (and special variant) of a boss on the channel that is shown again (Dova's prizes).
+
+    Owner, 2026-11-26: the boss keeps its look - a special boss stays special
+    (in its own variant whenever a picture of ``rarity`` has it, else in any
+    variant a picture of that rarity has), an ordinary one stays ordinary.
+    ``same``: the picture it was shown with - kept when it still fits (the
+    Karta Dovy does not change the rarity: the very same monster comes back).
+    Synchronous (the config is a file read): the caller decides the look
+    together with the state, without an ``await`` in between.  Never raises:
+    whatever goes wrong, an ordinary picture of ``rarity`` comes.
+    """
+    rarity = int(rarity)
+    try:
+        numbers = _pictures_of(rarity)
+        if (same is not None and same.is_file() and str(same.stem).isdigit()
+                and int(same.stem) in numbers):
+            kept = bossvariants.variant_for(same.stem) if same.parent.name == "special" else None
+            if (kept is None) == (not variant) and (kept is None or kept.id == variant):
+                return same, kept
+        if variant:
+            looks = [(number, bossvariants.variant_for(number)) for number in numbers]
+            looks = [(number, look) for number, look in looks if look is not None]
+            own = [(number, look) for number, look in looks if look.id == variant]
+            if own or looks:
+                number, look = random.choice(own or looks)
+                return bossvariants.special_picture(number), look
+        return _boss_picture(rarity), None
+    except Exception:  # noqa: BLE001 - decoration: the boss is shown all the same
+        log.exception("Could not choose the picture of a boss shown again (rarity %s, variant %r).", rarity, variant)
+        return _boss_picture(rarity), None
+
+
+async def post_boss(scene: "Scene", rarity: int, *, player_boss: Any = None, picture: Any = None,
+                    variant: "bossvariants.Variant | None" = None) -> BossShown:
+    """Post a boss whose look is decided: the picture (or the avatar of ``player_boss``) and the embed.
+
+    The embed carries the permanent "Zaatakuj" button and the modifiers of the
+    next fight ("Dodatkowe statystyki", read now).  :func:`send_boss_image`
+    draws the look and calls this; Dova's prizes call it to show the boss
+    on the channel again with its new rarity / its new modifiers.  The boss
+    cycle is told which messages show the boss (the button is taken off when
+    the boss is engaged; a boss shown again replaces them).
+    """
+    bot = scene.bot
+    rarity = int(rarity)
+    is_player_boss = player_boss is not None
+    add_desc = ""
+    if is_player_boss:
+        add_desc = ("\n\n*Bossem jest gracz, a to oznacza, że jeśli nie zostanie pokonany, "
+                    "to ten gracz zgarnia " + str(_boss_reward(rarity)) + " doświadczenia!*")
+    if variant is not None:
         # The promise of a better egg is shown only when the loot will pay it: the same key
         # of the config (cosmetic_rerolls of this rarity) that _special_loot reads after the
         # fight.  (No random draw, never raises.)
@@ -927,18 +986,22 @@ async def send_boss_image(scene: "Scene", rarity: int, *, special: bool | None =
                           color=_BOSS_COLOURS.get(rarity, _BOSS_COLOUR_FALLBACK))
     embed.set_thumbnail(url=_BOSS_THUMBS.get(rarity, _BOSS_THUMB_FALLBACK))
 
+    shown_picture = None
     if is_player_boss:
         avatar = _avatar_url(player_boss)
         if avatar is not None:
-            await scene.send(avatar)
-    elif picture.is_file():
-        await scene.send(file_path=picture)
+            shown_picture = await scene.send(avatar)
+    elif picture is not None and picture.is_file():
+        shown_picture = await scene.send(file_path=picture)
     else:
         log.warning("Boss picture %s is missing; showing the boss without it.", picture)
     message = await boss_cycle.with_attack_button(lambda view: scene.send(embed=embed, view=view))
     cycle = getattr(bot, "boss_cycle", None)
     if cycle is not None:
         cycle.note_attack_button(message)
+        note_picture = getattr(cycle, "note_boss_picture", None)
+        if note_picture is not None:
+            note_picture(shown_picture, None if is_player_boss else picture)
     log.info("Boss shown: rarity %s, player boss: %s, special variant: %s.", rarity, player_boss,
              variant.id if variant is not None else "-")
     return BossShown(is_player_boss, player_boss, variant.id if variant is not None else "")

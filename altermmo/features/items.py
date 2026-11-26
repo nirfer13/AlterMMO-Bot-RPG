@@ -16,7 +16,9 @@ Owner's decisions (2026-11-26, ``items_decisions.md``):
   drops (loot is granted while the fight's busy flag is held);
 * **the loot ids** of the new items are 16-25 (:data:`ITEMS`; 21, 23 and 24
   are reserved and not built).  :func:`grant_drop` is the one dispatcher both
-  loot functions use (``boss._grant_loot`` and ``daily._grant_loot``);
+  loot functions use (``boss._grant_loot`` and ``daily._grant_loot``).
+  Ids 26 and 27 are Dova's prizes (:data:`DOVA_PRIZES`): they never drop
+  from a loot table - only a won game of Dova's cups gives them;
 * **where a loot row drops**: two optional keys of a row in
   ``config/lootConfig.json`` / ``config/mobLootConfig.json`` -
   ``"sources": [...]`` (:data:`SOURCES`; a row without it drops everywhere,
@@ -35,7 +37,8 @@ gate refuses the click).  Each line names the command that uses the item.
 Where each item is used: the Pióro Żar-ptaka in ``pets.enlight_pet``, the
 Przynęta in ``daily.start_hunt(bait=True)``, the Lina sztygara in the mine
 (``dungeon``), the Klucz do wieży in ``tower.start_tower(use_key=True)`` -
-and the Zwój wskrzeszenia here (:func:`revive`, ``!wskrzes @gracz``).  The
+and the Zwój wskrzeszenia here (:func:`revive`, ``!wskrzes @gracz``); Dova's
+Kość and Karta in ``features/dova.py`` (``!kosc``, ``!karta``).  The
 Nieuchwytny pył is the one item nobody uses by hand: it undoes its holder's
 mistake in a typed fight by itself (:class:`DustGuard`, used by the single
 and the legendary boss fight, the hunt and the tower).
@@ -125,6 +128,12 @@ BAIT = "bait"
 REVIVE_SCROLL = "revive_scroll"
 ROPE = "rope"
 DUST = "dust"
+DOVA_DIE = "dova_die"
+DOVA_CARD = "dova_card"
+#: Dova's prizes (owner, 2026-11-26, ``items_decisions.md`` §12): only a won game of Dova's cups gives
+#: them (``features/dova.py``) - no loot table has a row of them and the merchant never sells them.
+#: Used with ``!kosc`` / ``!karta``.
+DOVA_PRIZES: tuple[str, ...] = (DOVA_DIE, DOVA_CARD)
 
 #: Every item, in the order ``!przedmioty`` lists them.  Loot ids 21, 23 and 24 are reserved
 #: (:data:`RESERVED_LOOT_IDS`): such a row stays a text-only drop, as an unknown id always was.
@@ -144,6 +153,10 @@ ITEMS: tuple[Item, ...] = (
          "Mocna, konopna, pamięta niejedną sztolnię."),
     Item(DUST, 25, "Nieuchwytny pył", "Nieuchwytny pył", "✨", "nosisz go przy sobie - sam wie, kiedy się przydać",
          "Szczypta czegoś, co nie chce dać się złapać."),
+    Item(DOVA_DIE, 26, "Kość Dovy", "Kości Dovy", "🎲", "**!kosc**",
+         "Kanciasta i podejrzanie lekka - Dova przysięga na brodę swojej babki, że niczym jej nie obciążał."),
+    Item(DOVA_CARD, 27, "Karta Dovy", "Karty Dovy", "🃏", "**!karta**",
+         "Wytarta od tasowania; obrazek na niej zmienia się, gdy nikt nie patrzy."),
 )
 BY_KEY: Mapping[str, Item] = {item.key: item for item in ITEMS}
 BY_LOOT_ID: Mapping[int, Item] = {item.loot_id: item for item in ITEMS}

@@ -44,7 +44,7 @@ import discord
 
 from ..core import challenge, io, timing, ui
 from ..settings import ASSETS_DIR
-from . import boss, bossvariants, daily, database, items, modifiers, patrons
+from . import boss, bossvariants, daily, database, dova, items, modifiers, patrons
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -746,7 +746,12 @@ def cup_key(index: int) -> str:
 
 
 async def spawn_hazard(scene: "Scene") -> bool:
-    """Shell game: pick one of two cups; 5 reroll scrolls are won or lost."""
+    """Shell game: pick one of two cups; 5 reroll scrolls are won or lost.
+
+    A win also rolls Dova's two prizes, each on its own (owner, 2026-11-26:
+    ``dova.roll_prizes`` - the Kość Dovy and the Karta Dovy, which nothing else
+    gives); what he got is one more line of Dova's "you won".
+    """
     bot = scene.bot
     log.info("Hazard spawn.")
     await _send_image(scene, "hazard", "0.jpeg")
@@ -784,7 +789,8 @@ async def spawn_hazard(scene: "Scene") -> bool:
     if not won:
         await scene.send(MSG_HAZARD_LOST)
         return False
-    await scene.send(MSG_HAZARD_WON)
+    prizes = await dova.roll_prizes(bot, player)  # (stored first; never raises)
+    await scene.send(MSG_HAZARD_WON + (f"\n{prizes}" if prizes else ""))
     boost_percent = random.randint(20, 55)
     await daily.rand_loot(scene, 2, player, boost_percent)
     return True

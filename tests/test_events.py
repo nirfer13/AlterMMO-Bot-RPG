@@ -12,7 +12,7 @@ import pytest
 from altermmo.core import challenge, timing, ui
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import EventType
-from altermmo.features import events, items, patrons
+from altermmo.features import dova, events, items, patrons
 
 
 # -- helpers -------------------------------------------------------------------------
@@ -521,6 +521,90 @@ async def test_hazard_database_down_propagates_and_cleans_up(game, loot, monkeyp
     with pytest.raises(DatabaseUnavailable):
         await events.spawn_hazard(game.scene())
     assert no_listeners(game) and no_live_buttons(game)
+
+
+# -- Dova's prizes on a won game (items_decisions.md §12) ---------------------------------------
+
+async def stored_item(game, member, key):
+    value = await game.bot.db.fetchval("SELECT COUNT FROM PLAYER_ITEMS WHERE PLAYER_ID = $1 AND ITEM = $2",
+                                       member.id, key)
+    return int(value or 0)
+
+
+PRIZE_LINE = "Dova sięga pod stół, mruczy coś o przegranym zakładzie i wciska Ci w dłoń: "
+
+
+@pytest.mark.parametrize("seed, prizes", [(0, []), (1, ["dova_die"]), (7, ["dova_card"]),
+                                          (4, ["dova_die", "dova_card"])])
+async def test_hazard_win_rolls_dovas_two_prizes_each_on_its_own(game_db, loot, monkeypatch, seed, prizes):
+    """Seeded: the cups and the loot are rigged as in test_hazard_won, so the win's only draws from the global
+    generator are the two prizes (the Kość first, then the Karta - each on its own at 30%)."""
+    game = game_db
+    first_choice(monkeypatch)
+    high_rolls(monkeypatch)
+    ala = game.add_member("Ala")
+    await give_scrolls(game, ala, 10)
+    clicks_on(game, "Zaryzykuj!", (ala, WINNING))
+    twin = random.Random(seed)
+    assert dova.DIE_CHANCE == 0.30 and dova.CARD_CHANCE == 0.30
+    assert [key for key, chance in (("dova_die", dova.DIE_CHANCE), ("dova_card", dova.CARD_CHANCE))
+            if twin.random() < chance] == prizes                          # (the seed says what the test expects)
+    random.seed(seed)
+    assert await events.spawn_hazard(game.scene()) is True
+    # The win as it always was: +5 scrolls, the monster's epic loot.
+    assert await scrolls_of(game, ala) == 15 and loot == [(2, ala, 55)]
+    assert [await stored_item(game, ala, key) for key in ("dova_die", "dova_card")] == [
+        int("dova_die" in prizes), int("dova_card" in prizes)]
+    won = next(m for m in game.channel.messages if m.content.startswith(events.MSG_HAZARD_WON))
+    shown = {"dova_die": "🎲 **Kość Dovy**", "dova_card": "🃏 **Karta Dovy**"}
+    assert won.content == (events.MSG_HAZARD_WON if not prizes
+                           else events.MSG_HAZARD_WON + "\n" + PRIZE_LINE + " i ".join(shown[key] for key in prizes))
+    assert "<@" not in won.content and game.bot.owner_log == []
+
+
+async def test_a_lost_game_rolls_no_prize(game_db, loot, monkeypatch):
+    game = game_db
+    first_choice(monkeypatch)
+    rolled = []
+    monkeypatch.setattr(random, "random", lambda: rolled.append(1) or 0.0)    # (0.0 would win every prize)
+    ala = game.add_member("Ala")
+    await give_scrolls(game, ala, 5)
+    clicks_on(game, "Zaryzykuj!", (ala, LOSING))
+    assert await events.spawn_hazard(game.scene()) is False
+    assert rolled == [] and not game.channel.ever_sent(PRIZE_LINE)
+    assert [await stored_item(game, ala, key) for key in ("dova_die", "dova_card")] == [0, 0]
+
+
+async def test_a_prize_the_store_cannot_take_is_left_out_of_the_line(game_db, loot, monkeypatch):
+    """No table: nothing to say.  A database that did not answer one prize: that one is the owner's to check."""
+    game, bot = game_db, game_db.bot
+    first_choice(monkeypatch)
+    high_rolls(monkeypatch)
+    monkeypatch.setattr(random, "random", lambda: 0.0)                          # both prizes, every game
+    ala = game.add_member("Ala")
+    await give_scrolls(game, ala, 20)
+    bot._player_items = (False, items.clock.monotonic())                        # the table is not there
+    clicks_on(game, "Zaryzykuj!", (ala, WINNING))
+    assert await events.spawn_hazard(game.scene()) is True
+    assert game.channel.messages[-1].content == events.MSG_HAZARD_WON and bot.owner_log == []
+
+    bot._player_items = None
+    real_grant = items.grant
+
+    async def grant(bot_, player_id, key, number=1):
+        if getattr(key, "key", key) == "dova_die":
+            raise DatabaseUnavailable("the reply was lost")
+        return await real_grant(bot_, player_id, key, number)
+
+    monkeypatch.setattr(items, "grant", grant)
+    game.channel.send_hooks.clear()                                             # (Ala clicks the new cups once)
+    clicks_on(game, "Zaryzykuj!", (ala, WINNING))
+    assert await events.spawn_hazard(game.scene()) is True
+    won = [m for m in game.channel.messages if m.content.startswith(events.MSG_HAZARD_WON)][-1]
+    assert won.content == events.MSG_HAZARD_WON + "\n" + PRIZE_LINE + "🃏 **Karta Dovy**"
+    assert await stored_item(game, ala, "dova_card") == 1 and await stored_item(game, ala, "dova_die") == 0
+    assert bot.owner_log == [dova.LOG_PRIZE_UNSURE.format(name="Kość Dovy", player_id=ala.id,
+                                                          error="DatabaseUnavailable", key="dova_die")]
 
 
 # -- hunting -------------------------------------------------------------------------
