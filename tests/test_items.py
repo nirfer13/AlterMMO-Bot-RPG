@@ -311,6 +311,96 @@ async def test_both_loot_tables_grant_the_new_items_for_real(game_db, monkeypatc
     assert await stored(db, ala.id, "tower_key") == 2
 
 
+# -- the Nieuchwytny pył in a fight (the fights themselves: test_boss, test_daily, test_tower) ---------
+
+def test_the_dust_guard_lets_each_holder_off_once_and_nobody_else():
+    guard = items.DustGuard([7, SimpleNamespace(id=8)])
+    assert guard.left == {7, 8} and guard.used == []
+    assert guard.take(SimpleNamespace(id=9)) is False                  # no dust in his pocket
+    assert guard.take(SimpleNamespace(id=7)) is True
+    assert guard.take(7) is False                                       # five dusts are not five lives
+    assert guard.take(None) is False and guard.take(8) is True
+    assert guard.left == set() and guard.used == [7, 8]
+    assert items.DustGuard().take(7) is False
+
+
+def test_whose_mistake_a_failed_round_was():
+    ala, ola = SimpleNamespace(id=1, name="Ala"), SimpleNamespace(id=2, name="Ola")
+    twin = SimpleNamespace(id=2, name="Ola (another object)")
+
+    def answered_by(member):
+        return challenge.RoundResult(challenge.Outcome.ANSWERED, None, SimpleNamespace(author=member, content="zle"))
+
+    assert items.dust_culprit(challenge.RoundResult(challenge.Outcome.TIMEOUT), ala, [ala, ola]) is ala
+    assert items.dust_culprit(answered_by(ala), ala, [ala, ola]) is ala          # his own wrong word
+    assert items.dust_culprit(answered_by(twin), ala, [ala, ola]) is ola         # somebody else typed
+    stranger = SimpleNamespace(id=3, name="Obcy")
+    assert items.dust_culprit(answered_by(stranger), ala, [ala, ola]) is stranger
+
+
+def test_the_dust_line_escapes_the_name_and_pings_nobody():
+    holder = type("Member", (), {"id": 1, "__str__": lambda self: "*Ala*_@everyone"})()
+    line = items.dust_line(holder, timed_out=False)
+    assert line.startswith("Pomyliłeś się, ale **Nieuchwytny pył** gracza **\\*Ala\\*\\_@​everyone**")
+    assert line.endswith(" rozwiewa się w powietrzu - nic się nie stało! ✨") and "<@" not in line
+    assert items.dust_line(holder, timed_out=True).startswith("Nie zdążyłeś, ale **Nieuchwytny pył**")
+
+
+async def test_the_dust_is_read_once_before_a_fight_and_taken_once_after_it(game_db, monkeypatch):
+    bot, db = game_db.bot, game_db.bot.db
+    await items.grant(bot, 1, "dust", 2)
+    await items.grant(bot, 2, "dust", 1)
+    await items.grant(bot, 3, "dust", 1)
+    await items.adjust(bot, 3, "dust", -1)                              # a row at 0: no dust
+    await items.grant(bot, 4, "bait", 5)                                # another item: no dust
+    calls: list[tuple[str, str, bool]] = []
+    for method in ("fetch", "fetchval", "fetchrow", "execute"):
+        real = getattr(db, method)
+
+        async def spy(query, *args, _real=real, _method=method, **kwargs):
+            calls.append((_method, query.split()[0], kwargs.get("idempotent", True)))
+            return await _real(query, *args, **kwargs)
+
+        monkeypatch.setattr(db, method, spy)
+    guard = await items.reserve_dust(bot, [SimpleNamespace(id=1), 2, 3, 4, 5, 1])
+    assert guard.left == {1, 2} and guard.used == []
+    assert [call for call in calls if call[1] != "SELECT" or call[0] != "fetchval"] == [("fetch", "SELECT", True)]
+    calls.clear()
+    await items.settle_dust(bot, guard)                                 # nothing used: not a single statement
+    assert calls == []
+    assert guard.take(1) and guard.take(2)
+    await items.adjust(bot, 2, "dust", -1)                              # (he spent it meanwhile: nothing to take)
+    calls.clear()
+    await items.settle_dust(bot, guard)
+    assert calls == [("fetchval", "UPDATE", False), ("fetchval", "UPDATE", False)]   # conditional, never retried
+    assert (await stored(db, 1, "dust"), await stored(db, 2, "dust")) == (1, 0)
+    await items.settle_dust(bot, guard)                                 # settled once: never twice
+    assert await stored(db, 1, "dust") == 1 and guard.used == [] and bot.owner_log == []
+    assert (await items.reserve_dust(bot, [])).left == set()
+
+
+async def test_a_dust_the_database_cannot_read_or_take_never_stops_a_fight(game_db, monkeypatch):
+    bot = game_db.bot
+    await items.grant(bot, 1, "dust")
+    bot._player_items = (False, clock.monotonic())                      # the store is not there
+    assert (await items.reserve_dust(bot, [1])).left == set()
+    bot._player_items = None
+    real_fetch = bot.db.fetch
+
+    async def broken(*args, **kwargs):
+        raise DatabaseUnavailable("gone")
+
+    monkeypatch.setattr(bot.db, "fetch", broken)
+    assert (await items.reserve_dust(bot, [1])).left == set()          # an empty guard, no exception
+    monkeypatch.setattr(bot.db, "fetch", real_fetch)
+    guard = await items.reserve_dust(bot, [1])
+    assert guard.take(1)
+    monkeypatch.setattr(bot.db, "fetchval", broken)
+    await items.settle_dust(bot, guard)                                 # taken or not: unknown - the owner checks
+    assert bot.owner_log == [items.LOG_DUST_UNSURE.format(player_id=1, error="DatabaseUnavailable")]
+    assert game_db.log_channel.messages[-1].content.startswith(f"<@{bot.ids.owner}>!")   # with a ping
+
+
 # -- !przedmioty --------------------------------------------------------------------------
 
 async def test_the_view_of_a_player_with_nothing(game_db):

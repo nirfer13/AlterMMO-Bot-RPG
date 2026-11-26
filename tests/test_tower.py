@@ -712,6 +712,84 @@ async def test_run_gives_the_attempt_back_after_disruptions_and_on_shutdown(game
     assert not tower.load_weekly_tower_from_file(bot, hunter.id)
 
 
+# -- the Nieuchwytny pył (owner, 2026-11-26: features/items.py) ------------------------------
+
+DUST_LINE = ("Pomyliłeś się, ale **Nieuchwytny pył** gracza **Ala** rozwiewa się w powietrzu - nic się nie "
+             "stało! ✨")
+
+
+async def test_tower_dust_works_once_per_run_and_leaves_the_items_when_the_run_is_over(game_db, skills, drops,
+                                                                                      monkeypatch):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, items.DUST, 2)
+    taken: list[int] = []
+    real_take = items.take
+
+    async def take(bot, player_id, key, number=1):
+        if key == items.DUST:
+            taken.append(len(prompts(game_db.channel)))
+        return await real_take(bot, player_id, key, number)
+
+    monkeypatch.setattr(items, "take", take)
+    # Floor 1 (2 words): the first one wrong - the dust, and one word more.  Floor 2 (4 words): its second
+    # word wrong - the dust of this run is gone, the run ends.
+    game_db.auto_answer(hunter, responder=answers(wrong={1, 5}))
+    assert await tower.explore_tower(game_db.scene(hunter)) == 1
+    channel = game_db.channel
+    assert channel.count(DUST_LINE) == 1 and len(prompts(channel)) == 5
+    assert channel.messages[-1].content == MSG_MISTAKE
+    assert taken == [5]                                         # once, when the run is over - not on floor 1
+    assert await items.count(bot, hunter.id, items.DUST) == 1
+    assert (await record(bot, hunter.id))[0] == 1
+
+
+async def test_a_broken_or_cancelled_run_takes_only_the_dust_of_a_decided_floor(game_db, skills, drops):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, items.DUST, 3)
+    channel = game_db.channel
+    original = channel.send
+
+    def broken_on_prompt(number: int):
+        posted = itertools.count(1)
+
+        async def send(content=None, **kwargs):
+            if content and re.match(r"^\d+\. ", content) and next(posted) == number:
+                raise RuntimeError("discord broke")
+            return await original(content, **kwargs)
+
+        return send
+
+    async def run(*, wrong: set[int], broken_on: int) -> int:
+        channel.sent.clear()
+        channel.send_hooks.clear()
+        channel.send = broken_on_prompt(broken_on)
+        game_db.auto_answer(hunter, responder=answers(wrong=wrong))
+        try:
+            return await tower.explore_tower(game_db.scene(hunter))
+        finally:
+            channel.send = original
+
+    # The dust saved floor 1 (cleared), the run broke on floor 2: floor 1 was decided - the dust is taken.
+    assert await run(wrong={1}, broken_on=5) == 1
+    assert channel.count(DUST_LINE) == 1 and await items.count(bot, hunter.id, items.DUST) == 2
+    # The dust saved floor 2 and the run broke right there: that floor was neither won nor lost - kept.
+    assert await run(wrong={3}, broken_on=5) == 1
+    assert channel.count(DUST_LINE) == 2 and await items.count(bot, hunter.id, items.DUST) == 2
+
+    # The bot stops in the middle of a run the dust has saved: nothing is awaited then, nothing taken.
+    channel.sent.clear()
+    channel.send_hooks.clear()
+    game_db.auto_answer(hunter, responder=answers(wrong={1}))
+    task = asyncio.ensure_future(tower.explore_tower(game_db.scene(hunter)))
+    await wait_until(lambda: len(prompts(channel)) == 3)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert channel.count(DUST_LINE) == 3 and await items.count(bot, hunter.id, items.DUST) == 2
+
+
 # -- the cog -------------------------------------------------------------------------------
 
 async def test_tower_cog_registers_the_legacy_commands(game):

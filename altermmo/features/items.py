@@ -35,7 +35,10 @@ gate refuses the click).  Each line names the command that uses the item.
 Where each item is used: the Pióro Żar-ptaka in ``pets.enlight_pet``, the
 Przynęta in ``daily.start_hunt(bait=True)``, the Lina sztygara in the mine
 (``dungeon``), the Klucz do wieży in ``tower.start_tower(use_key=True)`` -
-and the Zwój wskrzeszenia here (:func:`revive`, ``!wskrzes @gracz``).
+and the Zwój wskrzeszenia here (:func:`revive`, ``!wskrzes @gracz``).  The
+Nieuchwytny pył is the one item nobody uses by hand: it undoes its holder's
+mistake in a typed fight by itself (:class:`DustGuard`, used by the single
+and the legendary boss fight, the hunt and the tower).
 """
 
 from __future__ import annotations
@@ -46,11 +49,11 @@ import contextvars
 import logging
 import unicodedata
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterator, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Mapping, Sequence
 
 import discord
 
-from ..core import clock, io, ui
+from ..core import clock, fightlog, io, ui
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..bot import AlterBot
@@ -415,6 +418,166 @@ async def grant_drop(bot: "AlterBot", hunter: Any, loot_id: Any) -> bool:
         return False
     left = await grant(bot, hunter, item)
     log.info("Player %s got the item %s from a drop (has %s now).", getattr(hunter, "id", hunter), item.key, left)
+    return True
+
+
+# -- the Nieuchwytny pył in a fight ----------------------------------------------------------
+#
+# Owner, 2026-11-26 (``items_decisions.md`` §7): in the single boss fight (a summoned boss's
+# too), the legendary group fight, the hunt (also in the Mroczny las) and the tower (once per
+# run) a mistake or a missed word of a dust holder costs nothing - "nic się nie dzieje": the
+# round counts for nothing and the fight goes on.  Not in the duel, the tournament, training,
+# events, spell races or sign-ups.  The fight tries everything else first (the pet's attack
+# instead of the round, the pet's protection, the party's spare chance) - the rare dust is
+# spent only when nothing else saved the player.
+
+#: What the fight posts instead of the lost fight (``{name}``: the holder, escaped - nobody is pinged).
+MSG_DUST_MISTAKE = ("Pomyliłeś się, ale **Nieuchwytny pył** gracza **{name}** rozwiewa się w powietrzu - nic się "
+                    "nie stało! ✨")
+MSG_DUST_TOO_SLOW = ("Nie zdążyłeś, ale **Nieuchwytny pył** gracza **{name}** rozwiewa się w powietrzu - nic się "
+                     "nie stało! ✨")
+#: To the owner (with a ping): the dust saved its holder, but taking it from the store failed.
+LOG_DUST_UNSURE = ("Nieuchwytny pył uratował gracza <@{player_id}> w walce, ale baza danych nie odpowiedziała przy "
+                   "jego zabieraniu (`{error}`) - nie wiadomo, czy zniknął z sakwy. Sprawdź PLAYER_ITEMS i w razie "
+                   "potrzeby zabierz go: `!DajPrzedmiot @gracz nieuchwytny pył -1`")
+
+#: Who of the fighters carries a dust - the one read before a fight (read-only; ``$1``: their ids).
+_SQL_DUST_HOLDERS = (f"SELECT PLAYER_ID FROM {TABLE} WHERE ITEM = '{DUST}' AND COUNT > 0 "
+                     "AND PLAYER_ID = ANY($1::numeric[])")
+
+
+class DustGuard:
+    """The Nieuchwytny pył of one fight (of one whole tower run), kept in memory.
+
+    Nothing may wait for the database inside a round - it would stutter the
+    fight (owner's rule).  So the fighters who carry a dust are read once,
+    before the countdown (:func:`reserve_dust`), and a round only asks this
+    guard: :meth:`take` is synchronous.  Each holder's dust works at most once
+    per guard - five dusts in the pocket are not five lives in one fight; the
+    tower makes one guard for the whole run.
+
+    What :meth:`take` used is only remembered (:attr:`used`): it leaves the
+    store after the fight is decided (:func:`settle_dust`).  A fight that is
+    interrupted, cancelled or crashes before that takes nothing - in the
+    player's favour, as "Nikt nie ponosi konsekwencji" says.
+    """
+
+    def __init__(self, holders: Iterable[Any] = ()) -> None:
+        #: Ids of the fighters whose dust can still undo a mistake in this fight.
+        self.left: set[int] = {_pid(holder) for holder in holders}
+        #: Ids of the holders whose dust undid a mistake, in order (still in the store until settled).
+        self.used: list[int] = []
+
+    def take(self, player: Any) -> bool:
+        """Use ``player``'s dust now: True when he had one left for this fight (it never works twice in it)."""
+        try:
+            player_id = _pid(player)
+        except (TypeError, ValueError):
+            return False
+        if player_id not in self.left:
+            return False
+        self.left.discard(player_id)
+        self.used.append(player_id)
+        return True
+
+
+async def reserve_dust(bot: "AlterBot", fighters: Iterable[Any]) -> DustGuard:
+    """The :class:`DustGuard` of a fight about to start: who of ``fighters`` carries a dust.  Never raises.
+
+    One read-only query, before the countdown - never inside a round.
+    Nothing is taken here (:func:`settle_dust` does it, after the decision).
+    A store that is not there, or a database that does not answer, gives an
+    empty guard and a log line: the fight goes on as it would without the item.
+    """
+    ids: list[int] = []
+    try:
+        ids = sorted({_pid(fighter) for fighter in fighters})
+        if not ids or not await table_ready(bot):
+            return DustGuard()
+        rows = await bot.db.fetch(_SQL_DUST_HOLDERS, ids)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the fight must not wait for (or fail on) an item
+        log.warning("Dust: the holders among %s could not be read (%s: %s); no dust works in this fight.",
+                    ids, type(exc).__name__, exc)
+        return DustGuard()
+    guard = DustGuard(row["player_id"] for row in rows)
+    if guard.left:
+        log.info("Dust: %s carry a Nieuchwytny pył into the fight.", sorted(guard.left))
+    return guard
+
+
+async def settle_dust(bot: "AlterBot", guard: DustGuard | None) -> None:
+    """After the fight is decided: one dust less for every holder it saved (:attr:`DustGuard.used`).
+
+    Never raises, and no database call at all when no dust was used.  Each
+    is a conditional take, never retried (:func:`take`).  A holder who has none
+    left by now (the owner's ``!DajPrzedmiot``) loses nothing - only a log
+    line.  A database that did not answer: taken or not is unknown - the
+    owner is pinged and checks.  The guard forgets what it settled, so a
+    second call takes nothing more.
+    """
+    if guard is None or not guard.used:
+        return
+    used, guard.used = guard.used, []
+    for player_id in used:
+        try:
+            left = await take(bot, player_id, DUST)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - taken or not: unknown, the owner checks
+            log.exception("Dust: the Nieuchwytny pył of %s could not be taken after the fight.", player_id)
+            with contextlib.suppress(Exception):
+                await bot.log_to_owner(LOG_DUST_UNSURE.format(player_id=player_id, error=type(exc).__name__),
+                                       ping=True)
+            continue
+        if left is None:
+            log.warning("Dust: %s was saved by a Nieuchwytny pył but has none left to take.", player_id)
+        else:
+            log.info("Dust: a Nieuchwytny pył of %s was used up in a fight (%s left).", player_id, left)
+
+
+def dust_culprit(result: Any, asked: Any, fighters: Sequence[Any]) -> Any:
+    """Whose mistake a failed round was - whose dust may undo it.
+
+    In a party fight (the hunt, the legendary boss) any fighter's message ends
+    the round: when somebody else than ``asked`` typed (the journal's "wrong
+    player"), the mistake is his.  Otherwise (a wrong word, silence) it is the
+    asked player's.  The fighter object is returned (for his name), the
+    message's author when he is not among ``fighters``.
+    """
+    author = getattr(result, "author", None)
+    author_id = getattr(author, "id", None)
+    if author is None or author_id == getattr(asked, "id", asked):
+        return asked
+    return next((fighter for fighter in fighters if getattr(fighter, "id", None) == author_id), author)
+
+
+def dust_line(holder: Any, *, timed_out: bool) -> str:
+    """What the fight posts when ``holder``'s dust undid the round (his name escaped; no mention)."""
+    name = discord.utils.escape_mentions(discord.utils.escape_markdown(str(holder)))
+    return (MSG_DUST_TOO_SLOW if timed_out else MSG_DUST_MISTAKE).format(name=name)
+
+
+async def dust_saves(scene: "Scene", guard: DustGuard | None, holder: Any, *, timed_out: bool) -> bool:
+    """A failed round of a fight: ``holder``'s Nieuchwytny pył undoes it when he has one left (True).
+
+    Called by the fights after the pet's protection (and the party's spare
+    chance) did not save the round.  Everything but the one message is
+    synchronous, as with the pet's protection: the guard was read before the
+    countdown, the journal notes the save (:data:`fightlog.SAVED_BY_DUST`),
+    and the message goes through the fight's own channel - no extra notice,
+    nobody pinged.  The caller then adds one to the life of the boss / the
+    monster / the floor (the round counts for nothing) and asks the next word.
+    False: no dust left for him in this fight (or no guard) - the fight is
+    lost as before.
+    """
+    if guard is None or not guard.take(holder):
+        return False
+    fightlog.saved(scene.channel, fightlog.SAVED_BY_DUST)
+    log.info("Dust: the Nieuchwytny pył of %s (%s) undid a %s.", holder, getattr(holder, "id", holder),
+             "missed word" if timed_out else "mistake")
+    await scene.send(dust_line(holder, timed_out=timed_out), allowed_mentions=discord.AllowedMentions.none())
     return True
 
 

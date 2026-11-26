@@ -104,6 +104,29 @@ def _ordinary_bosses(monkeypatch, tmp_path_factory):
     monkeypatch.setattr(bossvariants, "CONFIG_DIR", config_dir)
 
 
+@pytest.fixture(autouse=True)
+def _no_dust_without_a_database(monkeypatch):
+    """A bot without a database (the ``game`` fixture) carries no Nieuchwytny pył into a fight.
+
+    Every typed fight reads its fighters' dust once before the countdown
+    (``items.reserve_dust``, features/items.py).  Against the ``game``
+    fixture's database, which has no address, that read would sit out the
+    database layer's retries in every fight - and nobody can hold a dust there
+    anyway, so the guard is empty at once.  With a real database (``game_db``)
+    the dust is read for real.
+    """
+    from altermmo.features import items
+
+    real = items.reserve_dust
+
+    async def reserve_dust(bot, fighters):
+        if not getattr(getattr(bot, "db", None), "_dsn", ""):
+            return items.DustGuard()
+        return await real(bot, fighters)
+
+    monkeypatch.setattr(items, "reserve_dust", reserve_dust)
+
+
 #: The ``bossVariants.json`` of ``special_bosses``: every boss is special, one variant ("mgla"),
 #: the first picture of every rarity has it, repeats 1..5 for rarity 0..4.
 SPECIAL_BOSSES = {

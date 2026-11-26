@@ -1052,9 +1052,11 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
                        player_boss: Any, *, variant: str = "") -> fight_types.FightResult:
     """``hunter`` fights the boss alone: type every requested word in time.
 
-    One mistake or one missed word loses the fight (unless the pet protects).
-    A technical failure before the kill propagates; after the kill the fight
-    is won whatever happens.
+    One mistake or one missed word loses the fight - unless the pet protects,
+    or else the hunter's Nieuchwytny pył undoes it (once per fight,
+    ``items.dust_saves``; it leaves his items only once the fight is
+    decided).  A technical failure before the kill propagates; after the kill
+    the fight is won whatever happens.
 
     ``variant``: the special variant the boss was shown as ('' = an ordinary
     boss).  It changes nothing in the fight; only an egg in the loot gets the
@@ -1067,6 +1069,7 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
     await scene.send(MSG_SINGLE_START.format(user_id=hunter.id))
     mods = await modifiers.load_modifiers(bot)
     pet = await _pet_skills(bot, hunter.id)
+    dust = await items.reserve_dust(bot, [hunter])  # (read now: nothing waits for the database in a round)
     await timing.pause(6)
     await database.update_history_table(bot, hunter.name)
     await challenge.countdown(channel)
@@ -1080,6 +1083,7 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
     round_time = base_time * (100 - mods["time_reduced_perc"] + mods["time_increased_perc"]
                               + pet["SLOW_PERC"]) / 100
     banned = [hunter] if mods["ban_loser"] > 0 else []
+    record_hp = boss_hp  # (the record's turn time: a round undone by a dust adds time, never a turn)
     log.info("Single boss fight: %s (%s) vs rarity %s, hp %s, %.2f s per word.",
              hunter, hunter.id, rarity, boss_hp, round_time)
 
@@ -1113,10 +1117,14 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
             fightlog.saved(channel)
             await scene.send(MSG_TOO_SLOW_PROTECTED if timed_out else MSG_MISTAKE_PROTECTED)
             continue
+        if await items.dust_saves(scene, dust, hunter, timed_out=timed_out):
+            boss_hp += 1  # the round counts for nothing: the boss needs one word more
+            continue
 
         fightlog.lost(channel, timed_out=timed_out)
         lost = fight_types.FightResult(won=False, losers_to_ban=banned)
         await _decided(bot, lost)
+        await items.settle_dust(bot, dust)
         if timed_out:
             await _say_lost(scene, MSG_TOO_SLOW_LOST)
             line = hunter.name + " nie zdążył wpisać komend i boss uciekł."
@@ -1129,9 +1137,10 @@ async def single_fight(scene: "Scene", hunter: Any, rarity: int, is_player_boss:
 
     # -- the boss is dead: from here on nothing may turn the victory into a failure --
     fight_time = timedelta(seconds=time.monotonic() - started)  # (measured before anything is awaited)
-    turn_time = fight_time / boss_hp
+    turn_time = fight_time / record_hp
     fightlog.won(channel)
     await _decided(bot, fight_types.FightResult(won=True))
+    await items.settle_dust(bot, dust)
     log.info("Single boss fight won by %s (%s) in %.2f s.", hunter, hunter.id, fight_time.total_seconds())
 
     await _guarded(bot, "ogłoszenie zwycięstwa", scene.send(MSG_SINGLE_WON.format(user_id=hunter.id)))
@@ -1594,7 +1603,11 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
 
     Any message of a party member ends the round; a wrong word, a word typed
     by somebody else than the addressed player, or silence is a mistake.  The
-    party may make one mistake; the second one loses the fight.
+    party may make one mistake; the second one loses the fight.  What saves
+    a mistake, in this order: the addressed player's pet, the party's spare
+    chance, then the Nieuchwytny pył of the member at fault (the one who
+    typed, when it was not the addressed player; once per member and fight -
+    ``items.dust_saves``).
 
     ``variant``: the special variant the boss was shown as ('' = an ordinary
     boss); the egg of every member of the party gets its cosmetic bonus
@@ -1609,6 +1622,7 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
 
     mods = await modifiers.load_modifiers(bot)
     pets = {player.id: await _pet_skills(bot, player.id) for player in players}
+    dust = await items.reserve_dust(bot, players)  # (read now: nothing waits for the database in a round)
 
     await scene.send(MSG_GROUP_START.format(mentions=mentions))
     await timing.pause(17)
@@ -1620,6 +1634,7 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
     chances = GROUP_SPARE_CHANCES
     banned = list(players) if mods["ban_loser"] > 0 else []
     actions = modifiers.fight_actions(mods, BOSS_ACTIONS, "Boss")
+    record_hp = boss_hp  # (the record's turn time: a round undone by a dust adds time, never a turn)
     log.info("Group boss fight: %s, hp %s.", party, boss_hp)
     await challenge.countdown(channel)
 
@@ -1663,10 +1678,14 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
             chances -= 1  # the party's spare chance is used up silently
             fightlog.saved(channel, fightlog.SAVED_BY_SPARE)
             continue
+        if await items.dust_saves(scene, dust, items.dust_culprit(result, hunter, players), timed_out=timed_out):
+            boss_hp += 1  # the round counts for nothing: the boss needs one word more
+            continue
 
         fightlog.lost(channel, timed_out=timed_out)
         lost = fight_types.FightResult(won=False, losers_to_ban=banned)
         await _decided(bot, lost)
+        await items.settle_dust(bot, dust)
         await _say_lost(scene, MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
         await _report_lost_fight(bot, party + " pomyliło się i nie zabili bossa.", players, rarity,
                                  is_player_boss, player_boss)
@@ -1675,9 +1694,10 @@ async def group_fight(scene: "Scene", players: Sequence[Any], is_player_boss: bo
 
     # -- the boss is dead: from here on nothing may turn the victory into a failure --
     fight_time = timedelta(seconds=time.monotonic() - started)  # (measured before anything is awaited)
-    turn_time = fight_time / boss_hp
+    turn_time = fight_time / record_hp
     fightlog.won(channel)
     await _decided(bot, fight_types.FightResult(won=True))
+    await items.settle_dust(bot, dust)
     log.info("Group boss fight won by %s in %.2f s.", party, fight_time.total_seconds())
 
     await _guarded(bot, "ogłoszenie zwycięstwa", scene.send(MSG_GROUP_WON.format(mentions=mentions)))

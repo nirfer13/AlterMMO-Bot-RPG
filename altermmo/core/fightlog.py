@@ -110,6 +110,7 @@ KIND_TOWER = "tower"
 #: Who saved a failed round (:attr:`Round.saved`).
 SAVED_BY_PET = "pet"
 SAVED_BY_SPARE = "spare"   # the party's spare chance against a legendary boss
+SAVED_BY_DUST = "dust"     # the Nieuchwytny pył of the player at fault (features/items.py)
 
 
 class Outcome(enum.Enum):
@@ -248,7 +249,7 @@ class Round:
     disturbed: bool = False
     #: The event loop was late by this much when the listening ended (seconds).
     stall: float = 0.0
-    #: :data:`SAVED_BY_PET` / :data:`SAVED_BY_SPARE` when the failed round cost nothing.
+    #: :data:`SAVED_BY_PET` / :data:`SAVED_BY_SPARE` / :data:`SAVED_BY_DUST` when the failed round cost nothing.
     saved: str | None = None
     late: Late | None = None
     late_state: LateState = LateState.NONE
@@ -525,7 +526,7 @@ def pet_attack(channel: Any, turn: int | None, asked: Any, word: str = "") -> No
 
 @_never_raises()
 def saved(channel: Any, by: str = SAVED_BY_PET) -> None:
-    """The failed round just played on ``channel`` cost nothing (the pet protected, a spare chance)."""
+    """The failed round just played on ``channel`` cost nothing (the pet protected, a spare chance, a dust)."""
     fight = open_fight(channel)
     entry = _last_asked(fight) if fight is not None else None
     if entry is not None and entry.outcome in FAILED:

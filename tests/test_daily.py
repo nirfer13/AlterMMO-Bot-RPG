@@ -15,7 +15,7 @@ import pytest
 from discord.ext import commands
 
 from altermmo.cogs import hunting
-from altermmo.core import challenge, guards
+from altermmo.core import challenge, fightlog, guards
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossPhase
@@ -741,6 +741,65 @@ async def test_database_failure_before_the_fight_propagates(game, monkeypatch):
     with pytest.raises(DatabaseUnavailable):
         await daily.hunt_mobs(game.scene(hunter), 0, False, None)
     assert not game.channel.contains("Błąd bazy danych")               # the db layer retries, not the hunt
+
+
+# -- the hunt: the Nieuchwytny pył (owner, 2026-11-26: features/items.py) ---------------------
+
+def dust_line(name: str, *, timed_out: bool = False) -> str:
+    return (("Nie zdążyłeś" if timed_out else "Pomyliłeś się") + f", ale **Nieuchwytny pył** gracza **{name}** "
+            "rozwiewa się w powietrzu - nic się nie stało! ✨")
+
+
+async def test_hunt_dust_of_the_hunter_at_fault_used_up_also_without_progress(game_db, monkeypatch):
+    """The Mroczny las calls ``hunt_mobs`` without ``progress``: the dust leaves the items all the same."""
+    bot = game_db.bot
+    bot.debug = False
+    monkeypatch.setattr(daily, "JOIN_TIME", 0.3)
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    for holder in (ala, ola):
+        await items.grant(bot, holder.id, items.DUST)
+    monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 3)
+    take_turns(monkeypatch)
+    team_answers(game_db, [ala, ola], intruder_rounds={2})            # round 2 is Ola's, Ala types it
+    game_db.say_later(ola, "!polowanie", 0.02)
+    assert await daily.hunt_mobs(game_db.scene(ala), 0, False, None) is True
+    assert game_db.channel.count(dust_line("Ala")) == 1                # the mistake was Ala's: her dust
+    assert len(prompts(game_db.channel)) == 4                          # one word more for the monster
+    fight = fightlog.last_fight(ala.id)
+    assert (fight.rounds[1].outcome, fight.rounds[1].saved) == (fightlog.Outcome.WRONG_PLAYER,
+                                                                 fightlog.SAVED_BY_DUST)
+    assert await items.count(bot, ala.id, items.DUST) == 0
+    assert await items.count(bot, ola.id, items.DUST) == 1
+
+
+async def test_a_lost_hunt_uses_the_dust_up_and_an_interrupted_one_takes_none(game_db, monkeypatch,
+                                                                             short_timeouts):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, items.DUST, 2)
+    monkeypatch.setattr(daily, "random_boss_hp", lambda rarity: 5)
+    game_db.auto_answer(hunter, responder=_answers(wrong={1}, silent={2}))
+    progress = {"decided": False}
+    assert await daily.hunt_mobs(game_db.scene(hunter), 0, False, None, progress=progress) is False
+    assert game_db.channel.count(dust_line("Ala")) == 1                # once per hunt: the missed word loses
+    assert game_db.channel.messages[-1].content == daily.MSG_TOO_SLOW_LOST and progress["decided"]
+    assert await items.count(bot, hunter.id, items.DUST) == 1
+
+    # Interrupted after the dust saved him: nobody lost or won - nothing is taken.
+    game_db.channel.send_hooks.clear()
+    real_ask = challenge.ask
+    calls = itertools.count(1)
+
+    async def lag_after_the_first_word(bot, channel, prompt, **kwargs):
+        if next(calls) > 1:
+            return RoundResult(Outcome.DISRUPTED)
+        return await real_ask(bot, channel, prompt, **kwargs)
+
+    monkeypatch.setattr(challenge, "ask", lag_after_the_first_word)
+    game_db.auto_answer(hunter, wrong_on_round=1)
+    assert await daily.hunt_mobs(game_db.scene(hunter), 0, False, None) is None
+    assert game_db.channel.count(dust_line("Ala")) == 2
+    assert await items.count(bot, hunter.id, items.DUST) == 1
 
 
 # -- the hunt: changed commands from the shrine --------------------------------------------

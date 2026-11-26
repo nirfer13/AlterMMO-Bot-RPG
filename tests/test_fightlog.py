@@ -19,7 +19,7 @@ import fakes
 from altermmo import bot as bot_module
 from altermmo.core import challenge, fightlog, guards
 from altermmo.core.fightlog import End, LateState, Outcome
-from altermmo.features import achievements, boss, daily, database, fightreport, tower
+from altermmo.features import achievements, boss, daily, database, fightreport, items, tower
 
 from fakes import FakeMember, FakeMessage, requested_word
 
@@ -435,6 +435,23 @@ async def test_a_group_boss_fight_uses_the_spare_chance_and_is_lost(game_db, ski
     assert fight.decisive is fight.rounds[3] and fight.decisive.typed_by_id != fight.decisive.asked_id
     text = fightreport.explain(fight, None, subject_id=players[0].id)
     assert "błędne słowo (zapasowa szansa drużyny)" in text and "drużynowa walka z bossem" in text
+
+
+async def test_a_round_undone_by_a_dust_is_noted_in_the_journal_and_the_report(game_db, skills, no_rewards,
+                                                                              monkeypatch, short_timeouts):
+    """(Items, 2026-11-26) the Nieuchwytny pył: ``saved = "dust"`` and " (Nieuchwytny pył)" in ``!walka``."""
+    hunter = game_db.add_member("Ala")
+    await items.grant(game_db.bot, hunter.id, items.DUST)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 3)
+    game_db.auto_answer(hunter, wrong_on_round=1, silent_on_round=3)
+    assert not (await boss.single_fight(game_db.scene(hunter), hunter, 0, False, None)).won
+    fight = fightlog.last_fight(hunter.id)
+    assert outcomes(fight) == [(1, Outcome.WRONG_WORD), (2, Outcome.CORRECT), (3, Outcome.TIMEOUT)]
+    assert [entry.saved for entry in fight.rounds] == [fightlog.SAVED_BY_DUST, None, None]
+    assert fight.decisive is fight.rounds[2]                       # the dusted round did not lose the fight
+    text = fightreport.explain(fight, None, subject_id=hunter.id)
+    assert re.search(r"tura 1: limit .+, błędne słowo \(Nieuchwytny pył\)", text)
+    assert text.count("(Nieuchwytny pył)") == 1
 
 
 async def test_a_duel_has_a_winner_a_loser_and_his_last_failed_round(game_db, skills, no_rewards):

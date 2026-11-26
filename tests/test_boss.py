@@ -8,6 +8,8 @@ import json
 import random
 import re
 import sys
+import time
+from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -16,7 +18,7 @@ import pytest
 
 import altermmo.features
 from altermmo.cogs import slayer
-from altermmo.core import challenge, io, timing
+from altermmo.core import challenge, fightlog, io, timing
 from altermmo.core.challenge import Outcome, RoundResult
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossInfo, BossPhase
@@ -769,6 +771,152 @@ async def test_fight_and_loot_with_the_real_pets_module(game_db, real_pets, loot
     assert (int(row["rebirth_stones"]), int(row["mirrors"])) == (1, 1)
 
 
+# -- the Nieuchwytny pył (owner, 2026-11-26: features/items.py) ------------------------------
+
+def dust_line(name: str, *, timed_out: bool = False) -> str:
+    return (("Nie zdążyłeś" if timed_out else "Pomyliłeś się") + f", ale **Nieuchwytny pył** gracza **{name}** "
+            "rozwiewa się w powietrzu - nic się nie stało! ✨")
+
+
+async def dust_of(bot, player) -> int:
+    return await items.count(bot, player.id, items.DUST)
+
+
+def spy_on_dust(monkeypatch, game) -> list[tuple]:
+    """When the dust touches the database: ("read", prompts posted by then) / ("take", prompts, player id)."""
+    seen: list[tuple] = []
+    real_fetch, real_take = game.bot.db.fetch, items.take
+
+    async def fetch(query, *args, **kwargs):
+        if "ITEM = 'dust'" in query:
+            seen.append(("read", len(prompts(game.channel))))
+        return await real_fetch(query, *args, **kwargs)
+
+    async def take(bot, player_id, key, number=1):
+        if key == items.DUST:
+            seen.append(("take", len(prompts(game.channel)), int(player_id)))
+        return await real_take(bot, player_id, key, number)
+
+    monkeypatch.setattr(game.bot.db, "fetch", fetch)
+    monkeypatch.setattr(items, "take", take)
+    return seen
+
+
+async def test_single_fight_dust_undoes_a_mistake_and_leaves_the_items_after_the_fight(game_db, monkeypatch):
+    """"Nic się nie dzieje": the round counts for nothing (one word more) - read before the countdown, taken after."""
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala_Kot")
+    await items.grant(bot, hunter.id, items.DUST, 2)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 3)
+    seen = spy_on_dust(monkeypatch, game_db)
+    game_db.auto_answer(hunter, wrong_on_round=2)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, 1, False, None)).won
+    channel = game_db.channel
+    assert channel.contains(dust_line("Ala\\_Kot"))                  # (the name escaped, nobody pinged)
+    assert not channel.contains("Twój towarzysz") and not channel.contains("Boss pojawi się później")
+    assert [p.split(".")[0] for p in prompts(channel)] == ["1", "2", "3", "4"]
+    # No database inside a round: one read before the first word, one take once the boss is dead.
+    assert seen == [("read", 0), ("take", 4, hunter.id)]
+    assert await dust_of(bot, hunter) == 1
+    fight = fightlog.last_fight(hunter.id)
+    assert [entry.saved for entry in fight.rounds] == [None, fightlog.SAVED_BY_DUST, None, None]
+
+
+async def test_single_fight_dust_works_once_per_fight_and_a_lost_fight_uses_it_up(game_db, monkeypatch,
+                                                                                 short_timeouts):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, items.DUST, 3)                 # three in the pocket: still one life more
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 5)
+    game_db.auto_answer(hunter, wrong_on_round=1, silent_on_round=3)
+    assert not (await boss.single_fight(game_db.scene(hunter), hunter, 0, False, None)).won
+    assert game_db.channel.count(dust_line("Ala")) == 1
+    assert game_db.channel.messages[-1].content == boss.MSG_TOO_SLOW_LOST
+    assert bot.owner_log == ["Ala nie zdążył wpisać komend i boss uciekł."]
+    assert await dust_of(bot, hunter) == 2
+
+
+async def test_the_pet_protects_before_the_dust_and_a_missed_word_has_its_own_line(game_db, pets, monkeypatch,
+                                                                                  short_timeouts):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, items.DUST)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 3)
+    pets.skills[hunter.id] = {"DEF_PERC": Decimal("100")}
+    game_db.auto_answer(hunter, silent_on_round=1)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, 0, False, None)).won
+    assert game_db.channel.contains(boss.MSG_TOO_SLOW_PROTECTED) and not game_db.channel.contains("Nieuchwytny")
+    assert await dust_of(bot, hunter) == 1                          # the pet saved him: the dust stays
+
+    game_db.channel.send_hooks.clear()
+    pets.skills[hunter.id] = {}
+    game_db.auto_answer(hunter, silent_on_round=1)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, 0, False, None)).won
+    assert game_db.channel.contains(dust_line("Ala", timed_out=True))
+    assert await dust_of(bot, hunter) == 0
+
+
+async def test_a_round_undone_by_the_dust_adds_time_to_the_record_never_a_turn(game_db, monkeypatch):
+    """No record exploit: the turn time divides by the boss's life before the dust, not by the words asked."""
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, items.DUST)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 3)
+    moments = iter([100.0])                                          # the fight starts at 100 s, ends at 112 s
+    monkeypatch.setattr(boss, "time", SimpleNamespace(monotonic=lambda: next(moments, 112.0), time=time.time))
+    records: list[timedelta] = []
+
+    async def settle_record(scene, fighters, nick, turn_time, announcement, owner_line):
+        records.append(turn_time)
+
+    monkeypatch.setattr(boss, "_settle_record", settle_record)
+    game_db.auto_answer(hunter, wrong_on_round=1)
+    assert (await boss.single_fight(game_db.scene(hunter), hunter, 0, False, None)).won
+    assert len(prompts(game_db.channel)) == 4
+    assert records == [timedelta(seconds=4)]                         # 12 s / 3, not 12 s / 4
+    assert game_db.channel.contains("Zabicie bossa zajęło Ci: 12.00 sekundy! Jedna tura zajęła Ci średnio "
+                                    "4.00 sekundy!")
+
+
+async def test_an_interrupted_fight_takes_no_dust(game_db, monkeypatch):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, items.DUST)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 5)
+    real_ask = challenge.ask
+    calls = itertools.count(1)
+
+    async def lag_after_the_first_word(bot, channel, prompt, **kwargs):
+        if next(calls) > 1:
+            return RoundResult(Outcome.DISRUPTED)
+        return await real_ask(bot, channel, prompt, **kwargs)
+
+    monkeypatch.setattr(challenge, "ask", lag_after_the_first_word)
+    game_db.auto_answer(hunter, wrong_on_round=1)
+    with pytest.raises(fight_types.FightInterrupted):
+        await boss.single_fight(game_db.scene(hunter), hunter, 0, False, None)
+    assert game_db.channel.contains(dust_line("Ala"))                # it saved him...
+    assert await dust_of(bot, hunter) == 1                          # ...but nobody lost or won: nothing taken
+
+
+async def test_a_dust_the_database_cannot_read_is_no_reason_to_stop_the_fight(game_db, monkeypatch):
+    bot = game_db.bot
+    hunter = game_db.add_member("Ala")
+    await items.grant(bot, hunter.id, items.DUST)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 3)
+    real_fetch = bot.db.fetch
+
+    async def no_dust_read(query, *args, **kwargs):
+        if "ITEM = 'dust'" in query:
+            raise DatabaseUnavailable("database gone")
+        return await real_fetch(query, *args, **kwargs)
+
+    monkeypatch.setattr(bot.db, "fetch", no_dust_read)
+    game_db.auto_answer(hunter, wrong_on_round=1)
+    assert not (await boss.single_fight(game_db.scene(hunter), hunter, 0, False, None)).won   # as without it
+    assert not game_db.channel.contains("Nieuchwytny") and await dust_of(bot, hunter) == 1
+
+
 # -- group lobby -------------------------------------------------------------------------
 
 def as_posted(game) -> list[tuple[str, str]]:
@@ -954,6 +1102,56 @@ async def test_group_fight_critical_hits_count(game_db, pets, monkeypatch):
     team_answers(game_db, players)
     assert (await boss.group_fight(game_db.scene(players[0]), players, False, None)).won
     assert len(prompts(game_db.channel)) == 8             # every hit counts twice
+
+
+def take_turns(monkeypatch) -> None:
+    """``random.choice`` over the party goes round-robin: round n asks player (n - 1) % 4."""
+    real_choice = random.choice
+    counter = itertools.count()
+
+    def choice(seq):
+        if seq and all(isinstance(item, FakeMember) for item in seq):
+            return seq[next(counter) % len(seq)]
+        return real_choice(seq)
+
+    monkeypatch.setattr(random, "choice", choice)
+
+
+async def test_group_fight_spends_the_spare_chance_before_the_dust_of_the_member_at_fault(game_db, monkeypatch):
+    bot = game_db.bot
+    ala, ola, ela, ula = players = [game_db.add_member(name) for name in ("Ala", "Ola", "Ela", "Ula")]
+    for holder in (ala, ula):
+        await items.grant(bot, holder.id, items.DUST)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 6)
+    take_turns(monkeypatch)
+    # Round 2: Ola's wrong word - the party's free spare chance.  Round 4 is Ula's, but Ala types it: the
+    # mistake is Ala's, so Ala's dust undoes it (not Ula's) and the boss needs one word more.
+    team_answers(game_db, players, wrong_rounds={2}, intruder_rounds={4})
+    assert (await boss.group_fight(game_db.scene(ala), players, False, None)).won
+    assert game_db.channel.count(dust_line("Ala")) == 1 and not game_db.channel.contains("gracza **Ula**")
+    assert len(prompts(game_db.channel)) == 7
+    fight = fightlog.last_fight(ala.id)
+    assert [(entry.number, entry.saved) for entry in fight.rounds if entry.saved] == [
+        (2, fightlog.SAVED_BY_SPARE), (4, fightlog.SAVED_BY_DUST)]
+    assert fight.rounds[3].typed_by_id == ala.id and fight.rounds[3].asked_id == ula.id
+    assert (await dust_of(bot, ala), await dust_of(bot, ula)) == (0, 1)
+
+
+async def test_group_fight_dust_works_once_per_member_and_a_lost_fight_uses_it_up(game_db, monkeypatch,
+                                                                                 short_timeouts):
+    bot = game_db.bot
+    ala, ola, ela, ula = players = [game_db.add_member(name) for name in ("Ala", "Ola", "Ela", "Ula")]
+    await items.grant(bot, ala.id, items.DUST, 2)
+    await items.grant(bot, ola.id, items.DUST)
+    monkeypatch.setattr(boss, "random_boss_hp", lambda rarity: 15)
+    take_turns(monkeypatch)
+    # Ala misses round 1 (the spare chance), round 5 (her dust) and round 9: the fight is lost.
+    team_answers(game_db, players, silent_rounds={1, 5, 9})
+    assert not (await boss.group_fight(game_db.scene(ala), players, False, None)).won
+    assert game_db.channel.count(dust_line("Ala", timed_out=True)) == 1
+    assert len(prompts(game_db.channel)) == 9
+    assert game_db.channel.messages[-1].content == boss.MSG_TOO_SLOW_LOST
+    assert (await dust_of(bot, ala), await dust_of(bot, ola)) == (1, 1)     # Ola never needed hers
 
 
 # -- duel --------------------------------------------------------------------------------

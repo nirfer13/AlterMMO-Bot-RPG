@@ -144,6 +144,7 @@ LINE_SILENT = "tura {number}{who}: limit {limit} - brak odpowiedzi"
 LINE_RUNNING = "tura {number}{who}: limit {limit} - w toku"
 NOTE_SAVED_BY_PET = " (towarzysz ochronił)"
 NOTE_SAVED_BY_SPARE = " (zapasowa szansa drużyny)"
+NOTE_SAVED_BY_DUST = " (Nieuchwytny pył)"
 
 MSG_HOW = ("**Jak mierzę czas:** od chwili, gdy moje pytanie pojawiło się na Discordzie, do chwili, gdy "
            "Discord utworzył wiadomość z odpowiedzią (oba znaczniki czasu nadaje Discord) - moje własne "
@@ -351,6 +352,8 @@ def _line(fight: Fight, entry: Round) -> str:
         line += NOTE_SAVED_BY_PET
     elif entry.saved == fightlog.SAVED_BY_SPARE:
         line += NOTE_SAVED_BY_SPARE
+    elif entry.saved == fightlog.SAVED_BY_DUST:
+        line += NOTE_SAVED_BY_DUST
     return line
 
 

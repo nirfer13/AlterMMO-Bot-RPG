@@ -834,7 +834,12 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
     players may join by typing ``!polowanie`` right away or with the "Dołącz do
     polowania" button of the monster's embed.  Every round one of
     the hunters, drawn at random, has to type the requested word in time; one
-    mistake or one missed word loses the hunt (unless the pet protects).
+    mistake or one missed word loses the hunt - unless the asked hunter's pet
+    protects, or else the Nieuchwytny pył of the hunter at fault undoes it
+    (the one who typed, when it was not the asked hunter; once per hunter and
+    hunt - ``items.dust_saves``).  The dust leaves the items once the hunt is
+    decided, also in the Mroczny las (which passes no ``progress``); an
+    interrupted hunt takes none.
 
     Returns True when the monster was killed, False when the hunters lost and
     None when the hunt was interrupted by repeated connection problems (the
@@ -857,11 +862,13 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
 
     mods = await modifiers.load_modifiers(bot)
     pets = {hunter.id: await pet_skills(bot, hunter.id) for hunter in hunters}
+    dust = await items.reserve_dust(bot, hunters)  # (read now: nothing waits for the database in a round)
     await timing.pause(9)
     await challenge.countdown(channel)
 
     mob_hp = scaled_hp(random_boss_hp(rarity), mods["hp_boost_perc"] - mods["hp_reduced_perc"]
                        - pets[hunters[0].id]["LOWHP_PERC"])
+    shown_hp = mob_hp  # (the shown turn time: a round undone by a dust adds time, never a turn)
     actions = modifiers.fight_actions(mods, MOB_ACTIONS, "Potwór")
     log.info("Hunt: %s vs a monster of rarity %s, hp %s.", [str(hunter) for hunter in hunters], rarity, mob_hp)
 
@@ -904,11 +911,15 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
             fightlog.saved(channel)
             await scene.send(MSG_TOO_SLOW_PROTECTED if timed_out else MSG_MISTAKE_PROTECTED)
             continue
+        if await items.dust_saves(scene, dust, items.dust_culprit(result, hunter, hunters), timed_out=timed_out):
+            mob_hp += 1  # the round counts for nothing: the monster needs one word more
+            continue
 
         # The hunt is lost - decided: from here on nothing gives the attempt back.
         fightlog.lost(channel, timed_out=timed_out)
         if progress is not None:
             progress["decided"] = True
+        await items.settle_dust(bot, dust)  # (not under "progress": the Mroczny las passes none)
         await say_lost(scene, MSG_TOO_SLOW_LOST if timed_out else MSG_MISTAKE_LOST)
         log.info("Hunt lost by %s (%s) in turn %s.", hunter, "timeout" if timed_out else "mistake", turn)
         await _settle_lost_hunt(scene, hunters, rarity, mods["ban_loser"] > 0, is_player_boss, player_boss)
@@ -919,9 +930,10 @@ async def hunt_mobs(scene: "Scene", rarity: int, is_player_boss: bool, player_bo
     if progress is not None:
         progress["decided"] = True
     fight_time = timedelta(seconds=time.monotonic() - started)
+    await items.settle_dust(bot, dust)
     log.info("Hunt won by %s in %.2f s.", [str(hunter) for hunter in hunters], fight_time.total_seconds())
     await guarded(bot, "ogłoszenie zwycięstwa", scene.send(MSG_WON.format(mentions=mentions)))
-    await guarded(bot, "czas polowania", scene.send(fight_time_message(fight_time, mob_hp)))
+    await guarded(bot, "czas polowania", scene.send(fight_time_message(fight_time, shown_hp)))
 
     party_boost = PARTY_DROP_BOOST * (len(hunters) - 1)
     for hunter in hunters:

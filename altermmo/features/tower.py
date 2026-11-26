@@ -262,6 +262,11 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
     propagate; afterwards the floor is cleared whatever happens.
     ``progress["rewarded"]`` is set the moment the floor is cleared, before
     the first reward is handed out (see :func:`explore_tower`).
+
+    ``progress["dust"]``: the run's ``items.DustGuard`` (read once per run by
+    :func:`explore_tower`) - a mistake the pet did not protect is undone by
+    the explorer's Nieuchwytny pył once per run (``progress["dust_floor"]``
+    notes the floor); without ``progress`` there is none.
     """
     bot = scene.bot
     channel = scene.channel
@@ -276,6 +281,8 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
     await challenge.countdown(channel)
 
     floor_hp = daily.scaled_hp(random_tower_hp(tower_level), -pet["LOWHP_PERC"])
+    shown_hp = floor_hp  # (the shown turn time: a round undone by a dust adds time, never a turn)
+    dust = progress.get("dust") if progress is not None else None
     round_time = float(ROUND_TIME_BASE / max(tower_level, 1)) * (100 + pet["SLOW_PERC"]) / 100
     log.info("Tower: %s (%s) on floor %s, hp %s, %.2f s per word.", hunter, hunter.id, tower_level,
              floor_hp, round_time)
@@ -317,6 +324,11 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
             fightlog.saved(channel)
             await scene.send(daily.MSG_TOO_SLOW_PROTECTED if timed_out else daily.MSG_MISTAKE_PROTECTED)
             continue
+        if dust is not None and dust.left:  # (the explorer's dust has not worked in this run yet)
+            progress["dust_floor"] = tower_level  # (noted before anything is awaited: _settle_run_dust)
+            if await items.dust_saves(scene, dust, hunter, timed_out=timed_out):
+                floor_hp += 1  # the round counts for nothing: the floor needs one word more
+                continue
 
         fightlog.lost(channel, timed_out=timed_out)
         # (Guarded: a lost floor stays lost when the message cannot be sent - it must not turn
@@ -334,7 +346,7 @@ async def tower_fight(scene: "Scene", tower_level: int, player: Any = None, *,
     context = "po zaliczonym piętrze Wieży Śmierci"
     await daily.guarded(bot, "ogłoszenie zwycięstwa",
                         scene.send(MSG_FLOOR_CLEARED.format(user_id=hunter.id)), context=context)
-    await daily.guarded(bot, "czas walki", scene.send(daily.fight_time_message(fight_time, floor_hp)),
+    await daily.guarded(bot, "czas walki", scene.send(daily.fight_time_message(fight_time, shown_hp)),
                         context=context)
     with items.loot_source(items.SOURCE_TOWER):  # (some rows never drop in the tower: features/items.py)
         await daily.guarded(bot, f"łup <@{hunter.id}> za piętro {tower_level}",
@@ -354,13 +366,37 @@ async def _give_back_attempt(scene: "Scene", player: Any) -> None:
     await io.send_patient(scene.channel, MSG_ATTEMPT_RETURNED.format(user_id=player.id), give_up_after=60)
 
 
-async def _end_broken_run(scene: "Scene", player: Any, cleared: int, rewarded: bool) -> None:
+async def _settle_run_dust(bot: "AlterBot", progress: dict[str, Any], *, decided: int | None = None) -> None:
+    """The run is over: its Nieuchwytny pył leaves the explorer's items if it saved him (never raises).
+
+    Once per run, at its end (:func:`explore_tower`, :func:`_end_broken_run`) -
+    never inside a floor's rounds.  ``decided``: the run broke; only a dust
+    used on a floor up to this one (a floor that was decided) is taken.  The
+    floor the run broke on was neither won nor lost: like every interrupted
+    fight it costs nothing, the dust used there stays with the player.
+    """
+    guard = progress.get("dust")
+    if guard is None or not guard.used:
+        return
+    if decided is not None and progress.get("dust_floor", 0) > decided:
+        log.info("Tower: the dust of the run was used on floor %s, which the run broke on; it is not taken.",
+                 progress.get("dust_floor"))
+        guard.used.clear()
+        return
+    await items.settle_dust(bot, guard)
+
+
+async def _end_broken_run(scene: "Scene", player: Any, cleared: int, rewarded: bool,
+                          progress: dict[str, Any] | None = None) -> None:
     """A run ended by a technical problem (never raises).
 
     Before any floor was rewarded the attempt is given back.  Afterwards it is
     not: the loot of the cleared floors is out, and a second run in the same
     week would hand it out again.  The player and the owner are told.
+    ``progress``: the run's, for its Nieuchwytny pył (:func:`_settle_run_dust`).
     """
+    if progress is not None:
+        await _settle_run_dust(scene.bot, progress, decided=cleared)
     if not rewarded:
         await _give_back_attempt(scene, player)
         return
@@ -379,6 +415,11 @@ async def explore_tower(scene: "Scene") -> int:
     weekly cooldown is stored before the first floor (as in the legacy bot).
     When the run ends because of a technical problem the attempt is given back
     - but only while no floor has been rewarded yet (:func:`_end_broken_run`).
+
+    The explorer's Nieuchwytny pył works once per run: it is read once, before
+    the first floor (``progress["dust"]``), and leaves his items when the run
+    is over (:func:`_settle_run_dust`) - not when the run is cancelled (no
+    database is awaited then; nothing is taken, in the player's favour).
     """
     bot = scene.bot
     player = scene.author
@@ -388,11 +429,12 @@ async def explore_tower(scene: "Scene") -> int:
     cleared = 0
     progress: dict[str, Any] = {"rewarded": False}
     try:
+        progress["dust"] = await items.reserve_dust(bot, [player])
         for level in range(1, TOWER_FLOORS + 1):
             await tower_image(scene, level)
             result = await tower_fight(scene, level, player, progress=progress)
             if result is None:
-                await _end_broken_run(scene, player, cleared, progress["rewarded"])
+                await _end_broken_run(scene, player, cleared, progress["rewarded"], progress)
                 return cleared
             if not result:
                 break
@@ -406,11 +448,12 @@ async def explore_tower(scene: "Scene") -> int:
         raise
     except Exception:
         log.exception("Tower run of %s (%s) failed on floor %s.", player, player.id, cleared + 1)
-        await _end_broken_run(scene, player, cleared, progress["rewarded"])
+        await _end_broken_run(scene, player, cleared, progress["rewarded"], progress)
         if not progress["rewarded"]:
             raise
         # (Not re-raised: the player was told the run counts - "try again" would contradict it.)
         return cleared
+    await _settle_run_dust(bot, progress)  # (every floor fought was decided: the last one lost, or all won)
     log.info("Tower: %s (%s) finished the run with %s floors cleared.", player, player.id, cleared)
     return cleared
 
