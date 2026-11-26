@@ -215,7 +215,7 @@ def describe_modifiers(modifiers: dict[str, int]) -> list[str]:
         elif key == "time_increased_perc":
             lines.append(f"\n🔺 Czas na reakcję zwiększony o {value} %")
         elif key == "rarity_boost":
-            lines.append(f"\n🔺 Rzadkość zwiększona o {value} poziom (nie dotyczy potworów)")
+            lines.append(f"\n🔺 Rzadkość zwiększona o {value} {_levels(value)} (nie dotyczy potworów)")
         elif key == "points_boost":
             lines.append(f"\n🔺 Punkty za wygraną zwiększone o {value} (nie dotyczy potworów)")
         elif key == "player_id":
@@ -225,6 +225,19 @@ def describe_modifiers(modifiers: dict[str, int]) -> list[str]:
         elif key == COMMANDS_CHANGED:
             lines.append("\n🔀 Komendy w walce są zmienione (nie dotyczy mitycznego bossa)")
     return lines
+
+
+def _levels(value: int) -> str:
+    """The word "poziom" in the form that goes with ``value``: 1 poziom, 2-4 poziomy, 5 poziomów (12-14 too).
+
+    Stacked prayers - or a Karta Dovy drawing the boost twice - make it more than one.
+    """
+    value = abs(int(value))
+    if value == 1:
+        return "poziom"
+    if value % 10 in (2, 3, 4) and value % 100 not in (12, 13, 14):
+        return "poziomy"
+    return "poziomów"
 
 
 def add_modifier(modifiers: dict[str, int], modifier_name: str, value: int) -> dict[str, int]:

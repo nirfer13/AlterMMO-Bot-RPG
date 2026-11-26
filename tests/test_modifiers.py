@@ -167,6 +167,18 @@ async def test_description_lists_active_modifiers_verbatim(game):
     )
 
 
+def test_a_stacked_rarity_boost_is_told_in_proper_polish():
+    """Stacked prayers - or a Karta Dovy that draws the boost twice - make it more than one level."""
+    def line(value):
+        [text] = modifiers.describe_modifiers({**ZEROS, "rarity_boost": value})
+        return text
+
+    assert line(1) == "\n🔺 Rzadkość zwiększona o 1 poziom (nie dotyczy potworów)"
+    assert line(2) == "\n🔺 Rzadkość zwiększona o 2 poziomy (nie dotyczy potworów)"
+    assert [line(value).split(" (")[0].split()[-1] for value in (3, 4, 5, 12, 22, 25)] == [
+        "poziomy", "poziomy", "poziomów", "poziomów", "poziomy", "poziomów"]
+
+
 async def test_description_skips_inactive_modifiers(game):
     await modifiers.modify_modifiers(game.bot, "ban_loser", 1)
     await modifiers.modify_modifiers(game.bot, "hp_boost_perc", -5)      # not positive -> not listed

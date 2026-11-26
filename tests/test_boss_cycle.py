@@ -734,7 +734,7 @@ async def test_an_unattacked_scroll_boss_leaves_after_its_half_hour_and_the_scro
     assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
     assert note(bot) == {"origin": "scroll", "at": note(bot)["at"], "by": ala.id, "claimed": False}
     notice = game_db.announce_channel.messages[-1]
-    assert notice.content == boss_cycle.NOTICE_SCROLL.format(name="Ala", channel=bot.ids.boss_channel)
+    assert notice.content == boss_cycle.summon_notice(bot.ids.boss_channel, 4, "scroll", "Ala")
     assert clock.seconds_until(cycle.summoned_leaves_at()) < 1 < clock.seconds_until(planned)   # not the schedule's
 
     await _eventually(lambda: game_db.channel.ever_sent(boss_cycle.MSG_SCROLL_BOSS_LEFT))
@@ -821,8 +821,8 @@ async def test_a_restart_never_makes_a_scroll_boss_stay_longer(game_db, cycle, s
         assert info["by"] == ala.id and info["claimed"] is False
         assert abs(clock.seconds_until(datetime.fromisoformat(info["at"])) + (30 - left) * 60) < 5
         # A fresh notice, naming the reader (the scene of a restart has no author: the note says who).
-        assert game_db.announce_channel.messages[-1].content == boss_cycle.NOTICE_SCROLL.format(
-            name="Ala", channel=bot.ids.boss_channel)
+        assert game_db.announce_channel.messages[-1].content == boss_cycle.summon_notice(
+            bot.ids.boss_channel, 4, "scroll", "Ala")
     assert stub.refunds == []
 
 
@@ -997,10 +997,14 @@ async def test_every_summoned_boss_is_announced_on_the_general_chat(game_db, cyc
     monkeypatch.setattr(io, "send", send)
     star = game_db.add_member("*Ala_*")
     for kwargs, expected in (
-            ({"origin": "scroll"}, boss_cycle.NOTICE_SCROLL.format(name=r"\*Ala\_\*", channel=channel)),
-            ({"origin": "gem"}, boss_cycle.NOTICE_GEM.format(channel=channel, emoji="🟥", rarity="mityczny")),
+            ({"origin": "scroll"}, boss_cycle.NOTICE_SCROLL.format(
+                name=r"\*Ala\_\*", channel=channel, emoji="🟥", rarity="mityczny",
+                ending=boss_cycle.NOTICE_SCROLL_FIRST)),
+            ({"origin": "gem"}, boss_cycle.NOTICE_GEM.format(channel=channel, emoji="🟥", rarity="mityczny",
+                                                             ending=boss_cycle.NOTICE_FIRST)),
             ({"origin": "ritual", "show_image": False},
-             boss_cycle.NOTICE_RITUAL.format(channel=channel, emoji="🟥", rarity="mityczny")),
+             boss_cycle.NOTICE_RITUAL.format(channel=channel, emoji="🟥", rarity="mityczny",
+                                             ending=boss_cycle.NOTICE_FIRST)),
             ({}, boss_cycle.spawn_notice(channel, 4))):
         assert await cycle.summon(game_db.scene(star), 4, **kwargs)
         notice = chat.messages[-1]
@@ -1011,8 +1015,33 @@ async def test_every_summoned_boss_is_announced_on_the_general_chat(game_db, cyc
     gem = boss_cycle.summon_notice(channel, 2, "gem")
     assert "🟪 **epicki boss**" in gem and boss_cycle.summon_notice(channel, 2, "nonsense") == \
         boss_cycle.spawn_notice(channel, 2)
-    assert boss_cycle.summon_notice(channel, 4, "scroll", "") == boss_cycle.NOTICE_SCROLL.format(
-        name="Ktoś", channel=channel)
+    assert boss_cycle.summon_notice(channel, 4, "scroll", "").startswith("📯 **Ktoś** odczytał Zwój przywołania!")
+
+
+def test_the_summoned_boss_notices_word_by_word():
+    """The owner's texts (items_decisions.md §1) - and, since the Kość Dovy can change a boss on the channel, any
+    rarity in them; a legendary boss asks for its party whoever brought it (as the scheduled boss's notice)."""
+    channel = 970684202880204831
+    assert boss_cycle.summon_notice(channel, 4, "scroll", "Ala") == (
+        f"📯 **Ala** odczytał Zwój przywołania! Na kanale <#{channel}> właśnie pojawił się potwór: 🟥 **mityczny "
+        "boss**. Zaatakować go może każdy - kto pierwszy, ten lepszy, a bestia nie będzie czekać wiecznie!")
+    assert boss_cycle.summon_notice(channel, 2, "gem") == (
+        f"💎 Ktoś użył Klejnotu Przywołania! Na kanale <#{channel}> właśnie pojawił się potwór: 🟪 **epicki boss**. "
+        "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+    assert boss_cycle.summon_notice(channel, 1, "ritual") == (
+        f"🕯️ Rytuał się udał! Na kanale <#{channel}> właśnie pojawił się potwór: 🟦 **rzadki boss**. "
+        "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+    assert boss_cycle.summon_notice(channel, 0, "scroll", "Ala") == (
+        f"📯 **Ala** odczytał Zwój przywołania! Na kanale <#{channel}> właśnie pojawił się potwór: 🟩 **zwykły "
+        "boss**. Zaatakować go może każdy - kto pierwszy, ten lepszy, a bestia nie będzie czekać wiecznie!")
+    assert boss_cycle.summon_notice(channel, 3, "scroll", "Ala").endswith(
+        "🟧 **legendarny boss**. Sam nikt mu nie podoła - zbierzcie drużynę, bo bestia nie będzie czekać wiecznie!")
+    for origin in ("gem", "ritual"):
+        assert boss_cycle.summon_notice(channel, 3, origin).endswith(
+            "🟧 **legendarny boss**. Sam nikt mu nie podoła - zbierzcie drużynę!")
+    for rarity in range(5):
+        for origin in ("scroll", "gem", "ritual"):
+            assert boss_cycle.is_spawn_notice(boss_cycle.summon_notice(channel, rarity, origin, "Ala"), channel)
 
 
 # -- special bosses (features/bossvariants.py): the variant goes with the boss into its fight ------

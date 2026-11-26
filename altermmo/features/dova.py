@@ -43,11 +43,14 @@ any more); they still count and are cleared like the rest.
 **The order of a use** (the once-only rules of the items): the gate of a
 gameplay command (the boss channel, silent during a typed fight, the busy
 notice - ``cogs/items.py``), the window, the channel held busy for the use (two
-uses never interleave, :data:`BUSY_OWNER`), the item taken (conditional, never
-retried), the window checked again WITHOUT an ``await``, the draw and the write
-- still without one - and only then the messages.  When the window moved during
-the take (somebody attacked the boss, the boss started arriving) the item goes
-back and nothing changes; once the write is done nothing is given back.
+uses never interleave, :data:`BUSY_OWNER`; nobody attacks the boss on the
+channel meanwhile - he gets the busy notice), the item taken (conditional,
+never retried), the window checked again WITHOUT an ``await``, the draw and the
+write - still without one - and only then the messages, the boss shown anew,
+and last the ``BOSS`` row (it matters only after a restart).  When the window
+moved during the take (the boss started arriving, a summoned boss left, a
+reset) the item goes back and nothing changes; once the write is done nothing
+is given back.
 """
 
 from __future__ import annotations
@@ -74,8 +77,9 @@ log = logging.getLogger(__name__)
 DIE_CHANCE = 0.30
 CARD_CHANCE = 0.30
 
-#: Who holds the busy flag while an item of Dova works (a second use waits for the busy notice).
-BUSY_OWNER = "dova"
+#: Who holds the busy flag while an item of Dova works: a second use gets the busy notice, and so does an
+#: attack on the boss on the channel (``BossCycle.attack``) - it is being changed and shown anew.
+BUSY_OWNER = boss_cycle.BOSS_CHANGING
 
 #: When an item works (:func:`window`).
 NEXT = "next"            # the boss that is coming (SCHEDULED / WAITING; the card also IDLE)
@@ -128,6 +132,19 @@ CARD_HEAD_VISIBLE = ("<@{player_id}> tasuje **Kartę Dovy**... Stare błogosław
                      "rozwiewają się, a na ich miejsce przychodzą nowe:")
 CARD_HEAD_VISIBLE_EMPTY = ("<@{player_id}> tasuje **Kartę Dovy**... Boss na kanale nie miał żadnych perków - Karta "
                            "Dovy dorzuca mu jeden:")
+#: The card drew only a rest - no perk of the boss (``{whose}`` / ``{who}``: :data:`WHOSE` / :data:`WHO`).
+CARD_HEAD_REST = ("<@{player_id}> tasuje **Kartę Dovy**... Stare błogosławieństwa i klątwy {whose} rozwiewają się, "
+                  "a zamiast nowych karta przynosi wszystkim chwilę wytchnienia:")
+CARD_HEAD_REST_EMPTY = ("<@{player_id}> tasuje **Kartę Dovy**... {who} nadal nie ma żadnych perków - zamiast nich "
+                        "karta przynosi wszystkim chwilę wytchnienia:")
+#: ...and even the rest could not be given (the hunts' file failed; the owner is told).
+CARD_FIZZLED = ("<@{player_id}> tasuje **Kartę Dovy**... Stare błogosławieństwa i klątwy {whose} rozwiewają się, "
+                "ale na ich miejsce nic nie przychodzi - karta zapłonęła i zgasła jak mokra hubka.")
+CARD_FIZZLED_EMPTY = ("<@{player_id}> tasuje **Kartę Dovy**... {who} wciąż nie ma żadnych perków - karta "
+                      "zapłonęła i zgasła jak mokra hubka.")
+#: Which boss the card's words are about: the next one, or the one on the channel (``visible``).
+WHOSE = {False: "następnego bossa", True: "bossa na kanale"}
+WHO = {False: "Następny boss", True: "Boss na kanale"}
 #: To the owner.
 LOG_TAKE_UNSURE = ("Nie wiadomo, czy {name} gracza <@{player_id}> została zabrana - baza danych nie odpowiedziała "
                    "(`{error}`), nic się nie zmieniło. Sprawdź PLAYER_ITEMS i w razie potrzeby oddaj ją: "
@@ -136,6 +153,9 @@ LOG_NOT_REFUNDED = ("{name} gracza <@{player_id}> NIE wróciła do niego (`{erro
                     "`!DajPrzedmiot @gracz {key} 1`")
 LOG_BOSS_ROW = ("Kość Dovy zmieniła rzadkość nadchodzącego bossa na {rarity}, ale zapis w tabeli BOSS się nie udał "
                 "(`{error}`) - po restarcie bota boss przyjdzie ze starą rzadkością.")
+LOG_BOSS_ROW_CARD = ("Karta Dovy zdjęła z bossa na kanale premię rzadkości z kapliczki, ale zapis jego rzadkości "
+                     "({rarity}) w tabeli BOSS się nie udał (`{error}`) - po restarcie bota boss wróci z niższą "
+                     "rzadkością (bez tej premii).")
 LOG_HUNTS_NOT_RESET = ("Karta Dovy wylosowała odpoczynek łowców, ale nie udało się wyzerować polowań (`{error}`) - "
                        "w razie potrzeby zrób to ręcznie.")
 
@@ -321,7 +341,8 @@ async def _use(scene: "Scene", item: items.Item) -> bool:
             log.info("Dova: the %s of %s goes back - the window moved from %s to %s.", item.key, player_id,
                      where, now)
             await _give_back(bot, player_id, item)
-            text = MSG_TOO_LATE if now == FIGHT else MSG_MOVED
+            # (Only an attack is "somebody was faster": a summoned boss leaving passes through ENGAGED too.)
+            text = MSG_TOO_LATE if cycle.claimed_since(token) else MSG_MOVED
             await _say(scene, text.format(player_id=player_id, name=item.name))
             return False
         # (Awaiting a coroutine runs it at once, up to its first own await: the effects draw and write
@@ -370,20 +391,28 @@ async def _throw(scene: "Scene", *, visible: bool, token: int) -> None:
     # -- the write is done -------------------------------------------------------------------------
     log.info("Dova: %s threw the Kość Dovy on the boss on the channel: rarity %s -> %s (drawn %s).", player_id,
              old, rarity, drawn)
-    if scheduled:
-        await _save_base_rarity(bot, drawn)
+    # The boss is shown anew at once; its BOSS row matters only after a restart, so it comes last.
     await _say(scene, MSG_DIE_VISIBLE.format(player_id=player_id, emoji=boss_cycle.rarity_emoji(rarity),
                                              rarity=boss_cycle.RARITY_NAMES.get(rarity, "")))
     await cycle.show_again(scene, token=token, picture=picture, variant=variant)
     await cycle.refresh_spawn_notice(old)
+    if scheduled:
+        await _save_base_rarity(bot, drawn, token=token)
 
 
-async def _save_base_rarity(bot: "AlterBot", rarity: int) -> None:
+async def _save_base_rarity(bot: "AlterBot", rarity: int, *, token: int | None = None,
+                            failed: str = LOG_BOSS_ROW) -> None:
     """The new base rarity into the ``BOSS`` row (its arrival stays).  Never raises: a failure tells the owner.
 
     The change is already in force in memory, so nothing is given back - only
-    a restart would bring the old rarity back from the row.
+    a restart would bring the old rarity back from the row.  ``token``: the boss
+    on the channel whose row it is (:meth:`BossCycle.boss_token`) - should it
+    have gone meanwhile, the row is no longer its (a new schedule may stand
+    there) and is left alone.  ``failed``: what the owner is told.
     """
+    if token is not None and bot.boss_cycle.boss_token() != token:
+        log.info("Dova: the boss on the channel is gone; its new rarity %s is not written to the BOSS row.", rarity)
+        return
     try:
         if not await database.set_boss_rarity(bot, rarity):
             log.warning("Dova: no BOSS row to note the new rarity %s in.", rarity)
@@ -392,7 +421,7 @@ async def _save_base_rarity(bot: "AlterBot", rarity: int) -> None:
     except Exception as exc:  # noqa: BLE001
         log.exception("Dova: the new rarity %s could not be written to the BOSS table.", rarity)
         with contextlib.suppress(Exception):
-            await bot.log_to_owner(LOG_BOSS_ROW.format(rarity=rarity, error=type(exc).__name__))
+            await bot.log_to_owner(failed.format(rarity=rarity, error=type(exc).__name__))
 
 
 # -- the Karta Dovy -------------------------------------------------------------------------------
@@ -426,31 +455,62 @@ def shuffle_modifiers(scene: "Scene", *, visible: bool) -> tuple[int, dict[str, 
 
 
 async def _shuffle(scene: "Scene", *, visible: bool, token: int) -> None:
-    """The Karta Dovy's effect (the window was just checked; the draw and the write come before any await)."""
+    """The Karta Dovy's effect (the window was just checked; the draw and the write come before any await).
+
+    On the scheduled boss on the channel the shrine's rarity boost goes from
+    the file, but not from the boss it raised: a restart draws that boss again
+    from its ``BOSS`` row and the file (``BossCycle._restore``), so the row then
+    takes the rarity shown in (the boost included) - the same boss comes back.
+    """
     bot, player_id = scene.bot, int(scene.author.id)
     cycle = bot.boss_cycle
+    boost = modifiers.current_modifiers(bot).get("rarity_boost", 0)
     count, fresh, rest = shuffle_modifiers(scene, visible=visible)
     picture = variant = None
-    if visible:
+    base = scheduled = None
+    # (Nothing on the boss on the channel before, nothing now - only a rest drawn: its face stays as it is.)
+    reshow = visible and bool(count or modifiers.describe_modifiers(fresh))
+    if reshow:
         info = bot.state.boss
         if not info.is_player_boss:
             picture, variant = boss.picture_like(info.rarity, variant=info.variant, same=cycle.shown_picture)
-        cycle.change_visible_boss(info.rarity, variant=variant.id if variant is not None else "")
+        base = int(info.rarity) if boost else None
+        scheduled = cycle.change_visible_boss(info.rarity, variant=variant.id if variant is not None else "",
+                                              base=base)
     # -- the write is done -------------------------------------------------------------------------
     log.info("Dova: %s shuffled the Karta Dovy (%s on before%s): %s%s.", player_id, count,
              ", the boss on the channel" if visible else "", fresh, " + a rest" if rest else "")
     if rest:
         rest = await _reset_hunts(bot)
-    if visible:
-        head = CARD_HEAD_VISIBLE if count else CARD_HEAD_VISIBLE_EMPTY
-    else:
-        head = CARD_HEAD if count else CARD_HEAD_EMPTY
-    lines = modifiers.describe_modifiers(fresh) + ([modifiers.RESET_CD_LINE] if rest else [])
-    embed = discord.Embed(title=CARD_TITLE, description=head.format(player_id=player_id) + "".join(lines),
-                          color=DOVA_COLOUR)
-    await _say(scene, embed=embed)
-    if visible:
+    await _say(scene, embed=discord.Embed(title=CARD_TITLE, description=card_text(player_id, count, fresh, rest,
+                                                                                   visible=visible),
+                                          color=DOVA_COLOUR))
+    if reshow:
         await cycle.show_again(scene, token=token, picture=picture, variant=variant)
+    if scheduled:
+        await _save_base_rarity(bot, base, token=token, failed=LOG_BOSS_ROW_CARD)
+
+
+def card_text(player_id: int, count: int, fresh: dict[str, int], rest: bool, *, visible: bool) -> str:
+    """The Karta Dovy's embed: what went (``count`` were on), what came (``fresh``; ``rest``: the hunts were reset).
+
+    The new perks of the boss, in the style of its embed's "Dodatkowe
+    statystyki", the rest after them.  A card that drew only a rest says so -
+    a rest is no perk of the boss; one whose rest could not be given either
+    says it fizzled (never a line that ends on a colon).
+    """
+    perks = modifiers.describe_modifiers(fresh)
+    words = {"player_id": int(player_id), "whose": WHOSE[visible], "who": WHO[visible]}
+    rest_line = modifiers.RESET_CD_LINE if rest else ""
+    if perks:
+        if visible:
+            head = CARD_HEAD_VISIBLE if count else CARD_HEAD_VISIBLE_EMPTY
+        else:
+            head = CARD_HEAD if count else CARD_HEAD_EMPTY
+        return head.format(**words) + "".join(perks) + rest_line
+    if rest:
+        return (CARD_HEAD_REST if count else CARD_HEAD_REST_EMPTY).format(**words) + rest_line
+    return (CARD_FIZZLED if count else CARD_FIZZLED_EMPTY).format(**words)
 
 
 async def _reset_hunts(bot: "AlterBot") -> bool:

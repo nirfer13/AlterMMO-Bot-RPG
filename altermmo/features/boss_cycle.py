@@ -59,7 +59,8 @@ Dova's prizes (``features/dova.py``, owner 2026-11-26) change the boss that is
 coming (SCHEDULED / WAITING) or the one standing on the channel unclaimed
 (VISIBLE): the Kość Dovy its rarity, the Karta Dovy its modifiers.  A boss on
 the channel is then shown again (:meth:`BossCycle.show_again`) - its old
-picture and "Zaatakuj" button go.
+picture and "Zaatakuj" button go; an attack in that moment gets the busy
+notice (:data:`BOSS_CHANGING`).
 """
 
 from __future__ import annotations
@@ -85,6 +86,10 @@ if TYPE_CHECKING:  # pragma: no cover
 log = logging.getLogger(__name__)
 
 LOOP_NAME = "boss-cycle"
+
+#: Who holds the busy flag while an item of Dova changes the boss (``features/dova.py``): the boss on the
+#: channel is being shown anew, so an attack waits for that moment like for an activity (:meth:`BossCycle.attack`).
+BOSS_CHANGING = "dova"
 
 MSG_SILENCE = "Dookoła rozlega się cisza, jedynie wiatr wzbija w powietrze tumany kurzu..."
 MSG_WIND = ("Wiatr wzmaga się coraz mocniej, z oddali słychać ryk, "
@@ -206,6 +211,11 @@ def rarity_emoji(rarity: int) -> str:
     return RARITY_EMOJI.get(int(rarity), RARITY_EMOJI[_PARTY_RARITY])
 
 
+#: How a boss notice ends: whoever attacks first takes the boss - or, a legendary boss, a party is needed.
+NOTICE_FIRST = "Kto pierwszy stanie do walki, ten zgarnie nagrody!"
+NOTICE_PARTY = "Sam nikt mu nie podoła - zbierzcie drużynę!"
+
+
 def spawn_notice(boss_channel_id: int, rarity: int | None = None) -> str:
     """The notice on the general chat when a boss appears (wording refreshed on the owner's request).
 
@@ -214,43 +224,52 @@ def spawn_notice(boss_channel_id: int, rarity: int | None = None) -> str:
     :func:`is_spawn_notice` looks for must stay.
     """
     if rarity is None or int(rarity) not in RARITY_NAMES:
-        return (f"⚔️ Przygotujcie się! Na kanale <#{boss_channel_id}> właśnie pojawił się potwór. "
-                "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+        return f"⚔️ Przygotujcie się! Na kanale <#{boss_channel_id}> właśnie pojawił się potwór. {NOTICE_FIRST}"
     rarity = int(rarity)
-    ending = ("Sam nikt mu nie podoła - zbierzcie drużynę!" if rarity == _PARTY_RARITY
-              else "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+    ending = NOTICE_PARTY if rarity == _PARTY_RARITY else NOTICE_FIRST
     return (f"⚔️ Przygotujcie się! Na kanale <#{boss_channel_id}> właśnie pojawił się potwór: "
             f"{RARITY_EMOJI[rarity]} **{RARITY_NAMES[rarity]} boss**. {ending}")
 
 
 #: The general-chat notice of a summoned boss, by how it came (owner, 2026-11-26).  Each keeps the words
 #: :func:`is_spawn_notice` looks for ("pojawił się", "potwór"): it is removed like the scheduled boss's.
+#: The rarity is filled in (:func:`summon_notice`): a scroll boss comes mythic, but the Kość Dovy can
+#: change any boss on the channel - its notice is then written anew with the new rarity.
 NOTICE_SCROLL = ("📯 **{name}** odczytał Zwój przywołania! Na kanale <#{channel}> właśnie pojawił się potwór: "
-                 "🟥 **mityczny boss**. Zaatakować go może każdy - kto pierwszy, ten lepszy, a bestia nie będzie "
-                 "czekać wiecznie!")
+                 "{emoji} **{rarity} boss**. {ending}")
 NOTICE_GEM = ("💎 Ktoś użył Klejnotu Przywołania! Na kanale <#{channel}> właśnie pojawił się potwór: {emoji} "
-              "**{rarity} boss**. Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+              "**{rarity} boss**. {ending}")
 NOTICE_RITUAL = ("🕯️ Rytuał się udał! Na kanale <#{channel}> właśnie pojawił się potwór: {emoji} **{rarity} boss**. "
-                 "Kto pierwszy stanie do walki, ten zgarnie nagrody!")
+                 "{ending}")
+#: The endings of a scroll boss's notice (it leaves after half an hour), as :data:`NOTICE_FIRST` /
+#: :data:`NOTICE_PARTY` for the others: a legendary boss needs its party whoever brought it.
+NOTICE_SCROLL_FIRST = "Zaatakować go może każdy - kto pierwszy, ten lepszy, a bestia nie będzie czekać wiecznie!"
+NOTICE_SCROLL_PARTY = "Sam nikt mu nie podoła - zbierzcie drużynę, bo bestia nie będzie czekać wiecznie!"
 #: Who read the scroll, when the notice cannot find his name (he left the server meanwhile).
 NOTICE_SOMEBODY = "Ktoś"
 
 
 def summon_notice(boss_channel_id: int, rarity: int, origin: str, name: str = "") -> str:
-    """The general-chat notice of a boss summoned by ``origin`` (``name``: who read the scroll).
+    """The general-chat notice of a boss of ``rarity`` summoned by ``origin`` (``name``: who read the scroll).
 
     The name is escaped here (a ``*`` in a nickname must not break the bold);
     the notice is posted without any mention.  A summon that names no origin
-    gets the scheduled boss's notice (:func:`spawn_notice`).
+    (or a rarity nobody knows) gets the scheduled boss's notice
+    (:func:`spawn_notice`).  A legendary boss asks for a party, as the
+    scheduled boss's notice does.
     """
-    if origin == "scroll":
-        shown = discord.utils.escape_markdown(str(name).strip()) or NOTICE_SOMEBODY
-        return NOTICE_SCROLL.format(name=shown, channel=int(boss_channel_id))
-    text = {"gem": NOTICE_GEM, "ritual": NOTICE_RITUAL}.get(origin)
+    text = {"scroll": NOTICE_SCROLL, "gem": NOTICE_GEM, "ritual": NOTICE_RITUAL}.get(origin)
     if text is None or int(rarity) not in RARITY_NAMES:
         return spawn_notice(boss_channel_id, rarity)
-    return text.format(channel=int(boss_channel_id), emoji=RARITY_EMOJI[int(rarity)],
-                       rarity=RARITY_NAMES[int(rarity)])
+    rarity = int(rarity)
+    party = rarity == _PARTY_RARITY
+    if origin == "scroll":
+        ending = NOTICE_SCROLL_PARTY if party else NOTICE_SCROLL_FIRST
+    else:
+        ending = NOTICE_PARTY if party else NOTICE_FIRST
+    shown = discord.utils.escape_markdown(str(name).strip()) or NOTICE_SOMEBODY
+    return text.format(name=shown, channel=int(boss_channel_id), emoji=RARITY_EMOJI[rarity],
+                       rarity=RARITY_NAMES[rarity], ending=ending)
 
 
 def scroll_refund_owed(info: Any) -> dict[str, Any] | None:
@@ -357,6 +376,8 @@ class BossCycle:
         self._wind_sent = False
         self._appears_at: datetime | None = None
         self._spawn_notice_message: Any = None
+        #: Who read the scroll of the boss announced by that notice (its notice is written anew with him).
+        self._spawn_notice_name = ""
         #: Messages that carry the "Zaatakuj" button right now.
         self._attack_buttons: list[Any] = []
         #: The picture messages of the boss standing on the channel unclaimed (a boss shown again by
@@ -365,6 +386,8 @@ class BossCycle:
         self._shown_picture: Any = None
         #: Where the button was taken off when the boss was engaged (restored when needed).
         self._engaged_buttons: list[Any] = []
+        #: The pictures of the boss that was engaged (its face again should it stay after an interrupted fight).
+        self._engaged_pictures: list[Any] = []
         self._lobby_door: Callable[[Any], Awaitable[None]] | None = None
         #: The encounter whose lobby is about to open: set by :meth:`attack` at the claim
         #: of the boss, None again as soon as its lobby opens the door (or it ends).
@@ -418,10 +441,10 @@ class BossCycle:
         """Take the "Zaatakuj" button off every message that carries it.  Never raises.
 
         Returns those messages.  A purged message is simply skipped.  The boss
-        those messages showed is engaged or gone: its pictures are forgotten too.
+        those messages showed is gone: its pictures are forgotten too.
         """
         messages, self._attack_buttons = self._attack_buttons, []
-        self._boss_pictures = []
+        self._boss_pictures, self._engaged_pictures = [], []
         for message in messages:
             await ui.retire(message)
         return messages
@@ -1065,6 +1088,7 @@ class BossCycle:
                 if member is None and summoner:
                     member = await self.bot.member(summoner)
                 name = (getattr(member, "display_name", None) or str(member)) if member is not None else ""
+            self._spawn_notice_name = name  # (a boss changed by the Kość Dovy gets its notice anew with him)
             await self._announce_spawn(summon_notice(self.bot.ids.boss_channel, rarity, origin, name))
             if self.bot.state.boss_phase < BossPhase.VISIBLE:
                 await self.remove_spawn_notice()
@@ -1343,6 +1367,20 @@ class BossCycle:
         """
         return self._encounters
 
+    def claimed_since(self, token: int) -> bool:
+        """True when the boss of ``token`` (:meth:`boss_token`) was claimed by an attack since; its encounter goes on.
+
+        Fought now, or back on the channel after an interrupted fight.  Not when
+        it left on its own (a summoned boss's stay, ``boss_visible_timeout``), was
+        reset or is gone: those move the counter as well, but only
+        :meth:`attack` notes its encounter (``_active_encounter``).
+        """
+        return self._active_encounter is not None and self._active_encounter == self._encounters == token + 1
+
+    def _still_shown(self, token: int) -> bool:
+        """The boss of ``token`` still stands on the channel unclaimed."""
+        return self.bot.state.boss_phase is BossPhase.VISIBLE and self._encounters == token
+
     def set_next_rarity(self, rarity: int) -> None:
         """The scheduled boss that is coming gets ``rarity`` as its drawn (base) rarity.  Synchronous.
 
@@ -1390,34 +1428,56 @@ class BossCycle:
         a message that cannot be deleted at least loses its button - so no old
         button is left that shows the old boss.  Nothing is posted when the boss
         was claimed or is gone (``token``: :meth:`boss_token` when the change was
-        written); should that happen while the new boss is being posted, its
-        button goes again (and its pictures, when the boss is gone).  True when
-        the new boss stands on the channel.
+        written).  True when the new boss stands on the channel.
+
+        Nobody can claim the boss meanwhile: the caller holds the busy flag as
+        :data:`BOSS_CHANGING`, and :meth:`attack` waits for that.  The boss can
+        still go - a summoned boss's stay ends, ``boss_visible_timeout``,
+        ``!ResetBoss`` / ``!stopSpawnBoss``.  So the old messages go one at a
+        time, each taken off the books only as it goes (whatever takes the boss
+        meanwhile finds the rest - a claim keeps them, a boss that leaves clears
+        the channel), with a look before each; and a new face posted while the
+        boss left goes again - only the messages this call posted.  (Should a
+        claim get in all the same, the boss keeps its new face, without a live
+        button while it is fought.)
         """
         bot = self.bot
         try:
-            if bot.state.boss_phase is not BossPhase.VISIBLE or self._encounters != token:
-                return False
-            old = self._boss_pictures + self._attack_buttons
-            self._boss_pictures, self._attack_buttons = [], []
-            for message in old:
+            # (The buttons first: no old "Zaatakuj" is left a moment longer than it must.)
+            while self._attack_buttons or self._boss_pictures:
+                if not self._still_shown(token):
+                    return False  # (claimed or gone while the old face went: nothing new is shown)
+                message = (self._attack_buttons or self._boss_pictures).pop(0)
                 if not await io.safe_delete(message):
                     await ui.retire(message)
-            if bot.state.boss_phase is not BossPhase.VISIBLE or self._encounters != token:
-                return False  # (claimed or gone while the old picture went: nothing new is shown)
+            if not self._still_shown(token):
+                return False
             info = bot.state.boss
+            noted = self._attack_buttons + self._boss_pictures
             await self._boss.post_boss(scene, info.rarity, player_boss=info.player_boss if info.is_player_boss
                                        else None, picture=picture, variant=variant)
-            if bot.state.boss_phase is BossPhase.VISIBLE and self._encounters == token:
+            if self._still_shown(token):
                 return True
-            log.info("Dova: the boss was claimed or left while it was shown again; its new button goes.")
-            if bot.state.boss_phase in (BossPhase.ENGAGED, BossPhase.FIGHTING):
-                await self.retire_attack_buttons()
-            else:
-                gone, self._boss_pictures, self._attack_buttons = (self._boss_pictures + self._attack_buttons,
-                                                                   [], [])
-                for message in gone:
-                    await io.safe_delete(message)
+            posted = [message for message in self._attack_buttons + self._boss_pictures if message not in noted]
+            if self.claimed_since(token):
+                log.info("Dova: the boss was claimed while it was shown again; it keeps its new face.")
+                if bot.state.boss_phase in (BossPhase.ENGAGED, BossPhase.FIGHTING):
+                    for message in posted:  # (noted after the claim took the others: no live button in a fight)
+                        if message in self._attack_buttons:
+                            self._attack_buttons.remove(message)
+                            self._engaged_buttons.append(message)
+                            await ui.retire(message)
+                        elif message in self._boss_pictures:
+                            self._boss_pictures.remove(message)
+                            self._engaged_pictures.append(message)
+                return bot.state.boss_phase is BossPhase.VISIBLE
+            log.info("Dova: the boss left while it was shown again; its new face goes.")
+            for message in posted:
+                for books in (self._attack_buttons, self._boss_pictures):
+                    if message in books:
+                        books.remove(message)
+                if not await io.safe_delete(message):
+                    await ui.retire(message)
             return False
         except asyncio.CancelledError:
             raise
@@ -1431,33 +1491,33 @@ class BossCycle:
     async def refresh_spawn_notice(self, old_rarity: int) -> None:
         """The boss on the channel changed its rarity: its notice on the general chat says the new one.  Never raises.
 
-        Edited in place (no new message, nobody pinged).  A scheduled boss's
-        notice is written anew (a legendary one asks for a party), a gem's or a
-        ritual's too; in a scroll's notice, which names its reader, only the
-        rarity is swapped.
+        Edited in place (no new message, nobody pinged), written anew from the
+        boss as it is now: the scheduled boss's words (:func:`spawn_notice`) or
+        the summoned boss's (:func:`summon_notice` - the scroll's naming its
+        reader again); a legendary boss asks for a party.  The edited message
+        is kept (discord.py returns a new object for it; the old one keeps the
+        old text).
         """
         message = self._spawn_notice_message
         info = self.bot.state.boss
         old, new = int(old_rarity), int(info.rarity)
-        if message is None or old == new or old not in RARITY_NAMES or new not in RARITY_NAMES:
+        if message is None or old == new or new not in RARITY_NAMES:
             return
         channel = self.bot.ids.boss_channel
         origin = getattr(info, "origin", "")
-        if origin == "scroll":
-            words = "{emoji} **{name} boss**"
-            text = str(getattr(message, "content", "") or "").replace(
-                words.format(emoji=RARITY_EMOJI[old], name=RARITY_NAMES[old]),
-                words.format(emoji=RARITY_EMOJI[new], name=RARITY_NAMES[new]))
-        elif origin in ("gem", "ritual"):
-            text = summon_notice(channel, new, origin)
+        if origin in ("scroll", "gem", "ritual"):
+            text = summon_notice(channel, new, origin, self._spawn_notice_name if origin == "scroll" else "")
         else:
             text = spawn_notice(channel, new)
         try:
-            await message.edit(content=text, allowed_mentions=discord.AllowedMentions.none())
+            edited = await message.edit(content=text, allowed_mentions=discord.AllowedMentions.none())
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - only a notice
             log.exception("Could not change the boss notice on the general chat to the new rarity.")
+            return
+        if edited is not None and self._spawn_notice_message is message:  # (not removed meanwhile)
+            self._spawn_notice_message = edited
 
     # -- fights -----------------------------------------------------------------
 
@@ -1475,7 +1535,11 @@ class BossCycle:
         up in a moment (:func:`somebody_was_first`), not that the boss is gone.
 
         Owner's rule: no attack while a hunt / tower run / event plays on the
-        channel - the boss stays and waits.
+        channel - the boss stays and waits.  Nor in the moment an item of Dova
+        changes the boss (:data:`BOSS_CHANGING`, :meth:`show_again`): it is
+        being shown anew, and the attacker would fight a boss whose face is
+        about to change - he gets the busy notice and attacks a moment later
+        (owner: when busy, notify).
         """
         bot = self.bot
         state = bot.state
@@ -1489,7 +1553,8 @@ class BossCycle:
                 else:
                     await ui.reply(interaction, somebody_was_first(state.boss.rarity))
             return
-        if state.boss_phase is BossPhase.VISIBLE and state.activity_running:
+        if state.boss_phase is BossPhase.VISIBLE and (state.activity_running
+                                                      or state.busy_owner == BOSS_CHANGING):
             # (Only with a boss to attack: without one the answer below is the true one.)
             if interaction is not None:
                 await ui.reply(interaction, ui.MSG_BUSY)
@@ -1515,7 +1580,8 @@ class BossCycle:
         self._lobby_opening = encounter
         self._claimer_id = getattr(scene.author, "id", None)
         self._engaged_buttons, self._attack_buttons = self._attack_buttons, []
-        self._boss_pictures = []  # (claimed: its pictures are never replaced by Dova's prizes any more)
+        # (Claimed: its face is no longer replaced by Dova's prizes - unless it stays after an interrupted fight.)
+        self._engaged_pictures, self._boss_pictures = self._boss_pictures, []
         claimed = asyncio.ensure_future(self._claimed(interaction, self._engaged_buttons))
         try:
             # Wake the cycle loop: it then watches the encounter with its time limit
@@ -1685,7 +1751,9 @@ class BossCycle:
         leave for the scheduled boss is about a boss nobody attacked, and it
         must not leave at the very moment the "still here" notice appears.  A
         scroll boss gets a fresh half hour - noted in ``runtime.json`` too, so
-        that a restart counts from here.
+        that a restart counts from here.  What showed the boss (its picture, the
+        embed whose button went) is its face again: a boss shown anew by Dova's
+        prizes replaces it (:meth:`show_again`), no copy with the old stats stays.
         """
         bot = self.bot
         stays = bot.settings.boss_returns_after_interrupted_fight
@@ -1693,6 +1761,8 @@ class BossCycle:
             if self._resume_phase is not None:
                 self._summoned_at = clock.utcnow()
                 self._amend_summoned(at=self._summoned_at)
+            face, self._engaged_pictures = self._engaged_pictures + self._engaged_buttons, []
+            self._boss_pictures += [message for message in face if message not in self._boss_pictures]
             await bot.state.set_boss_phase(BossPhase.VISIBLE)
             message = MSG_FIGHT_INTERRUPTED_STAYS
         else:
@@ -1730,7 +1800,10 @@ class BossCycle:
             elif posted is not None:
                 self.note_attack_button(posted)
             else:
-                await self._restore_attack_buttons(engaged)
+                # (Its own embed - unless a boss shown anew by Dova's prizes has replaced it meanwhile.)
+                back = [message for message in engaged if message in self._boss_pictures]
+                self._boss_pictures = [message for message in self._boss_pictures if message not in back]
+                await self._restore_attack_buttons(back)
         else:
             await io.send_patient(scene.channel, message)
         await self.bot.log_to_owner(f"Walka z bossem przerwana z powodu błędu: `{reason}`", ping=True)
@@ -1742,7 +1815,7 @@ class BossCycle:
         the boss phase always moves on, so the next boss always comes.
         """
         bot = self.bot
-        self._engaged_buttons = []
+        self._engaged_buttons, self._engaged_pictures = [], []
         self._encounters += 1  # the boss is gone: a late "still here" notice is out of date
         try:
             await self.retire_attack_buttons()  # e.g. a boss that left unattacked

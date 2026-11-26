@@ -119,7 +119,8 @@ class BossCog(commands.Cog, name="Boss"):
         from ..features import boss, bossvariants
         forced = variant.strip().casefold() in SPECIAL_WORDS
         shown = await boss.send_boss_image(Scene.from_ctx(ctx), max(0, min(4, rarity)),
-                                           special=True if forced else None, monster_only=forced)
+                                           special=True if forced else None, monster_only=forced,
+                                           register=False)  # (not the boss: never replaced nor retired as it)
         if bossvariants.variant_of(shown):
             await io.send(ctx.channel, MSG_PREVIEW_ONLY)
         elif forced:

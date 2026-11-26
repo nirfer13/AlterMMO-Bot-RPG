@@ -15,11 +15,11 @@ import discord
 import pytest
 import pytest_asyncio
 
-from altermmo.core import challenge, guards, ui
+from altermmo.core import challenge, guards, io, ui
 from altermmo.core.db import DatabaseUnavailable
 from altermmo.core.state import BossInfo, BossPhase
 from altermmo.features import boss, boss_cycle, daily, database, dova, items, modifiers
-from altermmo.features.fight_types import FightResult
+from altermmo.features.fight_types import FightInterrupted, FightResult
 
 from fakes import FakeChannel
 from test_daily import make_ctx, run_checks
@@ -303,9 +303,44 @@ async def test_a_summoned_boss_keeps_its_origin_and_its_stay(game_db, drawn, mon
     assert cycle.summoned_leaves_at() == leaves_at and cycle._resume_phase is BossPhase.WAITING
     assert await database.read_boss_table(bot) == row and cycle.base_rarity == 1   # the boss still to come: untouched
     assert last(game_db).embeds[0].title == "💀 🟩 Zwykły boss! 🟩 💀"
-    # The scroll's notice names its reader: only the rarity in it changes.
-    assert game_db.announce_channel.messages[-1].content == boss_cycle.NOTICE_SCROLL.format(
-        name="Ala", channel=bot.ids.boss_channel).replace("🟥 **mityczny boss**", "🟩 **zwykły boss**")
+    # The scroll's notice still names its reader and says the new rarity.
+    assert game_db.announce_channel.messages[-1].content == boss_cycle.summon_notice(
+        bot.ids.boss_channel, 0, "scroll", "Ala")
+    assert "🟩 **zwykły boss**" in game_db.announce_channel.messages[-1].content
+
+
+async def test_the_scroll_boss_notice_follows_every_die(game_db, drawn, monsters):
+    """discord.py 2.7: ``Message.edit`` returns a NEW message and leaves the old object as it was - so the notice
+    is written anew from the boss each time (never from the old object's text); a legendary boss asks for a party."""
+    bot = game_db.bot
+    cycle = bot.boss_cycle
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    await give(game_db, ola, "dova_die", 3)
+    await coming(game_db, 1)
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    notice = game_db.announce_channel.messages[-1]
+    shown = []                                                                  # the notice, edit after edit
+
+    def discord_like(message):
+        async def edit(**kwargs):
+            shown.append(kwargs["content"])
+            fresh = SimpleNamespace(content=kwargs["content"], channel=message.channel, id=message.id,
+                                    delete=message.delete)
+            fresh.edit = discord_like(fresh)
+            return fresh
+        return edit
+
+    notice.edit = discord_like(notice)
+    channel = bot.ids.boss_channel
+    for rarity in (1, 2, 3):
+        drawn.rarity = rarity
+        assert await dova.throw_die(game_db.scene(ola)) is True
+        assert shown[-1] == boss_cycle.summon_notice(channel, rarity, "scroll", "Ala"), rarity
+    assert len(shown) == 3 and notice.content == boss_cycle.summon_notice(channel, 4, "scroll", "Ala")
+    assert shown[-1].endswith("🟧 **legendarny boss**. Sam nikt mu nie podoła - zbierzcie drużynę, bo bestia nie "
+                              "będzie czekać wiecznie!")
+    await cycle.remove_spawn_notice()                                           # (the kept message is the notice)
+    assert notice.deleted
 
 
 async def test_a_player_posing_as_the_boss_stays_the_boss(game_db, drawn, monsters):
@@ -415,21 +450,63 @@ async def test_a_boss_without_perks_gets_one_and_a_drawn_rest_resets_the_hunts(g
         resets.append(bot_)
 
     monkeypatch.setattr(daily, "clear_daily_file", clear_daily_file)
-    rig(monkeypatch, "reset_cd")
+    rig(monkeypatch, "ban_loser")
     assert await dova.shuffle_card(game_db.scene(ala)) is True                 # IDLE: the card works already
-    assert resets == [bot] and modifiers.current_modifiers(bot) == modifiers.INIT_MODIFIERS
+    assert modifiers.current_modifiers(bot) == {**modifiers.INIT_MODIFIERS, "ban_loser": 1}
     assert last(game_db).embeds[0].description == (
         f"<@{ala.id}> tasuje **Kartę Dovy**... Następny boss nie miał żadnych perków - Karta Dovy dorzuca mu jeden:"
-        "\n🔺 Wszyscy bohaterowie są wypoczęci i mogą wyruszyć na polowanie!")
+        "\n🔻 Przegrany zostanie zbanowany")
+    await modifiers.init_modifiers(bot)
+    rig(monkeypatch, "reset_cd")
+    assert await dova.shuffle_card(game_db.scene(ala)) is True
+    assert resets == [bot] and modifiers.current_modifiers(bot) == modifiers.INIT_MODIFIERS
+    # A rest is no perk of the boss: the card says what it brought instead.
+    assert last(game_db).embeds[0].description == (
+        f"<@{ala.id}> tasuje **Kartę Dovy**... Następny boss nadal nie ma żadnych perków - zamiast nich karta "
+        "przynosi wszystkim chwilę wytchnienia:\n🔺 Wszyscy bohaterowie są wypoczęci i mogą wyruszyć na polowanie!")
 
     async def broken(bot_):
         raise OSError("disk full")
 
     monkeypatch.setattr(daily, "clear_daily_file", broken)
     rig(monkeypatch, "reset_cd")
+    await give(game_db, ala, "dova_card")
     assert await dova.shuffle_card(game_db.scene(ala)) is True
-    assert "wypoczęci" not in last(game_db).embeds[0].description               # (it did not happen: not told)
+    assert last(game_db).embeds[0].description == (                             # (no rest: not told; no ":" left hanging)
+        f"<@{ala.id}> tasuje **Kartę Dovy**... Następny boss wciąż nie ma żadnych perków - karta zapłonęła i zgasła "
+        "jak mokra hubka.")
     assert bot.owner_log == [dova.LOG_HUNTS_NOT_RESET.format(error="OSError")]
+
+
+async def test_a_card_that_took_the_perks_and_drew_only_a_rest_says_so(game_db, monsters, monkeypatch):
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    await give(game_db, ala, "dova_card", 3)
+    monkeypatch.setattr(daily, "clear_daily_file", lambda bot_: asyncio.sleep(0))
+    await modifiers.modify_modifiers(bot, "hp_boost_perc", 10)
+    rig(monkeypatch, "reset_cd")
+    assert await dova.shuffle_card(game_db.scene(ala)) is True
+    assert modifiers.current_modifiers(bot) == modifiers.INIT_MODIFIERS
+    assert last(game_db).embeds[0].description == (
+        f"<@{ala.id}> tasuje **Kartę Dovy**... Stare błogosławieństwa i klątwy następnego bossa rozwiewają się, a "
+        "zamiast nowych karta przynosi wszystkim chwilę wytchnienia:\n🔺 Wszyscy bohaterowie są wypoczęci i mogą "
+        "wyruszyć na polowanie!")
+
+    # On the boss on the channel: it loses its perk and is shown anew without it...
+    await modifiers.modify_modifiers(bot, "hp_boost_perc", 10)
+    old_picture, old_embed = await on_the_channel(game_db, 1)
+    rig(monkeypatch, "reset_cd")
+    assert await dova.shuffle_card(game_db.scene(ala)) is True
+    line, _picture, embed = game_db.channel.messages[-3:]
+    assert "klątwy bossa na kanale rozwiewają się, a zamiast nowych" in line.embeds[0].description
+    assert old_embed.deleted and "Dodatkowe statystyki" not in embed.embeds[0].description
+    # ...but a boss without perks that gets only a rest keeps its face (nothing on it changed).
+    _picture, kept = game_db.channel.messages[-2:]
+    rig(monkeypatch, "reset_cd")
+    assert await dova.shuffle_card(game_db.scene(ala)) is True
+    assert not kept.deleted and kept.button("Zaatakuj") is not None and bot.boss_cycle._attack_buttons == [kept]
+    assert last(game_db).embeds[0].description.startswith(
+        f"<@{ala.id}> tasuje **Kartę Dovy**... Boss na kanale nadal nie ma żadnych perków - zamiast nich")
 
 
 async def test_the_card_on_the_boss_on_the_channel_leaves_out_what_it_cannot_use(game_db, monsters, monkeypatch):
@@ -454,9 +531,105 @@ async def test_the_card_on_the_boss_on_the_channel_leaves_out_what_it_cannot_use
     assert bot.state.boss == BossInfo(rarity=1) and embed.button("Zaatakuj") is not None
 
 
+async def test_the_card_on_the_boss_on_the_channel_keeps_its_rarity_over_a_restart(game_db, monsters, monkeypatch):
+    """The shrine's boost goes from the file, not from the boss it raised: a restart draws the scheduled boss again
+    from its BOSS row and the file - so the row takes the rarity shown in, and the same boss comes back."""
+    bot = game_db.bot
+    cycle = bot.boss_cycle
+    ala = game_db.add_member("Ala")
+    await give(game_db, ala, "dova_card")
+    await modifiers.modify_modifiers(bot, "rarity_boost", 1)
+    arrives_at = await coming(game_db, 2, hours=0)                              # drawn epic...
+    await boss.send_boss_image(game_db.scene(), 3)                              # ...shown legendary
+    bot.state.boss = BossInfo(rarity=3)
+    await bot.state.set_boss_phase(BossPhase.VISIBLE)
+    rig(monkeypatch, "hp_reduced_perc")
+    assert await dova.shuffle_card(game_db.scene(ala)) is True
+    assert modifiers.current_modifiers(bot)["rarity_boost"] == 0 and bot.state.boss.rarity == 3
+    row = await database.read_boss_table(bot)
+    assert cycle.base_rarity == row.rarity == 3 and row.respawn_at == arrives_at
+    assert boss_cycle.final_rarity(row.rarity, 0, boss_cycle.clock.now(), debug=bot.debug) == 3   # not epic
+    assert bot.owner_log == []
+
+    # Without a boost to keep nothing is written; a summoned boss's row is the paused schedule's - never touched.
+    await give(game_db, ala, "dova_card", 2)
+    rig(monkeypatch, "hp_boost_perc")
+    assert await dova.shuffle_card(game_db.scene(ala)) is True
+    assert (await database.read_boss_table(bot)).rarity == 3
+    await coming(game_db, 1)                                                    # (the next boss is on its way)
+    await modifiers.modify_modifiers(bot, "rarity_boost", 1)
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    rig(monkeypatch, "hp_reduced_perc", "hp_boost_perc")
+    assert await dova.shuffle_card(game_db.scene(ala)) is True
+    assert (await database.read_boss_table(bot)).rarity == 1 and cycle.base_rarity == 1
+    assert bot.store.runtime_get("summoned_boss_rarity") == 4 and bot.state.boss.rarity == 4
+
+
 # -- once only: the take, the race, the refund ---------------------------------------------------------------
 
-async def test_somebody_attacking_during_the_take_gives_the_die_back(game_db, drawn, monsters, monkeypatch):
+def claim(bot) -> None:
+    """The boss is claimed as ``BossCycle.attack`` claims it (the phase and the encounter it notes)."""
+    cycle = bot.boss_cycle
+    assert bot.state.try_engage_boss()
+    cycle._encounters += 1
+    cycle._active_encounter = cycle._encounters
+
+
+def leave(bot) -> None:
+    """A summoned boss starts leaving as ``BossCycle._phase_visible`` sends it away (its first, synchronous steps)."""
+    assert bot.state.try_engage_boss()
+    bot.boss_cycle._encounters += 1
+
+
+async def test_an_attack_while_the_boss_is_changed_waits_for_it(game_db, drawn, monsters, monkeypatch):
+    """Owner: busy = the notice.  Nobody claims the boss while an item of Dova changes it - neither a typed
+    !zaatakuj during the take nor a click on the old button while it is being deleted; the boss waits, and the
+    new button then attacks the new boss."""
+    bot = game_db.bot
+    cycle = bot.boss_cycle
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    await give(game_db, ala, "dova_die")
+    _picture, old_embed = await on_the_channel(game_db, 1)
+    token = cycle.boss_token()
+    assert ui.register(bot, boss_cycle.AttackView())
+    real_take, real_delete = items.take, io.safe_delete
+    seen = {}
+
+    async def take_and_attack(*args, **kwargs):
+        left = await real_take(*args, **kwargs)
+        await cycle.attack(game_db.scene(ola))                                  # Ola types !zaatakuj meanwhile
+        seen["typed"] = (bot.state.boss_phase, last(game_db).content)
+        return left
+
+    async def delete_and_click(message):
+        if "clicked" not in seen:                                               # the old button, as it goes
+            await game_db.click(old_embed, ola, "Zaatakuj")
+            seen["clicked"] = (bot.state.boss_phase, cycle.boss_token())
+        return await real_delete(message)
+
+    monkeypatch.setattr(items, "take", take_and_attack)
+    monkeypatch.setattr(io, "safe_delete", delete_and_click)
+    assert await dova.throw_die(game_db.scene(ala)) is True
+    assert seen["typed"] == (BossPhase.VISIBLE, guards.BUSY_NOTICE)
+    assert seen["clicked"] == (BossPhase.VISIBLE, token)
+    assert bot.state.boss_phase is BossPhase.VISIBLE and bot.state.boss.rarity == 2 and old_embed.deleted
+    calls = []
+
+    async def single_init(scene, rarity):
+        calls.append((scene.author.id, rarity))
+        return None
+
+    async def reset_end(bot_):
+        return None
+
+    monkeypatch.setattr(boss, "single_init", single_init)
+    monkeypatch.setattr(boss, "reset_end", reset_end)
+    await game_db.click(last(game_db), ola, "Zaatakuj")
+    assert calls == [(ola.id, 2)]
+
+
+async def test_somebody_claiming_during_the_take_gives_the_die_back(game_db, drawn, monsters, monkeypatch):
+    """(An attack waits for the use - see above; should a claim get in all the same, the die goes back.)"""
     bot = game_db.bot
     ala = game_db.add_member("Ala")
     await give(game_db, ala, "dova_die")
@@ -465,7 +638,7 @@ async def test_somebody_attacking_during_the_take_gives_the_die_back(game_db, dr
 
     async def take_and_claim(*args, **kwargs):
         left = await real_take(*args, **kwargs)
-        assert bot.state.try_engage_boss()                                      # Ola's !zaatakuj won meanwhile
+        claim(bot)
         return left
 
     monkeypatch.setattr(items, "take", take_and_claim)
@@ -473,6 +646,27 @@ async def test_somebody_attacking_during_the_take_gives_the_die_back(game_db, dr
     assert last(game_db).content == "Ktoś był szybszy i już stanął do walki - Kość Dovy wraca do Twojej sakwy."
     assert await stored(bot.db, ala.id, "dova_die") == 1 and drawn.delays == []
     assert bot.state.boss.rarity == 1 and not old_embed.deleted and not bot.state.busy
+
+
+async def test_a_summoned_boss_leaving_during_the_take_is_no_claim(game_db, drawn, monsters, monkeypatch):
+    """It passes through ENGAGED as it goes - but nobody "was faster": the die goes back with the plain word."""
+    bot = game_db.bot
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    await give(game_db, ola, "dova_die")
+    await coming(game_db, 1)
+    assert await bot.boss_cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    real_take = items.take
+
+    async def take_and_leave(*args, **kwargs):
+        left = await real_take(*args, **kwargs)
+        leave(bot)                                                              # its half hour is over
+        return left
+
+    monkeypatch.setattr(items, "take", take_and_leave)
+    assert await dova.throw_die(game_db.scene(ola)) is False
+    assert last(game_db).content == (f"Na kanale bossa coś się właśnie zmieniło, <@{ola.id}> - Kość Dovy wraca do "
+                                     "Twojej sakwy.")
+    assert await stored(bot.db, ola.id, "dova_die") == 1 and drawn.delays == []
 
 
 async def test_a_card_taken_while_the_boss_starts_arriving_goes_back(game_db, monkeypatch):
@@ -561,7 +755,10 @@ async def test_two_dice_at_once_never_both_work(game_db, drawn, monkeypatch):
 
 
 async def test_a_boss_claimed_while_it_is_shown_again_keeps_no_live_button(game_db, drawn, monsters, monkeypatch):
+    """(An attack waits for the change; should a claim get in all the same, the boss is fought with its new face,
+    which carries no live button meanwhile - and is its face again should the fight break.)"""
     bot = game_db.bot
+    cycle = bot.boss_cycle
     ala = game_db.add_member("Ala")
     await give(game_db, ala, "dova_die")
     await on_the_channel(game_db, 1)
@@ -569,13 +766,106 @@ async def test_a_boss_claimed_while_it_is_shown_again_keeps_no_live_button(game_
 
     async def post_and_claim(*args, **kwargs):
         shown = await real_post(*args, **kwargs)
-        assert bot.state.try_engage_boss()                                      # an attack while the picture went up
+        claim(bot)                                                              # an attack while the picture went up
         return shown
 
     monkeypatch.setattr(boss, "post_boss", post_and_claim)
     assert await dova.throw_die(game_db.scene(ala)) is True                    # (the new rarity is in force)
-    assert last(game_db).view is None and bot.boss_cycle._attack_buttons == []
+    picture, embed = game_db.channel.messages[-2:]
+    assert embed.view is None and not embed.deleted and not picture.deleted and cycle._attack_buttons == []
+    assert cycle._engaged_buttons == [embed] and cycle._engaged_pictures == [picture]
     assert bot.state.boss.rarity == 2
+
+
+async def test_a_summoned_boss_that_leaves_while_it_is_shown_again_takes_its_new_face_along(
+        game_db, drawn, monsters, monkeypatch):
+    """Its stay ends while the new face goes up: nothing of it stays under its farewell, no button lives on."""
+    bot = game_db.bot
+    cycle = bot.boss_cycle
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    await give(game_db, ola, "dova_die")
+    await coming(game_db, 1)
+    assert await cycle.summon(game_db.scene(ala), 4, origin="scroll")
+    real_post = boss.post_boss
+    posted = []
+
+    async def leave_and_post(*args, **kwargs):
+        leave(bot)                                                              # (its farewell clears the channel)
+        shown = await real_post(*args, **kwargs)
+        posted.extend(game_db.channel.messages[-2:])
+        return shown
+
+    monkeypatch.setattr(boss, "post_boss", leave_and_post)
+    assert await dova.throw_die(game_db.scene(ola)) is True
+    assert len(posted) == 2 and all(message.deleted for message in posted)
+    assert cycle._attack_buttons == [] and cycle._boss_pictures == []
+    assert last(game_db).content.startswith("🎲 ")                             # (the die's own line is the last word)
+
+
+async def test_the_face_of_a_boss_back_after_an_interrupted_fight_is_replaced_too(game_db, drawn, monsters,
+                                                                                 monkeypatch):
+    """Claimed, the fight broke, the boss stays: a die then replaces its old picture and embed (old stats) too."""
+    bot = game_db.bot
+    cycle = bot.boss_cycle
+    ala, ola = game_db.add_member("Ala"), game_db.add_member("Ola")
+    await give(game_db, ala, "dova_die")
+    old_picture, old_embed = await on_the_channel(game_db, 1)
+
+    async def broken(scene, rarity):
+        raise FightInterrupted("lag")
+
+    monkeypatch.setattr(boss, "single_init", broken)
+    await cycle.attack(game_db.scene(ola))
+    await asyncio.sleep(0.05)                                                   # (the "still here" notice)
+    assert bot.state.boss_phase is BossPhase.VISIBLE
+    notice = next(message for message in reversed(game_db.channel.messages) if "przerwana" in message.content)
+    assert notice.button("Zaatakuj") is not None and old_embed.view is None
+    assert await dova.throw_die(game_db.scene(ala)) is True
+    assert old_picture.deleted and old_embed.deleted and notice.deleted
+    picture, embed = game_db.channel.messages[-2:]
+    assert cycle._boss_pictures == [picture] and cycle._attack_buttons == [embed]
+
+
+async def test_the_boss_on_the_channel_is_shown_anew_before_its_row_is_written(game_db, drawn, monsters,
+                                                                             monkeypatch):
+    """The BOSS row matters only after a restart: the line and the new face come first."""
+    bot = game_db.bot
+    ala = game_db.add_member("Ala")
+    await give(game_db, ala, "dova_die")
+    _picture, old_embed = await on_the_channel(game_db, 1)
+    real_write = database.set_boss_rarity
+    seen = []
+
+    async def set_boss_rarity(bot_, rarity):
+        seen.append((old_embed.deleted, last(game_db).embeds[0].title if last(game_db).embeds else None))
+        return await real_write(bot_, rarity)
+
+    monkeypatch.setattr(database, "set_boss_rarity", set_boss_rarity)
+    drawn.rarity = 0
+    assert await dova.throw_die(game_db.scene(ala)) is True
+    assert seen == [(True, "💀 🟩 Zwykły boss! 🟩 💀")] and (await database.read_boss_table(bot)).rarity == 0
+
+
+async def test_the_owners_preview_is_not_the_boss(game_db, monsters, monkeypatch):
+    """``!image`` (any channel, here the boss channel itself): neither deleted by a boss shown anew nor its picture."""
+    from altermmo.cogs import boss as boss_cog
+
+    bot = game_db.bot
+    cycle = bot.boss_cycle
+    ala, admin = game_db.add_member("Ala"), game_db.add_member("Admin")
+    await give(game_db, ala, "dova_card")
+    old_picture, old_embed = await on_the_channel(game_db, 2)
+    monkeypatch.setattr(boss.random, "randint", lambda low, high: high)        # (the preview: another monster)
+    cog = boss_cog.BossCog(bot)
+    await cog.boss_image.callback(cog, make_ctx(game_db, admin, "!image"), 2)
+    preview_picture, preview_embed = game_db.channel.messages[-2:]
+    assert preview_picture.files == ["107.gif"] and preview_embed.button("Zaatakuj") is not None
+    assert cycle._attack_buttons == [old_embed] and cycle._boss_pictures == [old_picture]
+    assert cycle.shown_picture.name == "100.gif"
+    rig(monkeypatch, "hp_reduced_perc")
+    assert await dova.shuffle_card(game_db.scene(ala)) is True
+    assert not preview_picture.deleted and not preview_embed.deleted and old_picture.deleted
+    assert game_db.channel.messages[-2].files == ["100.gif"]                   # the boss standing there, as it was
 
 
 def test_nothing_is_awaited_between_the_window_check_and_the_write():

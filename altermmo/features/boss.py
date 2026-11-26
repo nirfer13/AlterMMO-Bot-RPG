@@ -851,7 +851,7 @@ def _special_variant(picture: Any, special: bool | None) -> "bossvariants.Varian
 
 
 async def send_boss_image(scene: "Scene", rarity: int, *, special: bool | None = None,
-                          monster_only: bool = False) -> BossShown:
+                          monster_only: bool = False, register: bool = True) -> BossShown:
     """Show the boss: its picture (or the avatar of the player posing as it) and the embed.
 
     The embed carries the permanent "Zaatakuj" button; the boss cycle takes it
@@ -877,6 +877,9 @@ async def send_boss_image(scene: "Scene", rarity: int, *, special: bool | None =
     boss - no supporter is drawn and the player the shrine chose is not asked
     for - so the preview always shows a monster.  The game itself never passes
     it: a real boss makes the draws it always made, in the same order.
+
+    ``register=False`` is for the admin preview too: its messages are not the
+    boss's (:func:`post_boss`).
     """
     bot = scene.bot
     rarity = int(rarity)
@@ -899,7 +902,8 @@ async def send_boss_image(scene: "Scene", rarity: int, *, special: bool | None =
     variant = None if is_player_boss else _special_variant(picture, special)
     if variant is not None:
         picture = bossvariants.special_picture(int(picture.stem))
-    return await post_boss(scene, rarity, player_boss=player_boss, picture=picture, variant=variant)
+    return await post_boss(scene, rarity, player_boss=player_boss, picture=picture, variant=variant,
+                           register=register)
 
 
 def _pictures_of(rarity: int) -> list[int]:
@@ -944,7 +948,7 @@ def picture_like(rarity: int, *, variant: str = "", same: Any = None) -> tuple[A
 
 
 async def post_boss(scene: "Scene", rarity: int, *, player_boss: Any = None, picture: Any = None,
-                    variant: "bossvariants.Variant | None" = None) -> BossShown:
+                    variant: "bossvariants.Variant | None" = None, register: bool = True) -> BossShown:
     """Post a boss whose look is decided: the picture (or the avatar of ``player_boss``) and the embed.
 
     The embed carries the permanent "Zaatakuj" button and the modifiers of the
@@ -952,7 +956,10 @@ async def post_boss(scene: "Scene", rarity: int, *, player_boss: Any = None, pic
     draws the look and calls this; Dova's prizes call it to show the boss
     on the channel again with its new rarity / its new modifiers.  The boss
     cycle is told which messages show the boss (the button is taken off when
-    the boss is engaged; a boss shown again replaces them).
+    the boss is engaged; a boss shown again replaces them) - but not with
+    ``register=False``: the owner's ``!image`` preview (any channel) is not the
+    boss, and a boss shown again must neither delete it nor take its picture.
+    Its stateless button answers like ``!zaatakuj`` (on the boss channel only).
     """
     bot = scene.bot
     rarity = int(rarity)
@@ -996,7 +1003,7 @@ async def post_boss(scene: "Scene", rarity: int, *, player_boss: Any = None, pic
     else:
         log.warning("Boss picture %s is missing; showing the boss without it.", picture)
     message = await boss_cycle.with_attack_button(lambda view: scene.send(embed=embed, view=view))
-    cycle = getattr(bot, "boss_cycle", None)
+    cycle = getattr(bot, "boss_cycle", None) if register else None
     if cycle is not None:
         cycle.note_attack_button(message)
         note_picture = getattr(cycle, "note_boss_picture", None)
